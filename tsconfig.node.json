@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "outDir": "node_modules/.tmp/node",
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "include": ["electron.vite.config.ts", "shell/**/*", "agent/**/*"]
+}
