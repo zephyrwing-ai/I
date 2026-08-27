@@ -1,7 +1,7 @@
 # Agent Studio 工程架构与实现契约
 
 > 版本：v0.2 · 日期：2026-08-27
-> 本文从原 `docs/DESIGN.md` 中拆出工程内容；产品和视觉决策分别见 `docs/product-behavior/`、`docs/UX-DESIGN.md`、`docs/UI-DESIGN.md`。
+> 本文从原 `docs/DESIGN.md` 中拆出工程内容；产品结构、交互逻辑和视觉 token 分别见 `docs/product-structure/`、`docs/interaction/`、`design/`。
 
 ## 1. 分层职责
 
@@ -95,8 +95,8 @@ type AgentEvent =
 2. 升级 `runId/stepId/actionId` 和错误/取消契约。
 3. 接入 provider streaming 与 AbortSignal。
 4. 重构 reducer/selectors，补齐最终回答、失败命令和当前 run 搜索。
-5. 按 `UX-DESIGN.md` 重排 renderer 组件树。
-6. 按 `UI-DESIGN.md` 收敛 tokens、图标、视觉状态和响应式。
+5. 按 `docs/interaction/` 重排 renderer 组件树。
+6. 按 `design/` 收敛 tokens、图标、视觉状态和响应式。
 7. 对 IPC、reducer、provider、关键键盘流程和浏览器原型分别验证。
 
 ## 7. 安全与质量约束
