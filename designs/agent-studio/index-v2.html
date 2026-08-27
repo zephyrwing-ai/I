@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#1c1c1e" />
+  <title>Agent Studio — 工作台交互原型 v2</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #17181b;
+      --surface: #202125;
+      --surface-raised: #28292e;
+      --surface-muted: #1d1e22;
+      --border: rgba(255, 255, 255, .11);
+      --border-strong: rgba(255, 255, 255, .18);
+      --text: #f4f4f5;
+      --text-secondary: rgba(244, 244, 245, .72);
+      --text-tertiary: rgba(244, 244, 245, .46);
+      --accent: #78a9ff;
+      --accent-soft: rgba(120, 169, 255, .14);
+      --success: #54d38a;
+      --warning: #f6bd62;
+      --danger: #ff7b7b;
+      --on-accent: #14161b;
+      --on-danger: #271718;
+      --toggle-thumb: #15171b;
+      --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif;
+      --shadow: 0 18px 60px rgba(0, 0, 0, .32);
+      --ease-out: cubic-bezier(.22, 1, .36, 1);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--ui);
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .skip-link {
+      position: fixed;
+      z-index: 50;
+      top: 8px;
+      left: 8px;
+      transform: translateY(-160%);
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: var(--on-accent);
+      font-size: 12px;
+      font-weight: 650;
+      text-decoration: none;
+      transition: transform 160ms ease;
+    }
+    .skip-link:focus-visible { transform: translateY(0); }
+
+    .app {
+      display: grid;
+      grid-template-rows: 56px minmax(0, 1fr) auto;
+      height: 100vh;
+      background: var(--bg);
+    }
+    .header {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) minmax(180px, 2fr) minmax(180px, 1fr);
+      align-items: center;
+      gap: 16px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(23, 24, 27, .88);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border: 1px solid rgba(120, 169, 255, .45);
+      border-radius: 7px;
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .brand-mark svg { width: 14px; height: 14px; }
+    .brand-name { font-size: 14px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
+    .task-title {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text-secondary);
+      font-size: 13px;
+      text-align: center;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .header-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+    .header-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin-right: 8px;
+      color: var(--text-tertiary);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-tertiary); }
+    .status-dot.running { background: var(--warning); animation: pulse 1.4s ease-in-out infinite; }
+    .status-dot.completed { background: var(--success); }
+    .status-dot.error { background: var(--danger); }
+    .status-dot.cancelled { background: var(--text-secondary); }
+    .icon-button {
+      display: inline-grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+    }
+    .icon-button:hover, .icon-button.active { border-color: var(--border); background: var(--surface-raised); color: var(--text); }
+    .icon-button svg { width: 18px; height: 18px; }
+
+    .stream {
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scroll-behavior: smooth;
+      padding: 42px 24px 36px;
+    }
+    .stream-inner { width: min(100%, 780px); margin: 0 auto; }
+    .empty-state {
+      display: grid;
+      place-items: center;
+      min-height: min(56vh, 520px);
+      color: var(--text-secondary);
+      text-align: center;
+    }
+    .empty-state-content { max-width: 420px; }
+    .empty-kicker {
+      margin-bottom: 12px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .empty-state h1 { margin: 0 0 10px; color: var(--text); font-size: 24px; letter-spacing: -.03em; text-wrap: balance; }
+    .empty-state p { margin: 0; line-height: 1.7; }
+    .message-list { display: flex; flex-direction: column; gap: 28px; }
+    .message { display: flex; gap: 12px; align-items: flex-start; }
+    .message.user { justify-content: flex-end; }
+    .message.agent-message { justify-content: center; }
+    .message-avatar {
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      background: var(--surface-raised);
+      color: var(--accent);
+    }
+    .message-avatar svg { width: 15px; height: 15px; }
+    .agent-message .message-avatar { display: none; }
+    .message-body { min-width: 0; max-width: min(100%, 680px); }
+    .message-label {
+      margin: 0 0 7px;
+      color: var(--text-tertiary);
+      font-size: 11px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .user .message-body { max-width: min(100%, 560px); text-align: right; }
+    .agent-message .message-body { width: min(100%, 680px); text-align: center; }
+    .agent-message .message-label { display: none; }
+    .user-copy {
+      display: inline-block;
+      padding: 11px 14px;
+      border: 1px solid var(--border);
+      border-radius: 14px 14px 4px 14px;
+      background: var(--surface-raised);
+      color: var(--text);
+      line-height: 1.6;
+      text-align: left;
+      white-space: pre-wrap;
+    }
+    .progress-copy { color: var(--text); line-height: 1.7; }
+    .progress-copy strong { font-weight: 620; }
+    .working-state { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 10px; color: var(--text-secondary); font-family: var(--mono); font-size: 11px; letter-spacing: .04em; }
+    .run-details summary .working-state { margin-bottom: 0; }
+    .working-state.active { color: var(--warning); }
+    .working-state svg { width: 14px; height: 14px; }
+    .working-state.active svg { animation: spin 1.2s linear infinite; }
+    .run-details {
+      margin-top: 13px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface-muted);
+      overflow: hidden;
+    }
+    .run-details summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 44px;
+      padding: 0 14px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+    .run-details summary::-webkit-details-marker { display: none; }
+    .run-details summary svg { width: 15px; height: 15px; transition: transform 160ms ease; }
+    .run-details[open] summary svg { transform: rotate(90deg); }
+    .run-summary-title { flex: 1; font-size: 12px; }
+    .run-summary-meta { color: var(--text-tertiary); font-family: var(--mono); font-size: 11px; }
+    .action-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+    .action-row { padding: 13px 14px 14px; border-bottom: 1px solid var(--border); }
+    .action-row:last-child { border-bottom: 0; }
+    .action-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .action-command { flex: 1; min-width: 0; overflow: hidden; color: var(--text); font-family: var(--mono); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .prompt { color: var(--accent); user-select: none; }
+    .action-state { display: inline-flex; align-items: center; gap: 6px; color: var(--success); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+    .action-state.running { color: var(--warning); }
+    .action-state.failed { color: var(--danger); }
+    .action-state svg { width: 13px; height: 13px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .action-output { margin: 10px 0 0 17px; color: var(--text-secondary); font-family: var(--mono); font-size: 11px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+    .final-answer {
+      margin-top: 28px;
+      padding: 18px 20px;
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+      background: linear-gradient(145deg, rgba(120, 169, 255, .08), rgba(32, 33, 37, .72) 46%);
+    }
+    .final-answer-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--success); font-size: 12px; font-weight: 620; }
+    .final-answer-header svg { width: 16px; height: 16px; }
+    .final-answer p { margin: 0; color: var(--text); line-height: 1.75; }
+    .final-answer .answer-meta { margin-top: 12px; color: var(--text-tertiary); font-family: var(--mono); font-size: 11px; }
+    .error-card {
+      display: flex;
+      gap: 12px;
+      padding: 16px 18px;
+      border: 1px solid rgba(255, 123, 123, .4);
+      border-radius: 12px;
+      background: rgba(255, 123, 123, .08);
+    }
+    .error-card > svg { flex: 0 0 auto; width: 18px; height: 18px; color: var(--danger); }
+    .error-title { margin-bottom: 5px; color: var(--danger); font-weight: 620; }
+    .error-detail { color: var(--text-secondary); line-height: 1.6; }
+    .error-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .text-button {
+      min-height: 32px;
+      padding: 0 11px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--accent);
+      cursor: pointer;
+    }
+    .text-button:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+    .composer-wrap {
+      padding: 12px 24px 20px;
+      border-top: 1px solid var(--border);
+      background: linear-gradient(to bottom, rgba(23, 24, 27, .72), var(--bg) 42%);
+    }
+    .composer { width: min(100%, 780px); margin: 0 auto; }
+    .composer-box {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      padding: 8px;
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, .16);
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+    .composer-box:focus-within { border-color: rgba(120, 169, 255, .62); box-shadow: 0 0 0 3px rgba(120, 169, 255, .12); }
+    .composer textarea {
+      flex: 1;
+      min-width: 0;
+      min-height: 40px;
+      max-height: 144px;
+      padding: 10px 2px 8px;
+      border: 0;
+      outline: 0;
+      resize: none;
+      background: transparent;
+      color: var(--text);
+      line-height: 1.5;
+      overflow-y: auto;
+      scrollbar-width: none;
+    }
+    .composer textarea::-webkit-scrollbar { display: none; }
+    .composer textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 5px; }
+    .composer textarea::placeholder { color: var(--text-tertiary); }
+    .composer-hint { display: flex; justify-content: space-between; margin-top: 8px; color: var(--text-tertiary); font-size: 11px; }
+    .composer-hint kbd { padding: 2px 5px; border: 1px solid var(--border); border-radius: 4px; font-family: var(--mono); font-size: 10px; }
+    .send-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      min-width: 88px;
+      height: 40px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--accent);
+      color: var(--on-accent);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 650;
+      transition: filter 160ms ease, transform 80ms ease, background 160ms ease;
+    }
+    .send-button:hover { filter: brightness(1.08); }
+    .send-button:active { transform: translateY(1px); }
+    .send-button.stop { background: var(--danger); color: var(--on-danger); }
+    .send-button.stopping { background: var(--surface-raised); color: var(--text-secondary); cursor: wait; }
+    .send-button svg { width: 16px; height: 16px; }
+    .plus-button { flex: 0 0 auto; }
+
+    .search-popover {
+      position: fixed;
+      z-index: 20;
+      top: 64px;
+      right: 74px;
+      width: min(390px, calc(100vw - 32px));
+      padding: 10px;
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      background: var(--surface-raised);
+      box-shadow: var(--shadow);
+    }
+    .search-row { display: flex; align-items: center; gap: 8px; }
+    .search-row svg { flex: 0 0 auto; width: 16px; height: 16px; color: var(--text-tertiary); }
+    .search-input { flex: 1; min-width: 0; height: 36px; padding: 0 8px; border: 0; outline: 0; background: transparent; color: var(--text); }
+    .search-input:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+    .search-count { color: var(--text-tertiary); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+    .search-help { margin: 7px 2px 1px; color: var(--text-tertiary); font-size: 11px; }
+    mark { padding: 0 2px; border-radius: 3px; background: rgba(120, 169, 255, .28); color: var(--text); }
+    .settings-backdrop { position: fixed; inset: 0; z-index: 29; background: rgba(0, 0, 0, .28); }
+    .settings-drawer {
+      position: fixed;
+      z-index: 30;
+      top: 0;
+      right: 0;
+      display: flex;
+      flex-direction: column;
+      width: min(360px, 100vw);
+      height: 100%;
+      border-left: 1px solid var(--border-strong);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      animation: drawer-in 180ms var(--ease-out);
+    }
+    .drawer-header { display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--border); }
+    .drawer-title { font-size: 16px; font-weight: 650; }
+    .drawer-content { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 22px; }
+    .lock-note { display: flex; gap: 8px; margin-bottom: 22px; padding: 10px 11px; border-radius: 9px; background: var(--accent-soft); color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+    .lock-note svg { flex: 0 0 auto; width: 15px; height: 15px; color: var(--accent); }
+    .field-group { display: flex; flex-direction: column; gap: 14px; padding-bottom: 22px; margin-bottom: 22px; border-bottom: 1px solid var(--border); }
+    .field-group:last-child { margin-bottom: 0; border-bottom: 0; }
+    .group-label { color: var(--text-tertiary); font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { color: var(--text-secondary); font-size: 12px; }
+    .field input, .field select { width: 100%; height: 40px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); color: var(--text); }
+    .field input:disabled, .field select:disabled { opacity: .58; cursor: not-allowed; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-secondary); font-size: 12px; }
+    .toggle { position: relative; width: 38px; height: 22px; }
+    .toggle input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+    .toggle-track { position: absolute; inset: 0; border-radius: 999px; background: var(--surface-muted); border: 1px solid var(--border); transition: background 160ms ease; }
+    .toggle-thumb { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--text-secondary); transition: transform 160ms ease, background 160ms ease; }
+    .toggle input:checked + .toggle-track { background: var(--accent); border-color: var(--accent); }
+    .toggle input:checked + .toggle-track + .toggle-thumb { transform: translateX(16px); background: var(--toggle-thumb); }
+    .toggle input:focus-visible + .toggle-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .prototype-tools { position: fixed; z-index: 10; bottom: 105px; left: 18px; }
+    .prototype-tools summary { width: fit-content; padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; background: rgba(32, 33, 37, .9); color: var(--text-tertiary); cursor: pointer; font-size: 11px; list-style: none; }
+    .prototype-tools summary::-webkit-details-marker { display: none; }
+    .tool-menu { display: flex; gap: 4px; margin-top: 6px; padding: 5px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-raised); box-shadow: var(--shadow); }
+    .tool-menu button { padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 11px; }
+    .tool-menu button:hover, .tool-menu button.active { background: var(--accent-soft); color: var(--accent); }
+    .hidden { display: none !important; }
+    @keyframes pulse { 50% { opacity: .42; } }
+    @keyframes drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+    @media (max-width: 720px) {
+      .header { grid-template-columns: 1fr auto; padding: 0 14px; }
+      .task-title { display: none; }
+      .header-status { display: none; }
+      .stream { padding: 28px 16px 26px; }
+      .composer-wrap { padding: 10px 16px 14px; }
+      .composer-hint { display: none; }
+      .prototype-tools { bottom: 84px; left: 12px; }
+      .tool-menu { flex-wrap: wrap; max-width: 230px; }
+      .search-popover { top: 60px; right: 14px; }
+    }
+    @media (max-width: 640px) {
+      .settings-drawer { width: 100vw; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#stream">跳到对话流</a>
+  <div class="app" data-screen-label="agent-studio-main">
+    <header class="header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3.5l2.4 5.1 5.6.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.6-.8L12 3.5z"/></svg>
+        </span>
+        <span class="brand-name">Agent Studio</span>
+      </div>
+      <div class="task-title" id="taskTitle">Inspect local adapter compatibility</div>
+      <div class="header-actions">
+        <span class="header-status" id="headerStatus" role="status" aria-live="polite"><span class="status-dot" id="statusDot"></span><span id="statusLabel">待命</span></span>
+        <button class="icon-button" id="searchButton" type="button" aria-label="搜索当前运行" title="搜索当前运行">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="M16 16l5 5"/></svg>
+        </button>
+        <button class="icon-button" id="settingsButton" type="button" aria-label="设置" title="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z"/><path d="M19.4 13.5a7.9 7.9 0 0 0 0-3l1.7-1.3-1.8-3-2 .8a7.8 7.8 0 0 0-2.6-1.5L14.4 3h-3.5l-.3 2.5A7.8 7.8 0 0 0 8 7l-2-.8-1.8 3L5.9 10.5a7.9 7.9 0 0 0 0 3l-1.7 1.3 1.8 3 2-.8a7.8 7.8 0 0 0 2.6 1.5l.3 2.5h3.5l.3-2.5a7.8 7.8 0 0 0 2.6-1.5l2 .8 1.8-3-1.7-1.3z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="stream" id="stream" tabindex="-1">
+      <h1 class="sr-only">Agent Studio 工作台</h1>
+      <div class="stream-inner" id="streamInner" aria-live="polite" aria-atomic="false"></div>
+    </main>
+
+    <footer class="composer-wrap">
+      <form class="composer" id="composerForm">
+        <div class="composer-box">
+          <button class="icon-button plus-button" type="button" aria-label="添加附件" title="附件功能暂未启用" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <label class="sr-only" for="taskInput">输入任务</label>
+          <textarea id="taskInput" name="task" rows="1" placeholder="描述你希望 Agent 完成的任务…" autocomplete="off"></textarea>
+          <button class="send-button" id="sendButton" type="submit">
+            <svg id="sendIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            <span id="sendLabel">发送</span>
+          </button>
+        </div>
+        <div class="composer-hint"><span>运行前请先在设置中选择工作目录</span><span><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span></div>
+      </form>
+    </footer>
+  </div>
+
+  <details class="prototype-tools">
+    <summary>原型状态</summary>
+    <div class="tool-menu" aria-label="切换原型状态">
+      <button type="button" data-state="idle">空闲</button>
+      <button type="button" data-state="running">运行中</button>
+      <button type="button" data-state="done">完成</button>
+      <button type="button" data-state="error">失败</button>
+      <button type="button" data-state="cancelled">已停止</button>
+    </div>
+  </details>
+
+  <div class="search-popover hidden" id="searchPopover" role="dialog" aria-label="搜索当前运行" aria-modal="false">
+    <div class="search-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="M16 16l5 5"/></svg>
+      <label class="sr-only" for="searchInput">搜索当前运行</label>
+      <input class="search-input" id="searchInput" name="query" type="search" placeholder="搜索任务、命令或输出…" autocomplete="off" />
+      <span class="search-count" id="searchCount" aria-live="polite">0 / 0</span>
+    </div>
+    <div class="search-help">按 Enter 定位下一个结果 · Esc 关闭</div>
+  </div>
+
+  <div class="settings-backdrop hidden" id="settingsBackdrop"></div>
+  <aside class="settings-drawer hidden" id="settingsDrawer" role="dialog" aria-labelledby="settingsTitle" aria-modal="true" aria-hidden="true">
+    <div class="drawer-header">
+      <span class="drawer-title" id="settingsTitle">设置</span>
+      <button class="icon-button" id="closeSettings" type="button" aria-label="关闭设置" title="关闭设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-content">
+      <div class="lock-note" id="lockNote">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        <span>当前运行配置只读。修改内容将用于下一次运行。</span>
+      </div>
+      <section class="field-group">
+        <div class="group-label">模型连接</div>
+        <div class="field"><label for="provider">Provider</label><select id="provider" name="provider"><option>OpenAI / DeepSeek</option><option>Anthropic (Claude)</option><option>Google (Gemini)</option></select></div>
+        <div class="field"><label for="model">Model</label><input id="model" name="model" value="deepseek-chat" autocomplete="off" spellcheck="false" /></div>
+        <div class="field"><label for="baseUrl">Base URL</label><input id="baseUrl" name="baseURL" type="url" value="https://api.deepseek.com" autocomplete="url" spellcheck="false" /></div>
+        <div class="field"><label for="apiKey">API Key</label><input id="apiKey" name="apiKey" type="password" value="sk-demo-redacted" autocomplete="off" /></div>
+      </section>
+      <section class="field-group">
+        <div class="group-label">执行策略</div>
+        <div class="toggle-row"><span>用 Docker 运行命令</span><label class="toggle"><input id="dockerToggle" name="useDocker" type="checkbox" checked /><span class="toggle-track"></span><span class="toggle-thumb"></span></label></div>
+        <div class="field"><label for="stepLimit">Steps 上限</label><input id="stepLimit" name="stepLimit" type="number" min="1" max="100" value="20" inputmode="numeric" /></div>
+      </section>
+      <section class="field-group">
+        <div class="group-label">工作目录</div>
+        <div class="field"><label for="cwd">当前目录</label><input id="cwd" name="cwd" value="/Users/zephyrwing/Project/I" autocomplete="off" spellcheck="false" /></div>
+      </section>
+    </div>
+  </aside>
+
+  <script>
+    const icons = {
+      bot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M8 12h.01M16 12h.01M9 16h6M12 7V4"/></svg>',
+      chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>',
+      check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg>',
+      loader: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>',
+      alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5h.01"/></svg>',
+      square: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>'
+    };
+
+    const demoRuns = {
+      idle: { label: '待命', className: '', task: 'Inspect local adapter compatibility' },
+      running: { label: '运行中', className: 'running', task: 'Inspect local adapter compatibility' },
+      done: { label: '已完成', className: 'completed', task: 'Inspect local adapter compatibility' },
+      error: { label: '运行失败', className: 'error', task: 'Inspect local adapter compatibility' },
+      cancelled: { label: '已停止', className: 'cancelled', task: 'Inspect local adapter compatibility' }
+    };
+
+    let currentState = 'idle';
+    let searchMatches = [];
+    let searchIndex = 0;
+    let runTimer = null;
+
+    const streamInner = document.getElementById('streamInner');
+    const stream = document.getElementById('stream');
+    const taskTitle = document.getElementById('taskTitle');
+    const statusDot = document.getElementById('statusDot');
+    const statusLabel = document.getElementById('statusLabel');
+    const taskInput = document.getElementById('taskInput');
+    const composerForm = document.getElementById('composerForm');
+    const sendButton = document.getElementById('sendButton');
+    const sendLabel = document.getElementById('sendLabel');
+    const sendIcon = document.getElementById('sendIcon');
+    const searchButton = document.getElementById('searchButton');
+    const searchPopover = document.getElementById('searchPopover');
+    const searchInput = document.getElementById('searchInput');
+    const searchCount = document.getElementById('searchCount');
+    const settingsButton = document.getElementById('settingsButton');
+    const settingsDrawer = document.getElementById('settingsDrawer');
+    const settingsBackdrop = document.getElementById('settingsBackdrop');
+    const closeSettings = document.getElementById('closeSettings');
+
+    function escapeHtml(value) {
+      return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+    }
+
+    function renderAction(command, output, state) {
+      const stateMeta = state === 'running'
+        ? { label: '执行中', className: 'running', icon: icons.loader }
+        : state === 'failed'
+          ? { label: '失败', className: 'failed', icon: icons.alert }
+          : { label: 'rc 0', className: '', icon: icons.check };
+      return `<div class="action-row searchable" data-search="${escapeHtml(`${command} ${output}`)}">
+        <div class="action-head"><span class="action-command"><span class="prompt">$</span> ${escapeHtml(command)}</span><span class="action-state ${stateMeta.className}">${stateMeta.icon}<span>${stateMeta.label}</span></span></div>
+        ${output ? `<div class="action-output">${escapeHtml(output)}</div>` : ''}
+      </div>`;
+    }
+
+    function renderIdle() {
+      streamInner.innerHTML = `<section class="empty-state searchable" data-search="开始一次 agent 运行">
+        <div class="empty-state-content"><div class="empty-kicker">Ready when you are</div><h1>开始一次 Agent 运行</h1><p>在底部输入任务。Agent 会在当前工作目录中执行命令，并把进度、结果和最终回答留在这条对话里。</p></div>
+      </section>`;
+    }
+
+    function renderRun(state) {
+      const task = taskInput.value.trim() || 'Inspect local adapter compatibility';
+      const running = state === 'running';
+      const failed = state === 'error';
+      const cancelled = state === 'cancelled';
+      const progress = running ? '正在验证 OpenAI-compatible adapter 的请求链路。' : failed ? '模型连接没有完成，下面保留了已经产生的诊断信息。' : cancelled ? '本次运行已由你停止，已产生的执行证据仍然保留。' : '已完成兼容性检查，并整理了可复现的验证结果。';
+      const actions = running
+        ? renderAction('npm test -- --runInBand', '', 'running')
+        : failed
+          ? renderAction('npm test -- --runInBand', 'Unable to connect to api.deepseek.com — 401 Invalid API Key', 'failed')
+          : renderAction('npm test -- --runInBand', '18 tests passed · adapter request shape verified', 'done');
+      const final = failed
+        ? `<div class="error-card searchable" role="alert" data-search="API Key 401 Invalid API Key 检查设置 重试">${icons.alert}<div><div class="error-title">运行失败</div><div class="error-detail">Error: 401 Invalid API Key for deepseek-chat。检查设置中的 API Key 后可以重试。</div><div class="error-actions"><button class="text-button" type="button" data-action="settings">检查设置</button><button class="text-button" type="button" data-action="retry">重试</button></div></div></div>`
+        : cancelled
+          ? `<div class="final-answer searchable" data-search="已停止 取消">${icons.check}<div class="final-answer-header">已停止</div><p>运行在完成前被停止。已经产生的命令和输出仍然可展开查看。</p></div>`
+          : running
+            ? ''
+            : `<div class="final-answer searchable" data-search="完成 adapter compatibility tests passed"><div class="final-answer-header">${icons.check}<span>任务完成</span></div><p>Adapter 兼容性检查通过。请求格式、工具调用和结果回传均符合当前运行契约。</p><div class="answer-meta">18 tests passed · 2.4s · /Users/zephyrwing/Project/I</div></div>`;
+      const detailsOpen = state === 'done' || state === 'error';
+      const workingLabel = running ? 'Working for' : state === 'cancelled' ? '已停止' : failed ? '需要处理' : '执行摘要';
+      const workingIcon = running ? icons.loader : failed ? icons.alert : cancelled ? icons.square : icons.check;
+      streamInner.innerHTML = `<div class="message-list">
+        <article class="message user searchable" data-search="${escapeHtml(task)}"><div class="message-body"><div class="message-label">你</div><div class="user-copy">${escapeHtml(task)}</div></div></article>
+        <article class="message agent-message"><div class="message-avatar">${icons.bot}</div><div class="message-body"><div class="progress-copy searchable" data-search="${escapeHtml(progress)}">${running ? '<strong>正在工作</strong> · ' : ''}${escapeHtml(progress)}</div>
+          <details class="run-details" ${detailsOpen ? 'open' : ''}><summary><span>${icons.chevron}</span><span class="run-summary-title"><span class="working-state ${running ? 'active' : ''} searchable" data-search="${escapeHtml(workingLabel)}">${workingIcon}<span>${workingLabel}</span></span></span><span class="run-summary-meta">${running ? '1 action' : failed ? 'rc 1' : cancelled ? 'cancelled' : 'rc 0'}</span></summary><div class="action-list">${actions}</div></details>
+          ${final}
+        </div></article>
+      </div>`;
+      stream.scrollTop = stream.scrollHeight;
+      streamInner.querySelectorAll('[data-action="settings"]').forEach((button) => button.addEventListener('click', openSettings));
+      streamInner.querySelectorAll('[data-action="retry"]').forEach((button) => button.addEventListener('click', startDemoRun));
+    }
+
+    function updateStatus(state) {
+      const meta = demoRuns[state];
+      statusDot.className = `status-dot ${meta.className}`;
+      statusLabel.textContent = meta.label;
+      taskTitle.textContent = meta.task;
+      sendButton.className = 'send-button';
+      sendIcon.innerHTML = '<path d="M5 12h13M13 6l6 6-6 6"/>';
+      sendLabel.textContent = '发送';
+      if (state === 'running') {
+        sendButton.classList.add('stop');
+        sendIcon.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>';
+        sendLabel.textContent = '停止';
+      }
+      if (state === 'cancelled') sendLabel.textContent = '重新运行';
+      if (state === 'error' || state === 'done') sendLabel.textContent = '重新运行';
+      document.querySelectorAll('[data-state]').forEach((button) => button.classList.toggle('active', button.dataset.state === state));
+    }
+
+    function setState(state) {
+      currentState = state;
+      clearTimeout(runTimer);
+      updateStatus(state);
+      if (state === 'idle') renderIdle(); else renderRun(state);
+      taskInput.disabled = state === 'running';
+      document.querySelectorAll('.field input, .field select, .toggle input').forEach((field) => { field.disabled = state === 'running'; });
+      document.getElementById('lockNote').innerHTML = state === 'running'
+        ? `${icons.loader}<span>当前运行配置已锁定，停止后可编辑下一次运行设置。</span>`
+        : `${icons.check}<span>配置修改将用于下一次运行。</span>`;
+    }
+
+    function startDemoRun() {
+      setState('running');
+      runTimer = setTimeout(() => setState('done'), 2200);
+    }
+
+    function submitTask() {
+      if (currentState === 'running') {
+        setState('cancelled');
+        return;
+      }
+      if (!taskInput.value.trim()) {
+        taskInput.focus();
+        taskInput.setCustomValidity('请先输入任务');
+        taskInput.reportValidity();
+        taskInput.setCustomValidity('');
+        return;
+      }
+      startDemoRun();
+    }
+
+    function autoResize() {
+      taskInput.style.height = 'auto';
+      taskInput.style.height = `${Math.min(taskInput.scrollHeight, 144)}px`;
+    }
+
+    function openSearch() {
+      searchPopover.classList.remove('hidden');
+      searchButton.classList.add('active');
+      searchInput.focus();
+      searchInput.select();
+    }
+    function closeSearch() {
+      searchPopover.classList.add('hidden');
+      searchButton.classList.remove('active');
+    }
+    function updateSearch() {
+      const query = searchInput.value.trim().toLowerCase();
+      document.querySelectorAll('mark').forEach((mark) => mark.replaceWith(document.createTextNode(mark.textContent)));
+      if (!query) { searchMatches = []; searchIndex = 0; searchCount.textContent = '0 / 0'; return; }
+      searchMatches = Array.from(document.querySelectorAll('[data-search]')).filter((node) => node.dataset.search.toLowerCase().includes(query));
+      searchIndex = Math.min(searchIndex, Math.max(searchMatches.length - 1, 0));
+      searchCount.textContent = searchMatches.length ? `${searchIndex + 1} / ${searchMatches.length}` : '0 / 0';
+      searchMatches.forEach((node) => {
+        if (node.textContent.toLowerCase().includes(query)) {
+          const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+          const textNode = walker.nextNode();
+          if (!textNode) return;
+          const index = textNode.textContent.toLowerCase().indexOf(query);
+          if (index < 0) return;
+          const fragment = document.createDocumentFragment();
+          fragment.append(textNode.textContent.slice(0, index));
+          const mark = document.createElement('mark');
+          mark.textContent = textNode.textContent.slice(index, index + query.length);
+          fragment.append(mark, textNode.textContent.slice(index + query.length));
+          textNode.replaceWith(fragment);
+        }
+      });
+      if (searchMatches[searchIndex]) { searchMatches[searchIndex].scrollIntoView({ block: 'center' }); }
+    }
+
+    function openSettings() {
+      closeSearch();
+      settingsDrawer.classList.remove('hidden');
+      settingsBackdrop.classList.remove('hidden');
+      settingsDrawer.setAttribute('aria-hidden', 'false');
+      settingsButton.classList.add('active');
+      closeSettings.focus();
+    }
+    function closeSettingsPanel() {
+      settingsDrawer.classList.add('hidden');
+      settingsBackdrop.classList.add('hidden');
+      settingsDrawer.setAttribute('aria-hidden', 'true');
+      settingsButton.classList.remove('active');
+      settingsButton.focus();
+    }
+
+    composerForm.addEventListener('submit', (event) => { event.preventDefault(); submitTask(); });
+    taskInput.addEventListener('input', autoResize);
+    taskInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); submitTask(); }
+    });
+    searchButton.addEventListener('click', () => searchPopover.classList.contains('hidden') ? openSearch() : closeSearch());
+    searchInput.addEventListener('input', () => { searchIndex = 0; updateSearch(); });
+    searchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { closeSearch(); return; }
+      if (event.key === 'Enter' && searchMatches.length) { searchIndex = (searchIndex + 1) % searchMatches.length; updateSearch(); }
+    });
+    settingsButton.addEventListener('click', openSettings);
+    closeSettings.addEventListener('click', closeSettingsPanel);
+    settingsBackdrop.addEventListener('click', closeSettingsPanel);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { if (!settingsDrawer.classList.contains('hidden')) closeSettingsPanel(); else if (!searchPopover.classList.contains('hidden')) closeSearch(); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') { event.preventDefault(); openSearch(); }
+    });
+    document.querySelectorAll('[data-state]').forEach((button) => button.addEventListener('click', () => setState(button.dataset.state)));
+
+    setState('idle');
+  </script>
+</body>
+</html>
