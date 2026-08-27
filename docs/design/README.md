@@ -1,6 +1,6 @@
 # Agent Studio Design
 
-这里是视觉层的唯一来源，不按 PM / UX / UI 角色拆分。
+这里是视觉层的唯一来源
 
 - `tokens.css`：颜色、字体、间距、尺寸和动效 token。
 - `icons.md`：动作到图标的映射、尺寸和无障碍标签。

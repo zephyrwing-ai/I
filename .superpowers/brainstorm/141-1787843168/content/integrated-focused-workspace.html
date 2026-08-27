@@ -1,0 +1,96 @@
+<style>
+  .workspace-spec { max-width: 1180px; margin: 22px auto 0; }
+  .app-frame { position: relative; min-height: 680px; overflow: hidden; border: 1px solid var(--border); border-radius: 18px; background: #17181a; color: #e8e9eb; box-shadow: 0 26px 80px rgba(0,0,0,.22); font-family: "JetBrains Mono", "PingFang SC", ui-monospace, monospace; }
+  .app-header { height: 56px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 18px; border-bottom: 1px solid #2b2d30; background: #1d1f22; }
+  .app-title { justify-self: center; font-size: 12px; color: #d4d6da; }
+  .app-status { display: flex; align-items: center; gap: 7px; color: #888c93; font-size: 10px; }
+  .app-status i { width: 6px; height: 6px; border-radius: 50%; background: #858991; }
+  .header-actions { justify-self: end; display: flex; gap: 6px; }
+  .icon-button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #969ba3; font-size: 15px; }
+  .conversation { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 42px 0 190px; }
+  .user-message { width: fit-content; max-width: 76%; margin-left: auto; padding: 10px 13px; border-radius: 12px; background: #282a2e; color: #e5e6e8; font-size: 12px; line-height: 1.6; }
+  .run-record { margin-top: 28px; }
+  .run-summary { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid #2c2e31; color: #8f9298; font-size: 11px; }
+  .run-summary.active span:first-child { position: relative; overflow: hidden; color: #83868c; }
+  .run-summary.active span:first-child::after { content: ""; position: absolute; inset: 0; transform: translateX(-120%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.72), transparent); mix-blend-mode: screen; animation: shimmer 2s ease-in-out infinite; }
+  @keyframes shimmer { to { transform: translateX(120%); } }
+  .agent-copy { margin: 27px 0 0; color: #dddfe2; font-size: 13px; line-height: 1.85; }
+  .activity { margin-top: 18px; color: #8d9096; font-size: 11px; }
+  .activity-row { display: grid; grid-template-columns: 18px 1fr auto; gap: 9px; align-items: start; padding: 5px 0; line-height: 1.55; }
+  .activity-row strong { color: #b6b9be; font-weight: 560; }
+  .activity-time { color: #62656a; }
+  .tool-children { margin: 2px 0 4px 8px; padding: 2px 0 2px 19px; border-left: 1px solid #303236; }
+  .tool-child { display: flex; gap: 9px; align-items: center; padding: 6px 0; color: #8f9298; }
+  .tool-child b { color: #b2b5ba; font-weight: 530; }
+  .tool-child-detail { margin: 2px 0 7px 34px; padding-left: 12px; border-left: 1px solid #2e3033; color: #74777c; font-size: 10px; line-height: 1.75; }
+  .tool-child-detail code { color: #b5b8bd; }
+  .final-answer { margin-top: 28px; color: #eff0f2; font-size: 13px; line-height: 1.85; }
+  .answer-tools { display: flex; gap: 12px; margin-top: 12px; color: #6d7075; font-size: 10px; }
+  .composer-dock { position: absolute; inset: auto 0 0; padding: 46px 24px 18px; background: linear-gradient(transparent, #17181a 38%); }
+  .composer { width: min(780px, 100%); margin: 0 auto; padding: 10px 11px 9px; border: 1px solid #373a3f; border-radius: 15px; background: #222428; box-shadow: 0 14px 34px rgba(0,0,0,.2); }
+  .composer-input { min-height: 42px; padding: 4px 5px; color: #777b82; font-size: 12px; }
+  .composer-actions { display: flex; align-items: center; justify-content: space-between; }
+  .composer-left, .composer-right { display: flex; align-items: center; gap: 6px; }
+  .composer-control { height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border-radius: 8px; color: #a8acb3; font-size: 10px; }
+  .composer-control:hover { background: #2b2e33; }
+  .send-control { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; background: #e9eaec; color: #191a1c; font-size: 14px; }
+  .architecture-notes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+  .note { padding: 12px 13px; border-top: 2px solid color-mix(in srgb, var(--accent) 68%, transparent); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .note b { display: block; margin-bottom: 5px; color: var(--text); font-size: 12px; }
+  .note span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+  .approve { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+  .approve:hover, .approve.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  @media (max-width: 780px) { .architecture-notes { grid-template-columns: 1fr 1fr; } .app-header { grid-template-columns: 1fr auto; } .app-title { display: none; } }
+</style>
+
+<h2>完整页面结构：A · 聚焦式工作台</h2>
+<p class="subtitle">整页只保留一条主阅读路径。搜索与设置是覆盖层；运行证据内联进入回答；输入区始终固定在底部。</p>
+
+<div class="workspace-spec">
+  <div class="app-frame">
+    <header class="app-header">
+      <div class="app-status"><i></i><span>正在运行</span></div>
+      <div class="app-title">Inspect adapter compatibility</div>
+      <div class="header-actions"><button class="icon-button">⌕</button><button class="icon-button">⚙</button></div>
+    </header>
+
+    <main class="conversation">
+      <div class="user-message">根据最新设计文档重做 Agent Studio 原型，并验证工具事件的展示层级。</div>
+      <section class="run-record">
+        <div class="run-summary active"><span>Working for 1m 42s</span><span>›</span></div>
+        <p class="agent-copy">我先核对产品结构、交互规范和现有事件契约，再重建单一 HTML 原型。模型叙述保持连续正文，运行证据以低强调活动行插入当前回答。</p>
+        <div class="activity">
+          <div class="activity-row"><span>✎</span><span>Edited <strong>message-stream.mdx</strong></span><span class="activity-time">12s</span></div>
+          <div class="activity-row"><span>⌄</span><span><strong>Used 3 tools</strong> · searched files, read source, ran tests</span><span class="activity-time">28s</span></div>
+          <div class="tool-children">
+            <div class="tool-child"><span>›</span><span>⌕</span><span><b>Searched</b> AgentEvent across runtime and renderer</span></div>
+            <div class="tool-child"><span>⌄</span><span>⌘</span><span><b>Ran</b> compatibility tests</span></div>
+            <div class="tool-child-detail"><div><code>$ npm test</code></div><div>18 tests passed · rc 0 · 2.4s</div></div>
+            <div class="tool-child"><span>›</span><span>▤</span><span><b>Read</b> current design documents</span></div>
+          </div>
+        </div>
+        <p class="final-answer">当前结构已经统一：正文负责解释，活动行负责呈现行为，二级展开负责保留工具证据。界面不会再被卡片切割。</p>
+        <div class="answer-tools"><span>⧉ Copy</span><span>11:10 PM</span></div>
+      </section>
+    </main>
+
+    <footer class="composer-dock">
+      <div class="composer">
+        <div class="composer-input">描述你希望 Agent 完成的任务…</div>
+        <div class="composer-actions">
+          <div class="composer-left"><span class="composer-control">▢</span><span class="composer-control">GPT-5.6⌄</span></div>
+          <div class="composer-right"><span class="composer-control">Enter 发送</span><span class="send-control">↑</span></div>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <div class="architecture-notes">
+    <div class="note"><b>Header</b><span>标题、运行状态、搜索和设置；无常驻侧栏。</span></div>
+    <div class="note"><b>Transcript</b><span>居中窄列；正文、活动和结果共享一条阅读流。</span></div>
+    <div class="note"><b>Overlays</b><span>搜索浮层与设置抽屉覆盖内容，不压缩主列。</span></div>
+    <div class="note"><b>Composer</b><span>附件、模型选择、输入和发送/停止形成单一控件。</span></div>
+  </div>
+
+  <div class="approve" data-choice="approve-focused-workspace" onclick="toggleSelect(this)"><strong>确认采用这套完整页面结构</strong><br><span class="subtitle">下一步将固定事件数据流、错误恢复与验证标准。</span></div>
+</div>

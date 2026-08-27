@@ -1,0 +1,95 @@
+<style>
+  .direction-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 24px; }
+  .direction-card { overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); cursor: pointer; transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease; }
+  .direction-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .direction-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  .direction-preview { min-height: 360px; padding: 14px; background: #15171a; color: #edf0f4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .direction-body { padding: 16px; }
+  .direction-body h3 { margin: 0 0 7px; }
+  .direction-body p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+  .mini-header { display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 10px; border-bottom: 1px solid #2a2d32; color: #969ba5; font-size: 9px; }
+  .mini-header strong { color: #e8ebef; font-size: 10px; }
+  .mini-icon-group { display: flex; gap: 5px; }
+  .mini-icon { width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid #30343a; border-radius: 5px; }
+  .mini-stream { margin: 20px auto 0; color: #dce0e5; }
+  .focused .mini-stream { width: 74%; }
+  .wide .mini-stream { width: 94%; }
+  .compact .mini-stream { width: 82%; }
+  .mini-user { margin-left: auto; width: fit-content; max-width: 76%; padding: 8px 10px; border-radius: 10px; background: #272a2f; font-size: 9px; line-height: 1.45; }
+  .mini-agent { margin-top: 18px; font-size: 9px; line-height: 1.55; }
+  .mini-work { margin: 10px 0; padding: 8px 0; border-bottom: 1px solid #2b2e33; color: #8e949e; font-size: 8px; }
+  .mini-tools { padding: 9px; border: 1px solid #2b2e33; border-radius: 8px; background: #1c1e22; color: #aeb4bd; font-size: 8px; }
+  .mini-tool-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #282b30; }
+  .mini-tool-row:last-child { border: 0; }
+  .mini-answer { margin-top: 12px; color: #f4f5f7; font-size: 9px; line-height: 1.55; }
+  .mini-composer { display: grid; grid-template-columns: 22px 1fr 64px 24px; gap: 5px; align-items: center; margin: 32px auto 0; padding: 8px; border: 1px solid #33373e; border-radius: 11px; background: #202226; color: #8e949e; font-size: 8px; }
+  .focused .mini-composer { width: 76%; }
+  .wide .mini-composer { width: 94%; }
+  .compact .mini-composer { width: 84%; grid-template-columns: 22px 1fr 24px; }
+  .mini-model { padding: 4px 6px; border-radius: 5px; background: #292c31; color: #c9cdd4; text-align: center; }
+  .mini-send { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 7px; background: #e6e9ed; color: #17191c; }
+  .wide-layout { display: grid; grid-template-columns: 1fr 86px; min-height: 326px; }
+  .mini-rail { padding: 16px 9px; border-left: 1px solid #2b2e33; color: #818792; font-size: 8px; }
+  .mini-rail div { margin-bottom: 11px; }
+  .compact .mini-tools { display: flex; gap: 7px; overflow: hidden; border-left: 0; border-right: 0; border-radius: 0; background: transparent; }
+  .compact .mini-tool-row { min-width: 82px; border: 1px solid #30343a; border-radius: 7px; padding: 7px; }
+  .recommendation { display: inline-flex; margin-top: 9px; padding: 4px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: 11px; font-weight: 650; }
+  @media (max-width: 1000px) { .direction-grid { grid-template-columns: 1fr; } }
+</style>
+
+<h2>Agent Studio 应采用哪种整体布局？</h2>
+<p class="subtitle">三种方向都遵守最新文档；差别在于信息密度、工具过程的存在感，以及输入区的组织方式。</p>
+
+<div class="direction-grid">
+  <article class="direction-card focused" data-choice="focused-transcript" onclick="toggleSelect(this)">
+    <div class="direction-preview">
+      <div class="mini-header"><strong>Inspect adapter compatibility</strong><span class="mini-icon-group"><i class="mini-icon">⌕</i><i class="mini-icon">⚙</i></span></div>
+      <div class="mini-stream">
+        <div class="mini-user">检查当前 adapter 的流式工具调用兼容性</div>
+        <div class="mini-agent">我会先核对事件链，再运行兼容性测试。</div>
+        <div class="mini-work">Working for 19s　›</div>
+        <div class="mini-tools">
+          <div class="mini-tool-row"><span>⌕ Search · AgentEvent</span><span>done</span></div>
+          <div class="mini-tool-row"><span>⌘ Run · npm test</span><span>rc 0</span></div>
+        </div>
+        <div class="mini-answer">兼容性检查完成。事件身份和工具结果回传均符合当前契约。</div>
+      </div>
+      <div class="mini-composer"><span>▢</span><span>描述任务…</span><span class="mini-model">GPT-5.6⌄</span><span class="mini-send">↑</span></div>
+    </div>
+    <div class="direction-body"><h3>A · 聚焦式消息流</h3><p>窄内容列、过程原位展开、底部输入框居中。阅读路径最稳定，最符合当前文档的“层级与留白，而非大量卡片”。</p><span class="recommendation">推荐</span></div>
+  </article>
+
+  <article class="direction-card wide" data-choice="wide-workbench" onclick="toggleSelect(this)">
+    <div class="direction-preview">
+      <div class="mini-header"><strong>Inspect adapter compatibility</strong><span class="mini-icon-group"><i class="mini-icon">⌕</i><i class="mini-icon">⚙</i></span></div>
+      <div class="wide-layout">
+        <div>
+          <div class="mini-stream">
+            <div class="mini-user">检查当前 adapter 的流式工具调用兼容性</div>
+            <div class="mini-agent">我会并行核对协议、实现与测试。</div>
+            <div class="mini-work">Working for 19s　›</div>
+            <div class="mini-tools"><div class="mini-tool-row"><span>Read · server.mjs</span><span>done</span></div><div class="mini-tool-row"><span>Run · npm test</span><span>rc 0</span></div></div>
+          </div>
+          <div class="mini-composer"><span>▢</span><span>描述任务…</span><span class="mini-model">GPT-5.6⌄</span><span class="mini-send">↑</span></div>
+        </div>
+        <aside class="mini-rail"><div>RUN</div><div>2 tools</div><div>18 tests</div><div>19s</div></aside>
+      </div>
+    </div>
+    <div class="direction-body"><h3>B · 宽屏工作台</h3><p>消息流更宽，并保留运行摘要侧轨。更适合高密度诊断，但会让设置、状态和执行证据争夺注意力。</p></div>
+  </article>
+
+  <article class="direction-card compact" data-choice="compact-chat" onclick="toggleSelect(this)">
+    <div class="direction-preview">
+      <div class="mini-header"><strong>Agent Studio</strong><span class="mini-icon-group"><i class="mini-icon">⌕</i><i class="mini-icon">⚙</i></span></div>
+      <div class="mini-stream">
+        <div class="mini-user">检查 adapter 的兼容性</div>
+        <div class="mini-agent">正在验证流式事件和工具结果回传。</div>
+        <div class="mini-work">Working for 19s　›</div>
+        <div class="mini-tools"><div class="mini-tool-row">Search</div><div class="mini-tool-row">Read</div><div class="mini-tool-row">Run</div></div>
+        <div class="mini-answer">检查完成，测试均通过。</div>
+      </div>
+      <div class="mini-composer"><span>▢</span><span>描述任务… · GPT-5.6</span><span class="mini-send">↑</span></div>
+    </div>
+    <div class="direction-body"><h3>C · 极简聊天式</h3><p>把模型选择收进输入提示，工具过程压成横向标签。界面最轻，但复杂工具结果的二次展开与可检索性较弱。</p></div>
+  </article>
+</div>

@@ -1,0 +1,57 @@
+<style>
+  :root {
+    --color-text-shimmer-base: rgba(244, 244, 245, .46);
+    --color-text-shimmer-highlight: rgba(244, 244, 245, .92);
+    --motion-text-shimmer: 3200ms;
+    --ease-text-shimmer: linear;
+    --text-shimmer-band-width: 12%;
+    --text-shimmer-track-size: 250% 100%;
+  }
+  .loop-spec { max-width: 920px; margin: 24px auto 0; }
+  .loop-stage { padding: 70px 54px; border: 1px solid var(--border); border-radius: 18px; background: #171819; }
+  .run-line { display: flex; align-items: center; gap: 9px; padding-bottom: 17px; border-bottom: 1px solid #2d2f32; font-family: "JetBrains Mono", "PingFang SC", ui-monospace, monospace; }
+  .text-shimmer {
+    color: transparent;
+    background-image: linear-gradient(
+      100deg,
+      var(--color-text-shimmer-base) 0%,
+      var(--color-text-shimmer-base) calc(50% - var(--text-shimmer-band-width)),
+      var(--color-text-shimmer-highlight) 50%,
+      var(--color-text-shimmer-base) calc(50% + var(--text-shimmer-band-width)),
+      var(--color-text-shimmer-base) 100%
+    );
+    background-size: var(--text-shimmer-track-size);
+    background-repeat: no-repeat;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: complete-text-shimmer var(--motion-text-shimmer) var(--ease-text-shimmer) infinite;
+    font-size: 16px;
+  }
+  @keyframes complete-text-shimmer {
+    from { background-position: 100% 0; }
+    to { background-position: 0% 0; }
+  }
+  .chevron { color: #777a80; font-size: 17px; }
+  .logic { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+  .logic-item { padding: 14px 15px; border-top: 2px solid color-mix(in srgb, var(--accent) 68%, transparent); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .logic-item b { display: block; margin-bottom: 5px; color: var(--text); font-size: 12px; }
+  .logic-item span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+  .approval { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+  .approval:hover, .approval.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  @media (prefers-reduced-motion: reduce) { .text-shimmer { color: var(--color-text-shimmer-base); background: none; animation: none; } }
+</style>
+
+<h2>修正版循环：每一轮都完整穿过文字</h2>
+<p class="subtitle">渐变不再平铺；高光从左侧字形外进入，从右侧字形外离开，再在不可见区域重置。</p>
+
+<div class="loop-spec">
+  <div class="loop-stage">
+    <div class="run-line"><span class="text-shimmer">Working for 1m 42s</span><span class="chevron">›</span></div>
+  </div>
+  <div class="logic">
+    <div class="logic-item"><b>不平铺</b><span>background-repeat: no-repeat，杜绝相邻渐变进入字形。</span></div>
+    <div class="logic-item"><b>完整路径</b><span>100% → 0%，高光完整经过每一个字符。</span></div>
+    <div class="logic-item"><b>不可见重置</b><span>高光离开右侧后才开始下一轮，不出现半程截断。</span></div>
+  </div>
+  <div class="approval" data-choice="approve-complete-shimmer-loop" onclick="toggleSelect(this)"><strong>确认采用完整循环逻辑</strong></div>
+</div>

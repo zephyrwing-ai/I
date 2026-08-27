@@ -4,17 +4,15 @@
 
 | 用途 | 图标 | 尺寸 | `aria-label` / Tooltip |
 | --- | --- | ---: | --- |
-| 设置 | Lucide `Settings` | 18px | 设置 |
-| 搜索当前 run | Lucide `Search` | 18px | 搜索当前运行 |
-| 添加入口 | Lucide `Plus` | 18px | 添加 |
-| 发送 | Lucide `ArrowUp` | 18px | 发送 |
-| 停止 | Lucide `Square` | 16px | 停止运行 |
-| 展开 / 收起 | Lucide `ChevronDown` | 16px | 展开详情 / 收起详情 |
-| 复制命令 | Lucide `Copy` | 16px | 复制命令 |
-| 打开完整输出 | Lucide `ExternalLink` | 16px | 打开完整输出 |
-| 成功 | Lucide `CheckCircle2` | 16px | 已完成 |
-| 失败 | Lucide `AlertCircle` | 16px | 运行失败 |
-| 警告 | Lucide `AlertTriangle` | 16px | 注意 |
+| 设置 | Lucide `settings` | 18px | 设置 |
+| 搜索当前 run | Lucide `search` | 18px | 搜索当前运行 |
+| 添加入口 | Lucide `plus` | 18px | 添加 |
+| 发送 | Lucide `arrow.up` | 18px | 发送 |
+| 停止 | Lucide `square` | 16px | 停止运行 |
+| 展开 / 收起 | Lucide `Arrow.down` | 16px | 展开详情 / 收起详情 |
+| 复制命令 | Lucide `Suqare.on.square` | 16px | 复制命令 |
+
+working for 、worked for字样来显示模型执行状态，，文字使用扫光的效果（text shimmer effect）
 
 规则：
 

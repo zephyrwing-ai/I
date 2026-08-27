@@ -1,0 +1,50 @@
+<style>
+  .shimmer-spec { max-width: 980px; margin: 24px auto 0; }
+  .demo-stage { padding: 58px 52px; border: 1px solid var(--border); border-radius: 18px; background: #171819; color: #e6e7e9; }
+  .run-line { display: flex; align-items: center; gap: 9px; padding-bottom: 16px; border-bottom: 1px solid #2d2f32; font-family: "JetBrains Mono", "PingFang SC", ui-monospace, monospace; }
+  .text-shimmer {
+    color: transparent;
+    background-image: linear-gradient(100deg, #7b7e84 0%, #7b7e84 38%, #f2f3f5 50%, #7b7e84 62%, #7b7e84 100%);
+    background-size: 240% 100%;
+    background-position: 120% 0;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: text-shimmer-sweep 2.15s ease-in-out infinite;
+    font-size: 15px;
+    line-height: 1;
+  }
+  @keyframes text-shimmer-sweep {
+    0%, 18% { background-position: 120% 0; }
+    82%, 100% { background-position: -120% 0; }
+  }
+  .chevron { color: #777a80; font-size: 17px; }
+  .body-copy { margin: 30px 0 0; color: #dfe0e3; font: 14px/1.85 "JetBrains Mono", "PingFang SC", ui-monospace, monospace; }
+  .rule-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+  .rule { padding: 14px 15px; border-top: 2px solid color-mix(in srgb, var(--accent) 68%, transparent); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .rule b { display: block; margin-bottom: 6px; color: var(--text); font-size: 12px; }
+  .rule span { color: var(--muted); font-size: 11px; line-height: 1.55; }
+  .code-note { margin-top: 16px; padding: 14px 16px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 5%, transparent); color: var(--muted); font-size: 12px; line-height: 1.65; }
+  .approval { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+  .approval:hover, .approval.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  @media (prefers-reduced-motion: reduce) { .text-shimmer { color: #8a8d92; background: none; animation: none; } }
+  @media (max-width: 720px) { .rule-grid { grid-template-columns: 1fr; } .demo-stage { padding: 38px 26px; } }
+</style>
+
+<h2>Text shimmer：高光只在文字字形内部扫过</h2>
+<p class="subtitle">文字不移动、容器背景不变化、没有覆盖层穿过整行；动画只改变裁剪在字符内部的渐变位置。</p>
+
+<div class="shimmer-spec">
+  <div class="demo-stage">
+    <div class="run-line"><span class="text-shimmer">Working for 1m 42s</span><span class="chevron">›</span></div>
+    <p class="body-copy">高光仅经过 “Working for 1m 42s” 的笔画区域。右侧箭头和下方分隔线保持静止，也不参与扫光。</p>
+  </div>
+
+  <div class="rule-grid">
+    <div class="rule"><b>字形裁剪</b><span>使用 background-clip: text，将渐变限制在字符内部。</span></div>
+    <div class="rule"><b>静止文字</b><span>不改变 transform、宽度或字符位置，只移动 background-position。</span></div>
+    <div class="rule"><b>柔和高光</b><span>基础文字为低强调灰色，中间窄高光柔和过渡并从左向右循环。</span></div>
+  </div>
+
+  <div class="code-note">运行中显示动画；完成后改为静态 “Worked for …”。开启减少动态效果时取消动画，保留可读的低强调文字。</div>
+  <div class="approval" data-choice="approve-text-shimmer" onclick="toggleSelect(this)"><strong>确认采用文字字形扫光</strong><br><span class="subtitle">扫光不影响背景、箭头、分隔线和其他正文。</span></div>
+</div>

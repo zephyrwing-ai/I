@@ -1,0 +1,50 @@
+<style>
+  :root {
+    --color-text-shimmer-base: rgba(244, 244, 245, .46);
+    --color-text-shimmer-highlight: rgba(244, 244, 245, .92);
+    --motion-text-shimmer: 3200ms;
+    --ease-text-shimmer: linear;
+    --text-shimmer-band-width: 12%;
+  }
+  .speed-spec { max-width: 920px; margin: 24px auto 0; }
+  .speed-stage { padding: 70px 54px; border: 1px solid var(--border); border-radius: 18px; background: #171819; }
+  .run-line { display: flex; align-items: center; gap: 9px; padding-bottom: 17px; border-bottom: 1px solid #2d2f32; font-family: "JetBrains Mono", "PingFang SC", ui-monospace, monospace; }
+  .text-shimmer {
+    color: transparent;
+    background-image: linear-gradient(
+      100deg,
+      var(--color-text-shimmer-base) 0%,
+      var(--color-text-shimmer-base) calc(50% - var(--text-shimmer-band-width)),
+      var(--color-text-shimmer-highlight) 50%,
+      var(--color-text-shimmer-base) calc(50% + var(--text-shimmer-band-width)),
+      var(--color-text-shimmer-base) 100%
+    );
+    background-size: 240% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: shimmer-sweep var(--motion-text-shimmer) var(--ease-text-shimmer) infinite;
+    font-size: 16px;
+  }
+  @keyframes shimmer-sweep {
+    from { background-position: 120% 0; }
+    to { background-position: -120% 0; }
+  }
+  .chevron { color: #777a80; font-size: 17px; }
+  .token-readout { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; margin-top: 18px; padding: 15px 17px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .token-readout code { color: var(--text); font-size: 13px; }
+  .token-readout span { color: var(--muted); font-size: 12px; }
+  .approval { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+  .approval:hover, .approval.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  @media (prefers-reduced-motion: reduce) { .text-shimmer { color: var(--color-text-shimmer-base); background: none; animation: none; } }
+</style>
+
+<h2>文字扫光速度：3.2 秒</h2>
+<p class="subtitle">动画保持线性匀速，只把一次完整扫过的时长调慢；文字、箭头和分隔线仍保持静止。</p>
+
+<div class="speed-spec">
+  <div class="speed-stage">
+    <div class="run-line"><span class="text-shimmer">Working for 1m 42s</span><span class="chevron">›</span></div>
+  </div>
+  <div class="token-readout"><code>--motion-text-shimmer: 3200ms;</code><span>全局调节扫光速度</span></div>
+  <div class="approval" data-choice="approve-shimmer-3200" onclick="toggleSelect(this)"><strong>确认采用 3.2 秒扫光时长</strong></div>
+</div>
