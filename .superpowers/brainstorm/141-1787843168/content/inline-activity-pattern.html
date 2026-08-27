@@ -1,0 +1,88 @@
+<style>
+  .pattern-shell { max-width: 1040px; margin: 22px auto 0; }
+  .pattern-window { overflow: hidden; border: 1px solid var(--border); border-radius: 18px; background: #171819; color: #e4e5e7; box-shadow: 0 22px 70px rgba(0,0,0,.2); }
+  .pattern-bar { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid #2a2b2d; color: #8d8f93; font-size: 11px; }
+  .pattern-content { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 38px 0 44px; font-family: "JetBrains Mono", "PingFang SC", ui-monospace, monospace; }
+  .run-summary { display: flex; align-items: center; gap: 8px; padding: 0 0 13px; border-bottom: 1px solid #2d2e30; color: #95979b; font-size: 14px; }
+  .run-summary .chevron { font-size: 16px; transform: rotate(90deg); }
+  .narrative { margin: 30px 0 0; font-size: 16px; line-height: 1.85; letter-spacing: -.01em; }
+  .activity-stream { margin-top: 24px; color: #989a9e; font-size: 13px; }
+  .activity-row { display: flex; align-items: flex-start; gap: 10px; min-height: 28px; padding: 5px 0; }
+  .activity-icon { width: 18px; flex: 0 0 18px; color: #8f9297; text-align: center; }
+  .activity-copy { flex: 1; line-height: 1.55; }
+  .activity-copy strong { color: #b8bbc0; font-weight: 560; }
+  .activity-meta { color: #696c71; white-space: nowrap; }
+  .tool-group { margin-top: 4px; }
+  .tool-group > .activity-row { cursor: pointer; }
+  .tool-children { margin: 4px 0 8px 9px; padding-left: 18px; border-left: 1px solid #303235; }
+  .tool-call { padding: 5px 0; }
+  .tool-call-head { display: flex; align-items: center; gap: 9px; min-height: 26px; color: #9da0a5; }
+  .tool-call-head .twisty { width: 12px; color: #72757a; }
+  .tool-call-head .tool-icon { width: 16px; text-align: center; }
+  .tool-call-head .tool-name { color: #b8bbc0; }
+  .tool-detail { margin: 7px 0 7px 37px; padding-left: 12px; border-left: 1px solid #2f3134; color: #777a80; font-size: 11px; line-height: 1.75; }
+  .tool-detail code { color: #b4b7bc; }
+  .final-copy { margin-top: 30px; font-size: 16px; line-height: 1.85; }
+  .answer-actions { margin-top: 16px; display: flex; gap: 12px; color: #73767b; font-size: 11px; opacity: .9; }
+  .anatomy { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+  .anatomy-item { padding: 13px 14px; border-top: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .anatomy-item b { display: block; margin-bottom: 5px; color: var(--text); font-size: 12px; }
+  .anatomy-item span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+  .approval { margin-top: 20px; padding: 15px 18px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+  .approval:hover, .approval.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  @media (max-width: 760px) { .anatomy { grid-template-columns: 1fr 1fr; } .pattern-content { width: calc(100% - 30px); } }
+</style>
+
+<h2>修正版：内联活动流，而不是卡片式执行详情</h2>
+<p class="subtitle">第一层控制整次运行记录；第二层控制工具组；第三层只在需要时展开单次命令或输出。正文和活动都留在同一条垂直阅读流里。</p>
+
+<div class="pattern-shell">
+  <div class="pattern-window">
+    <div class="pattern-bar"><span>Agent Studio · Focused transcript</span><span>Search　Settings</span></div>
+    <div class="pattern-content">
+      <div class="run-summary"><span>Worked for 1m 42s</span><span class="chevron">›</span></div>
+
+      <p class="narrative">我先核对了当前事件模型，然后根据最新设计基线整理消息流的展示边界。自然语言仍按普通正文连续排版，不被执行过程切割成独立卡片。</p>
+
+      <div class="activity-stream">
+        <div class="activity-row">
+          <span class="activity-icon">✎</span>
+          <span class="activity-copy">Edited <strong>message-stream.mdx</strong></span>
+          <span class="activity-meta">12s</span>
+        </div>
+
+        <div class="tool-group">
+          <div class="activity-row">
+            <span class="activity-icon">⌄</span>
+            <span class="activity-copy"><strong>Used 3 tools</strong> · searched files, read source, ran tests</span>
+            <span class="activity-meta">28s</span>
+          </div>
+          <div class="tool-children">
+            <div class="tool-call">
+              <div class="tool-call-head"><span class="twisty">›</span><span class="tool-icon">⌕</span><span><span class="tool-name">Searched</span> AgentEvent across runtime and renderer</span></div>
+            </div>
+            <div class="tool-call">
+              <div class="tool-call-head"><span class="twisty">⌄</span><span class="tool-icon">⌘</span><span><span class="tool-name">Ran</span> compatibility tests</span></div>
+              <div class="tool-detail"><div><code>$ npm test</code></div><div>18 tests passed · rc 0 · 2.4s</div></div>
+            </div>
+            <div class="tool-call">
+              <div class="tool-call-head"><span class="twisty">›</span><span class="tool-icon">▤</span><span><span class="tool-name">Read</span> interaction and component specifications</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="final-copy">结论：运行过程使用内联层级和缩进表达关系；边框只用于分隔层级，不形成封闭容器。这样既保留工具证据，也不会把回答切碎成一组卡片。</p>
+      <div class="answer-actions"><span>⧉ Copy</span><span>11:10 PM</span></div>
+    </div>
+  </div>
+
+  <div class="anatomy">
+    <div class="anatomy-item"><b>① 运行级折叠</b><span>Working / Worked for 控制整段活动记录。</span></div>
+    <div class="anatomy-item"><b>② 普通正文</b><span>模型叙述保持正文排版，不套卡片。</span></div>
+    <div class="anatomy-item"><b>③ 工具组折叠</b><span>图标、动词和摘要组成低强调活动行。</span></div>
+    <div class="anatomy-item"><b>④ 单次工具详情</b><span>命令和输出仅在二次展开后出现。</span></div>
+  </div>
+
+  <div class="approval" data-choice="approve-inline-activity" onclick="toggleSelect(this)"><strong>确认采用这套内联活动层级</strong><br><span class="subtitle">无外层卡片、无独立背景块；只用留白、缩进、图标和细分隔线建立关系。</span></div>
+</div>

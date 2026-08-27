@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Studio — Hi-fi UI 设计（baoyu-design / 高保真交互原型）</title>
+<style>
+  /* ============ 设计 Token ============ */
+  :root{
+    --bg:#0b0d10;
+    --bg-2:#11141a;
+    --panel:rgba(255,255,255,0.035);
+    --panel-solid:#15181e;
+    --elev:#1a1e25;
+    --border:rgba(255,255,255,0.07);
+    --border-strong:rgba(255,255,255,0.12);
+    --text:#e9ecf0;
+    --text-dim:rgba(233,236,240,0.58);
+    --text-faint:rgba(233,236,240,0.34);
+    --accent:#7aa2ff;
+    --accent-soft:rgba(122,162,255,0.14);
+    --green:#3fb950;
+    --amber:#d29922;
+    --red:#f85149;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue",Segoe UI,Roboto,sans-serif;
+    --radius:16px;
+    --radius-sm:9px;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 700px at 12% -10%, rgba(122,162,255,0.14), transparent 55%),
+      radial-gradient(900px 600px at 108% 8%, rgba(63,185,80,0.10), transparent 50%),
+      linear-gradient(180deg,#0a0c0f 0%,#0b0d10 100%);
+    color:var(--text);
+    font-family:var(--sans);
+    font-size:14px;
+    -webkit-font-smoothing:antialiased;
+    padding:34px 22px 60px;
+    display:flex;flex-direction:column;align-items:center;gap:18px;
+    min-height:100vh;
+  }
+
+  /* ============ 演示控制（非产品 UI） ============ */
+  .demo-bar{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
+    background:rgba(255,255,255,0.04);border:1px solid var(--border);
+    border-radius:999px;padding:6px 8px 6px 16px;
+    backdrop-filter:blur(14px) saturate(160%);
+    -webkit-backdrop-filter:blur(14px) saturate(160%);
+    font-size:12px;color:var(--text-dim);
+  }
+  .demo-bar .demo-label{font-weight:600;color:var(--text-faint);letter-spacing:.04em;font-size:11px;text-transform:uppercase}
+  .demo-btn{
+    border:1px solid transparent;background:transparent;color:var(--text);
+    border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;
+    transition:all .15s ease;white-space:nowrap;
+  }
+  .demo-btn:hover{background:rgba(255,255,255,0.06)}
+  .demo-btn.active{background:var(--accent);color:#0b0d10;border-color:transparent}
+
+  /* ============ 窗口 chrome ============ */
+  .window{
+    width:min(1180px,100%);
+    background:var(--bg-2);
+    border:1px solid var(--border-strong);
+    border-radius:22px;
+    box-shadow:0 1px 0 rgba(255,255,255,0.05) inset, 0 24px 70px rgba(0,0,0,0.55);
+    display:flex;flex-direction:column;overflow:hidden;
+    position:relative;
+  }
+  .titlebar{
+    height:46px;flex-shrink:0;display:flex;align-items:center;gap:14px;
+    padding:0 16px;border-bottom:1px solid var(--border);
+    background:linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+  }
+  .traffic{display:flex;gap:8px;align-items:center}
+  .traffic i{width:12px;height:12px;border-radius:50%;display:block}
+  .traffic .r{background:#ff5f57}.traffic .y{background:#febc2e}.traffic .g{background:#28c840}
+  .titlebar .t-title{font-size:13px;font-weight:600;color:var(--text-dim);letter-spacing:-.01em}
+  .titlebar .t-path{font-family:var(--mono);font-size:11px;color:var(--text-faint);margin-left:2px}
+
+  /* ============ 工具栏 ============ */
+  .toolbar{
+    display:flex;align-items:center;gap:14px;padding:12px 16px;
+    border-bottom:1px solid var(--border);flex-shrink:0;
+    background:var(--panel);
+  }
+  .brand{display:flex;align-items:center;gap:9px;padding-right:6px;flex-shrink:0}
+  .brand-mark{
+    width:26px;height:26px;border-radius:8px;flex-shrink:0;
+    background:linear-gradient(135deg,#7aa2ff,#5b7cff 60%,#8f6bff);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 2px 8px rgba(122,162,255,0.4);
+  }
+  .brand-mark svg{width:15px;height:15px;display:block}
+  .brand-name{font-weight:700;font-size:14px;letter-spacing:-.01em}
+  .brand-name .beta{font-size:10px;font-weight:600;color:var(--accent);background:var(--accent-soft);padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:2px}
+
+  .task-input{
+    flex:1;min-width:0;resize:none;min-height:38px;max-height:120px;
+    background:var(--elev);color:var(--text);
+    border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:9px 12px;font-family:inherit;font-size:13px;line-height:1.5;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  .task-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .task-input::placeholder{color:var(--text-faint)}
+
+  .toolbar-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .btn{
+    border:none;border-radius:999px;height:36px;padding:0 18px;
+    font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+    transition:all .15s ease;white-space:nowrap;
+  }
+  .btn-run{background:var(--accent);color:#0b0d10}
+  .btn-run:hover{filter:brightness(1.06)}
+  .btn-run:disabled{opacity:.4;cursor:not-allowed}
+  .btn-stop{background:var(--red);color:#fff}
+  .btn-stop:hover{filter:brightness(1.06)}
+  .icon-btn{
+    width:36px;height:36px;border-radius:9px;border:1px solid var(--border);
+    background:var(--elev);color:var(--text-dim);cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;transition:all .15s ease;
+  }
+  .icon-btn:hover{color:var(--text);border-color:var(--border-strong)}
+  .icon-btn.active{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+  .icon-btn svg{width:16px;height:16px}
+
+  /* ============ 工作区 ============ */
+  .workspace{display:flex;flex:1;min-height:0}
+
+  .transcript{
+    flex:1;min-width:0;overflow:auto;padding:22px 24px 40px;
+    display:flex;flex-direction:column;gap:16px;
+  }
+
+  /* 空态 */
+  .empty{margin:auto;text-align:center;color:var(--text-dim);max-width:360px;padding:40px 0}
+  .empty .empty-icon{width:52px;height:52px;border-radius:14px;margin:0 auto 16px;background:var(--panel);border:1px solid var(--border);display:flex;align-items:center;justify-content:center}
+  .empty .empty-icon svg{width:26px;height:26px;opacity:.7}
+  .empty h3{margin:0 0 6px;font-size:15px;font-weight:600;color:var(--text)}
+  .empty p{margin:0;font-size:12.5px;line-height:1.6}
+  .empty .empty-hint{display:inline-flex;gap:8px;align-items:center;margin-top:18px;font-size:12px;color:var(--text-faint);font-family:var(--mono)}
+
+  .error-banner{
+    background:linear-gradient(90deg, rgba(248,81,73,0.14), rgba(248,81,73,0.05));
+    border:1px solid rgba(248,81,73,0.4);border-radius:var(--radius-sm);
+    padding:12px 14px;display:flex;align-items:flex-start;gap:11px;color:var(--text);
+  }
+  .error-banner .eb-icon{color:var(--red);flex-shrink:0;margin-top:1px}
+  .error-banner .eb-body{flex:1;min-width:0}
+  .error-banner .eb-title{font-weight:600;font-size:13px}
+  .error-banner .eb-detail{font-size:12px;color:var(--text-dim);margin-top:3px;font-family:var(--mono);word-break:break-all}
+  .error-banner .eb-action{margin-top:8px}
+
+  /* 步骤卡 */
+  .step{display:flex;gap:16px}
+  .step-rail{flex-shrink:0;display:flex;flex-direction:column;align-items:center;width:26px}
+  .rail-dot{
+    width:26px;height:26px;border-radius:50%;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:700;
+    background:var(--panel-solid);border:1px solid var(--border-strong);color:var(--text);
+  }
+  .rail-dot.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+  .rail-dot.done{border-color:rgba(63,185,80,0.5);background:rgba(63,185,80,0.12);color:var(--green)}
+  .rail-line{flex:1;width:2px;background:var(--border);margin-top:6px;border-radius:2px}
+
+  .step-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;padding-bottom:4px}
+  .step-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .step-num{font-weight:700;font-size:14px}
+  .step-stage{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;
+    background:var(--panel);border:1px solid var(--border);color:var(--text-dim);
+  }
+  .step-stage .dot{width:6px;height:6px;border-radius:50%}
+  .step-stage.thinking .dot{background:var(--accent);animation:pulse 1.2s ease-in-out infinite}
+  .step-stage.executing .dot{background:var(--amber);animation:pulse 1.2s ease-in-out infinite}
+  .step-stage.done .dot{background:var(--green)}
+  .step-stage.error .dot{background:var(--red)}
+  .step-meta{margin-left:auto;font-size:11px;color:var(--text-faint);font-family:var(--mono)}
+
+  /* 思考块 */
+  .thought{border-left:2px solid var(--border-strong);padding-left:13px;position:relative}
+  .thought-label{font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--text-faint);text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .thought-label .live{font-size:10px;font-weight:600;color:var(--accent);background:var(--accent-soft);padding:1px 6px;border-radius:5px;letter-spacing:.05em}
+  .thought-pre{
+    margin:0;white-space:pre-wrap;word-break:break-word;line-height:1.62;
+    font-family:var(--sans);font-size:13.5px;color:var(--text);
+  }
+  .caret{
+    display:inline-block;width:7px;height:15px;background:var(--accent);
+    vertical-align:-2px;margin-left:2px;border-radius:2px;animation:blink 1s steps(1) infinite;
+  }
+  @keyframes blink{50%{opacity:0}}
+  @keyframes pulse{50%{opacity:.35}}
+
+  .thought-ghost{
+    display:flex;gap:10px;align-items:center;color:var(--text-faint);font-size:12.5px;
+  }
+  .thought-ghost .spinner{width:14px;height:14px;border:2px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* 动作 / 命令 */
+  .actions{display:flex;flex-direction:column;gap:10px}
+  .action{
+    border:1px solid var(--border);border-radius:var(--radius-sm);
+    background:var(--panel);overflow:hidden;
+  }
+  .action-cmd{
+    display:flex;align-items:center;gap:10px;padding:9px 12px;
+    background:rgba(0,0,0,0.18);border-bottom:1px solid var(--border);
+  }
+  .action-cmd .prompt{color:var(--green);font-family:var(--mono);font-weight:700}
+  .action-cmd code{font-family:var(--mono);font-size:12.5px;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+  .action-rc{font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;flex-shrink:0}
+  .rc-ok{background:rgba(63,185,80,0.14);color:var(--green)}
+  .rc-err{background:rgba(248,81,73,0.14);color:var(--red)}
+  .rc-run{background:rgba(210,153,34,0.14);color:var(--amber);display:inline-flex;align-items:center;gap:6px}
+  .rc-run .spinner{width:11px;height:11px;border:2px solid var(--amber);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+  .action-rc.pending{background:var(--panel);color:var(--text-faint)}
+  .copy{
+    background:transparent;border:1px solid var(--border);color:var(--text-dim);
+    border-radius:6px;height:24px;padding:0 9px;font-size:11px;cursor:pointer;flex-shrink:0;
+    display:inline-flex;align-items:center;gap:5px;transition:all .15s ease;
+  }
+  .copy:hover{color:var(--text);border-color:var(--border-strong)}
+  .copy svg{width:12px;height:12px}
+
+  .action-out{padding:10px 12px}
+  .action-out pre{
+    margin:0;font-family:var(--mono);font-size:12px;line-height:1.6;
+    white-space:pre-wrap;word-break:break-word;color:var(--text-dim);max-height:220px;overflow:auto;
+  }
+  .action-out pre.err{color:var(--red)}
+  .action-out .out-empty{font-size:12px;color:var(--text-faint);font-style:italic}
+  .action-meta{display:flex;gap:14px;align-items:center;font-size:11px;color:var(--text-faint);font-family:var(--mono);margin-top:7px}
+  .out-links{display:flex;gap:8px;margin-top:8px}
+  .text-btn{
+    background:transparent;border:none;color:var(--accent);font-size:12px;font-size-weight:500;cursor:pointer;padding:0;
+  }
+  .text-btn:hover{text-decoration:underline}
+
+  /* ============ 右侧 Inspector ============ */
+  .config-panel{
+    flex:0 0 300px;border-left:1px solid var(--border);
+    background:var(--panel);padding:18px 18px 28px;overflow-y:auto;
+    display:flex;flex-direction:column;gap:18px;
+  }
+  .config-header{display:flex;align-items:center;justify-content:space-between}
+  .config-header h3{margin:0;font-size:14px;font-weight:700}
+  .config-section{display:flex;flex-direction:column;gap:11px}
+  .config-section:not(:last-child){border-bottom:1px solid var(--border);padding-bottom:16px}
+  .config-section-title{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint)}
+  .field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--text-dim)}
+  .field-label{font-weight:600;color:var(--text-dim)}
+  .field select,.field input[type=text],.field input[type=password],.field input[type=number]{
+    background:var(--elev);color:var(--text);border:1px solid var(--border);
+    border-radius:var(--radius-sm);height:33px;padding:0 9px;font-family:var(--mono);font-size:12px;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  .field select:focus,.field input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .field-inline{flex-direction:row;align-items:center;gap:9px;height:33px;color:var(--text)}
+  .toggle{position:relative;width:36px;height:22px;flex-shrink:0}
+  .toggle input{opacity:0;width:0;height:0;position:absolute}
+  .toggle .track{position:absolute;inset:0;border-radius:999px;background:rgba(255,255,255,0.14);transition:background .2s ease}
+  .toggle .thumb{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .2s ease;box-shadow:0 1px 3px rgba(0,0,0,0.4)}
+  .toggle input:checked + .track{background:var(--accent)}
+  .toggle input:checked + .track + .thumb{transform:translateX(14px)}
+  .workspace-row{display:flex;align-items:center;gap:8px;min-width:0}
+  .workspace-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:11.5px;color:var(--text-dim)}
+  .ghost-btn{
+    background:transparent;color:var(--accent);border:1px solid var(--border);
+    border-radius:var(--radius-sm);height:28px;padding:0 11px;font-size:12px;cursor:pointer;white-space:nowrap;transition:all .15s ease;
+  }
+  .ghost-btn:hover{border-color:var(--accent)}
+  .connection-status{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--green)}
+  .connection-status .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+
+  /* ============ 状态栏 ============ */
+  .status-bar{
+    border-top:1px solid var(--border);background:var(--panel);
+    padding:9px 18px;display:flex;gap:12px;align-items:center;
+    color:var(--text-dim);font-size:12.5px;flex-shrink:0;
+  }
+  .status-dot{width:9px;height:9px;border-radius:50%;background:var(--text-faint);flex-shrink:0}
+  .status-dot.running{background:var(--amber);animation:pulse 1s ease-in-out infinite}
+  .status-dot.thinking{background:var(--accent);animation:pulse 1s ease-in-out infinite}
+  .status-dot.completed{background:var(--green)}
+  .status-dot.error{background:var(--red)}
+  .status-main{display:flex;align-items:center;gap:7px}
+  .status-progress{display:flex;align-items:center;gap:8px;margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--text-faint)}
+  .bar-track{width:120px;height:5px;border-radius:999px;background:rgba(255,255,255,0.1);overflow:hidden}
+  .bar-fill{height:100%;background:var(--accent);border-radius:999px;transition:width .4s ease}
+
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+  <!-- 演示控制：切换各运行阶段（非产品 UI，仅为展示设计效果） -->
+  <div class="demo-bar" id="demoBar">
+    <span class="demo-label">演示控制</span>
+    <button class="demo-btn" data-scene="idle">空闲</button>
+    <button class="demo-btn" data-scene="connecting">连接中</button>
+    <button class="demo-btn" data-scene="streaming">流式思考</button>
+    <button class="demo-btn" data-scene="running">执行命令</button>
+    <button class="demo-btn" data-scene="done">完成</button>
+    <button class="demo-btn" data-scene="error">出错</button>
+  </div>
+
+  <!-- 产品窗口 -->
+  <div class="window">
+    <!-- 标题栏 -->
+    <div class="titlebar">
+      <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+      <span class="t-title">Agent Studio</span>
+      <span class="t-path" id="winPath">~/project/i</span>
+    </div>
+
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <div class="brand">
+        <span class="brand-mark">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l2.4 4.6L20 6.8l-3.3 3.4.8 5.3L12 13.4l-5.5 2.1.8-5.3L4 6.8l5.6-.2L12 2z" fill="#fff"/></svg>
+        </span>
+        <span class="brand-name">Agent Studio <span class="beta">beta</span></span>
+      </div>
+      <textarea class="task-input" id="taskInput" rows="1" placeholder="描述你希望 agent 完成的任务…（Enter 运行，Shift+Enter 换行）"></textarea>
+      <div class="toolbar-actions">
+        <button class="btn btn-run" id="runBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <span>运行</span>
+        </button>
+        <button class="icon-btn active" id="cfgBtn" title="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h.01a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h.01a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v.01a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 工作区 -->
+    <div class="workspace">
+      <!-- transcript -->
+      <main class="transcript" id="stage"></main>
+
+      <!-- inspector -->
+      <aside class="config-panel">
+        <header class="config-header">
+          <h3>设置</h3>
+          <span class="connection-status"><span class="dot"></span>已连接</span>
+        </header>
+
+        <section class="config-section">
+          <div class="config-section-title">连接</div>
+          <label class="field">
+            <span class="field-label">Provider</span>
+            <select><option>OpenAI / DeepSeek</option><option>Anthropic (Claude)</option><option>Google (Gemini)</option></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Model</span>
+            <input type="text" value="deepseek-chat" spellcheck="false" />
+          </label>
+          <label class="field">
+            <span class="field-label">Base URL</span>
+            <input type="text" value="https://api.deepseek.com" spellcheck="false" />
+          </label>
+          <label class="field">
+            <span class="field-label">API Key</span>
+            <input type="password" value="sk-••••••••••••••••••••" spellcheck="false" />
+          </label>
+        </section>
+
+        <section class="config-section">
+          <div class="config-section-title">执行</div>
+          <label class="field field-inline">
+            <span class="toggle"><input type="checkbox" checked id="toggleStream" /><span class="track"></span><span class="thumb"></span></span>
+            <span class="field-label">流式输出（打字机效果）</span>
+          </label>
+          <label class="field field-inline">
+            <span class="toggle"><input type="checkbox" checked /><span class="track"></span><span class="thumb"></span></span>
+            <span class="field-label">用 Docker 运行命令</span>
+          </label>
+          <label class="field">
+            <span class="field-label">Steps 上限</span>
+            <input type="number" value="20" min="1" max="100" />
+          </label>
+        </section>
+
+        <section class="config-section">
+          <div class="config-section-title">工作目录</div>
+          <div class="workspace-row">
+            <button class="ghost-btn">选择目录</button>
+            <span class="workspace-path" title="/Users/zephyrwing/Project/I">/Users/zephyrwing/Project/I</span>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <!-- 状态栏 -->
+    <footer class="status-bar" id="statusBar">
+      <span class="status-dot" id="statusDot"></span>
+      <div class="status-main" id="statusMain">待命</div>
+      <div class="status-progress" id="statusProgress">
+        <span id="statusSteps">共 0 步</span>
+      </div>
+    </footer>
+  </div>
+
+<script>
+(function(){
+  const stage = document.getElementById('stage');
+  const statusDot = document.getElementById('statusDot');
+  const statusMain = document.getElementById('statusMain');
+  const statusSteps = document.getElementById('statusSteps');
+  const runBtn = document.getElementById('runBtn');
+  const taskInput = document.getElementById('taskInput');
+  const toggleStream = document.getElementById('toggleStream');
+
+  // ── 工具函数 ──
+  const svgCopy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>';
+  const svgOpen = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>';
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  function actionRow({cmd, rc, output, err, collapsed}){
+    let rcClass = 'pending', rcLabel = '待执行', rcInner = rcLabel;
+    if(rc === 'run'){ rcClass='rc-run'; rcInner='<span class="spinner"></span>执行中'; }
+    else if(typeof rc === 'number'){ rcClass = rc===0 ? 'rc-ok':'rc-err'; rcLabel = 'rc '+rc; rcInner=rcLabel; }
+    let out;
+    if(rc === 'run'){ out = '<div class="action-out"><div class="out-empty">正在执行命令，等待输出…</div></div>'; }
+    else if(output){
+      out = '<div class="action-out"><pre class="'+(err?'err':'')+'">'+esc(output)+'</pre></div>';
+    } else {
+      out = '<div class="action-out"><div class="out-empty">无输出</div></div>';
+    }
+    const meta = (rc==='run')
+      ? '<div class="action-meta"><span>… 正在输出</span></div>'
+      : '<div class="action-meta"><span>cwd: /Users/zephyrwing/Project/I</span><span>耗时 1.2s</span></div>';
+    const links = (collapsed)
+      ? '<div class="out-links"><button class="text-btn">展开完整输出</button><button class="text-btn">打开完整文件</button></div>'
+      : '';
+    return '<div class="action">'
+      + '<div class="action-cmd"><span class="prompt">$</span><code>'+esc(cmd)+'</code><span class="action-rc '+rcClass+'">'+rcInner+'</span><button class="copy">'+svgCopy+'<span>复制</span></button></div>'
+      + out + meta + links
+      + '</div>';
+  }
+
+  function thoughtBlock(text, live, streamingLen){
+    if(text === null){
+      return '<div class="thought"><div class="thought-label">Thought</div>'
+        + '<div class="thought-ghost"><span class="spinner"></span>正在思考…</div></div>';
+    }
+    const liveTag = live ? '<span class="live">● LIVE</span>' : '';
+    let shown = text;
+    let caret = live ? '<span class="caret"></span>' : '';
+    return '<div class="thought"><div class="thought-label">Thought '+liveTag+'</div>'
+      + '<pre class="thought-pre">'+esc(shown)+caret+'</pre></div>';
+  }
+
+  function stepCard({n, stage, stageColor, thought, live, actions, streaming, metaText}){
+    const railClass = stageColor==='done'?'done':(stageColor==='active'?'active':'');
+    const stageTag = '<span class="step-stage '+stageColor+'"><span class="dot"></span>'+stage+'</span>';
+    const meta = '<span class="step-meta">'+metaText+'</span>';
+    let actionsHtml = '';
+    if(actions && actions.length){
+      actionsHtml = '<div class="actions">'+actions.map(actionRow).join('')+'</div>';
+    }
+    return '<div class="step">'
+      + '<div class="step-rail"><span class="rail-dot '+railClass+'">'+n+'</span>'+(stageColor!=='done'?'<span class="rail-line"></span>':'')+'</div>'
+      + '<div class="step-body">'
+      +   '<div class="step-head"><span class="step-num">Step '+n+'</span>'+stageTag+meta+'</div>'
+      +   thoughtBlock(thought, live, streaming)
+      +   actionsHtml
+      + '</div></div>';
+  }
+
+  // ── 场景数据 ──
+  const SCENES = {
+    idle: {
+      status:['','idle','待命'], progress:'共 0 步',
+      render(){
+        return '<div class="empty">'
+          + '<div class="empty-icon">'+svgOpen+'</div>'
+          + '<h3>开始一次 agent 运行</h3>'
+          + '<p>在顶栏描述任务，选择工作目录与 Provider，然后点击「运行」。<br/>Agent 会思考、执行命令并把每一步结果实时呈现给你。</p>'
+          + '<div class="empty-hint"><kbd>⌘</kbd><kbd>↵</kbd> 发送 · <kbd>⇧↵</kbd> 换行</div>'
+          + '</div>';
+      }
+    },
+    connecting: {
+      status:['thinking','连接模型…'], progress:'共 0 步',
+      render(){
+        return stepCard({n:1, stage:'连接中', stageColor:'active', thought:null, live:false,
+          metaText:'正在建立与 deepseek-chat 的连接'});
+      }
+    },
+    streaming: {
+      status:['thinking','正在思考'], progress:'共 1 步',
+      render(){
+        return stepCard({n:1, stage:'思考中', stageColor:'active', live:true, streaming:true,
+          thought:'我需要先确认项目结构，然后运行测试来验证当前状态。让我先看看 package.json 和 test 目录。',
+          actions:[{cmd:'cat package.json', rc:0, output:'{\n  "name": "agent-studio",\n  "version": "0.1.0",\n  "type": "module",\n  "scripts": {" dev ": "electron-vite dev", ...}\n}', err:false, collapsed:true}],
+          metaText:'3 messages'});
+      }
+    },
+    running: {
+      status:['running','执行命令 2 / 3'], progress:'共 3 步',
+      render(){
+        const s1 = stepCard({n:1, stage:'完成', stageColor:'done', live:false,
+          thought:'先检查项目配置，确认测试脚本。',
+          actions:[{cmd:'cat package.json', rc:0, output:'{\n  "name": "agent-studio",\n  "scripts": {"dev": "electron-vite dev", "test": "vitest"}\n}', err:false, collapsed:true}],
+          metaText:'2 messages'});
+        const s2 = stepCard({n:2, stage:'执行命令', stageColor:'executing', live:false,
+          thought:'运行单元测试，验证 adapter 的兼容性。',
+          actions:[{cmd:'npm test', rc:'run', output:null, err:false}],
+          metaText:'3 messages'});
+        const s3 = stepCard({n:3, stage:'排队中', stageColor:'active', thought:null, live:false,
+          actions:[{cmd:'git diff --stat', rc:'pending', output:null, err:false}],
+          metaText:'pending'});
+        return s1+s2+s3;
+      }
+    },
+    done: {
+      status:['completed','✅ 已完成'], progress:'共 3 步',
+      render(){
+        const s1 = stepCard({n:1, stage:'完成', stageColor:'done', live:false,
+          thought:'先检查项目配置，确认测试脚本。',
+          actions:[{cmd:'cat package.json', rc:0, output:'{\n  "name": "agent-studio",\n  "scripts": {"dev": "electron-vite dev", "test": "vitest"}\n}', err:false, collapsed:true}],
+          metaText:'2 messages'});
+        const s2 = stepCard({n:2, stage:'完成', stageColor:'done', live:false,
+          thought:'运行单元测试，验证 adapter 的兼容性。',
+          actions:[{cmd:'npm test', rc:0, output:'✓ 24 tests passed\n✓ 3 suites passed\nTest Files  3 passed (3)\n      Tests  24 passed (24)\n   Duration  1.20s', err:false, collapsed:false}],
+          metaText:'3 messages'});
+        const s3 = stepCard({n:3, stage:'完成', stageColor:'done', live:false,
+          thought:'添加 provider 流式支持并补一个回归测试。',
+          actions:[{cmd:'git diff --stat', rc:0, output:' 3 files changed, 48 insertions(+), 9 deletions(-)', err:false, collapsed:false}],
+          metaText:'4 messages'});
+        return s1+s2+s3;
+      }
+    },
+    error: {
+      status:['error','❌ 出错 / 已停止'], progress:'共 2 步',
+      render(){
+        const banner = '<div class="error-banner">'
+          + '<div class="eb-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5h.01"/></svg></div>'
+          + '<div class="eb-body"><div class="eb-title">运行中断</div>'
+          + '<div class="eb-detail">Error: 401 Invalid API Key for deepseek-chat (api.deepseek.com)</div>'
+          + '<div class="eb-action"><button class="ghost-btn">检查 API Key</button><button class="ghost-btn" style="margin-left:8px">重试</button></div></div>'
+          + '</div>';
+        const s1 = stepCard({n:1, stage:'完成', stageColor:'done', live:false,
+          thought:'先检查项目配置。',
+          actions:[{cmd:'cat package.json', rc:0, output:'{\n  "name": "agent-studio"\n}', err:false, collapsed:true}],
+          metaText:'2 messages'});
+        const s2 = stepCard({n:2, stage:'出错', stageColor:'error', live:false,
+          thought:'调用模型返回 401，API Key 无效或已过期。',
+          actions:[{cmd:'npm test', rc:1, output:'Unable to connect to api.deepseek.com —\nHTTP 401 Unauthorized\n[REDACTED_SECRET]', err:true, collapsed:false}],
+          metaText:'3 messages'});
+        return banner + s1 + s2;
+      }
+    }
+  };
+
+  // ── 场景切换 ──
+  let current = 'idle';
+  let typeTimer = null;
+  function setScene(name){
+    current = name;
+    document.querySelectorAll('.demo-btn').forEach(b=>b.classList.toggle('active', b.dataset.scene===name));
+    clearInterval(typeTimer);
+
+    const sc = SCENES[name];
+    const [dotCls, label] = sc.status;
+    statusDot.className = 'status-dot '+(dotCls||'');
+    statusMain.textContent = sc.status[1];
+    statusSteps.textContent = sc.progress;
+
+    // 运行按钮状态
+    if(name==='idle'){
+      runBtn.className='btn btn-run'; runBtn.classList.remove('hidden');
+      runBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>运行</span>';
+    } else if(name==='done'||name==='error'){
+      runBtn.className='btn btn-run'; runBtn.classList.remove('hidden');
+      runBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>再运行</span>';
+    } else {
+      runBtn.className='btn btn-stop'; runBtn.classList.remove('hidden');
+      runBtn.innerHTML='<span>停止</span>';
+    }
+
+    stage.innerHTML = sc.render();
+
+    // 流式打字机
+    if(name==='streaming'){
+      const pre = stage.querySelector('.thought-pre');
+      if(pre){
+        const full = pre.textContent;
+        pre.textContent='';
+        let i=0;
+        typeTimer = setInterval(()=>{
+          i+=3;
+          pre.textContent = full.slice(0,i);
+          if(i>=full.length){ clearInterval(typeTimer); }
+        }, 24);
+      }
+    }
+  }
+
+  // 演示按钮
+  document.getElementById('demoBar').querySelectorAll('.demo-btn').forEach(b=>{
+    b.addEventListener('click', ()=>setScene(b.dataset.scene));
+  });
+
+  // 流式开关 —— 关闭时演示状态停止流式
+  toggleStream.addEventListener('change', ()=>{
+    if(!toggleStream.checked){ clearInterval(typeTimer); }
+  });
+
+  // 任务输入自适应高度
+  taskInput.addEventListener('input', ()=>{
+    taskInput.style.height='auto';
+    taskInput.style.height=Math.min(taskInput.scrollHeight,120)+'px';
+  });
+
+  setScene('streaming');
+})();
+</script>
+</body>
+</html>
