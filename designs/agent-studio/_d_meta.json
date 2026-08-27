@@ -1,0 +1,24 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "Agent Studio 工作台 v2": {
+      "versions": [
+        {
+          "path": "index-v2.html",
+          "createdAt": "2026-08-27T12:54:30.975Z",
+          "status": "needs-review",
+          "subtitle": "底部 composer、当前 run 搜索、右侧设置抽屉、Working for 执行摘要",
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          },
+          "section": "Agent Studio"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-08-27T12:54:30.975Z",
+  "updatedAt": "2026-08-27T12:59:58.419Z"
+}
