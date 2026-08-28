@@ -41,8 +41,6 @@ docs/
 
 docs/design/
 ├── README.md
-├── tokens.css
-├── icons.md
 └── components.md
 
 designs/
@@ -52,7 +50,7 @@ designs/
     └── screenshots/
 ```
 
-`docs/` 放规则和说明，其中 `docs/design/` 放视觉系统源文件；`designs/` 放可以打开和操作的原型。
+`docs/` 放规则和说明，其中 `docs/design/components.md` 是按组件组织的视觉系统唯一源文件；每个组件章节自包含实际使用的颜色、字体、间距、尺寸、图标、状态和动效。`designs/` 放可以打开和操作的原型。
 
 如果项目不需要单独的工程契约，可以暂时不创建 `ENGINEERING-ARCHITECTURE.md`；但一旦涉及 IPC、事件流、模型调用、权限或执行环境，就应该单独记录，避免混入交互文档。
 
@@ -124,16 +122,14 @@ icon: Settings
 
 视觉设计记录界面如何呈现，不重新定义产品内容和业务规则。
 
-至少包括：
+视觉规范按组件组织，而不是按颜色、图标或 token 类型拆分。每个组件章节都必须自包含：
 
-- 颜色 token；
-- 字体和行高；
-- 间距和尺寸；
-- 图标映射；
-- 组件外观；
-- 状态视觉；
-- 动效和 reduced-motion 规则；
-- 深色/浅色或其他主题。
+- 颜色、字体和行高；
+- 间距、尺寸、圆角和边框；
+- 图标映射、尺寸、热区和无障碍标签；
+- 默认、悬停、聚焦、禁用和运行状态；
+- 动效、时长、缓动和 reduced-motion 规则；
+- 深色/浅色或其他主题下的实际表现。
 
 例如“设置入口使用 Settings 图标，18px，热区 40×40px，带 `aria-label="设置"`”属于视觉设计；“设置入口放在标题栏右侧，点击后打开右侧抽屉”属于交互逻辑。
 
@@ -143,7 +139,7 @@ icon: Settings
 
 原型应当：
 
-- 使用 `docs/design/` 中的 token 和组件规则；
+- 使用 `docs/design/components.md` 中对应组件章节的完整视觉契约；
 - 显示关键页面结构；
 - 能切换关键状态；
 - 关键按钮至少有真实的原型行为；
@@ -243,18 +239,18 @@ icon: LayoutDashboard
 
 交互逻辑要写“为什么”和“下一步能做什么”，不要只写视觉变化。
 
-### 阶段 4：建立视觉系统
+### 阶段 4：按组件建立视觉契约
 
-先定义 token，再定义组件：
+逐个组件完成可独立实现的视觉章节：
 
-1. 颜色语义：accent / success / warning / danger / text / surface；
-2. 字体：正文、代码、中文 fallback；
-3. 尺寸：标题栏、输入框、按钮、图标热区、抽屉；
-4. 图标：动作和状态的唯一映射；
-5. 组件：Header、Composer、Search、Settings Drawer、Message、Execution Detail；
-6. 动效：时长、easing、reduced-motion。
+1. 明确组件的内容、边界和布局结构；
+2. 在同一章节写出实际颜色、字体、间距、尺寸和圆角；
+3. 在同一章节写出图标语义、尺寸、热区、tooltip 和 `aria-label`；
+4. 在同一章节写出默认、交互、错误、运行和完成状态；
+5. 在同一章节写出动效时长、缓动和 reduced-motion 行为；
+6. 最后补齐该组件在桌面、窄窗口和无障碍场景下的变化。
 
-视觉系统应该集中在 `docs/design/`，而不是散落在页面字符串或组件内部。
+视觉系统的唯一文档源是 `docs/design/components.md`；实现代码可以使用 CSS 变量复用值，但不得再维护与组件章节平行的 token 或图标规范文件。
 
 ### 阶段 5：制作高保真原型
 
@@ -414,7 +410,7 @@ icon: <流程图标>
 
 1. product-structure：软件里有什么，包括页面、区块、字段和版本范围；不要写点击后的状态。
 2. interaction：用户动作、系统响应、状态变化、反馈、错误恢复、键盘和响应式行为。
-3. design：颜色、字体、尺寸、图标、组件、视觉状态和动效 token。
+3. design：按组件组织颜色、字体、尺寸、图标、视觉状态和动效契约。
 4. designs：使用前三者制作可打开、可点击、可评审的 HTML 原型。
 
 工作规则：
@@ -458,10 +454,10 @@ icon: <流程图标>
 
 ### 视觉设计
 
-- [ ] token 集中管理。
+- [ ] 每个组件章节都自包含颜色、字体、间距、尺寸、图标和状态。
 - [ ] 图标、尺寸、热区和 tooltip 有明确映射。
 - [ ] 不依赖颜色表达唯一状态。
-- [ ] 有 dark mode、focus-visible 和 reduced-motion 规则。
+- [ ] 每个有动效的组件都有 dark mode、focus-visible 和 reduced-motion 规则。
 
 ### 原型
 
