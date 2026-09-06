@@ -1,0 +1,11 @@
+{
+  "title": "Agent 设计",
+  "icon": "Bot",
+  "pages": [
+    "architecture",
+    "model-request",
+    "runtime-loop",
+    "...tools",
+    "events"
+  ]
+}

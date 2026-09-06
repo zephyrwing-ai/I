@@ -1,0 +1,21 @@
+import assert from "node:assert/strict";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { createLocalBashOps } from "../../agent/environment.js";
+
+test("local Bash reports created files without parsing the command text", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "agent-studio-bash-"));
+  const cwd = await realpath(temporary);
+  try {
+    const result = await createLocalBashOps().exec("printf 'hello' > result.txt", cwd, { timeout: 5 });
+    assert.equal(result.returncode, 0);
+    const artifact = result.artifacts?.find((candidate) => candidate.path.endsWith("result.txt"));
+    assert.ok(artifact);
+    assert.equal(artifact.operation, "created");
+    assert.equal(artifact.mediaType, "text/plain");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

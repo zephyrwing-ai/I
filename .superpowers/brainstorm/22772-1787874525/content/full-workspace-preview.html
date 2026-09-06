@@ -1,0 +1,181 @@
+<style>
+  :root {
+    --p-bg: #17181b;
+    --p-surface: #202125;
+    --p-surface-muted: #1d1e22;
+    --p-border: rgba(255,255,255,.11);
+    --p-text: #f4f4f5;
+    --p-text-2: rgba(244,244,245,.72);
+    --p-text-3: rgba(244,244,245,.46);
+    --p-accent: #78a9ff;
+    --p-shimmer: 3200ms;
+  }
+  .preview-shell { max-width: 1260px; margin: 18px auto 0; }
+  .preview-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 12px; }
+  .preview-controls button { height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 11px; }
+  .preview-controls button.active { border-color: color-mix(in srgb, var(--accent) 65%, transparent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); }
+  .preview-controls .hint { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .preview-app { position: relative; min-height: 720px; overflow: hidden; border: 1px solid var(--p-border); border-radius: 18px; background: var(--p-bg); color: var(--p-text); box-shadow: 0 28px 90px rgba(0,0,0,.24); font-family: "JetBrains Mono", "PingFang SC", "Hiragino Sans GB", sans-serif; }
+  .app-header { position: relative; z-index: 5; height: 56px; display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 0 18px 0 22px; border-bottom: 1px solid var(--p-border); background: rgba(32,33,37,.96); }
+  .title-wrap { display: flex; min-width: 0; align-items: center; gap: 12px; }
+  .task-title { overflow: hidden; color: var(--p-text); font-size: 12px; font-weight: 580; text-overflow: ellipsis; white-space: nowrap; }
+  .run-status { display: inline-flex; align-items: center; gap: 6px; color: var(--p-text-3); font-size: 10px; white-space: nowrap; }
+  .run-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #85888e; }
+  .preview-app[data-state="running"] .run-status::before { background: var(--p-accent); }
+  .header-actions { display: flex; gap: 4px; }
+  .icon-button { width: 38px; height: 38px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; color: var(--p-text-2); cursor: pointer; font-size: 16px; }
+  .icon-button:hover, .icon-button.active { background: rgba(255,255,255,.06); color: var(--p-text); }
+  .stream { height: 664px; overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.12) transparent; }
+  .stream-inner { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 36px 0 190px; }
+  .history-label { margin-bottom: 26px; color: var(--p-text-3); font-size: 10px; }
+  .message { margin-bottom: 30px; }
+  .user-bubble { width: fit-content; max-width: 76%; margin-left: auto; padding: 10px 13px; border-radius: 12px; background: #292b2f; color: var(--p-text); font-size: 12px; line-height: 1.65; }
+  .run-record { margin-top: 24px; }
+  .run-summary { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 0 12px; border: 0; border-bottom: 1px solid rgba(255,255,255,.1); background: transparent; color: var(--p-text-3); cursor: pointer; text-align: left; }
+  .summary-label { font-size: 11px; }
+  .summary-chevron { display: inline-block; font-size: 15px; transition: transform 180ms ease; }
+  .run-record.open .summary-chevron { transform: rotate(90deg); }
+  .text-shimmer { color: transparent; background-image: linear-gradient(100deg, var(--p-text-3) 0%, var(--p-text-3) 38%, rgba(244,244,245,.92) 50%, var(--p-text-3) 62%, var(--p-text-3) 100%); background-size: 250% 100%; background-repeat: no-repeat; background-position: 100% 0; -webkit-background-clip: text; background-clip: text; animation: full-shimmer var(--p-shimmer) linear infinite; }
+  @keyframes full-shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+  .preview-app[data-state="done"] .text-shimmer { color: var(--p-text-3); background: none; animation: none; }
+  .agent-copy { margin: 24px 0 0; color: rgba(244,244,245,.87); font-size: 13px; line-height: 1.9; letter-spacing: -.01em; }
+  .activity-flow { display: none; margin-top: 18px; color: var(--p-text-3); font-size: 11px; }
+  .run-record.open .activity-flow { display: block; }
+  .activity-row { display: grid; grid-template-columns: 18px 1fr auto; gap: 9px; align-items: start; padding: 5px 0; line-height: 1.55; }
+  .activity-row strong { color: var(--p-text-2); font-weight: 560; }
+  .activity-time { color: rgba(244,244,245,.32); }
+  .tool-group-head { cursor: pointer; }
+  .tool-children { display: none; margin: 2px 0 7px 8px; padding: 2px 0 2px 19px; border-left: 1px solid rgba(255,255,255,.11); }
+  .tool-group.open .tool-children { display: block; }
+  .tool-child { display: flex; align-items: center; gap: 9px; min-height: 28px; color: var(--p-text-3); cursor: pointer; }
+  .tool-child b { color: var(--p-text-2); font-weight: 530; }
+  .tool-detail { display: none; margin: 2px 0 8px 35px; padding-left: 12px; border-left: 1px solid rgba(255,255,255,.1); color: rgba(244,244,245,.4); font: 10px/1.8 "SF Mono", ui-monospace, monospace; }
+  .tool-child-wrap.open .tool-detail { display: block; }
+  .tool-detail code { color: rgba(244,244,245,.68); }
+  .final-answer { display: none; margin-top: 26px; color: var(--p-text); font-size: 13px; line-height: 1.9; }
+  .preview-app[data-state="done"] .final-answer { display: block; }
+  .answer-meta { display: flex; gap: 13px; margin-top: 12px; color: rgba(244,244,245,.34); font-size: 10px; opacity: 0; transition: opacity 150ms ease; }
+  .run-record:hover .answer-meta { opacity: 1; }
+  .composer-dock { position: absolute; z-index: 4; inset: auto 0 0; padding: 52px 24px 18px; background: linear-gradient(transparent, var(--p-bg) 38%); pointer-events: none; }
+  .composer { width: min(780px, 100%); margin: 0 auto; padding: 10px 10px 9px; border: 1px solid rgba(255,255,255,.15); border-radius: 15px; background: #222428; box-shadow: 0 16px 36px rgba(0,0,0,.23); pointer-events: auto; }
+  .composer textarea { width: 100%; min-height: 39px; resize: none; border: 0; outline: 0; background: transparent; color: var(--p-text); font: 12px/1.55 inherit; }
+  .composer textarea::placeholder { color: rgba(244,244,245,.34); }
+  .composer-actions { display: flex; align-items: center; justify-content: space-between; }
+  .composer-left, .composer-right { display: flex; align-items: center; gap: 5px; }
+  .composer-control { height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--p-text-2); cursor: pointer; font-size: 10px; }
+  .composer-control:hover { background: rgba(255,255,255,.06); }
+  .send-button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 9px; background: #e9eaec; color: #191a1c; cursor: pointer; font-size: 14px; }
+  .preview-app[data-state="running"] .send-button { background: #d4d5d8; }
+  .send-icon::before { content: "↑"; }
+  .preview-app[data-state="running"] .send-icon::before { content: "■"; font-size: 9px; }
+  .search-popover { position: absolute; z-index: 8; top: 62px; right: 62px; width: 350px; display: none; padding: 11px; border: 1px solid var(--p-border); border-radius: 12px; background: #24262a; box-shadow: 0 18px 44px rgba(0,0,0,.34); }
+  .search-popover.open { display: block; }
+  .search-row { display: flex; align-items: center; gap: 8px; }
+  .search-row input { flex: 1; height: 34px; border: 0; outline: 0; background: transparent; color: var(--p-text); font: 11px inherit; }
+  .search-count { color: var(--p-text-3); font-size: 10px; }
+  .drawer-backdrop { position: absolute; z-index: 6; inset: 56px 0 0; display: none; background: rgba(0,0,0,.34); }
+  .drawer-backdrop.open { display: block; }
+  .settings-drawer { position: absolute; z-index: 7; top: 56px; right: 0; bottom: 0; width: 360px; display: none; border-left: 1px solid var(--p-border); background: #202125; box-shadow: -20px 0 52px rgba(0,0,0,.28); }
+  .settings-drawer.open { display: block; }
+  .drawer-head { height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px 0 18px; border-bottom: 1px solid var(--p-border); font-size: 12px; }
+  .drawer-body { padding: 20px 18px; }
+  .group-title { margin-bottom: 14px; color: var(--p-text-3); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+  .field { margin-bottom: 15px; }
+  .field label { display: block; margin-bottom: 6px; color: var(--p-text-2); font-size: 10px; }
+  .field input, .field select { width: 100%; height: 40px; padding: 0 10px; border: 1px solid var(--p-border); border-radius: 8px; background: #1b1d20; color: var(--p-text); font: 11px inherit; }
+  .preview-footer { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+  .preview-footer:hover, .preview-footer.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  @media (prefers-reduced-motion: reduce) { .text-shimmer { color: var(--p-text-3); background: none; animation: none; } }
+  @media (max-width: 760px) { .preview-app { min-height: 680px; } .stream { height: 624px; } .settings-drawer { width: 100%; } .preview-controls .hint { width: 100%; margin-left: 0; } }
+</style>
+
+<h2>Agent Studio 整体效果预览</h2>
+<p class="subtitle">点击状态按钮查看运行中、已完成和空闲；页面内部的搜索、设置、Working 摘要与工具组也可以点击。</p>
+
+<div class="preview-shell">
+  <div class="preview-controls">
+    <button class="state-button active" data-preview-state="running">运行中</button>
+    <button class="state-button" data-preview-state="done">已完成</button>
+    <button class="state-button" data-preview-state="idle">空闲 / 历史</button>
+    <span class="hint">这是设计预览，不会修改正式 HTML</span>
+  </div>
+
+  <div class="preview-app" id="fullPreview" data-state="running">
+    <header class="app-header">
+      <div class="title-wrap"><span class="task-title">Redesign Agent Studio from current design baseline</span><span class="run-status" id="previewStatus">正在运行</span></div>
+      <div class="header-actions"><button class="icon-button" id="previewSearch" aria-label="搜索">⌕</button><button class="icon-button" id="previewSettings" aria-label="设置">⚙</button></div>
+    </header>
+
+    <div class="search-popover" id="searchPopover"><div class="search-row"><span>⌕</span><input value="adapter" aria-label="搜索当前运行" /><span class="search-count">2 / 4</span></div></div>
+    <div class="drawer-backdrop" id="drawerBackdrop"></div>
+    <aside class="settings-drawer" id="settingsDrawer">
+      <div class="drawer-head"><span>设置</span><button class="icon-button" id="closeDrawer">×</button></div>
+      <div class="drawer-body">
+        <div class="group-title">模型连接</div>
+        <div class="field"><label>Provider</label><select><option>OpenAI-compatible</option><option>Anthropic</option><option>Google</option></select></div>
+        <div class="field"><label>Model</label><input value="gpt-5.6" /></div>
+        <div class="field"><label>Base URL</label><input value="https://api.openai.com/v1" /></div>
+        <div class="field"><label>API Key</label><input type="password" value="redacted-demo-key" /></div>
+      </div>
+    </aside>
+
+    <main class="stream">
+      <div class="stream-inner">
+        <div class="history-label">TODAY</div>
+        <article class="message"><div class="user-bubble">根据最新设计文档重做 Agent Studio，并确保运行详情不是卡片式展示。</div></article>
+        <article class="run-record open" id="runRecord">
+          <button class="run-summary" id="runSummary"><span class="summary-label text-shimmer" id="workingText">Working for 1m 42s</span><span class="summary-chevron">›</span></button>
+          <p class="agent-copy">我会先核对产品结构、交互和视觉规范，再重建单一 HTML 原型。模型正文保持连续排版，运行证据以低强调活动行插入当前回答。</p>
+          <div class="activity-flow">
+            <div class="activity-row"><span>✎</span><span>Edited <strong>message-stream.mdx</strong></span><span class="activity-time">12s</span></div>
+            <div class="tool-group open" id="toolGroup">
+              <div class="activity-row tool-group-head" id="toolGroupHead"><span>⌄</span><span><strong>Used 3 tools</strong> · searched files, read source, ran tests</span><span class="activity-time">28s</span></div>
+              <div class="tool-children">
+                <div class="tool-child-wrap"><div class="tool-child"><span>›</span><span>⌕</span><span><b>Searched</b> AgentEvent across runtime and renderer</span></div></div>
+                <div class="tool-child-wrap open" id="commandTool"><div class="tool-child" id="commandToolHead"><span>⌄</span><span>⌘</span><span><b>Ran</b> compatibility tests</span></div><div class="tool-detail"><div><code>$ npm test</code></div><div>18 tests passed · rc 0 · 2.4s</div></div></div>
+                <div class="tool-child-wrap"><div class="tool-child"><span>›</span><span>▤</span><span><b>Read</b> current design documents</span></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="final-answer">整体结构已经统一：正文负责解释，活动行负责呈现行为，二级展开负责保留工具证据。界面不会再被卡片切碎。<div class="answer-meta"><span>⧉ Copy</span><span>11:10 PM</span></div></div>
+        </article>
+      </div>
+    </main>
+
+    <footer class="composer-dock">
+      <div class="composer">
+        <textarea rows="2" placeholder="描述你希望 Agent 完成的任务…"></textarea>
+        <div class="composer-actions"><div class="composer-left"><button class="composer-control" title="添加文件">▢</button><button class="composer-control">GPT-5.6⌄</button></div><div class="composer-right"><span class="composer-control">Enter 发送</span><button class="send-button" title="发送或停止"><span class="send-icon"></span></button></div></div>
+      </div>
+    </footer>
+  </div>
+
+  <div class="preview-footer" data-choice="approve-full-preview" onclick="toggleSelect(this)"><strong>整体效果符合预期</strong><br><span class="subtitle">确认后将把这套结构写入最终规格，再进入正式 HTML 实现。</span></div>
+</div>
+
+<script>
+  (() => {
+    const app = document.getElementById('fullPreview');
+    const record = document.getElementById('runRecord');
+    const summary = document.getElementById('runSummary');
+    const workingText = document.getElementById('workingText');
+    const status = document.getElementById('previewStatus');
+    document.querySelectorAll('[data-preview-state]').forEach((button) => button.addEventListener('click', () => {
+      document.querySelectorAll('[data-preview-state]').forEach((item) => item.classList.toggle('active', item === button));
+      const state = button.dataset.previewState;
+      app.dataset.state = state;
+      if (state === 'running') { status.textContent = '正在运行'; workingText.textContent = 'Working for 1m 42s'; record.classList.add('open'); }
+      if (state === 'done') { status.textContent = '已完成'; workingText.textContent = 'Worked for 2m 08s'; record.classList.remove('open'); }
+      if (state === 'idle') { status.textContent = '待命'; workingText.textContent = 'Worked for 2m 08s'; record.classList.remove('open'); }
+    }));
+    summary.addEventListener('click', () => record.classList.toggle('open'));
+    document.getElementById('toolGroupHead').addEventListener('click', () => document.getElementById('toolGroup').classList.toggle('open'));
+    document.getElementById('commandToolHead').addEventListener('click', () => document.getElementById('commandTool').classList.toggle('open'));
+    document.getElementById('previewSearch').addEventListener('click', (event) => { event.currentTarget.classList.toggle('active'); document.getElementById('searchPopover').classList.toggle('open'); });
+    const openDrawer = () => { document.getElementById('settingsDrawer').classList.add('open'); document.getElementById('drawerBackdrop').classList.add('open'); };
+    const closeDrawer = () => { document.getElementById('settingsDrawer').classList.remove('open'); document.getElementById('drawerBackdrop').classList.remove('open'); };
+    document.getElementById('previewSettings').addEventListener('click', openDrawer);
+    document.getElementById('closeDrawer').addEventListener('click', closeDrawer);
+    document.getElementById('drawerBackdrop').addEventListener('click', closeDrawer);
+  })();
+</script>

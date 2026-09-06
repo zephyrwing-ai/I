@@ -1,0 +1,6 @@
+/* 唯一列定义：消息列与对话框列共用，宽度只在此处声明一次。 */
+.column { min-width: 0; min-height: 0; width: 100%; margin-inline: auto; position: relative; display: grid; grid-template-rows: minmax(0, 1fr); }
+/* 760px 内容列：滚动区与 Composer 内部各自居中，滚动条随滚动容器占满窗口宽 */
+.stream-content, .composer-inner { width: min(760px, 100%); margin-inline: auto; }
+/* 覆盖布局：Composer 出流并以绝对定位钉在列底，滚动区与滚动条轨道因此贯穿整列 */
+.composer-inner { position: absolute; left: 0; right: 0; bottom: 0; }

@@ -1,0 +1,145 @@
+/* ===== 消息流区域：滚动容器占满主列（滚动条贴窗口右侧），760px 内容列居中 =====
+   原生滚动条隐藏，改由 JS 自绘滑块（StreamScrollbar.tsx）：轨道宽 12px，
+   滑块视觉宽度 8px、距窗口右缘 2px、距底部 2px；长度按内容比例缩放，钳制最小
+   48px、最大 72px，端头圆角 8px；内容可滚动时常显（玻璃质感：垂直渐变 + 顶部内高光）。 */
+.stream-region { position: relative; min-width: 0; min-height: 0; }
+.stream-scroll { height: 100%; min-width: 0; min-height: 0; overflow-y: auto; scroll-behavior: smooth; scrollbar-width: none; }
+.stream-scroll::-webkit-scrollbar { display: none; }
+.stream-scrollbar { position: absolute; top: 0; right: 0; bottom: 0; width: 12px; z-index: 10; }
+.stream-scrollbar-thumb { position: absolute; right: 2px; width: 8px; border-radius: 8px; background: linear-gradient(180deg, #bec2c9, #b4b8bf 45%); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.6); transition: background 120ms var(--ease-standard), box-shadow 120ms var(--ease-standard); touch-action: none; }
+.stream-scrollbar-thumb:hover,
+.stream-scrollbar-thumb.is-dragging { background: linear-gradient(180deg, #9aa1ab, #9198a3 55%); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.35); }
+/* 内容列：30px 上下内边距，桌面 24px 水平内边距 */
+.stream-content { padding: 30px 24px; }
+
+/* 用户消息：右对齐气泡（14px / 24px 行高，四角一致 12px，扁平纯填充），与后续内容 28px 垂直间距 */
+.user-message-row { margin: 0 0 28px; display: flex; justify-content: flex-end; }
+.user-message-group { display: flex; flex-direction: column; align-items: flex-end; max-width: 76%; }
+.user-message { width: fit-content; max-width: 100%; padding: 8px 14px; border-radius: 12px; background: var(--surface-bubble); color: var(--text); font-size: 14px; line-height: 24px; letter-spacing: 0.02em; white-space: pre-wrap; word-break: break-word; }
+
+/* ===== 过程块：Working for 折叠行（下方分隔线） ===== */
+.run-process { margin: 0 0 28px; }
+.run-fold { width: 100%; min-height: 32px; padding: 0 0 4px; border: 0; border-bottom: 1px solid var(--border); background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
+.turn-state { color: var(--text-muted); font-size: 14px; line-height: 20px; letter-spacing: 0.02em; }
+/* 运行中扫光（减速至 4.2s） */
+.turn-state.working { color: transparent; background: linear-gradient(100deg, var(--text-muted) 42%, var(--surface) 50%, var(--text-muted) 58%); background-size: 280% 100%; background-position: 140% 0; animation: turn-shimmer 4.2s linear infinite; -webkit-background-clip: text; background-clip: text; }
+@keyframes turn-shimmer { to { background-position: -140% 0; } }
+
+/* 15×15 折叠箭头：收起指右，展开转 90° 指下 */
+.chevron { flex: 0 0 auto; color: var(--text-muted); transition: transform 180ms var(--ease-standard); }
+.chevron.is-expanded { transform: rotate(90deg); }
+
+/* 展开/收起动画：grid-template-rows 0fr → 1fr（同 provider-model-collapse 模式） */
+.run-detail { display: grid; grid-template-rows: 0fr; opacity: 0; transform: translateY(-2px); transition: grid-template-rows 240ms var(--ease-standard), opacity 200ms ease, transform 240ms var(--ease-standard); }
+.run-detail.is-open { grid-template-rows: 1fr; opacity: 1; transform: translateY(0); }
+.run-detail-clip { min-height: 0; overflow: hidden; }
+
+/* 折叠内容：思考块（reasoning 通道）+ 过程文本 + 回合动作折叠，直接堆叠 */
+.fold-turn { min-width: 0; }
+.fold-turn + .fold-turn { margin-top: 8px; }
+/* 思考块：reasoning 通道正文，无标签直接堆叠；字样与用户消息一致（14px/24px 行高、0.02em 字距）；结构由 .markdown 接管 */
+.think-block { max-width: 680px; }
+.think-text { margin: 0; color: var(--text); font-size: 14px; line-height: 24px; letter-spacing: 0.02em; word-break: break-word; }
+.think-block + .model-text,
+.think-block + .turn-action { margin-top: 8px; }
+.model-text { margin: 0; max-width: 680px; color: var(--text-secondary); font-size: 14px; line-height: 24px; word-break: break-word; }
+
+/* ===== markdown 结构层：基础块间距 8px（与思考块一致）；结构块上下 12px 加宽；结构元素小步定义，自动适配亮暗主题 ===== */
+.markdown > * + * { margin-top: 8px; }
+.markdown p { margin: 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 0; font-weight: 600; line-height: 1.3; letter-spacing: 0.02em; }
+.markdown h1 { font-size: 18px; }
+.markdown h2 { font-size: 17px; }
+.markdown h3 { font-size: 16px; }
+.markdown h4 { font-size: 15px; }
+.markdown ul, .markdown ol { margin: 0; padding-left: 22px; }
+.markdown li { margin: 0; }
+.markdown li > ul, .markdown li > ol { margin-top: 4px; }
+.markdown li.task-list-item { list-style: none; }
+.markdown li.task-list-item input { margin: 3px 6px 0 -18px; vertical-align: top; }
+.markdown blockquote { margin: 0; padding-left: 12px; border-left: 2px solid var(--border); color: var(--text-secondary); }
+.markdown a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.markdown a:hover { color: var(--text); }
+.markdown code { font-family: var(--mono); font-size: 0.92em; padding: 1px 4px; border-radius: 4px; background: var(--surface-secondary); }
+.markdown pre { margin: 0; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-secondary); }
+.markdown pre code { display: block; padding: 0; border-radius: 0; background: transparent; font-size: 12px; line-height: 20px; white-space: pre; }
+.markdown table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 20px; }
+.md-table-wrap { overflow-x: auto; }
+.markdown th, .markdown td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
+.markdown th { background: var(--surface-secondary); font-weight: 600; }
+.markdown hr { margin: 0; border: 0; }
+.markdown img { max-width: 100%; }
+/* 结构块（标题/列表/表格/代码块/引用/分隔线）：上下边距各 12px 加宽，与纯文本正文区分层级；分隔线只留间距不留线（hr 边框已去除）；基础块间距保持 8px（与思考块同一节奏） */
+.markdown h1, .markdown h2, .markdown h3, .markdown h4,
+.markdown ul, .markdown ol, .markdown pre, .markdown blockquote,
+.md-table-wrap, .markdown hr { margin-top: 12px; margin-bottom: 12px; }
+
+/* 最终答案：直接进入阅读流，与消息流左对齐、右侧留白；文字 14px / 24px 行高、阅读黑 #23242A、0.02em 字距；块间距由 .run-process 下边距 28px 承接 */
+.final-answer { margin: 14px 0 0; font-size: 14px; line-height: 24px; color: var(--text-reading); letter-spacing: 0.02em; }
+
+/* ===== 时间戳与复制行：11px 时间 + 12×12 复制图标；用户消息右对齐、模型消息左对齐，距消息下缘 8px；默认隐藏，悬停/聚焦消息区域时淡入 ===== */
+.model-message { display: flex; flex-direction: column; }
+.model-message > .message-meta { align-self: flex-start; }
+.message-meta { margin-top: 8px; display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity 120ms var(--ease-standard); }
+.user-message-group:hover .message-meta,
+.user-message-group:focus-within .message-meta,
+.model-message:hover .message-meta,
+.model-message:focus-within .message-meta { opacity: 1; }
+.message-time { color: var(--text-muted); font-size: 13px; line-height: 20px; }
+.message-copy { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); display: grid; place-items: center; transition: color 120ms var(--ease-standard); }
+.message-copy:hover { color: var(--text); }
+
+/* ===== 回合动作折叠：一个回合的 agent 操作合并为一级折叠，行与消息左缘对齐 ===== */
+.turn-action { margin-top: 6px; min-width: 0; }
+.turn-action-fold { width: 100%; min-height: 26px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
+.turn-action-icon { flex: 0 0 auto; color: var(--text-secondary); transition: color 150ms var(--ease-standard); }
+.turn-action-summary { flex: 0 1 auto; min-width: 0; color: var(--text-secondary); font-size: 14px; line-height: 22px; font-family: "PingFang SC", "Hiragino Sans GB", sans-serif; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 150ms var(--ease-standard); }
+/* 悬停反馈（与工具执行行同款）：仅折叠行本体「加深 + 描边加粗」；悬停内部工具行不联动 */
+.turn-action-fold:hover .turn-action-summary,
+.turn-action-fold:hover .turn-action-icon { color: var(--text); }
+.turn-action-fold:hover .turn-action-summary { -webkit-text-stroke: 0.3px currentColor; } /* 描边加粗：笔画增粗，字形度量不变 */
+/* 折叠箭头：默认隐藏（opacity 淡入，占位保留不挤压摘要），悬停/键盘焦点淡入 120ms；展开后保持显示并指向下 */
+.turn-action .chevron { opacity: 0; transition: opacity 120ms var(--ease-standard), transform 180ms var(--ease-standard); }
+.turn-action-fold:hover .chevron,
+.turn-action-fold:focus-visible .chevron,
+.turn-action.is-open .chevron { opacity: 1; }
+/* 回合折叠展开内容：操作列表按顺序堆叠，最大高度 320px 内部滚动 */
+.turn-action-detail { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 200ms var(--ease-standard), opacity 180ms ease; }
+.turn-action.is-open .turn-action-detail { grid-template-rows: 1fr; opacity: 1; }
+.turn-action-clip { min-height: 0; max-height: 320px; overflow-y: auto; overflow-x: hidden; }
+
+/* ===== 工具执行行：16×16 图标 + 动词动作描述 + 折叠箭头，位于回合折叠内 ===== */
+.tool-row { margin: 8px 0 0; }
+.tool-fold { width: 100%; min-height: 28px; padding: 3px 6px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
+.tool-icon { flex: 0 0 auto; color: var(--text-secondary); transition: color 150ms var(--ease-standard); }
+.tool-action { flex: 1; min-width: 0; color: var(--text-secondary); font-size: 14px; line-height: 22px; font-family: "PingFang SC", "Hiragino Sans GB", sans-serif; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 150ms var(--ease-standard); }
+/* 收起：折叠箭头默认隐藏（opacity 淡入，占位保留不挤压描述）；悬停反馈「加深 + 描边加粗」，行背景保持透明 */
+.tool-row:hover .tool-action,
+.tool-row:hover .tool-icon { color: var(--text); }
+.tool-row:hover .tool-action { -webkit-text-stroke: 0.3px currentColor; } /* 描边加粗：笔画增粗，字形度量不变 */
+/* 折叠箭头：默认隐藏，悬停/键盘焦点淡入 120ms；展开后保持显示并指向下 */
+.tool-row .chevron { opacity: 0; transition: opacity 120ms var(--ease-standard), transform 180ms var(--ease-standard); }
+.tool-row:hover .chevron,
+.tool-fold:focus-visible .chevron,
+.tool-row.is-open .chevron { opacity: 1; }
+/* 展开：静态外观，悬停仅「点亮」（加深 + 加粗），箭头保持显示指向下 */
+.tool-detail { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 200ms var(--ease-standard), opacity 180ms ease; }
+.tool-row.is-open .tool-detail { grid-template-rows: 1fr; opacity: 1; }
+.tool-detail-clip { min-height: 0; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.tool-input-pre { width: 100%; box-sizing: border-box; margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--input); color: var(--text-secondary); font-family: var(--mono); font-size: 14px; line-height: 20px; white-space: pre-wrap; word-break: break-word; }
+.tool-error { color: var(--danger); font-size: 12px; }
+
+/* ===== 输出查看器：次级表面填充卡片（10px 圆角），顶部类型标签，右上角复制 ===== */
+.output-card { width: 100%; box-sizing: border-box; border-radius: 10px; background: var(--surface-secondary); padding: 2px 6px 6px; }
+.output-card-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
+.output-label { color: var(--text-muted); font-family: var(--mono); font-size: 14px; line-height: 20px; }
+.output-copy { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); display: grid; place-items: center; }
+.output-copy:hover { background: var(--hover); color: var(--text); }
+.output-pre { max-height: 320px; margin: 0; padding: 2px 4px 4px; overflow: auto; background: transparent; color: var(--text-muted); font-family: var(--mono); font-size: 14px; line-height: 20px; white-space: pre-wrap; word-break: break-word; }
+.ghost-btn { width: fit-content; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--accent); font-size: 12px; }
+.ghost-btn:hover { border-color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-state.working { color: var(--text-muted); background: none; animation: none; }
+  .run-detail, .turn-action-detail, .tool-detail, .chevron, .tool-row .chevron, .turn-action .chevron, .message-copy { transition: none; }
+}

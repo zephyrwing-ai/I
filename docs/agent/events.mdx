@@ -1,0 +1,48 @@
+---
+title: 运行事件
+description: Agent 向宿主报告运行、回合、模型消息和工具调用的结构化事件契约。
+---
+
+运行事件是 Agent Runtime 对宿主的唯一过程输出。Agent 不直接修改宿主状态，也不假设宿主使用 Electron、React、终端或其他界面技术。
+
+## 身份层级
+
+事件使用 `runId → turnId → toolCallId` 三层稳定身份：
+
+| 身份 | 生命周期 | 作用 |
+| --- | --- | --- |
+| `runId` | 一次完整任务运行 | 隔离重试、取消和并发运行 |
+| `turnId` | 一次模型请求及其工具批次 | 关联流式正文、完整消息和本回合工具调用 |
+| `toolCallId` | 模型产生的一次工具调用 | 关联工具开始、增量结果、完成结果和回填消息 |
+
+身份不能由数组位置、“最后一条消息”或显示顺序推导。事件允许异步到达，宿主仍应能够把结果归入原始运行对象。
+
+## 事件协议
+
+Agent 发出以下事件：运行开始、回合开始、Assistant 增量、Assistant 完成、工具开始、工具完成、回合完成和运行完成。每类事件都携带 `runId`；回合事件还携带 `turnId`；工具事件还携带 `toolCallId`。
+
+`assistantCompleted` 保存归一化 Assistant Message 和停止原因；`toolCompleted` 保存结构化工具结果；`runCompleted` 只允许携带 `completed`、`cancelled` 或 `failed`，并可附带结构化 `RunError` 和诊断信息。
+
+协议中不存在 `stepLimit`、`maxSteps` 或其他按次数终止字段。可选的 `turnOrdinal` 和 `turnCount` 只用于排序与诊断，Runtime 不能读取它们作为退出条件。
+
+## 顺序与终止
+
+同一回合中，Agent 先发出 `turnStarted`，再发出 Assistant 增量和完整消息；存在工具调用时，每个调用分别发出开始与完成事件，所有调用处理完后发出 `turnCompleted`。运行结束时只发出一次 `runCompleted`。
+
+不同工具调用可以并发完成，因此事件的完成顺序不必等于工具调用在模型消息中的排列顺序。稳定 ID 是关联事实，事件到达顺序只用于过程展示，不能替代关联关系。
+
+模型请求失败、取消信号、运行时异常和自然完成最终都必须收敛到唯一的 `runCompleted`。普通工具错误仍通过 `toolCompleted` 返回，并由 Runtime 回填模型；除非错误破坏 Runtime 本身，否则它不直接终止 run。
+
+## 错误与敏感信息
+
+`RunError` 至少包含稳定的错误类型、用户可读消息，以及可选的 `retryable` 和 `diagnosticId`。错误类型区分配置、网络、Provider、模型协议、工具和 Runtime。
+
+事件不得包含 API Key、Authorization header 或 Provider 的完整敏感请求负载。诊断日志可以通过 `diagnosticId` 关联，但不能把敏感值复制回事件。
+
+## 验证
+
+- 任意结束路径只产生一个 `runCompleted`。
+- 两个工具调用乱序完成时仍关联到各自的 `toolCallId`。
+- 工具错误完成后，Runtime 可以把同一结果回填模型并继续下一回合。
+- 中止模型请求或工具执行后，运行最终进入 `cancelled`，不再产生新的模型请求。
+- 任何事件都不包含 API Key 或 Authorization header。

@@ -1,11 +1,10 @@
-# Agent Studio 设计文档索引
+# 设计文档索引
 
-`DESIGN.md` 曾经同时包含产品结构、交互、视觉和工程架构，容易造成内容重复。自 v0.3 起，按设计产物拆分为：
+`DESIGN.md` 是设计文档入口，不再承载页面或工程细节。当前文档按事实归属拆分为：
 
-- [产品结构](./product-structure/index.mdx)：软件包含的页面、区块、内容和能力清单。
-- [交互逻辑](./interaction/index.mdx)：用户动作、系统响应、状态变化和错误恢复。
-- [视觉设计](./design/README.md)：颜色、字体、图标、尺寸、组件视觉状态和动效 token。
-- [工程架构](./ENGINEERING-ARCHITECTURE.md)：Renderer、IPC、Agent Runtime、Provider、Execution 的实现契约。
+- [桌面端产品结构](./desktop/structure/workbench.mdx)：按真实页面组织软件包含的区块、内容与能力；导航顺序由 `meta.json` 管理。
+- [桌面端设计](./desktop/design/workbench/index.mdx)：按真实页面组织完整设计；用户操作、视觉、Electron、Renderer、IPC、状态、本地数据和安全承诺都写入所属页面；设计令牌、标题栏、设置、消息流、Composer、侧边栏与安全边界按类别拆分到 `desktop/design/workbench/` 目录。
+- [Agent 设计](./agent/architecture.mdx)：只按模型请求、运行循环、工具系统和 AgentEvent 等宿主无关模块描述 Agent 内核契约；具体工具目录位于 `agent/tools/`。
 - [AI 设计工作法](./AI-DESIGN-WORKFLOW.md)：把上述产物沉淀为可复用的 AI 软件前期设计流程。
 
-当前唯一有效的设计基线是以上四类文档的合并约束；若文档之间出现冲突，先修正产品结构，再同步交互、视觉和工程契约，不在原型代码中自行猜测。
+当前唯一有效的设计基线是以上三类文档的合并约束。发生冲突时，先修正产品结构，再同步桌面设计和 Agent 设计；同一事实不维护平行副本，也不允许在原型代码中自行猜测。
