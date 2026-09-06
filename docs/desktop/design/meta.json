@@ -1,0 +1,5 @@
+{
+  "title": "桌面设计",
+  "icon": "PanelsTopLeft",
+  "pages": ["workbench", "markdown-rendering"]
+}

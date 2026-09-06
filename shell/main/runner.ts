@@ -1,90 +1,129 @@
-/**
- * AgentRunner — 把 AgentEvents 桥接为 IPC 事件流，并管理运行/取消生命周期。
- * 这一层是"CLI 订阅者"在 Electron 里的对应物：换掉 src/run.ts，agent.ts 不变。
- */
-
 import { randomUUID } from "node:crypto";
-import { run, type AgentEvents, type DoneContext } from "../../agent/agent.js";
-import { createLocalBashOps, createDockerBashOps } from "../../agent/environment.js";
-import type { RunRequest } from "../shared/ipc.js";
+import { run, type AgentEvents } from "../../agent/loop.js";
+import type { ModelConfig } from "../../agent/model/index.js";
+import { sessionStore } from "./session-store.js";
+import { createLocalBashOps } from "../../agent/environment.js";
+import { createToolRegistry, type ToolResult as InternalToolResult } from "../../agent/tools.js";
+import type { FileArtifact } from "../../agent/types.js";
+import type { AgentEvent, OutputFileDescriptor, Provider, ToolResult } from "../shared/ipc.js";
 
-const SYSTEM_PROMPT = `You are a coding agent. You can run bash commands.
-Reply with:
-THOUGHT: <your reasoning>
-COMMAND: <bash command>
-When done, reply with: DONE: <summary>`;
+const SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
 
 export interface RunnerHandle {
   runId: string;
   stop(): void;
 }
 
+/** Main 解析 modelOptionId 与凭据后才能构造；不得暴露给 Renderer。 */
+export interface ResolvedRunRequest {
+  task: string;
+  cwd: string;
+  modelOptionId: string;
+  providerProfileId: string;
+  provider: Provider;
+  modelId: string;
+  baseURL?: string;
+  apiKey: string;
+}
+
+export type ArtifactRegistrar = (
+  runId: string,
+  cwd: string,
+  artifacts: FileArtifact[],
+) => OutputFileDescriptor[];
+
 export class AgentRunner {
   private controller = new AbortController();
   private active = false;
 
-  /**
-   * 启动一次运行。emit(channel, payload) 由调用方提供（一般绑到 webContents.send）。
-   * 若已有运行在跑则抛错。
-   */
-  start(req: RunRequest, emit: (channel: string, payload: unknown) => void): RunnerHandle {
-    if (this.active) {
-      throw new Error("已有运行正在进行，请先停止当前任务。");
-    }
+  constructor(private readonly registerArtifacts?: ArtifactRegistrar) {}
+
+  get isActive(): boolean {
+    return this.active;
+  }
+
+  start(req: ResolvedRunRequest, emit: (event: AgentEvent) => void): RunnerHandle {
+    if (this.active) throw new Error("已有运行正在进行，请先停止当前任务。");
     this.active = true;
     this.controller = new AbortController();
     const runId = randomUUID();
+    const emitOnce = (() => {
+      let completed = false;
+      return (event: AgentEvent) => {
+        if (event.type === "runCompleted") {
+          if (completed) return;
+          completed = true;
+          this.active = false;
+        }
+        emit(event);
+      };
+    })();
 
     const events: AgentEvents = {
-      onTurnStart: (ctx) =>
-        emit("agent:event", { type: "turnStart", stepNumber: ctx.stepNumber, messageCount: ctx.messageCount }),
-      onLlmResponse: (content, actions, ctx) =>
-        emit("agent:event", { type: "llmResponse", stepNumber: ctx.stepNumber, content, actions }),
-      onActionStart: (command, ctx) =>
-        emit("agent:event", { type: "actionStart", stepNumber: ctx.stepNumber, command }),
-      onActionDone: (ctx) =>
-        emit("agent:event", {
-          type: "actionDone",
-          stepNumber: ctx.stepNumber,
-          command: ctx.command,
-          result: ctx.result,
-        }),
-      onAgentDone: (d) => {
-        this.active = false;
-        emit("agent:event", { type: "done", status: d.status, totalSteps: d.totalSteps });
+      onRunStart: (ctx) => emitOnce({ type: "runStarted", ...ctx }),
+      onMessageFinalized: (message) => sessionStore.append(message),
+      onTurnStart: (ctx) => emitOnce({ type: "turnStarted", ...ctx }),
+      onReasoningDelta: (delta, ctx) => emitOnce({ type: "reasoningDelta", ...ctx, delta }),
+      onAssistantDelta: (delta, ctx) => emitOnce({ type: "assistantDelta", ...ctx, delta }),
+      onAssistantCompleted: (response, ctx) => emitOnce({ type: "assistantCompleted", ...ctx, content: response.content, toolCalls: response.toolCalls, stopReason: response.stopReason }),
+      onToolStart: (call, ctx) => emitOnce({ type: "toolStarted", runId: ctx.runId, turnId: ctx.turnId, toolCallId: call.id, name: call.name, input: call.input }),
+      onToolCompleted: (call, result, ctx) => {
+        emitOnce({
+          type: "toolCompleted",
+          runId: ctx.runId,
+          turnId: ctx.turnId,
+          toolCallId: call.id,
+          name: call.name,
+          result: toPublicToolResult(result),
+        });
+        if (result.artifacts?.length && this.registerArtifacts) {
+          const files = this.registerArtifacts(ctx.runId, req.cwd, result.artifacts);
+          for (const file of files) emitOnce({ type: "outputFileRegistered", runId: ctx.runId, file });
+        }
       },
+      onTurnCompleted: (ctx) => emitOnce({ type: "turnCompleted", ...ctx }),
+      onRunCompleted: (result) => emitOnce({ type: "runCompleted", ...result }),
     };
 
-    const ops = req.useDocker ? createDockerBashOps() : createLocalBashOps();
+    // 只有 OpenAI 兼容协议一种运行时：provider 固定为 "openai"（历史 profile 上
+    // 线的 provider 字段只用于展示，不决定请求协议）。
+    const modelConfig: ModelConfig = {
+      provider: "openai",
+      model: req.modelId,
+      openai: { baseURL: req.baseURL, apiKey: req.apiKey },
+    };
 
-    run(
-      req.task,
-      ops,
-      {
-        provider: req.provider,
-        model: req.model,
-        openai: { baseURL: req.baseURL, apiKey: req.apiKey },
-      },
-      events,
-      {
-        stepLimit: req.stepLimit,
+    // Let the invoke handler return the runId before the first event reaches
+    // Renderer; otherwise a synchronous runStarted can arrive before the
+    // renderer has accepted the new run.
+    setImmediate(() => {
+      void run(req.task, modelConfig, {
+        runId,
         systemPrompt: SYSTEM_PROMPT,
         cwd: req.cwd,
+        tools: createToolRegistry(createLocalBashOps()),
         signal: this.controller.signal,
-      },
-    ).catch((err) => {
-      // 取消/异常导致 agent 循环抛错时补发 done，保证前端永远有一个结束事件。
-      this.active = false;
-      emit("agent:event", { type: "done", status: "error", totalSteps: 0 });
-      console.error("[AgentRunner] run failed:", err);
+        history: sessionStore.snapshot(),
+      }, events).catch((error: unknown) => {
+        this.active = false;
+        emitOnce({ type: "runCompleted", runId, status: "failed", turnCount: 0, error: { kind: "runtime", message: error instanceof Error ? error.message : String(error) } });
+      });
     });
 
     return { runId, stop: () => this.controller.abort() };
   }
 
   stop(): void {
-    if (this.active) {
-      this.controller.abort();
-    }
+    if (this.active) this.controller.abort();
   }
+}
+
+function toPublicToolResult(result: InternalToolResult): ToolResult {
+  return {
+    ok: result.ok,
+    output: result.output,
+    returncode: result.returncode,
+    truncated: result.truncated,
+    error: result.error,
+  };
 }

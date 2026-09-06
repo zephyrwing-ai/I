@@ -1,0 +1,9 @@
+安全边界。
+
+API Key 只存在于 Renderer 的短期输入草稿和 Main 的系统凭据存储写入流程中。保存完成后，Renderer 清除明文 API Key。
+
+API Key，认证头和 Provider 原始敏感负载不进入 ProviderStore，运行快照，Agent 事件，消息流，搜索索引和普通日志。
+
+输出文件访问使用 Main 维护的 runId 和 fileId 注册表。可读路径只用于界面识别，不构成读取和打开授权。
+
+Renderer 负责呈现状态和发起用户意图。Preload 负责暴露受限的类型化接口。Main 负责凭据，文件系统，系统能力和 Provider 网络请求。Agent Runtime 负责模型调用，工具执行和运行生命周期。

@@ -3,7 +3,7 @@
   "designSystems": [],
   "primaryDesignSystem": null,
   "assets": {
-    "Agent Studio 工作台 v2": {
+    "任务工作台 v2": {
       "versions": [
         {
           "path": "index-v2.html",
@@ -14,7 +14,7 @@
             "width": 1280,
             "height": 800
           },
-          "section": "Agent Studio"
+          "section": "任务工作台"
         }
       ]
     }

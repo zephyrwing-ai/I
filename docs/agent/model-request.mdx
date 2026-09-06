@@ -1,0 +1,55 @@
+---
+title: 模型请求
+description: 模型上下文、Provider 适配、流式消息和停止原因的统一契约。
+---
+
+模型请求模块位于 Agent Runtime 与各 Provider SDK 之间。它接收一次不可变请求，返回统一的 Assistant 消息和流式事件；运行循环不读取 OpenAI、Anthropic 或 Google 的原始响应格式。
+
+## 输入与输出契约
+
+一次模型请求必须携带 `runId`、`turnId`、Provider、模型、系统提示、当前消息上下文、可用工具和取消信号。模型响应至少包含正文或工具调用块、归一化的停止原因，并在失败时携带结构化错误；每个工具调用块都有稳定的 `toolCallId`、工具名称和参数。
+
+`runId` 关联整次运行，`turnId` 关联本次请求，`toolCallId` 贯穿工具调用和结果。请求中不存在 `stepLimit`、`maxSteps` 或其他按次数终止循环的字段。
+
+## Provider 归一化
+
+各 Adapter 负责把 Provider 差异收敛到同一消息模型：
+
+- OpenAI-compatible 的 `tool_calls[].function.arguments` 必须解析并保留原始调用 ID；
+- Anthropic 的 `tool_use` block 转换为同一 `ToolCallBlock`；
+- Google 的 `functionCall` 转换为同一 `ToolCallBlock`；
+- Provider 的原始完成原因保留在 `rawStopReason`，控制层只消费归一化的 `stopReason`；
+- 工具调用是否合法由工具执行模块判断，Adapter 不能静默丢弃解析失败的调用并伪装成“没有工具调用”。
+
+`tool_use` 只是 Provider 提供的提示，Runtime 仍以 `AssistantMessage.content` 中是否实际存在工具调用作为继续依据。这样可以兼容完成原因不稳定但内容中含有有效工具调用的实现。
+
+## 流式请求
+
+一次请求按以下顺序发出事件：
+
+流式请求先建立消息，再持续发送文本增量或工具调用增量，最后提交完整的 Assistant Message。
+
+Adapter 必须将普通请求错误编码为最终 `AssistantMessage(stopReason: "error")`，将 `AbortSignal` 导致的中止编码为 `stopReason: "aborted"`。它们不能只 reject Promise，让 Runtime 无法生成稳定的终止事件。启动前的编程错误可以抛出，但必须由 Runtime 收敛为同一错误契约。
+
+Provider chunk 只由 Adapter 解析；Runtime 只接收归一化消息并发出 AgentEvent，不把 Provider SDK 的原始流对象泄漏给宿主。宿主如何跨进程传输和批处理高频增量，由对应宿主设计定义。
+
+## 长度截断
+
+`stopReason: "length"` 是诊断信息，不是 Step 上限：
+
+- 如果消息包含工具调用，参数可能被截断，即使 JSON 恰好仍能通过 schema 也禁止执行；Runtime 为这些调用生成 `isError: true` 的 Tool Result，并让模型在下一轮重新发出完整调用。
+- 如果消息不包含工具调用，运行循环按“无工具调用”自然结束，同时保留 `length` 供最终回答提示内容可能不完整。
+
+## 错误与重试
+
+`RunError` 至少包含稳定的 `kind`、用户可读的 `message` 和可选的 `retryable`，并区分 `config`、`network`、`provider`、`model_protocol` 与 `runtime`。API Key、完整请求头和 Provider 原始敏感负载不得进入事件或日志。
+
+自动重试只允许发生在同一次 Model Request 内，并且必须满足 Provider 明确可重试、请求未产生不可安全重放的副作用。重试不能创建伪造的 Agent turn，也不能以重试次数充当 Agent 循环上限。
+
+## 验证
+
+- 三种 Provider 的相同工具调用产生一致的 `ToolCallBlock`。
+- 文本和工具调用交错流式返回时，块顺序与调用 ID 保持稳定。
+- 无效工具参数不会被静默丢弃。
+- `error`、`aborted`、`length` 和正常 `stop` 分别进入正确分支。
+- 任何模型请求日志、错误和 AgentEvent 均不包含 API Key。

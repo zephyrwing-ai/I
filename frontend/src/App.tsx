@@ -1,71 +1,213 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import { StatusBar } from "./components/StatusBar";
-import { StepCard } from "./components/StepCard";
-import { Toolbar } from "./components/Toolbar";
+import { Column } from "./middle-column/Column";
+import { MessageStream } from "./middle-column/message-stream/MessageStream";
+import { StreamRegion } from "./middle-column/message-stream/StreamScrollbar";
+import type { RunTiming } from "./middle-column/message-stream/RunProcess";
+import { Composer } from "./middle-column/composer/Composer";
+import { TopBar, SearchPopover } from "./components/TopBar";
 import { ConfigPanel } from "./components/ConfigPanel";
+import { OutputSidebar } from "./components/OutputSidebar";
+import { useFloatingPanel } from "./hooks/useFloatingPanel";
 import { agentReducer, initialAgentState } from "./store/agentReducer";
 import { DEFAULT_SETTINGS, type RunSettings } from "./store/runSettings";
-import type { RunRequest } from "../../shell/shared/ipc";
+import { useProviderCatalog } from "./store/providerCatalog";
+import type { AgentEvent, RunRequest } from "../../shell/shared/ipc";
 
 export default function App() {
   const [state, dispatch] = useReducer(agentReducer, initialAgentState);
   const [settings, setSettings] = useState<RunSettings>(DEFAULT_SETTINGS);
-  const [configOpen, setConfigOpen] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const catalog = useProviderCatalog();
+  const [configOpen, setConfigOpen] = useState(false);
+  const [outputOpen, setOutputOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const eventQueue = useRef<AgentEvent[]>([]);
+  const eventFrame = useRef<number | null>(null);
+  // 计时是 Renderer 侧对事件的观察（事件本身不带时间戳）；reducer 保持纯函数，不写入时间。
+  // run 级总时长：runStarted → runCompleted（含全部回合与工具调用）；回合级时间不展示。
+  const runTimings = useRef<Record<string, RunTiming>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
-  const running = state.status === "running";
-
+  const streamRef = useRef<HTMLElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsPanel = useFloatingPanel(configOpen, settingsButtonRef);
+  const running = state.status === "running" || state.status === "starting" || state.status === "stopping";
+  const stopping = state.status === "stopping";
+  const currentRun = state.currentRunId ? state.runs[state.currentRunId] : undefined;
+  const outputFiles = currentRun?.outputFileOrder.map((id) => currentRun.outputFiles[id]).filter(Boolean) ?? [];
+  // 消息流跨 run 累积：滚动依赖统计全部 run 的回合/工具活动，而不是只盯当前 run。
+  const totalTurnCount = state.runOrder.reduce((sum, runId) => sum + (state.runs[runId]?.turnOrder.length ?? 0), 0);
+  const toolActivityHash = state.runOrder
+    .map((runId) => {
+      const run = state.runs[runId];
+      return run ? run.turnOrder.map((turnId) => run.turns[turnId]?.toolOrder.length ?? 0).join(",") : "";
+    })
+    .join("|");
   useEffect(() => {
-    const offEvent = window.agentAPI.onEvent((e) => {
-      dispatch({ type: "event", event: e });
-      if (e.type === "done") setError(null);
+    if (!window.agentAPI || typeof window.agentAPI.onEvent !== "function") return;
+    const offEvent = window.agentAPI.onEvent((event) => {
+      eventQueue.current.push(event);
+      if (eventFrame.current !== null) return;
+      eventFrame.current = requestAnimationFrame(() => {
+        const queued = eventQueue.current;
+        eventQueue.current = [];
+        eventFrame.current = null;
+        const now = Date.now();
+        queued.forEach((queuedEvent) => {
+          if (queuedEvent.type === "runStarted") {
+            runTimings.current[queuedEvent.runId] = { startedAt: now };
+          } else if (queuedEvent.type === "runCompleted") {
+            const timing = runTimings.current[queuedEvent.runId];
+            runTimings.current[queuedEvent.runId] = timing
+              ? { ...timing, completedAt: now }
+              : { startedAt: now, completedAt: now };
+          }
+          dispatch({ type: "event", event: queuedEvent });
+        });
+      });
     });
-    return offEvent;
+    return () => {
+      offEvent();
+      if (eventFrame.current !== null) cancelAnimationFrame(eventFrame.current);
+      eventFrame.current = null;
+      eventQueue.current = [];
+    };
   }, []);
 
   useEffect(() => {
+    if (catalog.selectedModelOptionId !== settings.modelOptionId) {
+      setSettings((current) => ({ ...current, modelOptionId: catalog.selectedModelOptionId }));
+    }
+  }, [catalog.selectedModelOptionId, settings.modelOptionId]);
+
+  useEffect(() => {
+    if (!configOpen) return;
+    const close = (event: PointerEvent): void => {
+      const target = event.target as Node;
+      if (settingsPanel.panelRef.current?.contains(target) || settingsButtonRef.current?.contains(target)) return;
+      setConfigOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [configOpen, settingsPanel.panelRef]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [state.steps.length, state.steps[state.steps.length - 1]?.actions.length]);
+  }, [state.currentRunId, totalTurnCount, toolActivityHash]);
+
+  // 底部占位高度 = Composer 实时高度（外壳 116px + 输入/附件增减同步），见设计文档「滚动条-底部占位」
+  useEffect(() => {
+    const element = composerRef.current;
+    if (!element) return;
+    const measure = (): void => setComposerHeight(element.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // 处于底部时 Composer 变高导致内容与占位间出现空隙，跟随吸底；用户在中途则保持不动
+  useEffect(() => {
+    const element = streamRef.current;
+    if (!element) return;
+    const max = element.scrollHeight - element.clientHeight;
+    if (max - element.scrollTop < 8) element.scrollTop = element.scrollHeight;
+  }, [composerHeight]);
+
+  useEffect(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-searchable]"));
+    elements.forEach((element) => element.classList.remove("search-match"));
+    if (!query) return;
+    const matches = elements.filter((element) => (element.textContent ?? "").toLowerCase().includes(query));
+    matches.forEach((element) => element.classList.add("search-match"));
+  }, [searchQuery, state]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setSearchOpen(true);
+      } else if (event.key === "Escape" && searchOpen) {
+        setSearchOpen(false);
+        setSearchQuery("");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [searchOpen]);
 
   const handleRun = async (req: RunRequest): Promise<void> => {
-    setError(null);
-    dispatch({ type: "reset" });
+    dispatch({ type: "runRequested" });
     const ack = await window.agentAPI.run(req);
     if (!ack.ok) {
-      setError(ack.error);
-      dispatch({ type: "event", event: { type: "done", status: "error", totalSteps: 0 } });
+      dispatch({ type: "runRejected", error: ack.error });
+      return;
     }
+    // 任务发送时间由 Renderer 侧观察（事件不带时间戳），仅供用户消息时间戳行展示。
+    dispatch({ type: "runAccepted", runId: ack.runId, task: req.task, taskAt: Date.now() });
   };
 
-  const handleStop = (): void => window.agentAPI.stop();
+  const handleStop = (): void => {
+    dispatch({ type: "stopRequested" });
+    window.agentAPI.stop();
+  };
+
+  const changeSettings = (next: RunSettings): void => {
+    setSettings(next);
+    if (next.modelOptionId !== catalog.selectedModelOptionId) catalog.selectModel(next.modelOptionId);
+  };
 
   return (
     <div className="app">
-      <Toolbar
-        running={running}
-        settings={settings}
-        configOpen={configOpen}
-        onRun={handleRun}
-        onStop={handleStop}
-        onToggleConfig={() => setConfigOpen((v) => !v)}
+      <TopBar
+        outputOpen={outputOpen}
+        outputCount={outputFiles.length}
+        searchOpen={searchOpen}
+        settingsOpen={configOpen}
+        settingsButtonRef={settingsButtonRef}
+        onOutput={() => setOutputOpen((value) => !value)}
+        onSearch={() => setSearchOpen((value) => !value)}
+        onSettings={() => setConfigOpen((value) => !value)}
       />
-
+      {searchOpen && <SearchPopover query={searchQuery} onQueryChange={setSearchQuery} />}
       <div className="workspace">
-        <main className="transcript">
-          {error && <div className="error-banner">{error}</div>}
-          {state.steps.length === 0 && state.status === "idle" && (
-            <div className="empty">选择一个工作目录，输入任务，然后点击「运行」。</div>
-          )}
-          {state.steps.map((s) => (
-            <StepCard key={s.stepNumber} step={s} />
-          ))}
-          <div ref={bottomRef} />
-        </main>
-
-        {configOpen && <ConfigPanel settings={settings} onChange={setSettings} disabled={running} />}
+        <section className="main-column">
+          <Column>
+            <StreamRegion scrollRef={streamRef}>
+              <div className="stream-content">
+                {state.error && <div className="error-banner">{state.error}</div>}
+                <MessageStream
+                  order={state.runOrder}
+                  runs={state.runs}
+                  runTimings={runTimings.current}
+                />
+                <div ref={bottomRef} style={{ height: composerHeight }} />
+              </div>
+            </StreamRegion>
+            <div ref={composerRef} className="composer-inner">
+              <Composer
+                running={running}
+                stopping={stopping}
+                settings={settings}
+                modelOptions={catalog.modelOptions}
+                modelLoading={catalog.loading}
+                onSettingsChange={changeSettings}
+                onRun={handleRun}
+                onStop={handleStop}
+              />
+            </div>
+          </Column>
+        </section>
+        <OutputSidebar open={outputOpen} files={outputFiles} onOpenChange={setOutputOpen} />
       </div>
 
-      <StatusBar status={state.status} totalSteps={state.totalSteps} />
+      {settingsPanel.mounted && (
+        <div ref={settingsPanel.panelRef} className={`config-floating phase-${settingsPanel.phase}`} onTransitionEnd={settingsPanel.onTransitionEnd}>
+          <ConfigPanel profiles={catalog.profiles} loading={catalog.loading} error={catalog.error} disabled={running} onClose={() => setConfigOpen(false)} onRefresh={catalog.refresh} />
+        </div>
+      )}
     </div>
   );
 }

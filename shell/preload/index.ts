@@ -4,16 +4,56 @@
  */
 
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import { IPC, type AgentAPI, type AgentEvent, type RunRequest, type RunStartAck } from "../shared/ipc.js";
+import {
+  IPC,
+  type AgentAPI,
+  type AgentEvent,
+  type DeleteProviderResult,
+  type InputAttachmentDescriptor,
+  type OpenOutputFileResult,
+  type OutputFilePreviewResult,
+  type ProviderModelDiscoveryInput,
+  type ProviderModelDiscoveryResult,
+  type ProviderProfileInput,
+  type ProviderProfileSummary,
+  type RefreshProviderModelsResult,
+  type RunRequest,
+  type RunStartAck,
+  type SaveProviderResult,
+} from "../shared/ipc.js";
 
 const api: AgentAPI = {
   run: (req: RunRequest): Promise<RunStartAck> => ipcRenderer.invoke(IPC.run, req),
 
   stop: (): void => ipcRenderer.send(IPC.stop),
 
-  selectDirectory: (): Promise<string | null> => ipcRenderer.invoke(IPC.selectDirectory),
+  listProviderProfiles: (): Promise<ProviderProfileSummary[]> => ipcRenderer.invoke(IPC.listProviderProfiles),
 
-  openPath: (path: string): void => ipcRenderer.send(IPC.openPath, path),
+  discoverProviderModels: (input: ProviderModelDiscoveryInput): Promise<ProviderModelDiscoveryResult> => (
+    ipcRenderer.invoke(IPC.discoverProviderModels, input)
+  ),
+
+  cancelProviderModelDiscovery: (requestId: string): void => {
+    ipcRenderer.send(IPC.cancelProviderModelDiscovery, requestId);
+  },
+
+  refreshProviderModels: (providerProfileId: string): Promise<RefreshProviderModelsResult> => (
+    ipcRenderer.invoke(IPC.refreshProviderModels, providerProfileId)
+  ),
+
+  saveProvider: (input: ProviderProfileInput): Promise<SaveProviderResult> => ipcRenderer.invoke(IPC.saveProvider, input),
+
+  deleteProvider: (providerProfileId: string): Promise<DeleteProviderResult> => ipcRenderer.invoke(IPC.deleteProvider, providerProfileId),
+
+  selectAttachments: (): Promise<InputAttachmentDescriptor[]> => ipcRenderer.invoke(IPC.selectAttachments),
+
+  previewOutputFile: (runId: string, fileId: string): Promise<OutputFilePreviewResult> => (
+    ipcRenderer.invoke(IPC.previewOutputFile, runId, fileId)
+  ),
+
+  openOutputFile: (runId: string, fileId: string): Promise<OpenOutputFileResult> => (
+    ipcRenderer.invoke(IPC.openOutputFile, runId, fileId)
+  ),
 
   onEvent: (cb: (e: AgentEvent) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, payload: AgentEvent): void => cb(payload);

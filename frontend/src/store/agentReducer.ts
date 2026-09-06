@@ -1,103 +1,296 @@
-/**
- * transcript 状态 — 把 IPC 事件流映射成只增不删的步骤数组。
- * 单向数据流：事件 → action → state，前端渲染只依赖 state。
- */
+import type {
+  AgentEvent,
+  OutputFileDescriptor,
+  RunStatus,
+  ToolResult,
+} from "../../../shell/shared/ipc";
 
-import type { AgentEvent, RunStatus } from "../../../shell/shared/ipc";
-import type { ExecResult } from "../../../agent/types";
+export type AppStatus = "idle" | "starting" | "running" | "stopping" | RunStatus;
+export type TurnStatus = "running" | "completed";
+export type ToolStatus = "running" | "completed";
 
-export type AppStatus = "idle" | "running" | RunStatus;
-
-export interface AgentAction {
-  command: string;
-  status: "pending" | "running" | "done";
-  result?: ExecResult;
+export interface ToolState {
+  toolCallId: string;
+  name: string;
+  input: unknown;
+  status: ToolStatus;
+  result?: ToolResult;
 }
 
-export interface Step {
-  stepNumber: number;
-  messageCount: number;
-  thought: string;
-  actions: AgentAction[];
-  actionCursor: number;
+export interface TurnState {
+  turnId: string;
+  turnOrdinal: number;
+  status: TurnStatus;
+  assistantContent: string;
+  /** 思考内容（reasoningDelta 增量累加）；展示在 worked for 折叠内。 */
+  reasoningContent: string;
+  finalContent?: string;
+  stopReason?: string;
+  toolOrder: string[];
+  tools: Record<string, ToolState>;
+}
+
+export interface RunState {
+  runId: string;
+  /** 本次运行的用户任务；每次发送创建新 run，消息流按 run 累积回显。 */
+  task?: string;
+  /** 任务发送时间（Renderer 侧观察；事件不带时间戳，reducer 只保存动作携带的观察值）。 */
+  taskAt?: number;
+  startedAt?: string;
+  status: AppStatus;
+  error?: string;
+  turnOrder: string[];
+  turns: Record<string, TurnState>;
+  outputFileOrder: string[];
+  outputFiles: Record<string, OutputFileDescriptor>;
+  turnCount?: number;
 }
 
 export interface AgentState {
   status: AppStatus;
-  totalSteps: number;
-  steps: Step[];
+  currentRunId: string | null;
+  runs: Record<string, RunState>;
+  runOrder: string[];
+  error: string | null;
 }
 
-export type AgentAction_ =
-  | { type: "reset" }
-  | { type: "setRunning" }
+export type AgentAction =
+  | { type: "runRequested" }
+  | { type: "runAccepted"; runId: string; task: string; taskAt: number }
+  | { type: "runRejected"; error: string }
+  | { type: "stopRequested" }
   | { type: "event"; event: AgentEvent };
 
 export const initialAgentState: AgentState = {
   status: "idle",
-  totalSteps: 0,
-  steps: [],
+  currentRunId: null,
+  runs: {},
+  runOrder: [],
+  error: null,
 };
 
-function patchLastStep(state: AgentState, fn: (step: Step) => Step): AgentState {
-  if (state.steps.length === 0) return state;
-  const last = state.steps[state.steps.length - 1];
-  const steps = [...state.steps.slice(0, -1), fn(last)];
-  return { ...state, steps };
+function createRun(runId: string, task: string, taskAt: number): RunState {
+  return {
+    runId,
+    task,
+    taskAt,
+    status: "running",
+    turnOrder: [],
+    turns: {},
+    outputFileOrder: [],
+    outputFiles: {},
+  };
 }
 
-export function agentReducer(state: AgentState, action: AgentAction_): AgentState {
-  switch (action.type) {
-    case "reset":
-      return { ...initialAgentState, status: "running" };
+function belongsToCurrentRun(state: AgentState, runId: string): boolean {
+  return (
+    state.currentRunId === runId
+    && (state.status === "starting" || state.status === "running" || state.status === "stopping")
+  );
+}
 
-    case "setRunning":
-      return { ...state, status: "running" };
+function withCurrentRun(state: AgentState, update: (run: RunState) => RunState): AgentState {
+  if (!state.currentRunId) return state;
+  const run = state.runs[state.currentRunId];
+  if (!run) return state;
+  return { ...state, runs: { ...state.runs, [run.runId]: update(run) } };
+}
+
+function ensureTurn(run: RunState, turnId: string, turnOrdinal = 0): RunState {
+  if (run.turns[turnId]) return run;
+  return {
+    ...run,
+    turnOrder: [...run.turnOrder, turnId],
+    turns: {
+      ...run.turns,
+      [turnId]: {
+        turnId,
+        turnOrdinal,
+        status: "running",
+        assistantContent: "",
+        reasoningContent: "",
+        toolOrder: [],
+        tools: {},
+      },
+    },
+  };
+}
+
+function updateTurn(run: RunState, turnId: string, update: (turn: TurnState) => TurnState): RunState {
+  const turn = run.turns[turnId];
+  if (!turn) return run;
+  return { ...run, turns: { ...run.turns, [turnId]: update(turn) } };
+}
+
+export function agentReducer(state: AgentState, action: AgentAction): AgentState {
+  switch (action.type) {
+    case "runRequested":
+      return { ...state, status: "starting", currentRunId: null, error: null };
+
+    case "stopRequested":
+      return state.status === "running"
+        ? {
+            ...state,
+            status: "stopping",
+            ...(state.currentRunId
+              ? {
+                  runs: {
+                    ...state.runs,
+                    [state.currentRunId]: {
+                      ...state.runs[state.currentRunId],
+                      status: "stopping",
+                    },
+                  },
+                }
+              : {}),
+          }
+        : state;
+
+    case "runAccepted": {
+      const existing = state.runs[action.runId];
+      const run = existing ?? createRun(action.runId, action.task, action.taskAt);
+      return {
+        ...state,
+        status: "running",
+        currentRunId: action.runId,
+        error: null,
+        runs: { ...state.runs, [action.runId]: run },
+        runOrder: existing ? state.runOrder : [...state.runOrder, action.runId],
+      };
+    }
+
+    case "runRejected":
+      return { ...state, status: "failed", currentRunId: null, error: action.error };
 
     case "event": {
-      const e = action.event;
-      switch (e.type) {
-        case "turnStart": {
-          const step: Step = {
-            stepNumber: e.stepNumber,
-            messageCount: e.messageCount,
-            thought: "",
-            actions: [],
-            actionCursor: 0,
-          };
-          return { ...state, steps: [...state.steps, step] };
-        }
+      const event = action.event;
 
-        case "llmResponse": {
-          return patchLastStep(state, (step) => ({
-            ...step,
-            thought: e.content,
-            actions: e.actions.map((a) => ({ command: a.command, status: "pending" as const })),
-            actionCursor: 0,
-          }));
-        }
+      // Events from a previous run are deliberately ignored. No positional
+      // fallback exists, so an old completion cannot mutate the new run.
+      if (event.type !== "runStarted" && !belongsToCurrentRun(state, event.runId)) return state;
 
-        case "actionStart": {
-          return patchLastStep(state, (step) => {
-            const actions = step.actions.map((a, i) =>
-              i === step.actionCursor ? { ...a, status: "running" as const } : a,
-            );
-            return { ...step, actions };
-          });
-        }
-
-        case "actionDone": {
-          return patchLastStep(state, (step) => {
-            const actions = step.actions.map((a, i) =>
-              i === step.actionCursor ? { ...a, status: "done" as const, result: e.result } : a,
-            );
-            return { ...step, actions, actionCursor: Math.min(step.actionCursor + 1, actions.length) };
-          });
-        }
-
-        case "done":
-          return { ...state, status: e.status, totalSteps: e.totalSteps };
+      if (event.type === "runStarted") {
+        if (state.currentRunId !== event.runId) return state;
+        return withCurrentRun(state, (run) => ({ ...run, startedAt: event.startedAt }));
       }
+
+      if (event.type === "turnStarted") {
+        return withCurrentRun(state, (run) => {
+          const next = ensureTurn(run, event.turnId, event.turnOrdinal);
+          return updateTurn(next, event.turnId, (turn) => ({ ...turn, turnOrdinal: event.turnOrdinal, status: "running" }));
+        });
+      }
+
+      if (event.type === "assistantDelta") {
+        return withCurrentRun(state, (run) => {
+          const next = ensureTurn(run, event.turnId);
+          return updateTurn(next, event.turnId, (turn) => ({
+            ...turn,
+            assistantContent: turn.assistantContent + event.delta,
+          }));
+        });
+      }
+
+      if (event.type === "reasoningDelta") {
+        return withCurrentRun(state, (run) => {
+          const next = ensureTurn(run, event.turnId);
+          return updateTurn(next, event.turnId, (turn) => ({
+            ...turn,
+            reasoningContent: turn.reasoningContent + event.delta,
+          }));
+        });
+      }
+
+      if (event.type === "assistantCompleted") {
+        return withCurrentRun(state, (run) => {
+          const next = ensureTurn(run, event.turnId);
+          return updateTurn(next, event.turnId, (turn) => ({
+            ...turn,
+            assistantContent: event.content,
+            finalContent: event.content,
+            stopReason: event.stopReason,
+          }));
+        });
+      }
+
+      if (event.type === "toolStarted") {
+        return withCurrentRun(state, (run) => {
+          const next = ensureTurn(run, event.turnId);
+          return updateTurn(next, event.turnId, (turn) => {
+            const existing = turn.tools[event.toolCallId];
+            const tool: ToolState = {
+              toolCallId: event.toolCallId,
+              name: event.name,
+              input: event.input,
+              status: "running",
+              result: existing?.result,
+            };
+            return {
+              ...turn,
+              toolOrder: existing ? turn.toolOrder : [...turn.toolOrder, event.toolCallId],
+              tools: { ...turn.tools, [event.toolCallId]: tool },
+            };
+          });
+        });
+      }
+
+      if (event.type === "toolCompleted") {
+        return withCurrentRun(state, (run) => {
+          const next = ensureTurn(run, event.turnId);
+          return updateTurn(next, event.turnId, (turn) => {
+            const existing = turn.tools[event.toolCallId];
+            const tool: ToolState = {
+              toolCallId: event.toolCallId,
+              name: existing?.name ?? "工具",
+              input: existing?.input,
+              status: "completed",
+              result: event.result,
+            };
+            return {
+              ...turn,
+              toolOrder: existing ? turn.toolOrder : [...turn.toolOrder, event.toolCallId],
+              tools: { ...turn.tools, [event.toolCallId]: tool },
+            };
+          });
+        });
+      }
+
+      if (event.type === "turnCompleted") {
+        return withCurrentRun(state, (run) => updateTurn(run, event.turnId, (turn) => ({ ...turn, status: "completed" })));
+      }
+
+      if (event.type === "outputFileRegistered") {
+        return withCurrentRun(state, (run) => {
+          const existing = run.outputFiles[event.file.fileId];
+          const outputFiles = {
+            ...run.outputFiles,
+            [event.file.fileId]: event.file,
+          };
+          const outputFileOrder = [...(existing
+            ? run.outputFileOrder
+            : [...run.outputFileOrder, event.file.fileId]
+          )].sort((leftId, rightId) => (
+            outputFiles[rightId].updatedAt.localeCompare(outputFiles[leftId].updatedAt)
+          ));
+          return { ...run, outputFiles, outputFileOrder };
+        });
+      }
+
+      return {
+        ...state,
+        status: event.status,
+        currentRunId: event.runId,
+        error: event.error?.message ?? null,
+        runs: {
+          ...state.runs,
+          [event.runId]: {
+            ...state.runs[event.runId],
+            status: event.status,
+            error: event.error?.message,
+            turnCount: event.turnCount,
+          },
+        },
+      };
     }
   }
 }
