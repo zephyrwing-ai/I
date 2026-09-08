@@ -1,8 +1,8 @@
 import { app, safeStorage, BrowserWindow, ipcMain, dialog, shell } from "electron";
-import { resolve, basename, relative, sep, extname, dirname, join } from "node:path";
+import { resolve, basename, relative, sep, extname, dirname, join, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { realpath, stat, readFile, open, mkdir, writeFile, rename, opendir, lstat } from "node:fs/promises";
+import { realpath, stat, readFile, open, mkdir, writeFile, rename, opendir, lstat, readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -700,21 +700,10 @@ function migrateLegacyProfile(profile) {
 function defaultBaseURL(_provider) {
   return "https://api.deepseek.com/v1";
 }
-const BASH_TOOL = {
-  name: "bash",
-  description: "Execute a bash command",
-  parameters: {
-    type: "object",
-    properties: {
-      command: { type: "string", description: "The bash command to execute" }
-    },
-    required: ["command"]
-  }
-};
-async function* response(config, messages, system, tools = [BASH_TOOL], signal) {
+async function* response(config, messages, system, tools, signal) {
   switch (config.provider) {
     case "openai": {
-      const { streamOpenAI } = await import("./openai-CCqo2czN.js");
+      const { streamOpenAI } = await import("./openai-wf36DTXp.js");
       yield* streamOpenAI(messages, tools, { model: config.model, ...config.openai }, system, signal);
       return;
     }
@@ -784,7 +773,7 @@ async function run(task, modelConfig, config, events = {}) {
       if (config.signal?.aborted) return finish("cancelled");
       events.onToolStart?.(call, ctx);
       const result2 = await executeTool(call, config.tools, config.cwd, config.signal);
-      const toolMessage = { role: "tool", content: formatToolResult(result2), toolCallId: call.id, toolName: call.name, isError: !result2.ok };
+      const toolMessage = { role: "tool", content: formatToolResult(result2), toolCallId: call.id, toolName: call.name, isError: !result2.ok, media: result2.media };
       messages.push(toolMessage);
       events.onMessageFinalized?.(toolMessage);
       events.onToolCompleted?.(call, result2, ctx);
@@ -1062,8 +1051,19 @@ function mediaTypeForPath(path) {
       return "application/octet-stream";
   }
 }
-function createToolRegistry(ops) {
-  return /* @__PURE__ */ new Map([[BASH_TOOL.name, {
+const BASH_TOOL = {
+  name: "bash",
+  description: "Execute a bash command on the local machine",
+  parameters: {
+    type: "object",
+    properties: {
+      command: { type: "string", description: "The bash command to execute" }
+    },
+    required: ["command"]
+  }
+};
+function createBashTool(ops) {
+  return {
     definition: BASH_TOOL,
     async execute(input, context) {
       if (typeof input.command !== "string" || input.command.trim() === "") {
@@ -1076,7 +1076,546 @@ function createToolRegistry(ops) {
         return { ok: false, output: error instanceof Error ? error.message : String(error), returncode: -1, truncated: false, error: "execution_failed" };
       }
     }
-  }]]);
+  };
+}
+const READ_TOOL = {
+  name: "read",
+  description: "Read a text file by lines, or an image file as visual content. Returns the read range and the next start line when truncated.",
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "File path, absolute or relative to the workspace root" },
+      start: { type: "integer", description: "1-based line to start reading from (default 1)" },
+      maxLines: { type: "integer", description: "Maximum lines to return (default 1000, max 5000)" }
+    },
+    required: ["path"]
+  }
+};
+const DEFAULT_MAX_LINES = 1e3;
+const MAX_LINES = 5e3;
+const MAX_LINE_DISPLAY$1 = 2e3;
+const IMAGE_EXTENSIONS = /* @__PURE__ */ new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+function createReadTool() {
+  return {
+    definition: READ_TOOL,
+    async execute(input, context) {
+      if (typeof input.path !== "string" || input.path.trim() === "") {
+        return { ok: false, output: "工具参数 path 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+      }
+      const start = typeof input.start === "number" && Number.isInteger(input.start) && input.start >= 1 ? input.start : 1;
+      let maxLines = typeof input.maxLines === "number" && Number.isInteger(input.maxLines) ? input.maxLines : DEFAULT_MAX_LINES;
+      maxLines = Math.min(Math.max(maxLines, 1), MAX_LINES);
+      const target = isAbsolute(input.path) ? input.path : resolve(context.cwd, input.path);
+      let stats;
+      try {
+        stats = await stat(target);
+      } catch {
+        return { ok: false, output: `文件不存在：${input.path}`, returncode: -1, truncated: false, error: "not_found" };
+      }
+      if (stats.isDirectory()) {
+        return { ok: false, output: `目标是目录，Read 读取文件：${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
+      }
+      const ext = extname(target).toLowerCase();
+      let buffer;
+      try {
+        buffer = await readFile(target);
+      } catch (error) {
+        return { ok: false, output: `读取失败：${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "read_failed" };
+      }
+      if (IMAGE_EXTENSIONS.has(ext)) {
+        const dataUrl = `data:${mimeForExtension(ext)};base64,${buffer.toString("base64")}`;
+        return {
+          ok: true,
+          output: `图片已作为视觉内容返回：${input.path}（${stats.size} 字节）`,
+          returncode: 0,
+          truncated: false,
+          media: { mediaType: mimeForExtension(ext), dataUrl }
+        };
+      }
+      if (buffer.includes(0)) {
+        return { ok: false, output: `文件不是文本或模型支持的图片格式：${input.path}`, returncode: -1, truncated: false, error: "binary_file" };
+      }
+      const raw = buffer.toString("utf8");
+      const lines = raw.split("\n");
+      if (lines.at(-1) === "") lines.pop();
+      const from = Math.min(start, lines.length + 1);
+      const page = lines.slice(from - 1, from - 1 + maxLines);
+      const linesTruncated = lines.length > from - 1 + page.length;
+      const nextStart = linesTruncated ? from + page.length : void 0;
+      const rel = relative(context.cwd, target) || target;
+      const rendered = page.map((line, i) => {
+        const display = line.length > MAX_LINE_DISPLAY$1 ? `${line.slice(0, MAX_LINE_DISPLAY$1)} …(该行过长已截断)` : line;
+        return `${from + i}: ${display}`;
+      });
+      const rangeNote = linesTruncated ? `已读取 ${from}-${from + page.length - 1} 行，共 ${lines.length} 行；继续读取请用 start=${nextStart}` : `共 ${lines.length} 行`;
+      return {
+        ok: true,
+        output: `<file>${rel}</file>
+${rangeNote}
+<content>
+${rendered.join("\n")}
+</content>`,
+        returncode: 0,
+        truncated: linesTruncated
+      };
+    }
+  };
+}
+function mimeForExtension(ext) {
+  switch (ext) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    default:
+      return "application/octet-stream";
+  }
+}
+const WRITE_TOOL = {
+  name: "write",
+  description: "Create a file, or overwrite an existing file with the full given content. Creates missing parent directories.",
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "Target file path, absolute or relative to the workspace root" },
+      content: { type: "string", description: "Complete file content to write" }
+    },
+    required: ["path", "content"]
+  }
+};
+function createWriteTool() {
+  return {
+    definition: WRITE_TOOL,
+    async execute(input, context) {
+      if (typeof input.path !== "string" || input.path.trim() === "") {
+        return { ok: false, output: "工具参数 path 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+      }
+      if (typeof input.content !== "string") {
+        return { ok: false, output: "工具参数 content 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+      }
+      const target = isAbsolute(input.path) ? input.path : resolve(context.cwd, input.path);
+      let exists = false;
+      try {
+        const stats = await stat(target);
+        if (stats.isDirectory()) {
+          return { ok: false, output: `目标是目录，Write 写入文件：${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
+        }
+        exists = true;
+      } catch {
+        exists = false;
+      }
+      try {
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, input.content, "utf8");
+      } catch (error) {
+        return { ok: false, output: `写入失败：${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
+      }
+      const bytes = Buffer.byteLength(input.content, "utf8");
+      const rel = relative(context.cwd, target) || target;
+      const operation = exists ? "updated" : "created";
+      return {
+        ok: true,
+        output: `已写入 ${rel}（${bytes} 字节，${operation === "created" ? "新建" : "覆盖"}）`,
+        returncode: 0,
+        truncated: false,
+        artifacts: [{
+          path: target,
+          operation,
+          mediaType: mediaTypeForPath(target),
+          byteSize: bytes,
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        }]
+      };
+    }
+  };
+}
+const EDIT_TOOL = {
+  name: "edit",
+  description: "Apply non-overlapping text replacements to an existing text file. Each oldText must match exactly once; the whole call fails if any check fails (no partial write).",
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "File path, absolute or relative to the workspace root" },
+      edits: {
+        type: "array",
+        description: "Replacements, all checked against the current file content before writing",
+        items: {
+          type: "object",
+          description: "One replacement",
+          properties: {
+            oldText: { type: "string", description: "Exact existing text to replace (must match exactly once)" },
+            newText: { type: "string", description: "Replacement text" }
+          },
+          required: ["oldText", "newText"]
+        }
+      }
+    },
+    required: ["path", "edits"]
+  }
+};
+function createEditTool() {
+  return {
+    definition: EDIT_TOOL,
+    async execute(input, context) {
+      if (typeof input.path !== "string" || input.path.trim() === "") {
+        return { ok: false, output: "工具参数 path 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+      }
+      if (!Array.isArray(input.edits) || input.edits.length === 0) {
+        return { ok: false, output: "工具参数 edits 必须是非空数组。", returncode: -1, truncated: false, error: "invalid_arguments" };
+      }
+      const edits = [];
+      for (const [i, item] of input.edits.entries()) {
+        const oldText = item.oldText;
+        const newText = item.newText;
+        if (typeof oldText !== "string" || oldText.length === 0) {
+          return { ok: false, output: `第 ${i + 1} 项替换的 oldText 必须是非空字符串。`, returncode: -1, truncated: false, error: "invalid_arguments" };
+        }
+        if (typeof newText !== "string") {
+          return { ok: false, output: `第 ${i + 1} 项替换的 newText 必须是字符串。`, returncode: -1, truncated: false, error: "invalid_arguments" };
+        }
+        edits.push({ oldText, newText });
+      }
+      const target = isAbsolute(input.path) ? input.path : resolve(context.cwd, input.path);
+      let stats;
+      try {
+        stats = await stat(target);
+      } catch {
+        return { ok: false, output: `文件不存在：${input.path}`, returncode: -1, truncated: false, error: "not_found" };
+      }
+      if (stats.isDirectory()) {
+        return { ok: false, output: `目标是目录，Edit 修改文件：${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
+      }
+      let original;
+      try {
+        const buffer = await readFile(target);
+        if (buffer.includes(0)) {
+          return { ok: false, output: `文件不是可编辑文本（包含二进制内容）：${input.path}`, returncode: -1, truncated: false, error: "binary_file" };
+        }
+        original = buffer.toString("utf8");
+      } catch (error) {
+        return { ok: false, output: `读取失败：${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "read_failed" };
+      }
+      const matches = [];
+      for (const [order, edit] of edits.entries()) {
+        const positions = [];
+        for (let at = original.indexOf(edit.oldText); at !== -1; at = original.indexOf(edit.oldText, at + 1)) {
+          positions.push(at);
+        }
+        if (positions.length === 0) {
+          return { ok: false, output: `第 ${order + 1} 项替换的 oldText 未在文件中找到：${JSON.stringify(edit.oldText.slice(0, 200))}`, returncode: -1, truncated: false, error: "text_not_found" };
+        }
+        if (positions.length > 1) {
+          return { ok: false, output: `第 ${order + 1} 项替换的 oldText 匹配到 ${positions.length} 处，需要唯一匹配：${JSON.stringify(edit.oldText.slice(0, 200))}`, returncode: -1, truncated: false, error: "text_not_unique" };
+        }
+        matches.push({ index: positions[0], length: edit.oldText.length, edit, order });
+      }
+      matches.sort((a, b) => a.index - b.index);
+      for (let i = 1; i < matches.length; i += 1) {
+        const prev = matches[i - 1];
+        const curr = matches[i];
+        if (curr.index < prev.index + prev.length) {
+          return { ok: false, output: `替换片段相互重叠：第 ${prev.order + 1} 项与第 ${curr.order + 1} 项`, returncode: -1, truncated: false, error: "edits_overlap" };
+        }
+      }
+      let updated = original;
+      for (const match of [...matches].sort((a, b) => b.index - a.index)) {
+        updated = updated.slice(0, match.index) + match.edit.newText + updated.slice(match.index + match.length);
+      }
+      try {
+        await writeFile(target, updated, "utf8");
+      } catch (error) {
+        return { ok: false, output: `写入失败：${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
+      }
+      const firstLine = (original.slice(0, matches[0].index).match(/\n/g) ?? []).length + 1;
+      const rel = relative(context.cwd, target) || target;
+      const lines = matches.map((m) => `  #${m.order + 1} 第${(original.slice(0, m.index).match(/\n/g) ?? []).length + 1}行 ${JSON.stringify(m.edit.oldText.slice(0, 200))} → ${JSON.stringify(m.edit.newText.slice(0, 200))}`).join("\n");
+      return {
+        ok: true,
+        output: `<file>${rel}</file>
+修改数量: ${matches.length}
+第一处变更: 第 ${firstLine} 行
+<diff>
+${lines}
+</diff>`,
+        returncode: 0,
+        truncated: false,
+        artifacts: [{
+          path: target,
+          operation: "updated",
+          mediaType: mediaTypeForPath(target),
+          byteSize: Buffer.byteLength(updated, "utf8"),
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        }]
+      };
+    }
+  };
+}
+const LIST_DIR_TOOL = {
+  name: "list_dir",
+  description: "List entries of a directory (default workspace root), sorted by name, distinguishing files and directories",
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "Directory to list, absolute or relative to the workspace root" },
+      limit: { type: "integer", description: "Maximum entries to return (default 200, max 1000)" }
+    },
+    required: []
+  }
+};
+const FIND_FILES_TOOL = {
+  name: "find_files",
+  description: "Find files whose name or path relative to the search directory contains the pattern (case-insensitive)",
+  parameters: {
+    type: "object",
+    properties: {
+      pattern: { type: "string", description: "Substring to match against file names or relative paths" },
+      path: { type: "string", description: "Search directory, absolute or relative to the workspace root (default workspace root)" },
+      limit: { type: "integer", description: "Maximum results (default 100)" }
+    },
+    required: ["pattern"]
+  }
+};
+const SEARCH_CONTENT_TOOL = {
+  name: "search_content",
+  description: "Search lines of text files, returning file path, line number and matching lines (respects workspace ignore rules)",
+  parameters: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "Text to search for in file lines (case-insensitive substring)" },
+      path: { type: "string", description: "Directory to search, absolute or relative to the workspace root (default workspace root)" },
+      types: { type: "array", description: 'File extensions to include (e.g. ["ts", "md"]); all text-typed files by default', items: { type: "string", description: "extension without dot" } },
+      caseSensitive: { type: "boolean", description: "Whether the match is case-sensitive (default false)" },
+      contextLines: { type: "integer", description: "Lines of context around each match (default 0, max 5)" },
+      limit: { type: "integer", description: "Maximum matches (default 100)" }
+    },
+    required: ["text"]
+  }
+};
+const DEFAULT_LIMIT = 100;
+const LIST_DEFAULT_LIMIT = 200;
+const LIST_MAX_LIMIT = 1e3;
+const MAX_CONTEXT_LINES = 5;
+const MAX_SCAN_FILES = 2e4;
+const MAX_LINE_DISPLAY = 300;
+function createQueryTools() {
+  return [
+    { definition: LIST_DIR_TOOL, execute: listDir },
+    { definition: FIND_FILES_TOOL, execute: findFiles },
+    { definition: SEARCH_CONTENT_TOOL, execute: searchContent }
+  ];
+}
+function fail(output, error) {
+  return { ok: false, output, returncode: -1, truncated: false, error };
+}
+function toAbs(path, cwd) {
+  if (!path) return cwd;
+  return isAbsolute(path) ? path : resolve(cwd, path);
+}
+async function statOrError(target, inputPath) {
+  try {
+    const stats = await stat(target);
+    return { stats };
+  } catch {
+    return { error: fail(`路径不存在：${inputPath ?? target}`, "not_found") };
+  }
+}
+async function* walkFiles(root, signal) {
+  const stack = [root];
+  let scanned = 0;
+  while (stack.length > 0) {
+    if (signal?.aborted) return;
+    const current = stack.pop();
+    let entries;
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = join(current, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        if (SNAPSHOT_IGNORED_DIRECTORIES.has(entry.name)) continue;
+        stack.push(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      scanned += 1;
+      if (scanned > MAX_SCAN_FILES) return;
+      yield full;
+    }
+  }
+}
+async function listDir(input, context) {
+  if (input.path !== void 0 && typeof input.path !== "string") {
+    return fail("工具参数 path 必须是字符串。", "invalid_arguments");
+  }
+  let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : LIST_DEFAULT_LIMIT;
+  limit = Math.min(Math.max(limit, 1), LIST_MAX_LIMIT);
+  const target = toAbs(input.path, context.cwd);
+  const { stats, error } = await statOrError(target, input.path);
+  if (error) return error;
+  if (!stats?.isDirectory()) {
+    return fail(`目标不是目录：${input.path ?? target}`, "not_a_directory");
+  }
+  let entries;
+  try {
+    entries = await readdir(target, { withFileTypes: true });
+  } catch (err) {
+    return fail(`读取目录失败：${err instanceof Error ? err.message : String(err)}`, "read_failed");
+  }
+  const sorted = entries.sort((a, b) => a.name.localeCompare(b.name));
+  const page = sorted.slice(0, limit);
+  const rel = relative(context.cwd, target);
+  const label = rel === "" ? "." : rel;
+  const rows = page.map((e) => `${e.isDirectory() ? "dir " : "file "}${e.name}${e.isDirectory() ? "/" : ""}`);
+  const truncNote = sorted.length > page.length ? `
+已列出前 ${page.length} 项（共 ${sorted.length} 项），未继续列出。` : "";
+  return {
+    ok: true,
+    output: `<directory>${label}</directory>
+${rows.join("\n") || "（空目录）"}${truncNote}`,
+    returncode: 0,
+    truncated: sorted.length > page.length
+  };
+}
+async function findFiles(input, context) {
+  if (typeof input.pattern !== "string" || input.pattern.trim() === "") {
+    return fail("工具参数 pattern 必须是非空字符串。", "invalid_arguments");
+  }
+  if (input.path !== void 0 && typeof input.path !== "string") {
+    return fail("工具参数 path 必须是字符串。", "invalid_arguments");
+  }
+  let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : DEFAULT_LIMIT;
+  limit = Math.min(Math.max(limit, 1), 1e3);
+  const needle = input.pattern.toLowerCase();
+  const target = toAbs(input.path, context.cwd);
+  const { stats, error } = await statOrError(target, input.path);
+  if (error) return error;
+  if (!stats?.isDirectory()) {
+    return fail(`目标不是目录：${input.path ?? target}`, "not_a_directory");
+  }
+  const matches = [];
+  for await (const file of walkFiles(target, context.signal)) {
+    if (matches.length >= limit) {
+      return {
+        ok: true,
+        output: `<search_root>${relative(context.cwd, target) || "."}</search_root>
+${matches.join("\n")}
+已找到 ${limit} 项，达到结果上限，可能未遍历全部文件。`,
+        returncode: 0,
+        truncated: true
+      };
+    }
+    const relativeToDir = relative(target, file).split(sep).join("/");
+    if (relativeToDir.toLowerCase().includes(needle)) {
+      matches.push(relativeToDir);
+    }
+  }
+  matches.sort();
+  return {
+    ok: true,
+    output: `<search_root>${relative(context.cwd, target) || "."}</search_root>
+${matches.join("\n") || "（没有匹配的文件）"}`,
+    returncode: 0,
+    truncated: false
+  };
+}
+async function searchContent(input, context) {
+  if (typeof input.text !== "string" || input.text === "") {
+    return fail("工具参数 text 必须是非空字符串。", "invalid_arguments");
+  }
+  if (input.path !== void 0 && typeof input.path !== "string") {
+    return fail("工具参数 path 必须是字符串。", "invalid_arguments");
+  }
+  let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : DEFAULT_LIMIT;
+  limit = Math.min(Math.max(limit, 1), 1e3);
+  const contextLines = Math.min(Math.max(typeof input.contextLines === "number" ? input.contextLines : 0, 0), MAX_CONTEXT_LINES);
+  const caseSensitive = input.caseSensitive === true;
+  const types = Array.isArray(input.types) ? input.types.filter((t) => typeof t === "string").map((t) => t.toLowerCase().replace(/^\./, "")) : void 0;
+  const target = toAbs(input.path, context.cwd);
+  const { stats, error } = await statOrError(target, input.path);
+  if (error) return error;
+  if (!stats?.isDirectory()) {
+    return fail(`目标不是目录：${input.path ?? target}`, "not_a_directory");
+  }
+  const needle = caseSensitive ? input.text : input.text.toLowerCase();
+  const lines = [];
+  let matched = 0;
+  let reachedLimit = false;
+  let reachedScanCap = false;
+  for await (const file of walkFiles(target, context.signal)) {
+    if (matched >= limit) {
+      reachedLimit = true;
+      break;
+    }
+    if (types) {
+      const ext = extname(file).toLowerCase().replace(/^\./, "");
+      if (!types.includes(ext)) continue;
+    }
+    let buffer;
+    try {
+      buffer = await readFile(file);
+    } catch {
+      continue;
+    }
+    if (buffer.includes(0)) continue;
+    const text = buffer.toString("utf8");
+    const fileLines = text.split("\n");
+    for (let i = 0; i < fileLines.length; i += 1) {
+      if (matched >= limit) {
+        reachedLimit = true;
+        break;
+      }
+      const line = fileLines[i];
+      const hay = caseSensitive ? line : line.toLowerCase();
+      if (!hay.includes(needle)) continue;
+      matched += 1;
+      lines.push(`${relative(target, file).split(sep).join("/")}:${i + 1}: ${truncateLine(line)}`);
+      if (contextLines > 0) {
+        for (let c = Math.max(0, i - contextLines); c <= Math.min(fileLines.length - 1, i + contextLines); c += 1) {
+          if (c === i) continue;
+          lines.push(`  ${c + 1}: ${truncateLine(fileLines[c])}`);
+        }
+      }
+    }
+    if (reachedLimit) break;
+  }
+  const suffix = [];
+  if (reachedLimit) suffix.push(`达到匹配上限 ${limit} 条，可能未遍历全部文件。`);
+  return {
+    ok: true,
+    output: `<search_root>${relative(context.cwd, target) || "."}</search_root>
+${lines.join("\n") || "（没有匹配的内容）"}${suffix.length ? `
+${suffix.join("\n")}` : ""}`,
+    returncode: 0,
+    truncated: reachedLimit || reachedScanCap
+  };
+}
+function truncateLine(line) {
+  return line.length > MAX_LINE_DISPLAY ? `${line.slice(0, MAX_LINE_DISPLAY)} …(该行已截断)` : line;
+}
+function createToolRegistry(ops) {
+  const tools = [
+    createBashTool(ops),
+    createReadTool(),
+    createWriteTool(),
+    createEditTool(),
+    ...createQueryTools()
+  ];
+  const registry = /* @__PURE__ */ new Map();
+  for (const tool of tools) {
+    if (registry.has(tool.definition.name)) {
+      throw new Error(`工具名重复注册：${tool.definition.name}`);
+    }
+    registry.set(tool.definition.name, tool);
+  }
+  return registry;
 }
 const SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
 class AgentRunner {

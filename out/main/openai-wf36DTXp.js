@@ -14,7 +14,11 @@ function toOpenAIMessages(messages, system) {
     { role: "system", content: system },
     ...messages.map((message) => {
       if (message.role === "tool") {
-        return { role: "tool", tool_call_id: message.toolCallId ?? "unknown", content: message.content };
+        const content = message.media ? [
+          { type: "text", text: message.content },
+          { type: "image_url", image_url: { url: message.media.dataUrl } }
+        ] : message.content;
+        return { role: "tool", tool_call_id: message.toolCallId ?? "unknown", content };
       }
       if (message.role === "assistant") {
         const text = message.reasoning ? `<thinking>

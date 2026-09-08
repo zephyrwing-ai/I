@@ -8,6 +8,7 @@ import {
   shouldCollapseSidebar,
 } from "../store/outputSidebarState";
 import { Icon } from "./Icon";
+import { useElasticScroll } from "../hooks/useElasticScroll";
 
 type SidebarPhase = "closed" | "opening" | "open" | "dragging" | "closing";
 
@@ -47,6 +48,9 @@ export function OutputSidebar({ open, files, onOpenChange }: OutputSidebarProps)
   const shellRef = useRef<HTMLElement>(null);
   const dragRef = useRef({ startX: 0, startWidth: width, rawWidth: width });
   const frameRef = useRef<number | null>(null);
+  const fileListRef = useRef<HTMLDivElement>(null);
+  const fileContentRef = useRef<HTMLDivElement>(null);
+  useElasticScroll(fileListRef, fileContentRef);
 
   const selected = files.find((file) => file.fileId === selectedId) ?? files[0];
   const targetWidth = phase === "dragging" ? dragWidth : open ? clampWidth(width) : 0;
@@ -194,14 +198,18 @@ export function OutputSidebar({ open, files, onOpenChange }: OutputSidebarProps)
       <div className="output-sidebar-content">
         <header className="output-sidebar-header"><div><span className="eyebrow">当前运行</span><h2>输出文件 <small>{files.length}</small></h2></div><button type="button" className="panel-close" onClick={() => onOpenChange(false)} aria-label="隐藏输出文件" title="隐藏输出文件"><Icon name="sidebar" width="17" height="17" /></button></header>
 
-        <div className="output-file-list" role="listbox" aria-label="输出文件">
-          {fileGroups.length === 0 && <div className="panel-empty"><Icon name="file" width="24" height="24" /><span>当前任务尚未生成文件</span></div>}
-          {fileGroups.map((file) => (
-            <button type="button" role="option" aria-selected={file.fileId === selected?.fileId} className={file.fileId === selected?.fileId ? "selected" : ""} key={file.fileId} onClick={() => setSelectedId(file.fileId)}>
-              <Icon name={file.mediaType.startsWith("image/") ? "image" : "file"} width="16" height="16" />
-              <span><strong>{file.name}</strong><small>{file.displayPath}</small></span><em>{file.operation === "created" ? "已创建" : "已更新"}</em>
-            </button>
-          ))}
+        <div ref={fileListRef} className="output-file-list" role="listbox" aria-label="输出文件">
+          <div className="output-file-layout">
+            <div ref={fileContentRef} className="output-file-content">
+              {fileGroups.length === 0 && <div className="panel-empty"><Icon name="book-open" width="24" height="24" /><span>当前任务尚未生成文件</span></div>}
+              {fileGroups.map((file) => (
+                <button type="button" role="option" aria-selected={file.fileId === selected?.fileId} className={file.fileId === selected?.fileId ? "selected" : ""} key={file.fileId} onClick={() => setSelectedId(file.fileId)}>
+                  <Icon name={file.mediaType.startsWith("image/") ? "image" : "book-open"} width="16" height="16" />
+                  <span><strong>{file.name}</strong><small>{file.displayPath}</small></span><em>{file.operation === "created" ? "已创建" : "已更新"}</em>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <section className="output-preview" aria-label="文件预览">
@@ -209,7 +217,7 @@ export function OutputSidebar({ open, files, onOpenChange }: OutputSidebarProps)
           {previewLoading && <div className="preview-state">正在读取预览…</div>}
           {!previewLoading && preview?.ok && preview.kind === "text" && <><pre>{preview.content}</pre>{preview.truncated && <span className="preview-notice">文件较大，仅显示前 {formatBytes(512 * 1024)}</span>}</>}
           {!previewLoading && preview?.ok && preview.kind === "image" && <div className="image-preview"><img src={preview.dataUrl} alt={selected?.name ?? "输出图片"} /></div>}
-          {!previewLoading && preview?.ok && preview.kind === "unsupported" && <div className="preview-state"><Icon name="file" width="28" height="28" /><span>暂不支持内嵌预览</span><small>{preview.mediaType}</small></div>}
+          {!previewLoading && preview?.ok && preview.kind === "unsupported" && <div className="preview-state"><Icon name="image" width="28" height="28" /><span>暂不支持内嵌预览</span><small>{preview.mediaType}</small></div>}
           {!previewLoading && preview && !preview.ok && <div className="preview-state preview-error"><Icon name="warning" width="24" height="24" /><span>{preview.message}</span></div>}
           {!selected && <div className="preview-state">选择文件以预览内容</div>}
           {openError && <p className="preview-open-error" role="alert">{openError}</p>}

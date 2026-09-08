@@ -68,8 +68,8 @@ function classifyTool(name: string): ToolKind {
   if (name === "bash" || name === "shell") return "command";
   if (name === "read" || name === "file" || name === "cat") return "read";
   if (name === "write" || name === "edit" || name === "patch") return "edit";
-  if (name === "search" || name === "grep" || name === "find") return "search";
-  if (name === "list" || name === "files" || name === "glob") return "list";
+  if (name === "search_content" || name === "find_files" || name === "search" || name === "grep" || name === "find") return "search";
+  if (name === "list_dir" || name === "list" || name === "files" || name === "glob") return "list";
   return "unknown";
 }
 
@@ -89,7 +89,7 @@ function actionLabel(tool: ToolState): string {
 function toolIconName(tool: ToolState): IconName {
   switch (classifyTool(tool.name)) {
     case "command": return "terminal";
-    case "read": return "file";
+    case "read": return "book-open";
     case "edit": return "edit";
     case "search": return "search";
     case "list": return "folder";

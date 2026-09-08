@@ -7041,6 +7041,10 @@ const paths = {
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 19V5" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m6 11 6-6 6 6" })
   ] }),
+  "book-open": /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 5v16" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" })
+  ] }),
   check: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m5 12 4 4L19 6" }),
   "chevron-down": /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m6 9 6 6 6-6" }),
   "chevron-left": /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m15 18-6-6 6-6" }),
@@ -7068,11 +7072,7 @@ const paths = {
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M10 14 21 3" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" })
   ] }),
-  file: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M6 2h8l4 4v16H6Z" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M14 2v5h5" })
-  ] }),
-  folder: /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H6a2 2 0 0 0-2 2v14Z" }) }),
+  folder: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" }),
   image: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "3", y: "4", width: "18", height: "16", rx: "2" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "8.5", cy: "9", r: "1.5" }),
@@ -7103,8 +7103,9 @@ const paths = {
   ] }),
   stop: /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "7", y: "7", width: "10", height: "10", rx: "1", fill: "currentColor", stroke: "none" }),
   terminal: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m4 17 6-6-6-6" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 19h8" })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m7 11 2-2-2-2" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M11 13h4" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2" })
   ] }),
   tool: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" }),
   trash: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
@@ -19888,8 +19889,8 @@ function classifyTool(name2) {
   if (name2 === "bash" || name2 === "shell") return "command";
   if (name2 === "read" || name2 === "file" || name2 === "cat") return "read";
   if (name2 === "write" || name2 === "edit" || name2 === "patch") return "edit";
-  if (name2 === "search" || name2 === "grep" || name2 === "find") return "search";
-  if (name2 === "list" || name2 === "files" || name2 === "glob") return "list";
+  if (name2 === "search_content" || name2 === "find_files" || name2 === "search" || name2 === "grep" || name2 === "find") return "search";
+  if (name2 === "list_dir" || name2 === "list" || name2 === "files" || name2 === "glob") return "list";
   return "unknown";
 }
 function actionLabel(tool) {
@@ -19914,7 +19915,7 @@ function toolIconName(tool) {
     case "command":
       return "terminal";
     case "read":
-      return "file";
+      return "book-open";
     case "edit":
       return "edit";
     case "search":
@@ -20058,40 +20059,217 @@ function MessageStream({
     ];
   }) });
 }
+const ELASTIC_MAX = 96;
+const ELASTIC_SATURATION = 400;
+const ELASTIC_OMEGA = 28;
+const ELASTIC_ZETA = 0.9;
+const ELASTIC_WHEEL_IDLE = 80;
+function offsetFromPull(pull, saturation, max, sign) {
+  return sign * max * (1 - 1 / (pull / saturation + 1));
+}
+function pullFromOffset(offset, saturation, max) {
+  const magnitude = Math.min(Math.abs(offset), max - 0.01);
+  return saturation * (max / (max - magnitude) - 1);
+}
+function springStep(x, v, dt, omega, zeta) {
+  const decay = zeta * omega;
+  const frequency = omega * Math.sqrt(1 - zeta * zeta);
+  const envelope = Math.exp(-decay * dt);
+  const sin = Math.sin(frequency * dt);
+  const cos = Math.cos(frequency * dt);
+  return [
+    envelope * (x * cos + (v + decay * x) / frequency * sin),
+    envelope * (v * cos - (decay * v + omega * omega * x) / frequency * sin)
+  ];
+}
+function boundaryKind(top, max, delta) {
+  if (delta === 0) return "within";
+  if (max <= 1) return "outward";
+  const atTop = top <= 0.5;
+  const atBottom = top >= max - 0.5;
+  if (delta < 0 && atTop || delta > 0 && atBottom) return "outward";
+  return atTop || atBottom ? "inland" : "within";
+}
+function nestedCanScroll(target, container, delta) {
+  let node2 = target instanceof Element ? target : null;
+  while (node2 && node2 !== container) {
+    const max = node2.scrollHeight - node2.clientHeight;
+    if (max > 1 && /^(auto|scroll)$/.test(getComputedStyle(node2).overflowY)) {
+      if (delta < 0 && node2.scrollTop > 0.5 || delta > 0 && node2.scrollTop < max - 0.5) return true;
+    }
+    node2 = node2.parentElement;
+  }
+  return false;
+}
+function useElasticScroll(scrollRef, contentRef, thumbRef) {
+  const resetRef = reactExports.useRef(() => {
+  });
+  const reset = reactExports.useCallback(() => resetRef.current(), []);
+  reactExports.useEffect(() => {
+    const el = scrollRef.current;
+    const content2 = contentRef.current;
+    const thumb = thumbRef?.current;
+    if (!el || !content2) return;
+    let phase = "idle";
+    let pull = 0;
+    let offset = 0;
+    let velocity = 0;
+    let lastFrame = 0;
+    let frameId = 0;
+    let idleTimerId = 0;
+    let touchLastY = null;
+    let origin = "top";
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const paint = () => {
+      content2.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
+      if (thumb) {
+        const scale = 1 - 0.4 * Math.min(Math.abs(offset) / ELASTIC_MAX, 1);
+        thumb.style.transformOrigin = origin;
+        thumb.style.transform = offset === 0 ? "" : `scaleY(${scale})`;
+        thumb.style.opacity = String(scale);
+      }
+    };
+    const rest = () => {
+      clearTimeout(idleTimerId);
+      phase = "idle";
+      pull = 0;
+      offset = 0;
+      velocity = 0;
+    };
+    const frame = (now) => {
+      frameId = 0;
+      if (phase === "returning") {
+        [offset, velocity] = springStep(offset, velocity, Math.max(0, now - lastFrame) / 1e3, ELASTIC_OMEGA, ELASTIC_ZETA);
+        lastFrame = now;
+        if (Math.abs(offset) < 0.3 && Math.abs(velocity) < 5) rest();
+      }
+      paint();
+      if (phase === "returning") frameId = requestAnimationFrame(frame);
+    };
+    const schedule = () => {
+      if (!frameId) frameId = requestAnimationFrame(frame);
+    };
+    const resetMotion = () => {
+      cancelAnimationFrame(frameId);
+      frameId = 0;
+      rest();
+      paint();
+    };
+    resetRef.current = resetMotion;
+    const startReturning = () => {
+      if (phase !== "tracking") return;
+      clearTimeout(idleTimerId);
+      phase = "returning";
+      velocity = 0;
+      lastFrame = performance.now();
+      schedule();
+    };
+    const consume = (delta, event, wheel) => {
+      if (delta === 0 || !event.cancelable || event.defaultPrevented || reducedMotion.matches) return;
+      if (nestedCanScroll(event.target, el, delta)) return;
+      const scrollMax = el.scrollHeight - el.clientHeight;
+      const kind = boundaryKind(el.scrollTop, scrollMax, delta);
+      if (phase === "idle" && kind !== "outward") return;
+      if (kind === "within") {
+        startReturning();
+        return;
+      }
+      if (phase === "returning") {
+        pull = Math.sign(offset) * pullFromOffset(offset, ELASTIC_SATURATION, ELASTIC_MAX);
+      }
+      const nextPull = pull - delta;
+      event.preventDefault();
+      clearTimeout(idleTimerId);
+      if (scrollMax > 1 && pull !== 0 && Math.sign(nextPull) !== Math.sign(pull)) {
+        const remainder = delta - pull;
+        rest();
+        el.scrollTo({ top: el.scrollTop + remainder, behavior: "instant" });
+      } else if (nextPull === 0) {
+        rest();
+      } else {
+        pull = nextPull;
+        offset = offsetFromPull(Math.abs(pull), ELASTIC_SATURATION, ELASTIC_MAX, Math.sign(pull));
+        origin = pull < 0 && scrollMax > 1 ? "bottom" : "top";
+        velocity = 0;
+        phase = "tracking";
+        if (wheel) idleTimerId = window.setTimeout(startReturning, ELASTIC_WHEEL_IDLE);
+      }
+      schedule();
+    };
+    const onWheel = (event) => {
+      if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      const unit = event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? el.clientHeight : event.deltaMode === WheelEvent.DOM_DELTA_LINE ? parseFloat(getComputedStyle(el).lineHeight) || 16 : 1;
+      consume(event.deltaY * unit, event, true);
+    };
+    const onTouchStart = (event) => {
+      touchLastY = event.touches.length === 1 ? event.touches.item(0).clientY : null;
+      if (touchLastY !== null && phase === "returning") {
+        pull = Math.sign(offset) * pullFromOffset(offset, ELASTIC_SATURATION, ELASTIC_MAX);
+        phase = "tracking";
+        velocity = 0;
+      }
+      clearTimeout(idleTimerId);
+    };
+    const onTouchMove = (event) => {
+      const touch = event.touches.length === 1 ? event.touches.item(0) : null;
+      if (!touch || touchLastY === null) return;
+      const delta = touchLastY - touch.clientY;
+      touchLastY = touch.clientY;
+      consume(delta, event, false);
+    };
+    const onTouchEnd = () => {
+      touchLastY = null;
+      startReturning();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+    reducedMotion.addEventListener("change", resetMotion);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+      reducedMotion.removeEventListener("change", resetMotion);
+      resetMotion();
+      resetRef.current = () => {
+      };
+    };
+  }, [scrollRef, contentRef, thumbRef]);
+  return reset;
+}
 const THUMB_MIN = 48;
 const THUMB_MAX = 72;
 const GAP = 2;
 function StreamRegion({ scrollRef, children }) {
-  const [top, setTop] = reactExports.useState(0);
-  const [height, setHeight] = reactExports.useState(THUMB_MIN);
-  const [fraction, setFraction] = reactExports.useState(0);
-  const [scrollable, setScrollable] = reactExports.useState(false);
+  const [geometry, setGeometry] = reactExports.useState({ top: GAP, height: THUMB_MAX, fraction: 0, scrollable: false });
   const [dragging, setDragging] = reactExports.useState(false);
   const drag = reactExports.useRef(null);
-  const thumbHeight = reactExports.useRef(THUMB_MIN);
+  const layoutRef = reactExports.useRef(null);
+  const contentRef = reactExports.useRef(null);
+  const thumbRef = reactExports.useRef(null);
+  const resetElastic = useElasticScroll(scrollRef, contentRef, thumbRef);
   const sync = reactExports.useCallback(() => {
     const element2 = scrollRef.current;
     if (!element2) return;
     const viewport = element2.clientHeight;
-    const content2 = element2.scrollHeight;
-    const max = content2 - viewport;
-    const canScroll = max > 1;
-    setScrollable(canScroll);
-    if (!canScroll) return;
-    const ratio = viewport / content2;
-    const h = Math.min(THUMB_MAX, Math.max(THUMB_MIN, ratio * viewport));
-    thumbHeight.current = h;
-    setHeight(h);
-    setFraction(element2.scrollTop / max);
-    setTop(element2.scrollTop / max * (viewport - h - GAP * 2) + GAP);
+    const max = element2.scrollHeight - viewport;
+    const scrollable = max > 1;
+    const height = Math.min(THUMB_MAX, Math.max(THUMB_MIN, viewport * viewport / Math.max(element2.scrollHeight, 1)));
+    const fraction = scrollable ? Math.max(0, Math.min(1, element2.scrollTop / max)) : 0;
+    const top = fraction * Math.max(0, viewport - height - GAP * 2) + GAP;
+    setGeometry((current) => current.top === top && current.height === height && current.fraction === fraction && current.scrollable === scrollable ? current : { top, height, fraction, scrollable });
   }, [scrollRef]);
   reactExports.useEffect(() => {
     const element2 = scrollRef.current;
     if (!element2) return;
-    element2.addEventListener("scroll", sync);
+    element2.addEventListener("scroll", sync, { passive: true });
     const observer = new ResizeObserver(sync);
     observer.observe(element2);
-    if (element2.firstElementChild) observer.observe(element2.firstElementChild);
+    if (layoutRef.current) observer.observe(layoutRef.current);
     sync();
     return () => {
       element2.removeEventListener("scroll", sync);
@@ -20100,9 +20278,12 @@ function StreamRegion({ scrollRef, children }) {
   }, [scrollRef, sync]);
   const onPointerDown = (event) => {
     const element2 = scrollRef.current;
-    if (!element2) return;
+    if (!element2 || !geometry.scrollable || event.button !== 0) return;
+    event.preventDefault();
+    resetElastic();
     drag.current = { startY: event.clientY, startTop: element2.scrollTop };
     setDragging(true);
+    event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const onPointerMove = (event) => {
@@ -20110,33 +20291,60 @@ function StreamRegion({ scrollRef, children }) {
     const state = drag.current;
     if (!element2 || !state) return;
     const max = element2.scrollHeight - element2.clientHeight;
-    const track = element2.clientHeight - thumbHeight.current - GAP * 2;
-    element2.scrollTop = state.startTop + (event.clientY - state.startY) / track * max;
+    const track = element2.clientHeight - geometry.height - GAP * 2;
+    if (track <= 0 || max <= 1) return;
+    element2.scrollTo({ top: state.startTop + (event.clientY - state.startY) / track * max, behavior: "instant" });
   };
   const onPointerUp = () => {
     drag.current = null;
     setDragging(false);
   };
+  const onKeyDown = (event) => {
+    const element2 = scrollRef.current;
+    if (!element2) return;
+    const positions = {
+      ArrowUp: element2.scrollTop - 40,
+      ArrowDown: element2.scrollTop + 40,
+      PageUp: element2.scrollTop - element2.clientHeight,
+      PageDown: element2.scrollTop + element2.clientHeight,
+      Home: 0,
+      End: element2.scrollHeight
+    };
+    const top = positions[event.key];
+    if (top === void 0) return;
+    event.preventDefault();
+    resetElastic();
+    element2.scrollTo({ top, behavior: "instant" });
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-region", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("main", { ref: scrollRef, id: "message-stream", className: "stream-scroll", children }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "stream-scrollbar", "aria-hidden": !scrollable, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+    /* @__PURE__ */ jsxRuntimeExports.jsx("main", { ref: scrollRef, id: "message-stream", className: "stream-scroll", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: layoutRef, className: "stream-layout", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: contentRef, className: "stream-content", children }) }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "stream-scrollbar", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
       "div",
       {
         className: `stream-scrollbar-thumb${dragging ? " is-dragging" : ""}`,
-        style: { top, height },
+        style: { top: geometry.top, height: geometry.height },
         role: "scrollbar",
+        tabIndex: 0,
+        "aria-label": "消息滚动位置",
+        "aria-orientation": "vertical",
+        "aria-disabled": !geometry.scrollable,
         "aria-controls": "message-stream",
-        "aria-valuenow": Math.round(fraction * 100),
+        "aria-valuenow": Math.round(geometry.fraction * 100),
         "aria-valuemin": 0,
         "aria-valuemax": 100,
+        onKeyDown,
         onPointerDown,
         onPointerMove,
         onPointerUp,
         onPointerCancel: onPointerUp,
-        onLostPointerCapture: onPointerUp
+        onLostPointerCapture: onPointerUp,
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: thumbRef, className: "stream-scrollbar-thumb-fill" })
       }
     ) })
   ] });
+}
+function isSendKey(key, shiftKey, composing) {
+  return key === "Enter" && !shiftKey && !composing;
 }
 function Composer({ running, stopping, settings, modelOptions, modelLoading, onSettingsChange, onRun, onStop }) {
   const [task, setTask] = reactExports.useState("");
@@ -20216,7 +20424,7 @@ function Composer({ running, stopping, settings, modelOptions, modelLoading, onS
     }
   };
   const onTaskKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (isSendKey(e.key, e.shiftKey, e.nativeEvent.isComposing)) {
       e.preventDefault();
       submit();
     }
@@ -20229,7 +20437,7 @@ function Composer({ running, stopping, settings, modelOptions, modelLoading, onS
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsx("footer", { className: "composer", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-shell", children: [
     attachments.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-attachments", "aria-label": "附件", children: attachments.map((attachment) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "attachment-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: attachment.mediaType.startsWith("image/") ? "image" : "file", width: "15", height: "15" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "attachment-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: attachment.mediaType.startsWith("image/") ? "image" : "book-open", width: "15", height: "15" }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "attachment-info", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: attachment.name }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: formatBytes$1(attachment.byteSize) })
@@ -20688,6 +20896,9 @@ function OutputSidebar({ open, files, onOpenChange }) {
   const shellRef = reactExports.useRef(null);
   const dragRef = reactExports.useRef({ startX: 0, startWidth: width, rawWidth: width });
   const frameRef = reactExports.useRef(null);
+  const fileListRef = reactExports.useRef(null);
+  const fileContentRef = reactExports.useRef(null);
+  useElasticScroll(fileListRef, fileContentRef);
   const selected = files.find((file) => file.fileId === selectedId) ?? files[0];
   const targetWidth = phase === "dragging" ? dragWidth : open ? clampWidth(width) : 0;
   reactExports.useEffect(() => {
@@ -20828,20 +21039,20 @@ function OutputSidebar({ open, files, onOpenChange }) {
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "panel-close", onClick: () => onOpenChange(false), "aria-label": "隐藏输出文件", title: "隐藏输出文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "sidebar", width: "17", height: "17" }) })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "output-file-list", role: "listbox", "aria-label": "输出文件", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: fileListRef, className: "output-file-list", role: "listbox", "aria-label": "输出文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-file-layout", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: fileContentRef, className: "output-file-content", children: [
             fileGroups.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "panel-empty", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "file", width: "24", height: "24" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "book-open", width: "24", height: "24" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "当前任务尚未生成文件" })
             ] }),
             fileGroups.map((file) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", role: "option", "aria-selected": file.fileId === selected?.fileId, className: file.fileId === selected?.fileId ? "selected" : "", onClick: () => setSelectedId(file.fileId), children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: file.mediaType.startsWith("image/") ? "image" : "file", width: "16", height: "16" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: file.mediaType.startsWith("image/") ? "image" : "book-open", width: "16", height: "16" }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: file.name }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: file.displayPath })
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: file.operation === "created" ? "已创建" : "已更新" })
             ] }, file.fileId))
-          ] }),
+          ] }) }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "output-preview", "aria-label": "文件预览", children: [
             selected && /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "preview-header", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
@@ -20863,7 +21074,7 @@ function OutputSidebar({ open, files, onOpenChange }) {
             ] }),
             !previewLoading && preview?.ok && preview.kind === "image" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "image-preview", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: preview.dataUrl, alt: selected?.name ?? "输出图片" }) }),
             !previewLoading && preview?.ok && preview.kind === "unsupported" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preview-state", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "file", width: "28", height: "28" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "image", width: "28", height: "28" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "暂不支持内嵌预览" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: preview.mediaType })
             ] }),
@@ -21331,7 +21542,7 @@ function App() {
     searchOpen && /* @__PURE__ */ jsxRuntimeExports.jsx(SearchPopover, { query: searchQuery, onQueryChange: setSearchQuery }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "workspace", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "main-column", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Column, { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(StreamRegion, { scrollRef: streamRef, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stream-content", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(StreamRegion, { scrollRef: streamRef, children: [
           state.error && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "error-banner", children: state.error }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             MessageStream,
@@ -21342,7 +21553,7 @@ function App() {
             }
           ),
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: bottomRef, style: { height: composerHeight } })
-        ] }) }),
+        ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: composerRef, className: "composer-inner", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
           Composer,
           {

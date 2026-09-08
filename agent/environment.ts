@@ -12,7 +12,7 @@ const MAX_SNAPSHOT_ENTRIES = 12_000;
 const MAX_SNAPSHOT_FILES = 8_000;
 const MAX_SNAPSHOT_DEPTH = 16;
 const MAX_ARTIFACTS_PER_COMMAND = 256;
-const SNAPSHOT_IGNORED_DIRECTORIES = new Set([
+export const SNAPSHOT_IGNORED_DIRECTORIES = new Set([
   ".git",
   ".hg",
   ".svn",
@@ -224,7 +224,7 @@ function diffSnapshots(before: DirectorySnapshot, after: DirectorySnapshot): Fil
   return artifacts;
 }
 
-function mediaTypeForPath(path: string): string {
+export function mediaTypeForPath(path: string): string {
   switch (extname(path).toLowerCase()) {
     case ".png": return "image/png";
     case ".jpg":

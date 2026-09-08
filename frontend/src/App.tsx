@@ -176,15 +176,13 @@ export default function App() {
         <section className="main-column">
           <Column>
             <StreamRegion scrollRef={streamRef}>
-              <div className="stream-content">
-                {state.error && <div className="error-banner">{state.error}</div>}
-                <MessageStream
-                  order={state.runOrder}
-                  runs={state.runs}
-                  runTimings={runTimings.current}
-                />
-                <div ref={bottomRef} style={{ height: composerHeight }} />
-              </div>
+              {state.error && <div className="error-banner">{state.error}</div>}
+              <MessageStream
+                order={state.runOrder}
+                runs={state.runs}
+                runTimings={runTimings.current}
+              />
+              <div ref={bottomRef} style={{ height: composerHeight }} />
             </StreamRegion>
             <div ref={composerRef} className="composer-inner">
               <Composer

@@ -5,7 +5,7 @@ description: 模型工具调用如何分发到真实实现并将结果回填模�
 
 工具执行模块接收运行循环交付的模型工具调用，找到已注册的工具实现并返回结果。它不主动请求模型、不形成独立循环，也不判断整个任务是否完成。
 
-当前实现位于 `agent/loop.ts` 的分发逻辑与 `agent/tools.ts` 的注册表中，只注册 Bash；专用文件工具及其写入取消规则属于待实现设计。
+当前实现位于 `agent/loop.ts` 的分发逻辑与 `agent/tools/index.ts` 的注册表中，已注册 Bash、Read、Write、Edit 与三个查询工具（list_dir、find_files、search_content）。
 
 ## 调用与结果
 

@@ -17,28 +17,16 @@ export interface ModelConfig {
   openai?: { baseURL?: string; apiKey?: string };
 }
 
-/** BASH 工具定义 — 只用这一个工具 */
-export const BASH_TOOL: ToolDef = {
-  name: "bash",
-  description: "Execute a bash command",
-  parameters: {
-    type: "object",
-    properties: {
-      command: { type: "string", description: "The bash command to execute" },
-    },
-    required: ["command"],
-  },
-};
-
 /**
  * 模型事件流入口：按 provider 分发到对应 adapter，adapter 边解析 SSE 边 yield 统一事件。
  * 调用链等价于：response → 分发 → adapter.stream（各家协议）→ loop 的 for await。
+ * tools 由调用方（运行循环）从注册表取值后显式传入；模型层不内置具体工具。
  */
 export async function* response(
   config: ModelConfig,
   messages: ModelMessage[],
   system: string,
-  tools: ToolDef[] = [BASH_TOOL],
+  tools: ToolDef[],
   signal?: AbortSignal,
 ): AsyncGenerator<ModelStreamEvent> {
   switch (config.provider) {
