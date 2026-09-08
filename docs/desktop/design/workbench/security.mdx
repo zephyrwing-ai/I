@@ -1,9 +1,15 @@
 安全边界。
 
-API Key 只存在于 Renderer 的短期输入草稿和 Main 的系统凭据存储写入流程中。保存完成后，Renderer 清除明文 API Key。
+当前实现中，明文 API Key 短期存在于 Renderer 的编辑草稿和发往 Main 的保存、模型发现请求中；保存成功后输入框清空。Main 使用 Electron `safeStorage` 加密，将 Base64 密文作为 `encryptedApiKey` 保存在用户数据目录的 `provider-profiles.json`，并非将凭据单独保存为系统钥匙串条目。ProviderStore 写入使用权限为 `0600` 的临时文件再重命名；加解密能力不可用时拒绝对应操作。
 
-API Key，认证头和 Provider 原始敏感负载不进入 ProviderStore，运行快照，Agent 事件，消息流，搜索索引和普通日志。
+提供商列表只向 Renderer 返回凭据是否已配置，不返回密文或明文。运行和模型发现时，Main 解密凭据，交给内部请求配置和网络客户端；AgentRunner 和模型适配器当前同在 Main 进程执行。运行请求、公共事件与工具结果类型不包含专门的凭据字段。
+
+敏感信息不得进入消息、事件和普通日志是设计约束，当前没有统一脱敏层：模型请求异常会使用 `error.message` 生成运行错误，Bash 输出会原样进入工具结果，过长的完整输出还会写入内部临时文件。因此不能将“不含凭据字段”等同于已经保证所有错误与输出都不含敏感内容。
 
 输出文件访问使用 Main 维护的 runId 和 fileId 注册表。可读路径只用于界面识别，不构成读取和打开授权。
 
+预览和打开前，Main 重新检查真实路径是否仍与登记路径一致、目标是否仍为普通文件。注册范围与生命周期见[输出文件侧边栏](./sidebar.mdx)。输入附件也由 Main 的原生文件选择器登记，Renderer 提交 attachmentId；Main 在运行前解析并复查文件，再把本地路径加入模型任务文本。
+
 Renderer 负责呈现状态和发起用户意图。Preload 负责暴露受限的类型化接口。Main 负责凭据，文件系统，系统能力和 Provider 网络请求。Agent Runtime 负责模型调用，工具执行和运行生命周期。
+
+窗口已启用 `contextIsolation`、关闭 `nodeIntegration` 并启用 Renderer sandbox。它们隔离 Renderer 的直接 Node 能力；本地 Bash 仍以应用用户权限执行，cwd 仅表示初始工作目录，不是文件访问隔离边界。当前没有独立 Runner 进程、命令审批层或 Bash 文件系统沙箱。Preload 的 TypeScript 类型也不替代 Main 的运行时输入校验。

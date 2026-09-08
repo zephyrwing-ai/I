@@ -26,6 +26,7 @@ test("provider refresh retains the current imported model even when it becomes u
 
 test("provider deletion clears a selection that no longer exists", () => {
   assert.equal(retainSelectedModelOption("model-option-a", []), "");
+  assert.equal(restoreSelectedModelOption("model-option-a", []), "");
 });
 
 test("newly discovered models are neither retained nor restored before import", () => {
@@ -37,4 +38,9 @@ test("newly discovered models are neither retained nor restored before import", 
 test("stored selection restores only an imported and available model", () => {
   assert.equal(restoreSelectedModelOption("model-option-a", [model()]), "model-option-a");
   assert.equal(restoreSelectedModelOption("model-option-a", [model({ available: false })]), "");
+});
+
+test("empty selections stay empty even when usable models exist", () => {
+  assert.equal(retainSelectedModelOption("", [model()]), "");
+  assert.equal(restoreSelectedModelOption("", [model()]), "");
 });

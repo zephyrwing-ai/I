@@ -12,9 +12,11 @@ function render(text: string): string {
   return renderToStaticMarkup(createElement(MarkdownText, { className: "model-text", text }));
 }
 
-test("加粗与中文标点：全角转半角并补空格", () => {
-  const html = render("**你好，世界**");
-  assert.match(html, /<strong>你好, 世界<\/strong>/);
+test("行内强调只保留纯文本内容，同时规范化中文标点", () => {
+  const html = render("**你好，世界** / *斜体* / ~~删除~~");
+  assert.ok(html.includes("你好, 世界 / 斜体 / 删除"), html);
+  assert.doesNotMatch(html, /<(?:strong|em|del)>/);
+  assert.doesNotMatch(html, /(?:\*\*|~~|\*斜体\*)/);
 });
 
 test("行内代码：结构内文本不改动（SSR 转义引号）", () => {
@@ -54,12 +56,13 @@ test("链接：地址不改动 + 文字规范化 + 外链新窗口", () => {
 
 test("节点边界：逗号后接强调文本补空格（看到的是可见字符）", () => {
   const html = render("你好,**世界**");
-  assert.ok(html.includes("你好, <strong>"), html);
+  assert.ok(html.includes("<p>你好, 世界</p>"), html);
+  assert.doesNotMatch(html, /<strong>/);
 });
 
-test("纯英文文本短路：不改写不补空格", () => {
-  const html = render("Hello, world");
-  assert.ok(html.includes("Hello, world"), html);
+test("模型 Markdown 会对纯英文文本节点执行补空格，但保留词内标点", () => {
+  const html = render("Hello,🙂 package.json 3.14");
+  assert.ok(html.includes("Hello, 🙂 package.json 3.14"), html);
 });
 
 test("词内标点保护：3.14 与 package.json 不被拆开", () => {

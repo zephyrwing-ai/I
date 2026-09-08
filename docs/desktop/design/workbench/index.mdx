@@ -1,8 +1,25 @@
 主工作台页面。
 
-主工作台页面采用浅色视觉主题，标题栏位于顶部，工作区域占据其余窗口空间。工作区域由消息主列和输出文件侧边栏组成，Composer 固定在消息主列底部。
-
+主工作台采用浅色主题，顶部为标题栏，下方为消息主列与右侧输出文件栏。消息内容与 Composer 共用最大760px的居中列；Composer 绝对定位在列底，消息滚动区域贯穿整列，通过实测 Composer 高度的底部占位保证末条内容可以滚出遮挡区。具体视觉与交互分别见[消息流](./message-stream.mdx)、[Composer](./composer.mdx)和[侧边栏](./sidebar.mdx)。
 
 工作区域。
 
-工作区域位于标题栏下方，使用消息主列和输出文件侧边栏的并列布局。两列共享窗口高度和可用宽度。侧边栏展开和拖拽时，消息主列同步重排，任何内容都不能被侧边栏覆盖或裁切。
+两列使用并列布局。输出栏开合和拖拽改变自身宽度，消息主列占据剩余空间并重排；输出栏不覆盖消息主列。输出栏默认关闭，仅宽度保存在本机偏好。
+
+运行与会话边界。
+
+- 当前为单会话工作台，同一时间只允许一个运行；每次发送创建新的 `runId`，历史运行继续保留在当前窗口的消息流中。
+- Renderer 的 `agentReducer` 按 `runId → turnId → toolCallId` 维护展示投影，只接收当前运行的活动事件。输出栏取当前运行文件，不汇总整个会话；搜索范围见[标题栏](./titlebar.mdx)。
+- Main 的 `SessionStore` 保存跨运行的模型上下文。每次运行读取历史快照，Runtime 通过 `onMessageFinalized` 追加用户消息、完整助手消息和工具结果；流式增量用于界面展示，不直接作为历史消息提交。
+- 两份内存数据用途不同：Renderer 管展示，Main 管下一次模型请求。当前没有会话落盘、窗口重载后的事件重放或状态恢复接口；不能据此承诺重启恢复历史。仅重载 Renderer 会清空展示，Main 中的历史仍可能保留。
+
+宿主运行链路。
+
+1. Renderer 提交任务文字、`modelOptionId` 和附件 ID。Composer 不提供工作目录编辑；Main 使用请求中的可选 `cwd`，缺省时使用进程工作目录。
+2. Preload 通过受限 `agentAPI` 转发 IPC；Main 校验并解析模型与附件，构造运行输入，Runner 创建运行身份和取消信号。当前 Runtime 在 Main 进程内执行，尚未拆为 Worker 或独立进程。
+3. Main 返回运行确认后，Runner 延后启动 Runtime。运行事件经 IPC 返回，Renderer 按动画帧收集事件并依序交给 Reducer。
+4. 停止操作使用当前单运行的 `stop()`，由 Main 转发取消信号；界面等待 `runCompleted` 决定取消、失败或完成状态。
+
+Provider、附件、文件访问与凭据的宿主边界见[安全边界](./security.mdx)。Agent 的继续和结束语义以[运行循环](../../../agent/runtime-loop.mdx)为准；本页只定义桌面端如何装配与消费，不复制 Agent 协议。
+
+实现对照入口：`frontend/src/App.tsx`、`frontend/src/store/agentReducer.ts`、`shell/shared/ipc.ts`、`shell/main/index.ts`、`shell/main/runner.ts`、`shell/main/session-store.ts`。
