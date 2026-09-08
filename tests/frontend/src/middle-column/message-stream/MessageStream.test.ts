@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RunState } from "../../../../../frontend/src/store/agentReducer.js";
@@ -38,4 +40,21 @@ test("MessageStream follows run order and normalizes user text for display and c
   assert.ok(second >= 0 && first > second, html);
   assert.equal(html.match(/aria-label="复制消息"/g)?.length, 2);
   assert.doesNotMatch(html, /missing/);
+});
+
+test("user message bubble has a uniform 16px corner radius", () => {
+  const cssPath = fileURLToPath(
+    new URL("../../../../../frontend/src/middle-column/message-stream/message-stream.css", import.meta.url),
+  );
+  const css = readFileSync(cssPath, "utf8");
+
+  const ruleStart = css.indexOf(".user-message {");
+  assert.ok(ruleStart >= 0, ".user-message rule should exist");
+  const open = css.indexOf("{", ruleStart);
+  const rule = css.slice(open + 1, css.indexOf("}", open));
+
+  const radius = rule.match(/border-radius:\s*([^;]+);/)?.[1];
+  assert.ok(radius, "border-radius declaration should exist");
+  assert.equal(radius.trim().split(/\s+/).length, 1, "all four corners share one radius value");
+  assert.equal(radius.trim(), "16px");
 });

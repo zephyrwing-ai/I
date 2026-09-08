@@ -156,10 +156,12 @@ button:disabled { cursor: not-allowed; }
 .eyebrow { color: var(--text-muted); font-size: 10px; line-height: 16px; }
 .output-sidebar-header h2 { margin: 0; font-size: 14px; font-weight: 500; line-height: 20px; }
 .output-sidebar-header h2 small { color: var(--text-muted); font-size: 10px; font-weight: 500; }
-.output-file-list { min-height: 0; padding: 7px; overflow-y: auto; border-bottom: 1px solid var(--border); }
-.output-file-list > button { width: 100%; min-height: 42px; padding: 6px 7px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); display: grid; grid-template-columns: 20px minmax(0,1fr) auto; align-items: center; gap: 7px; text-align: left; }
-.output-file-list > button:hover, .output-file-list > button.selected { background: var(--hover); color: var(--text); }
-.output-file-list > button > span { min-width: 0; display: flex; flex-direction: column; }
+.output-file-list { min-height: 0; overflow-y: auto; overscroll-behavior-y: none; border-bottom: 1px solid var(--border); }
+.output-file-layout { min-height: 100%; overflow: clip; }
+.output-file-content { padding: 7px; }
+.output-file-content > button { width: 100%; min-height: 42px; padding: 6px 7px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); display: grid; grid-template-columns: 20px minmax(0,1fr) auto; align-items: center; gap: 7px; text-align: left; }
+.output-file-content > button:hover, .output-file-content > button.selected { background: var(--hover); color: var(--text); }
+.output-file-content > button > span { min-width: 0; display: flex; flex-direction: column; }
 .output-file-list strong, .output-file-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .output-file-list strong { font-size: 11px; font-weight: 450; }
 .output-file-list small { color: var(--text-muted); font-size: 9px; }

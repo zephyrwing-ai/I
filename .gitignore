@@ -1,2 +1,6 @@
 node_modules/
 dist/
+tools-edit-*/
+tools-query-*/
+tools-read-*/
+tools-write-*/

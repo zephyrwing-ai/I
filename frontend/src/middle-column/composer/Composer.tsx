@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import type { InputAttachmentDescriptor, ModelOption, RunRequest } from "../../../../shell/shared/ipc";
 import type { RunSettings } from "../../store/runSettings";
 import { Icon } from "../../components/Icon";
+import { isSendKey } from "./sendKey";
 import "./Composer.css";
 
 interface ComposerProps {
@@ -117,7 +118,9 @@ export function Composer({ running, stopping, settings, modelOptions, modelLoadi
   };
 
   const onTaskKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // 输入法组字期间 Enter 确认候选并上屏（isComposing 为 true）；组字结束后再次 Enter 才提交任务。
+    // 原生事件携带 isComposing，合成事件类型未声明该字段。
+    if (isSendKey(e.key, e.shiftKey, e.nativeEvent.isComposing)) {
       e.preventDefault();
       submit();
     }
@@ -137,7 +140,7 @@ export function Composer({ running, stopping, settings, modelOptions, modelLoadi
           <div className="composer-attachments" aria-label="附件">
             {attachments.map((attachment) => (
               <div className="composer-attachment" key={attachment.attachmentId}>
-                <span className="attachment-icon"><Icon name={attachment.mediaType.startsWith("image/") ? "image" : "file"} width="15" height="15" /></span>
+                <span className="attachment-icon"><Icon name={attachment.mediaType.startsWith("image/") ? "image" : "book-open"} width="15" height="15" /></span>
                 <span className="attachment-info"><strong>{attachment.name}</strong><small>{formatBytes(attachment.byteSize)}</small></span>
                 <button type="button" onClick={() => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId))} disabled={running} aria-label={`移除附件 ${attachment.name}`} title="移除附件"><Icon name="close" width="14" height="14" /></button>
               </div>

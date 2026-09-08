@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { run } from "./loop.js";
 import { createLocalBashOps } from "./environment.js";
-import { createToolRegistry } from "./tools.js";
+import { createToolRegistry } from "./tools/index.js";
 
 const args = process.argv.slice(2);
 

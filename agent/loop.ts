@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { response, type ModelConfig } from "./model/index.js";
 import type { LlmResponse, ModelMessage, ModelStopReason, ToolCall, ToolDef } from "./model/types.js";
-import type { RegisteredTool, ToolResult } from "./tools.js";
+import type { RegisteredTool, ToolResult } from "./tools/index.js";
 
 export type RunStatus = "completed" | "cancelled" | "failed";
 
@@ -135,7 +135,7 @@ export async function run(
       if (config.signal?.aborted) return finish("cancelled");
       events.onToolStart?.(call, ctx);
       const result = await executeTool(call, config.tools, config.cwd, config.signal);
-      const toolMessage: ModelMessage = { role: "tool", content: formatToolResult(result), toolCallId: call.id, toolName: call.name, isError: !result.ok };
+      const toolMessage: ModelMessage = { role: "tool", content: formatToolResult(result), toolCallId: call.id, toolName: call.name, isError: !result.ok, media: result.media };
       messages.push(toolMessage);
       events.onMessageFinalized?.(toolMessage);
       events.onToolCompleted?.(call, result, ctx);

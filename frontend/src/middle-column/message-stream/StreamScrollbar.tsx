@@ -1,50 +1,40 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { useElasticScroll } from "../../hooks/useElasticScroll";
 
-/** 滑块长度钳制：最小 48px，最大 72px */
 const THUMB_MIN = 48;
 const THUMB_MAX = 72;
-/** 滑块距窗口上/下缘各 2px（行程计算与拖拽换算共用） */
 const GAP = 2;
 
-/**
- * 消息流滚动区域 + 比例滑块（JS 自绘）。
- * 原生滚动条隐藏（scrollbar-width: none）；滑块长度按内容比例缩放，
- * 钳制在 48–72px（内容极长时收至 48px，内容很少时保持 72px 上限）；
- * 常显（玻璃质感胶囊见 message-stream.css），拖拽期间保持。
- */
-export function StreamRegion({ scrollRef, children }: { scrollRef: { current: HTMLElement | null }; children: ReactNode }) {
-  const [top, setTop] = useState(0);
-  const [height, setHeight] = useState(THUMB_MIN);
-  const [fraction, setFraction] = useState(0);
-  const [scrollable, setScrollable] = useState(false);
+/** 布局层稳定滚动范围，内容层呈现位移，滑块填充层呈现压缩。 */
+export function StreamRegion({ scrollRef, children }: { scrollRef: RefObject<HTMLElement>; children: ReactNode }) {
+  const [geometry, setGeometry] = useState({ top: GAP, height: THUMB_MAX, fraction: 0, scrollable: false });
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ startY: number; startTop: number } | null>(null);
-  const thumbHeight = useRef(THUMB_MIN);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLDivElement>(null);
+  const resetElastic = useElasticScroll(scrollRef, contentRef, thumbRef);
 
   const sync = useCallback(() => {
     const element = scrollRef.current;
     if (!element) return;
     const viewport = element.clientHeight;
-    const content = element.scrollHeight;
-    const max = content - viewport;
-    const canScroll = max > 1;
-    setScrollable(canScroll);
-    if (!canScroll) return;
-    const ratio = viewport / content;
-    const h = Math.min(THUMB_MAX, Math.max(THUMB_MIN, ratio * viewport));
-    thumbHeight.current = h;
-    setHeight(h);
-    setFraction(element.scrollTop / max);
-    setTop((element.scrollTop / max) * (viewport - h - GAP * 2) + GAP);
+    const max = element.scrollHeight - viewport;
+    const scrollable = max > 1;
+    const height = Math.min(THUMB_MAX, Math.max(THUMB_MIN, viewport * viewport / Math.max(element.scrollHeight, 1)));
+    const fraction = scrollable ? Math.max(0, Math.min(1, element.scrollTop / max)) : 0;
+    const top = fraction * Math.max(0, viewport - height - GAP * 2) + GAP;
+    setGeometry((current) => current.top === top && current.height === height && current.fraction === fraction && current.scrollable === scrollable
+      ? current : { top, height, fraction, scrollable });
   }, [scrollRef]);
 
   useEffect(() => {
     const element = scrollRef.current;
     if (!element) return;
-    element.addEventListener("scroll", sync);
+    element.addEventListener("scroll", sync, { passive: true });
     const observer = new ResizeObserver(sync);
     observer.observe(element);
-    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    if (layoutRef.current) observer.observe(layoutRef.current);
     sync();
     return () => {
       element.removeEventListener("scroll", sync);
@@ -52,46 +42,74 @@ export function StreamRegion({ scrollRef, children }: { scrollRef: { current: HT
     };
   }, [scrollRef, sync]);
 
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>): void => {
     const element = scrollRef.current;
-    if (!element) return;
+    if (!element || !geometry.scrollable || event.button !== 0) return;
+    event.preventDefault();
+    resetElastic();
     drag.current = { startY: event.clientY, startTop: element.scrollTop };
     setDragging(true);
+    event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
   };
-  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>): void => {
     const element = scrollRef.current;
     const state = drag.current;
     if (!element || !state) return;
     const max = element.scrollHeight - element.clientHeight;
-    const track = element.clientHeight - thumbHeight.current - GAP * 2;
-    element.scrollTop = state.startTop + ((event.clientY - state.startY) / track) * max;
+    const track = element.clientHeight - geometry.height - GAP * 2;
+    if (track <= 0 || max <= 1) return;
+    element.scrollTo({ top: state.startTop + ((event.clientY - state.startY) / track) * max, behavior: "instant" });
   };
   const onPointerUp = (): void => {
     drag.current = null;
     setDragging(false);
   };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const positions: Record<string, number> = {
+      ArrowUp: element.scrollTop - 40,
+      ArrowDown: element.scrollTop + 40,
+      PageUp: element.scrollTop - element.clientHeight,
+      PageDown: element.scrollTop + element.clientHeight,
+      Home: 0,
+      End: element.scrollHeight,
+    };
+    const top = positions[event.key];
+    if (top === undefined) return;
+    event.preventDefault();
+    resetElastic();
+    element.scrollTo({ top, behavior: "instant" });
+  };
 
   return (
     <div className="stream-region">
-      <main ref={scrollRef as React.RefObject<HTMLElement>} id="message-stream" className="stream-scroll">
-        {children}
+      <main ref={scrollRef} id="message-stream" className="stream-scroll">
+        <div ref={layoutRef} className="stream-layout">
+          <div ref={contentRef} className="stream-content">{children}</div>
+        </div>
       </main>
-      <div className="stream-scrollbar" aria-hidden={!scrollable}>
+      <div className="stream-scrollbar">
         <div
           className={`stream-scrollbar-thumb${dragging ? " is-dragging" : ""}`}
-          style={{ top, height }}
+          style={{ top: geometry.top, height: geometry.height }}
           role="scrollbar"
+          tabIndex={0}
+          aria-label="消息滚动位置"
+          aria-orientation="vertical"
+          aria-disabled={!geometry.scrollable}
           aria-controls="message-stream"
-          aria-valuenow={Math.round(fraction * 100)}
+          aria-valuenow={Math.round(geometry.fraction * 100)}
           aria-valuemin={0}
           aria-valuemax={100}
+          onKeyDown={onKeyDown}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onLostPointerCapture={onPointerUp}
-        />
+        ><div ref={thumbRef} className="stream-scrollbar-thumb-fill" /></div>
       </div>
     </div>
   );

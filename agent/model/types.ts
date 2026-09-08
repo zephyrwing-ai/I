@@ -1,11 +1,21 @@
 /** Provider 与 Runtime 之间共享的结构化模型契约。 */
 
+/** 工具参数属性描述 — 支持嵌套 object 与 array（items），与 OpenAI schema 对应。 */
+export interface ToolParamSpec {
+  type: string;
+  description: string;
+  enum?: string[];
+  items?: ToolParamSpec;
+  properties?: Record<string, ToolParamSpec>;
+  required?: string[];
+}
+
 export interface ToolDef {
   name: string;
   description: string;
   parameters: {
     type: "object";
-    properties: Record<string, { type: string; description: string }>;
+    properties: Record<string, ToolParamSpec>;
     required: string[];
   };
 }
@@ -23,12 +33,14 @@ export type ModelStopReason = "stop" | "tool_use" | "length" | "error" | "aborte
 export interface ModelMessage {
   role: "user" | "assistant" | "tool";
   content: string;
-  /** 思考内容（模型推理过程）；随消息一起回传给模型，供后续推理使用（pi 的 string-thinking 方案）。 */
+  /** 思考内容（模型推理过程）；随消息一起回传给模型，供后续推理使用（string-thinking 方案）。 */
   reasoning?: string;
   toolCalls?: ToolCall[];
   toolCallId?: string;
   toolName?: string;
   isError?: boolean;
+  /** 图片类工具结果（Read 图片）：适配层拼入 tool 消息图片部分。 */
+  media?: { mediaType: string; dataUrl: string };
 }
 
 /** 统一的模型返回，Runtime 不读取 Provider 原始响应格式。 */

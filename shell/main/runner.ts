@@ -3,7 +3,7 @@ import { run, type AgentEvents } from "../../agent/loop.js";
 import type { ModelConfig } from "../../agent/model/index.js";
 import { sessionStore } from "./session-store.js";
 import { createLocalBashOps } from "../../agent/environment.js";
-import { createToolRegistry, type ToolResult as InternalToolResult } from "../../agent/tools.js";
+import { createToolRegistry, type ToolResult as InternalToolResult } from "../../agent/tools/index.js";
 import type { FileArtifact } from "../../agent/types.js";
 import type { AgentEvent, OutputFileDescriptor, Provider, ToolResult } from "../shared/ipc.js";
 

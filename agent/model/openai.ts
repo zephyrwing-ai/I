@@ -40,11 +40,19 @@ function toOpenAIMessages(messages: ModelMessage[], system: string): OpenAI.Chat
     { role: "system", content: system },
     ...messages.map((message): OpenAI.Chat.Completions.ChatCompletionMessageParam => {
       if (message.role === "tool") {
-        return { role: "tool", tool_call_id: message.toolCallId ?? "unknown", content: message.content };
+        // 图片类工具结果走多模态内容数组：文本 + 图片部分一起回填模型。
+        // SDK 的 ToolMessage content 类型只声明了文本部分，图片部分随 API 支持，这里绕过类型收窄。
+        const content: OpenAI.Chat.Completions.ChatCompletionMessageParam["content"] = message.media
+          ? ([
+              { type: "text" as const, text: message.content },
+              { type: "image_url" as const, image_url: { url: message.media.dataUrl } },
+            ] as unknown as string)
+          : message.content;
+        return { role: "tool", tool_call_id: message.toolCallId ?? "unknown", content };
       }
       if (message.role === "assistant") {
         // 思考回传：Anthropic 用 signature 回放；OpenAI 兼容协议没有标准字段，
-        // 采用 pi 的 string-thinking 方案——拼成 <thinking> 文本随消息一起回传。
+        // 采用 string-thinking 方案——拼成 <thinking> 文本随消息一起回传。
         const text = message.reasoning
           ? `<thinking>\n${message.reasoning}\n</thinking>${message.content ? `\n${message.content}` : ""}`
           : message.content;
