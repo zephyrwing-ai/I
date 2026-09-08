@@ -41,7 +41,7 @@
 .think-block { max-width: 680px; }
 .think-text { margin: 0; color: var(--text); font-size: 14px; line-height: 24px; letter-spacing: 0.02em; word-break: break-word; }
 .think-block + .model-text,
-.think-block + .turn-action { margin-top: 8px; }
+.think-block + .turn-action { margin-top: 6px; } /* 思考块 ↔ 回合折叠行：视觉 17px */
 .model-text { margin: 0; max-width: 680px; color: var(--text-secondary); font-size: 14px; line-height: 24px; word-break: break-word; }
 
 /* ===== markdown 结构层：基础块间距 8px（与思考块一致）；结构块上下 12px 加宽；结构元素小步定义，自动适配亮暗主题 ===== */
@@ -109,8 +109,8 @@
 .turn-action-clip { min-height: 0; max-height: 320px; overflow-y: auto; overflow-x: hidden; }
 
 /* ===== 工具执行行：16×16 图标 + 动词动作描述 + 折叠箭头，位于回合折叠内 ===== */
-.tool-row { margin: 8px 0 0; }
-.tool-fold { width: 100%; min-height: 28px; padding: 3px 6px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
+.tool-row { margin: 0; }
+.tool-fold { width: 100%; min-height: 26px; padding: 0 6px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
 .tool-icon { flex: 0 0 auto; color: var(--text-secondary); transition: color 150ms var(--ease-standard); }
 .tool-action { flex: 1; min-width: 0; color: var(--text-secondary); font-size: 14px; line-height: 22px; font-family: "PingFang SC", "Hiragino Sans GB", sans-serif; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 150ms var(--ease-standard); }
 /* 收起：折叠箭头默认隐藏（opacity 淡入，占位保留不挤压描述）；悬停反馈「加深 + 描边加粗」，行背景保持透明 */

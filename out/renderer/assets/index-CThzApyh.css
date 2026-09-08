@@ -47,10 +47,10 @@
 .think-block { max-width: 680px; }
 .think-text { margin: 0; color: var(--text); font-size: 14px; line-height: 24px; letter-spacing: 0.02em; word-break: break-word; }
 .think-block + .model-text,
-.think-block + .turn-action { margin-top: 8px; }
-.model-text { margin: 0; max-width: 680px; color: var(--text-secondary); font-size: 14px; line-height: 20px; word-break: break-word; }
+.think-block + .turn-action { margin-top: 6px; } /* 思考块 ↔ 回合折叠行：视觉 17px */
+.model-text { margin: 0; max-width: 680px; color: var(--text-secondary); font-size: 14px; line-height: 24px; word-break: break-word; }
 
-/* ===== markdown 结构层：块间距沿用"上边距 8px"节奏；结构元素小步定义，自动适配亮暗主题 ===== */
+/* ===== markdown 结构层：基础块间距 8px（与思考块一致）；结构块上下 12px 加宽；结构元素小步定义，自动适配亮暗主题 ===== */
 .markdown > * + * { margin-top: 8px; }
 .markdown p { margin: 0; }
 .markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 0; font-weight: 600; line-height: 1.3; letter-spacing: 0.02em; }
@@ -58,7 +58,6 @@
 .markdown h2 { font-size: 17px; }
 .markdown h3 { font-size: 16px; }
 .markdown h4 { font-size: 15px; }
-.markdown strong { font-weight: 650; }
 .markdown ul, .markdown ol { margin: 0; padding-left: 22px; }
 .markdown li { margin: 0; }
 .markdown li > ul, .markdown li > ol { margin-top: 4px; }
@@ -74,11 +73,15 @@
 .md-table-wrap { overflow-x: auto; }
 .markdown th, .markdown td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
 .markdown th { background: var(--surface-secondary); font-weight: 600; }
-.markdown hr { margin: 0; border: 0; border-top: 1px solid var(--border); }
+.markdown hr { margin: 0; border: 0; }
 .markdown img { max-width: 100%; }
+/* 结构块（标题/列表/表格/代码块/引用/分隔线）：上下边距各 12px 加宽，与纯文本正文区分层级；分隔线只留间距不留线（hr 边框已去除）；基础块间距保持 8px（与思考块同一节奏） */
+.markdown h1, .markdown h2, .markdown h3, .markdown h4,
+.markdown ul, .markdown ol, .markdown pre, .markdown blockquote,
+.md-table-wrap, .markdown hr { margin-top: 12px; margin-bottom: 12px; }
 
-/* 最终答案：直接进入阅读流，与消息流左对齐、右侧留白；文字用更深的阅读黑，压过气泡消息的黑度 */
-.final-answer { margin: 14px 0 0; color: var(--text-reading); letter-spacing: 0.02em; }
+/* 最终答案：直接进入阅读流，与消息流左对齐、右侧留白；文字 14px / 24px 行高、阅读黑 #23242A、0.02em 字距；块间距由 .run-process 下边距 28px 承接 */
+.final-answer { margin: 14px 0 0; font-size: 14px; line-height: 24px; color: var(--text-reading); letter-spacing: 0.02em; }
 
 /* ===== 时间戳与复制行：11px 时间 + 12×12 复制图标；用户消息右对齐、模型消息左对齐，距消息下缘 8px；默认隐藏，悬停/聚焦消息区域时淡入 ===== */
 .model-message { display: flex; flex-direction: column; }
@@ -96,13 +99,14 @@
 .turn-action { margin-top: 6px; min-width: 0; }
 .turn-action-fold { width: 100%; min-height: 26px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
 .turn-action-icon { flex: 0 0 auto; color: var(--text-secondary); transition: color 150ms var(--ease-standard); }
-.turn-action-summary { flex: 0 1 auto; min-width: 0; color: var(--text-secondary); font-size: 14px; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 150ms var(--ease-standard); }
-/* 悬停反馈：图标与摘要字体加深为主要文字颜色（与工具执行行一致），行背景保持透明 */
-.turn-action:hover .turn-action-summary,
-.turn-action:hover .turn-action-icon { color: var(--text); }
+.turn-action-summary { flex: 0 1 auto; min-width: 0; color: var(--text-secondary); font-size: 14px; line-height: 22px; font-family: "PingFang SC", "Hiragino Sans GB", sans-serif; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 150ms var(--ease-standard); }
+/* 悬停反馈（与工具执行行同款）：仅折叠行本体「加深 + 描边加粗」；悬停内部工具行不联动 */
+.turn-action-fold:hover .turn-action-summary,
+.turn-action-fold:hover .turn-action-icon { color: var(--text); }
+.turn-action-fold:hover .turn-action-summary { -webkit-text-stroke: 0.3px currentColor; } /* 描边加粗：笔画增粗，字形度量不变 */
 /* 折叠箭头：默认隐藏（opacity 淡入，占位保留不挤压摘要），悬停/键盘焦点淡入 120ms；展开后保持显示并指向下 */
 .turn-action .chevron { opacity: 0; transition: opacity 120ms var(--ease-standard), transform 180ms var(--ease-standard); }
-.turn-action:hover .chevron,
+.turn-action-fold:hover .chevron,
 .turn-action-fold:focus-visible .chevron,
 .turn-action.is-open .chevron { opacity: 1; }
 /* 回合折叠展开内容：操作列表按顺序堆叠，最大高度 320px 内部滚动 */
@@ -111,19 +115,20 @@
 .turn-action-clip { min-height: 0; max-height: 320px; overflow-y: auto; overflow-x: hidden; }
 
 /* ===== 工具执行行：16×16 图标 + 动词动作描述 + 折叠箭头，位于回合折叠内 ===== */
-.tool-row { margin: 4px 0 0; }
-.tool-fold { width: 100%; min-height: 28px; padding: 3px 6px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
-.tool-icon { flex: 0 0 auto; color: var(--text-secondary); }
-.tool-action { flex: 1; min-width: 0; color: var(--text-secondary); font-size: 14px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 150ms var(--ease-standard); }
-/* 收起：折叠箭头默认隐藏（opacity 淡入，占位保留不挤压描述）；悬停反馈为字体加深，行背景保持透明 */
+.tool-row { margin: 0; }
+.tool-fold { width: 100%; min-height: 26px; padding: 0 6px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
+.tool-icon { flex: 0 0 auto; color: var(--text-secondary); transition: color 150ms var(--ease-standard); }
+.tool-action { flex: 1; min-width: 0; color: var(--text-secondary); font-size: 14px; line-height: 22px; font-family: "PingFang SC", "Hiragino Sans GB", sans-serif; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 150ms var(--ease-standard); }
+/* 收起：折叠箭头默认隐藏（opacity 淡入，占位保留不挤压描述）；悬停反馈「加深 + 描边加粗」，行背景保持透明 */
 .tool-row:hover .tool-action,
 .tool-row:hover .tool-icon { color: var(--text); }
+.tool-row:hover .tool-action { -webkit-text-stroke: 0.3px currentColor; } /* 描边加粗：笔画增粗，字形度量不变 */
 /* 折叠箭头：默认隐藏，悬停/键盘焦点淡入 120ms；展开后保持显示并指向下 */
 .tool-row .chevron { opacity: 0; transition: opacity 120ms var(--ease-standard), transform 180ms var(--ease-standard); }
 .tool-row:hover .chevron,
 .tool-fold:focus-visible .chevron,
 .tool-row.is-open .chevron { opacity: 1; }
-/* 展开：静态外观，悬停仅字体加深，箭头保持显示指向下 */
+/* 展开：静态外观，悬停仅「点亮」（加深 + 加粗），箭头保持显示指向下 */
 .tool-detail { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 200ms var(--ease-standard), opacity 180ms ease; }
 .tool-row.is-open .tool-detail { grid-template-rows: 1fr; opacity: 1; }
 .tool-detail-clip { min-height: 0; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
@@ -148,7 +153,6 @@
 .composer { padding: 12px 0 18px; background: transparent; }
 .composer-shell { position: relative; width: 100%; min-height: 116px; margin: 0; padding: 14px 14px 10px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: 0 16px 42px var(--shadow-soft); display: flex; flex-direction: column; gap: 8px; transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
 .composer-shell:hover { background: var(--surface-hover); }
-.composer-shell:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--focus-ring-strong), 0 16px 42px var(--shadow-medium); }
 .composer-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
 .composer-attachment { max-width: 230px; height: 42px; padding: 5px 6px 5px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--input); display: grid; grid-template-columns: 28px minmax(0,1fr) 26px; align-items: center; gap: 7px; }
 .attachment-icon { width: 28px; height: 28px; border-radius: 7px; background: var(--selection); color: var(--accent); display: grid; place-items: center; }
@@ -158,28 +162,29 @@
 .attachment-info small { color: var(--text-muted); font-size: 9px; }
 .composer-attachment button { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); display: grid; place-items: center; }
 .composer-attachment button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
-.task-input { width: 100%; min-height: 54px; max-height: 180px; padding: 1px 2px; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 400; line-height: 22px; }
-/* 焦点指示由外壳 .composer-shell:focus-within 统一承担（容器一框、输入区零框）。
-   不加这条，全局 textarea:focus-visible 会以更高优先级画第二圈内框。 */
+.task-input { width: 100%; min-height: 40px; max-height: 180px; padding: 1px 2px; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 400; line-height: 22px; }
+/* 焦点指示整体去除：Composer 在内部焦点出现时保持与未聚焦一致的外观，
+   故在此抑制全局 textarea:focus-visible 的内框。 */
 .task-input:focus-visible { outline: 0; }
 .task-input::placeholder { color: var(--text-muted); }
 .task-input:disabled { opacity: .72; }
 .composer-toolbar { min-width: 0; min-height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .composer-left, .composer-right { min-width: 0; display: flex; align-items: center; gap: 7px; }
 .composer-right { justify-content: flex-end; }
-.composer-icon-button { width: 36px; height: 36px; flex: 0 0 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); display: grid; place-items: center; }
+.composer-icon-button { width: 28px; height: 28px; flex: 0 0 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); display: grid; place-items: center; }
 .composer-icon-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
-.model-picker { position: relative; width: 290px; max-width: calc(100vw - 112px); }
-.model-picker-trigger { position: relative; width: 100%; height: 36px; padding: 0 30px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: 15px; font-weight: 400; display: flex; align-items: center; justify-content: center; }
-.model-picker-trigger > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
-.model-picker-trigger > svg { position: absolute; right: 10px; }
+.model-picker { position: relative; width: fit-content; }
+.model-picker-trigger { position: relative; width: fit-content; max-width: 100%; height: 28px; padding: 0 8px; gap: 12px; border: 0; border-radius: 16px; background: transparent; color: var(--text-reading); font-size: 14px; font-weight: 400; display: flex; align-items: center; justify-content: center; transition: width 180ms var(--ease-standard); contain: layout; }
+.model-picker-trigger > span { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.model-picker-trigger > svg { flex: 0 0 15px; transition: transform 180ms var(--ease-standard); }
+.model-picker-trigger[aria-expanded="true"] > svg { transform: rotate(-90deg); }
 .model-picker-trigger:hover:not(:disabled), .model-picker-trigger[aria-expanded="true"] { background: var(--hover); color: var(--text); }
-.model-popover { position: absolute; z-index: 10; right: 0; bottom: 44px; width: 100%; max-height: 300px; padding: 8px; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 16px 40px var(--shadow-medium); transform-origin: bottom right; animation: model-popover-in 150ms var(--ease-standard); }
-.model-popover > button { width: 100%; min-height: 36px; padding: 4px 9px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: 15px; font-weight: 400; display: flex; align-items: center; justify-content: space-between; text-align: left; }
-.model-popover > button:hover, .model-popover > button[aria-selected="true"] { background: var(--selection); color: var(--text); }
+.model-popover { position: absolute; z-index: 10; left: 50%; margin-left: -125px; bottom: 36px; width: 250px; max-height: 300px; padding: 4px; overflow-y: auto; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: 0 16px 40px var(--shadow-medium); transform-origin: bottom right; animation: model-popover-in 150ms var(--ease-standard); }
+.model-popover > button { width: 100%; min-height: 28px; padding: 0 4px; border: 0; border-radius: 16px; background: transparent; color: var(--text-secondary); font-size: 14px; font-weight: 400; display: flex; align-items: center; justify-content: space-between; text-align: left; }
+.model-popover > button:hover, .model-popover > button[aria-selected="true"] { background: var(--hover); color: var(--text); }
 .model-popover strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
 .model-empty { min-height: 72px; color: var(--text-muted); display: grid; place-items: center; }
-.send-stop-button { width: 36px; height: 36px; flex: 0 0 36px; padding: 0; border: 0; border-radius: 50%; background: var(--text); color: var(--on-dark); display: grid; place-items: center; transition: filter 120ms ease-out, transform 80ms ease-out, opacity 120ms ease-out; }
+.send-stop-button { width: 28px; height: 28px; flex: 0 0 28px; padding: 0; border: 0; border-radius: 50%; background: var(--text); color: var(--on-dark); display: grid; place-items: center; transition: filter 120ms ease-out, transform 80ms ease-out, opacity 120ms ease-out; }
 .send-stop-button:hover:not(:disabled) { filter: brightness(.9); }
 .send-stop-button:active:not(:disabled) { transform: scale(.94); }
 .send-stop-button:disabled { opacity: .38; }
@@ -188,7 +193,7 @@
 .composer-hint { position: absolute; left: 16px; bottom: -17px; color: var(--danger); font-size: 10px; }
 
 @media (max-width: 700px) {
-  .model-picker { width: 220px; max-width: calc(100vw - 100px); }
+  .model-popover { margin-left: -110px; width: 220px; }
 }
 :root {
   color-scheme: light;
@@ -241,6 +246,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [role="separa
 button:disabled { cursor: not-allowed; }
 .app { height: 100vh; min-width: 0; display: grid; grid-template-rows: 40px minmax(0, 1fr); position: relative; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+/* 文本选区：使用悬停反馈颜色作为选区背景，与全局选择高亮保持一致 */
+::selection { background: var(--hover); }
 
 /* 滚动条：轨道14px，每侧4px透明内缩，滑块视觉6px，距窗口右缘留出4px；空闲隐藏，悬停/聚焦显示，悬停加深
    注意：滚动条伪元素内避免使用 CSS 变量（Chromium 解析不稳定），直接写颜色 */
@@ -262,7 +269,7 @@ button:disabled { cursor: not-allowed; }
 .search-glyph { color: var(--text-secondary); display: grid; place-items: center; }
 .search-row input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; }
 .search-row input::placeholder { color: var(--text-muted); }
-.search-match { background: var(--selection-strong); }
+.search-match { background: var(--hover); }
 
 .workspace { min-height: 0; display: flex; overflow: hidden; }
 .main-column { flex: 1 1 auto; min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
@@ -348,7 +355,7 @@ button:disabled { cursor: not-allowed; }
 .output-sidebar-header h2 small { color: var(--text-muted); font-size: 10px; font-weight: 500; }
 .output-file-list { min-height: 0; padding: 7px; overflow-y: auto; border-bottom: 1px solid var(--border); }
 .output-file-list > button { width: 100%; min-height: 42px; padding: 6px 7px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); display: grid; grid-template-columns: 20px minmax(0,1fr) auto; align-items: center; gap: 7px; text-align: left; }
-.output-file-list > button:hover, .output-file-list > button.selected { background: var(--selection); color: var(--text); }
+.output-file-list > button:hover, .output-file-list > button.selected { background: var(--hover); color: var(--text); }
 .output-file-list > button > span { min-width: 0; display: flex; flex-direction: column; }
 .output-file-list strong, .output-file-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .output-file-list strong { font-size: 11px; font-weight: 450; }

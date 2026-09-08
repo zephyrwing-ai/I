@@ -19817,7 +19817,10 @@ const normalizeMdast = () => (tree) => {
 const REMARK_PLUGINS = [remarkGfm, remarkBreaks, normalizeMdast];
 const components = {
   a: ({ node: _node, ...props }) => /* @__PURE__ */ jsxRuntimeExports.jsx("a", { ...props, target: "_blank", rel: "noopener noreferrer" }),
-  table: ({ node: _node, children, ...props }) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "md-table-wrap", children: /* @__PURE__ */ jsxRuntimeExports.jsx("table", { ...props, children }) })
+  table: ({ node: _node, children, ...props }) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "md-table-wrap", children: /* @__PURE__ */ jsxRuntimeExports.jsx("table", { ...props, children }) }),
+  strong: ({ children }) => /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children }),
+  em: ({ children }) => /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children }),
+  del: ({ children }) => /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children })
 };
 function MarkdownTextInner({
   text: text2,
@@ -20141,11 +20144,25 @@ function Composer({ running, stopping, settings, modelOptions, modelLoading, onS
   const [modelOpen, setModelOpen] = reactExports.useState(false);
   const modelRootRef = reactExports.useRef(null);
   const modelTriggerRef = reactExports.useRef(null);
+  const modelLabelRef = reactExports.useRef(null);
   const taskInputRef = reactExports.useRef(null);
   const selectedModel = modelOptions.find((option) => option.modelOptionId === settings.modelOptionId);
   const selectableModels = modelOptions.filter((option) => option.available);
   const canRun = !running && task.trim() !== "" && Boolean(selectedModel?.available);
   const disabledReason = !task.trim() ? "请输入任务" : !selectedModel?.available ? "请选择可用模型" : null;
+  reactExports.useLayoutEffect(() => {
+    const trigger = modelTriggerRef.current;
+    const label = modelLabelRef.current;
+    if (!trigger || !label) return;
+    const previousFlex = label.style.flex;
+    const previousMaxWidth = label.style.maxWidth;
+    label.style.flex = "none";
+    label.style.maxWidth = "none";
+    const naturalWidth = Math.ceil(label.getBoundingClientRect().width);
+    label.style.flex = previousFlex;
+    label.style.maxWidth = previousMaxWidth;
+    trigger.style.width = `${naturalWidth + 43}px`;
+  }, [modelLoading, selectedModel?.displayName]);
   reactExports.useEffect(() => {
     if (!modelOpen) return;
     const close = (event) => {
@@ -20224,7 +20241,7 @@ function Composer({ running, stopping, settings, modelOptions, modelLoading, onS
       {
         ref: taskInputRef,
         className: "task-input",
-        placeholder: "do anything",
+        placeholder: "What's up?",
         value: task,
         disabled: running,
         onChange: (event) => updateTask(event.currentTarget),
@@ -20233,12 +20250,12 @@ function Composer({ running, stopping, settings, modelOptions, modelLoading, onS
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-left", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "composer-icon-button", onClick: () => void pickAttachments(), disabled: running, "aria-label": "上传文件", title: "上传文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "plus", width: "20", height: "20" }) }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-left", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "composer-icon-button", onClick: () => void pickAttachments(), disabled: running, "aria-label": "上传文件", title: "上传文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "plus", width: "18", height: "18" }) }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-right", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-picker", ref: modelRootRef, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { ref: modelTriggerRef, type: "button", className: "model-picker-trigger", onClick: () => setModelOpen((value) => !value), disabled: running || modelLoading, "aria-haspopup": "listbox", "aria-expanded": modelOpen, title: "选择模型", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: modelLoading ? "读取模型…" : selectedModel?.displayName ?? "选择模型" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "chevron-down", width: "15", height: "15" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { ref: modelLabelRef, children: modelLoading ? "读取模型…" : selectedModel?.displayName ?? "选择模型" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "chevron-right", width: "15", height: "15" })
           ] }),
           modelOpen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-popover", role: "listbox", "aria-label": "选择模型", onKeyDown: navigateModels, children: [
             selectableModels.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "model-empty", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "尚未添加可用模型" }) }),
@@ -20252,7 +20269,7 @@ function Composer({ running, stopping, settings, modelOptions, modelLoading, onS
             ] }, model.modelOptionId))
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: `send-stop-button ${running ? "is-stop" : "is-send"}`, onClick: running ? onStop : submit, disabled: running ? stopping : !canRun, "aria-label": running ? stopping ? "正在停止" : "停止运行" : "发送", title: running ? stopping ? "正在停止" : "停止运行" : disabledReason ?? "发送", "aria-busy": stopping || void 0, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "send-stop-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: running ? "stop" : "arrow-up", width: running ? 14 : 18, height: running ? 14 : 18 }) }, running ? "stop" : "send") })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: `send-stop-button ${running ? "is-stop" : "is-send"}`, onClick: running ? onStop : submit, disabled: running ? stopping : !canRun, "aria-label": running ? stopping ? "正在停止" : "停止运行" : "发送", title: running ? stopping ? "正在停止" : "停止运行" : disabledReason ?? "发送", "aria-busy": stopping || void 0, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "send-stop-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: running ? "stop" : "arrow-up", width: 18, height: 18 }) }, running ? "stop" : "send") })
       ] })
     ] }),
     !running && disabledReason && task.trim() && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "composer-hint", role: "status", children: disabledReason })

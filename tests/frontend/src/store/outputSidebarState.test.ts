@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { shouldCollapseSidebar } from "../../../../frontend/src/store/outputSidebarState.js";
+import {
+  OUTPUT_SIDEBAR_COLLAPSE_DISTANCE,
+  OUTPUT_SIDEBAR_MIN_WIDTH,
+  shouldCollapseSidebar,
+} from "../../../../frontend/src/store/outputSidebarState.js";
 
 test("output sidebar only collapses after crossing the 48px threshold below its minimum", () => {
-  assert.equal(shouldCollapseSidebar(280), false);
-  assert.equal(shouldCollapseSidebar(233), false);
-  assert.equal(shouldCollapseSidebar(232), true);
-  assert.equal(shouldCollapseSidebar(220), true);
+  const threshold = OUTPUT_SIDEBAR_MIN_WIDTH - OUTPUT_SIDEBAR_COLLAPSE_DISTANCE;
+  assert.equal(shouldCollapseSidebar(OUTPUT_SIDEBAR_MIN_WIDTH), false);
+  assert.equal(shouldCollapseSidebar(threshold + 1), false);
+  assert.equal(shouldCollapseSidebar(threshold), true);
+  assert.equal(shouldCollapseSidebar(threshold - 1), true);
 });

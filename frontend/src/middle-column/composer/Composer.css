@@ -2,7 +2,6 @@
 .composer { padding: 12px 0 18px; background: transparent; }
 .composer-shell { position: relative; width: 100%; min-height: 116px; margin: 0; padding: 14px 14px 10px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: 0 16px 42px var(--shadow-soft); display: flex; flex-direction: column; gap: 8px; transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
 .composer-shell:hover { background: var(--surface-hover); }
-.composer-shell:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--focus-ring-strong), 0 16px 42px var(--shadow-medium); }
 .composer-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
 .composer-attachment { max-width: 230px; height: 42px; padding: 5px 6px 5px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--input); display: grid; grid-template-columns: 28px minmax(0,1fr) 26px; align-items: center; gap: 7px; }
 .attachment-icon { width: 28px; height: 28px; border-radius: 7px; background: var(--selection); color: var(--accent); display: grid; place-items: center; }
@@ -12,28 +11,29 @@
 .attachment-info small { color: var(--text-muted); font-size: 9px; }
 .composer-attachment button { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); display: grid; place-items: center; }
 .composer-attachment button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
-.task-input { width: 100%; min-height: 54px; max-height: 180px; padding: 1px 2px; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 400; line-height: 22px; }
-/* 焦点指示由外壳 .composer-shell:focus-within 统一承担（容器一框、输入区零框）。
-   不加这条，全局 textarea:focus-visible 会以更高优先级画第二圈内框。 */
+.task-input { width: 100%; min-height: 40px; max-height: 180px; padding: 1px 2px; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 400; line-height: 22px; }
+/* 焦点指示整体去除：Composer 在内部焦点出现时保持与未聚焦一致的外观，
+   故在此抑制全局 textarea:focus-visible 的内框。 */
 .task-input:focus-visible { outline: 0; }
 .task-input::placeholder { color: var(--text-muted); }
 .task-input:disabled { opacity: .72; }
 .composer-toolbar { min-width: 0; min-height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .composer-left, .composer-right { min-width: 0; display: flex; align-items: center; gap: 7px; }
 .composer-right { justify-content: flex-end; }
-.composer-icon-button { width: 36px; height: 36px; flex: 0 0 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); display: grid; place-items: center; }
+.composer-icon-button { width: 28px; height: 28px; flex: 0 0 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); display: grid; place-items: center; }
 .composer-icon-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
-.model-picker { position: relative; width: 290px; max-width: calc(100vw - 112px); }
-.model-picker-trigger { position: relative; width: 100%; height: 36px; padding: 0 30px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: 15px; font-weight: 400; display: flex; align-items: center; justify-content: center; }
-.model-picker-trigger > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
-.model-picker-trigger > svg { position: absolute; right: 10px; }
+.model-picker { position: relative; width: fit-content; }
+.model-picker-trigger { position: relative; width: fit-content; max-width: 100%; height: 28px; padding: 0 8px; gap: 12px; border: 0; border-radius: 16px; background: transparent; color: var(--text-reading); font-size: 14px; font-weight: 400; display: flex; align-items: center; justify-content: center; transition: width 180ms var(--ease-standard); contain: layout; }
+.model-picker-trigger > span { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.model-picker-trigger > svg { flex: 0 0 15px; transition: transform 180ms var(--ease-standard); }
+.model-picker-trigger[aria-expanded="true"] > svg { transform: rotate(-90deg); }
 .model-picker-trigger:hover:not(:disabled), .model-picker-trigger[aria-expanded="true"] { background: var(--hover); color: var(--text); }
-.model-popover { position: absolute; z-index: 10; right: 0; bottom: 44px; width: 100%; max-height: 300px; padding: 8px; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 16px 40px var(--shadow-medium); transform-origin: bottom right; animation: model-popover-in 150ms var(--ease-standard); }
-.model-popover > button { width: 100%; min-height: 36px; padding: 4px 9px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: 15px; font-weight: 400; display: flex; align-items: center; justify-content: space-between; text-align: left; }
-.model-popover > button:hover, .model-popover > button[aria-selected="true"] { background: var(--selection); color: var(--text); }
+.model-popover { position: absolute; z-index: 10; left: 50%; margin-left: -125px; bottom: 36px; width: 250px; max-height: 300px; padding: 4px; overflow-y: auto; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: 0 16px 40px var(--shadow-medium); transform-origin: bottom right; animation: model-popover-in 150ms var(--ease-standard); }
+.model-popover > button { width: 100%; min-height: 28px; padding: 0 4px; border: 0; border-radius: 16px; background: transparent; color: var(--text-secondary); font-size: 14px; font-weight: 400; display: flex; align-items: center; justify-content: space-between; text-align: left; }
+.model-popover > button:hover, .model-popover > button[aria-selected="true"] { background: var(--hover); color: var(--text); }
 .model-popover strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
 .model-empty { min-height: 72px; color: var(--text-muted); display: grid; place-items: center; }
-.send-stop-button { width: 36px; height: 36px; flex: 0 0 36px; padding: 0; border: 0; border-radius: 50%; background: var(--text); color: var(--on-dark); display: grid; place-items: center; transition: filter 120ms ease-out, transform 80ms ease-out, opacity 120ms ease-out; }
+.send-stop-button { width: 28px; height: 28px; flex: 0 0 28px; padding: 0; border: 0; border-radius: 50%; background: var(--text); color: var(--on-dark); display: grid; place-items: center; transition: filter 120ms ease-out, transform 80ms ease-out, opacity 120ms ease-out; }
 .send-stop-button:hover:not(:disabled) { filter: brightness(.9); }
 .send-stop-button:active:not(:disabled) { transform: scale(.94); }
 .send-stop-button:disabled { opacity: .38; }
@@ -42,5 +42,5 @@
 .composer-hint { position: absolute; left: 16px; bottom: -17px; color: var(--danger); font-size: 10px; }
 
 @media (max-width: 700px) {
-  .model-picker { width: 220px; max-width: calc(100vw - 100px); }
+  .model-popover { margin-left: -110px; width: 220px; }
 }

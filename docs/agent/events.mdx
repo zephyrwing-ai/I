@@ -19,9 +19,9 @@ description: Agent 向宿主报告运行、回合、模型消息和工具调用�
 
 ## 事件协议
 
-Agent 发出以下事件：运行开始、回合开始、Assistant 增量、Assistant 完成、工具开始、工具完成、回合完成和运行完成。每类事件都携带 `runId`；回合事件还携带 `turnId`；工具事件还携带 `toolCallId`。
+Agent 发出以下事件：运行开始、回合开始、Assistant 正文增量、思考增量、Assistant 完成、工具开始、工具完成、回合完成和运行完成。每类事件都携带 `runId`；回合事件还携带 `turnId`；工具事件还携带 `toolCallId`。
 
-`assistantCompleted` 保存归一化 Assistant Message 和停止原因；`toolCompleted` 保存结构化工具结果；`runCompleted` 只允许携带 `completed`、`cancelled` 或 `failed`，并可附带结构化 `RunError` 和诊断信息。
+`assistantCompleted` 保存归一化 Assistant Message 和停止原因；`toolCompleted` 保存结构化工具结果；`runCompleted` 只允许携带 `completed`、`cancelled` 或 `failed`，并可附带结构化 `RunError` 和诊断信息。`runStarted` 当前携带 `startedAt`；其他过程事件没有统一时间戳。
 
 协议中不存在 `stepLimit`、`maxSteps` 或其他按次数终止字段。可选的 `turnOrdinal` 和 `turnCount` 只用于排序与诊断，Runtime 不能读取它们作为退出条件。
 
@@ -29,15 +29,15 @@ Agent 发出以下事件：运行开始、回合开始、Assistant 增量、Assi
 
 同一回合中，Agent 先发出 `turnStarted`，再发出 Assistant 增量和完整消息；存在工具调用时，每个调用分别发出开始与完成事件，所有调用处理完后发出 `turnCompleted`。运行结束时只发出一次 `runCompleted`。
 
-不同工具调用可以并发完成，因此事件的完成顺序不必等于工具调用在模型消息中的排列顺序。稳定 ID 是关联事实，事件到达顺序只用于过程展示，不能替代关联关系。
+当前 Runtime 串行执行工具。协议以稳定 ID 关联，为未来并发完成保留空间；引入并发后，完成顺序可以不同于模型中的排列顺序。稳定 ID 是关联事实，事件到达顺序只用于过程展示，不能替代关联关系。
 
 模型请求失败、取消信号、运行时异常和自然完成最终都必须收敛到唯一的 `runCompleted`。普通工具错误仍通过 `toolCompleted` 返回，并由 Runtime 回填模型；除非错误破坏 Runtime 本身，否则它不直接终止 run。
 
 ## 错误与敏感信息
 
-`RunError` 至少包含稳定的错误类型、用户可读消息，以及可选的 `retryable` 和 `diagnosticId`。错误类型区分配置、网络、Provider、模型协议、工具和 Runtime。
+`RunError` 当前包含稳定的错误类型、用户可读消息，以及可选的 `retryable`；`diagnosticId` 关联属于后续目标，当前类型未定义。错误类型区分配置、网络、Provider、模型协议、工具和 Runtime。
 
-事件不得包含 API Key、Authorization header 或 Provider 的完整敏感请求负载。诊断日志可以通过 `diagnosticId` 关联，但不能把敏感值复制回事件。
+事件不得包含 API Key、Authorization header 或 Provider 的完整敏感请求负载。后续诊断日志可以通过 `diagnosticId` 关联，但不能把敏感值复制回事件。
 
 ## 验证
 

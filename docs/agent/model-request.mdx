@@ -3,33 +3,38 @@ title: 模型请求
 description: 模型上下文、Provider 适配、流式消息和停止原因的统一契约。
 ---
 
-模型请求模块位于 Agent Runtime 与各 Provider SDK 之间。它接收一次不可变请求，返回统一的 Assistant 消息和流式事件；运行循环不读取 OpenAI、Anthropic 或 Google 的原始响应格式。
+模型请求模块位于 Agent Runtime 与 Provider SDK 之间，运行循环只消费统一事件，不读取 Provider 原始响应。当前仅实现 OpenAI 兼容的 Chat Completions 流式适配器；Anthropic 和 Google 原生适配属于后续扩展设计。
 
 ## 输入与输出契约
 
-一次模型请求必须携带 `runId`、`turnId`、Provider、模型、系统提示、当前消息上下文、可用工具和取消信号。模型响应至少包含正文或工具调用块、归一化的停止原因，并在失败时携带结构化错误；每个工具调用块都有稳定的 `toolCallId`、工具名称和参数。
+当前 `response` 接收 `ModelConfig`、`ModelMessage[]`、系统提示、工具定义和可选 `AbortSignal`。`runId`、`turnId` 由 Runtime 的回合上下文维护，用于关联对外事件，不直接传入适配器。
+
+`ModelMessage` 使用字符串 `content`，可附带 `reasoning` 和独立的 `toolCalls` 数组；工具结果消息携带 `toolCallId`、`toolName` 和 `isError`。当前不是正文与工具调用交错的块式消息。`ToolCall` 包含 `id`、`name`、`input` 和 `inputComplete`；`LlmResponse` 包含正文、工具调用、归一化停止原因及可选诊断字段。
 
 `runId` 关联整次运行，`turnId` 关联本次请求，`toolCallId` 贯穿工具调用和结果。请求中不存在 `stepLimit`、`maxSteps` 或其他按次数终止循环的字段。
 
 ## Provider 归一化
 
-各 Adapter 负责把 Provider 差异收敛到同一消息模型：
+当前适配器负责以下归一化：
 
 - OpenAI-compatible 的 `tool_calls[].function.arguments` 必须解析并保留原始调用 ID；
-- Anthropic 的 `tool_use` block 转换为同一 `ToolCallBlock`；
-- Google 的 `functionCall` 转换为同一 `ToolCallBlock`；
+- 工具调用分片按 Provider 的 index 累积，最终转换为 `ToolCall[]`；参数解析失败仍保留调用，并设置 `inputComplete: false`；
 - Provider 的原始完成原因保留在 `rawStopReason`，控制层只消费归一化的 `stopReason`；
 - 工具调用是否合法由工具执行模块判断，Adapter 不能静默丢弃解析失败的调用并伪装成“没有工具调用”。
 
-`tool_use` 只是 Provider 提供的提示，Runtime 仍以 `AssistantMessage.content` 中是否实际存在工具调用作为继续依据。这样可以兼容完成原因不稳定但内容中含有有效工具调用的实现。
+`tool_use` 是归一化停止原因；Runtime 以 `LlmResponse.toolCalls` 是否非空作为自动续轮依据，不从正文猜测工具调用。
+
+`reasoning_content` 及正文中识别出的 thinking 标记内容进入独立 reasoning 通道。后续请求将保留的 reasoning 拼成 thinking 文本随 assistant 消息回传，这是当前兼容策略，不是所有 Provider 的通用协议。
+
+后续扩展目标：Anthropic 的 `tool_use` 和 Google 的 `functionCall` 应映射到统一工具调用契约；若需要保留文本与工具块交错顺序，须先扩展当前字符串正文与独立数组的类型，再实现块式 `ToolCallBlock`，不能将它视为已有接口。
 
 ## 流式请求
 
-一次请求按以下顺序发出事件：
+当前 `ModelStreamEvent` 只有 `reasoning_delta`、`text_delta` 和 `completed`。适配器持续发送思考、正文增量；工具调用在流结束时随 `completed` 一次性提交，不发送开始消息或工具参数增量事件。Runtime 将增量转发给宿主，并在收集完成后一次性写入完整 assistant 消息。
 
-流式请求先建立消息，再持续发送文本增量或工具调用增量，最后提交完整的 Assistant Message。
+当前适配器的请求异常直接抛出，由 Runtime 捕获：信号已取消时结束为 `cancelled`，其余异常结束为 `failed`，错误种类目前统一为 `runtime`。类型虽保留 `error`、`aborted` 停止原因，但当前 OpenAI 适配器不会通过最终消息产生这两类结果。
 
-Adapter 必须将普通请求错误编码为最终 `AssistantMessage(stopReason: "error")`，将 `AbortSignal` 导致的中止编码为 `stopReason: "aborted"`。它们不能只 reject Promise，让 Runtime 无法生成稳定的终止事件。启动前的编程错误可以抛出，但必须由 Runtime 收敛为同一错误契约。
+后续错误归一化目标：适配器提供明确的请求错误与中止结果，Runtime 稳定区分配置、网络、Provider 和协议错误；若通过流事件传递，须同时扩展 `ModelStreamEvent` 的错误载荷。任何方案都必须保证运行收敛为唯一终止事件。
 
 Provider chunk 只由 Adapter 解析；Runtime 只接收归一化消息并发出 AgentEvent，不把 Provider SDK 的原始流对象泄漏给宿主。宿主如何跨进程传输和批处理高频增量，由对应宿主设计定义。
 
@@ -37,19 +42,19 @@ Provider chunk 只由 Adapter 解析；Runtime 只接收归一化消息并发出
 
 `stopReason: "length"` 是诊断信息，不是 Step 上限：
 
-- 如果消息包含工具调用，参数可能被截断，即使 JSON 恰好仍能通过 schema 也禁止执行；Runtime 为这些调用生成 `isError: true` 的 Tool Result，并让模型在下一轮重新发出完整调用。
+- 如果消息包含工具调用，适配器将 `inputComplete` 设为 false，即使 JSON 仍能解析也禁止执行；Runtime 生成 `ok: false` 的结果，并以 `isError: true` 的工具消息回填模型，让模型在下一轮重新发出完整调用。
 - 如果消息不包含工具调用，运行循环按“无工具调用”自然结束，同时保留 `length` 供最终回答提示内容可能不完整。
 
 ## 错误与重试
 
-`RunError` 至少包含稳定的 `kind`、用户可读的 `message` 和可选的 `retryable`，并区分 `config`、`network`、`provider`、`model_protocol` 与 `runtime`。API Key、完整请求头和 Provider 原始敏感负载不得进入事件或日志。
+错误类型预留稳定的 `kind`、用户可读的 `message` 和可选的 `retryable`。配置、网络、Provider 与协议错误的细分尚未贯穿当前适配器；Runtime 捕获异常时直接使用 `error.message`。API Key、完整请求头和 Provider 原始敏感负载不得进入事件或日志是设计约束，统一脱敏尚待实现。
 
-自动重试只允许发生在同一次 Model Request 内，并且必须满足 Provider 明确可重试、请求未产生不可安全重放的副作用。重试不能创建伪造的 Agent turn，也不能以重试次数充当 Agent 循环上限。
+当前未实现应用层重试调度，也未显式覆盖 OpenAI SDK 的重试配置。后续重试策略应限制在同一次 Model Request 内，并且满足 Provider 明确可重试、请求未产生不可安全重放的副作用。重试不能创建伪造的 Agent turn，也不能以重试次数充当 Agent 循环上限。
 
-## 验证
+## 验证要求（不代表已全部实现或验证）
 
-- 三种 Provider 的相同工具调用产生一致的 `ToolCallBlock`。
-- 文本和工具调用交错流式返回时，块顺序与调用 ID 保持稳定。
+- 当前 OpenAI 兼容流正确聚合正文、思考和工具调用，保留调用 ID；后续新增 Provider 须验证相同调用归一化一致。
+- 当前工具调用分片按 index 聚合；后续块式协议须额外验证交错顺序。
 - 无效工具参数不会被静默丢弃。
 - `error`、`aborted`、`length` 和正常 `stop` 分别进入正确分支。
 - 任何模型请求日志、错误和 AgentEvent 均不包含 API Key。

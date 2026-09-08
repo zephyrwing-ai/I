@@ -30,8 +30,12 @@ test("顿号、括号、引号、波浪、百分号", () => {
 });
 
 test("纯英文原样返回", () => {
-  const english = "Hello, world. This is 3.14!";
-  assert.equal(normalizePunctuation(english), english);
+  const inputs = [
+    "Hello,world. This is 3.14!",
+    "README：setup",
+    "`const value = 'fullwidth，punctuation'`",
+  ];
+  for (const input of inputs) assert.equal(normalizePunctuation(input), input);
 });
 
 test("数字保护：3.14 / 1.2.3 不加空格", () => {
@@ -65,6 +69,13 @@ test("中英混排：补空格位置正确", () => {
 test("代码块整体跳过", () => {
   const input = "```py\nprint(\"你好，世界\")\n```\n完了。";
   expectIdempotent(input, "```py\nprint(\"你好，世界\")\n```\n完了.");
+});
+
+test("用户消息中的行内代码不属于围栏豁免范围", () => {
+  const output = normalizePunctuation("说明：`你好，世界。`");
+  assert.ok(output.includes("`你好, 世界."));
+  assert.doesNotMatch(output, /[，。]/);
+  assert.equal(normalizePunctuation(output), output);
 });
 
 test("未闭合代码块至文末，跳过", () => {

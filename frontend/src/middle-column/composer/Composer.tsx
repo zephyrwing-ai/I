@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { InputAttachmentDescriptor, ModelOption, RunRequest } from "../../../../shell/shared/ipc";
 import type { RunSettings } from "../../store/runSettings";
 import { Icon } from "../../components/Icon";
@@ -22,6 +22,7 @@ export function Composer({ running, stopping, settings, modelOptions, modelLoadi
   const [modelOpen, setModelOpen] = useState(false);
   const modelRootRef = useRef<HTMLDivElement>(null);
   const modelTriggerRef = useRef<HTMLButtonElement>(null);
+  const modelLabelRef = useRef<HTMLSpanElement>(null);
   const taskInputRef = useRef<HTMLTextAreaElement>(null);
   const selectedModel = modelOptions.find((option) => option.modelOptionId === settings.modelOptionId);
   const selectableModels = modelOptions.filter((option) => option.available);
@@ -32,6 +33,24 @@ export function Composer({ running, stopping, settings, modelOptions, modelLoadi
     : !selectedModel?.available
       ? "请选择可用模型"
       : null;
+
+  /** 模型按钮宽度自适应：按文本自然宽与固定构成（水平边距8×2、间隙12、箭头15）设置显式宽度，由 CSS 180ms 过渡平滑变化。 */
+  useLayoutEffect(() => {
+    const trigger = modelTriggerRef.current;
+    const label = modelLabelRef.current;
+    if (!trigger || !label) return;
+    // 解除 flex 收缩与 max-width 约束后测量文本自然宽，避免被旧宽度裁出省略号污染测量值；
+    // 用小数几何宽并向上取整：scrollWidth 按整数取整会丢 0.4~0.9px 的小数部分，
+    // 内容宽超出按钮宽的零点几像素会被省略号补齐，反而吃掉末位一两个字母。
+    const previousFlex = label.style.flex;
+    const previousMaxWidth = label.style.maxWidth;
+    label.style.flex = "none";
+    label.style.maxWidth = "none";
+    const naturalWidth = Math.ceil(label.getBoundingClientRect().width);
+    label.style.flex = previousFlex;
+    label.style.maxWidth = previousMaxWidth;
+    trigger.style.width = `${naturalWidth + 43}px`;
+  }, [modelLoading, selectedModel?.displayName]);
 
   useEffect(() => {
     if (!modelOpen) return;
@@ -128,7 +147,7 @@ export function Composer({ running, stopping, settings, modelOptions, modelLoadi
         <textarea
           ref={taskInputRef}
           className="task-input"
-          placeholder="do anything"
+          placeholder="What's up?"
           value={task}
           disabled={running}
           onChange={(event) => updateTask(event.currentTarget)}
@@ -138,13 +157,13 @@ export function Composer({ running, stopping, settings, modelOptions, modelLoadi
 
         <div className="composer-toolbar">
           <div className="composer-left">
-            <button type="button" className="composer-icon-button" onClick={() => void pickAttachments()} disabled={running} aria-label="上传文件" title="上传文件"><Icon name="plus" width="20" height="20" /></button>
+            <button type="button" className="composer-icon-button" onClick={() => void pickAttachments()} disabled={running} aria-label="上传文件" title="上传文件"><Icon name="plus" width="18" height="18" /></button>
           </div>
 
           <div className="composer-right">
             <div className="model-picker" ref={modelRootRef}>
               <button ref={modelTriggerRef} type="button" className="model-picker-trigger" onClick={() => setModelOpen((value) => !value)} disabled={running || modelLoading} aria-haspopup="listbox" aria-expanded={modelOpen} title="选择模型">
-                <span>{modelLoading ? "读取模型…" : selectedModel?.displayName ?? "选择模型"}</span><Icon name="chevron-down" width="15" height="15" />
+                <span ref={modelLabelRef}>{modelLoading ? "读取模型…" : selectedModel?.displayName ?? "选择模型"}</span><Icon name="chevron-right" width="15" height="15" />
               </button>
               {modelOpen && (
                 <div className="model-popover" role="listbox" aria-label="选择模型" onKeyDown={navigateModels}>
@@ -163,7 +182,7 @@ export function Composer({ running, stopping, settings, modelOptions, modelLoadi
             </div>
 
             <button type="button" className={`send-stop-button ${running ? "is-stop" : "is-send"}`} onClick={running ? onStop : submit} disabled={running ? stopping : !canRun} aria-label={running ? (stopping ? "正在停止" : "停止运行") : "发送"} title={running ? (stopping ? "正在停止" : "停止运行") : (disabledReason ?? "发送")} aria-busy={stopping || undefined}>
-              <span className="send-stop-icon" key={running ? "stop" : "send"}><Icon name={running ? "stop" : "arrow-up"} width={running ? 14 : 18} height={running ? 14 : 18} /></span>
+              <span className="send-stop-icon" key={running ? "stop" : "send"}><Icon name={running ? "stop" : "arrow-up"} width={18} height={18} /></span>
             </button>
           </div>
         </div>
