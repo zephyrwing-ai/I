@@ -21,9 +21,23 @@ description: Agent 向宿主报告运行、回合、模型消息和工具调用�
 
 Agent 发出以下事件：运行开始、回合开始、Assistant 正文增量、思考增量、Assistant 完成、工具开始、工具完成、回合完成和运行完成。每类事件都携带 `runId`；回合事件还携带 `turnId`；工具事件还携带 `toolCallId`。
 
-`assistantCompleted` 保存归一化 Assistant Message 和停止原因；`toolCompleted` 保存结构化工具结果；`runCompleted` 只允许携带 `completed`、`cancelled` 或 `failed`，并可附带结构化 `RunError` 和诊断信息。`runStarted` 当前携带 `startedAt`；其他过程事件没有统一时间戳。
+`assistantCompleted` 报告归一化 Assistant Message 和停止原因；`toolCompleted` 报告结构化工具结果；`runCompleted` 携带 `completed`、`cancelled` 或 `failed`，并可附带结构化 `RunError` 和诊断信息。`runStarted` 携带 `startedAt`，其他过程事件保持各自字段。
 
 协议中不存在 `stepLimit`、`maxSteps` 或其他按次数终止字段。可选的 `turnOrdinal` 和 `turnCount` 只用于排序与诊断，Runtime 不能读取它们作为退出条件。
+
+## 事件与会话记录
+
+AgentEvent 负责报告运行过程，SessionRecorder 负责保存会话记录。Host 分别向 Runtime 注入事件接收器和绑定 `sessionId` 的 Recorder，Runtime 在同一个语义节点分别调用两者。
+
+- `reasoningDelta` 和 `assistantDelta` 携带 `runId`、`turnId` 与冻结的 delta 字符串。
+- Runtime 把 delta 同步交给 Recorder 更新内存草稿，并把同一 delta 发为 AgentEvent。
+- `assistantCompleted` 在完整 Assistant Message 成功提交后发出。
+- `toolCompleted` 在完整 Tool Message 成功提交后发出。
+- `runCompleted` 在 `finishRun` 完成终态提交后发出。
+- Recorder 和事件接收器分别维护自己的队列与状态，二者通过稳定 ID 和冻结事件值关联。
+- `onMessageFinalized` 由 SessionRecorder 的 `commitUser`、`commitAssistant` 和 `commitToolResult` 取代。
+
+SessionRecorder 的接口与写入规则由[会话存储](./memory.mdx)定义。Runner 的注入和 IPC 转发由[会话存储装配](../desktop/design/workbench/session-storage.mdx)定义。
 
 ## 顺序与终止
 
@@ -42,6 +56,10 @@ Agent 发出以下事件：运行开始、回合开始、Assistant 正文增量�
 ## 验证
 
 - 任意结束路径只产生一个 `runCompleted`。
+- 同一个模型 delta 分别进入 Recorder 和 AgentEvent 接收器，并保持相同 `runId` 与 `turnId`。
+- `assistantCompleted` 在 Assistant Message 本地提交完成后产生。
+- `toolCompleted` 在 Tool Message 本地提交完成后产生。
+- `runCompleted` 在 Recorder 完成终态刷新后产生。
 - 两个工具调用乱序完成时仍关联到各自的 `toolCallId`。
 - 工具错误完成后，Runtime 可以把同一结果回填模型并继续下一回合。
 - 中止模型请求或工具执行后，运行最终进入 `cancelled`，不再产生新的模型请求。

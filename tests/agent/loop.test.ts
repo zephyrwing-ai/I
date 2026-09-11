@@ -1,12 +1,37 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { run } from "../../agent/loop.js";
+import type { SessionRecorder } from "../../agent/memory/types.js";
 import type { ModelConfig } from "../../agent/model/index.js";
 import type { ModelMessage, ModelStreamEvent } from "../../agent/model/types.js";
-import { sessionStore } from "../../shell/main/session-store.js";
+
+function createTestRecorder(initial: ModelMessage[] = []): SessionRecorder & { messages: ModelMessage[]; commits: string[] } {
+  const messages = initial.slice();
+  const commits: string[] = [];
+  return {
+    sessionId: "session-test",
+    messages,
+    commits,
+    snapshot: () => messages.slice(),
+    commitUser: async (message) => {
+      commits.push("user");
+      messages.push(message);
+    },
+    recordAssistantDelta: () => undefined,
+    commitAssistant: async (message) => {
+      commits.push("assistant");
+      messages.push(message);
+    },
+    commitToolResult: async (message) => {
+      commits.push("tool");
+      messages.push(message);
+    },
+    finishRun: async () => undefined,
+    close: async () => undefined,
+  };
+}
 
 test("session transcript accumulates across runs and seeds the model context", async () => {
-  sessionStore.clear();
   const seen: ModelMessage[][] = [];
 
   const fakeResponse = async function* (
@@ -23,19 +48,17 @@ test("session transcript accumulates across runs and seeds the model context", a
     cwd: process.cwd(),
     tools: new Map(),
   };
-  const events = { onMessageFinalized: (message: ModelMessage) => sessionStore.append(message) };
+  const recorder = createTestRecorder();
 
   await run(
     "第一句",
     { provider: "openai", model: "fake" },
-    { ...base, runId: "run-1", history: sessionStore.snapshot(), responseImpl: fakeResponse },
-    events,
+    { ...base, runId: "run-1", recorder, responseImpl: fakeResponse },
   );
   await run(
     "第二句",
     { provider: "openai", model: "fake" },
-    { ...base, runId: "run-2", history: sessionStore.snapshot(), responseImpl: fakeResponse },
-    events,
+    { ...base, runId: "run-2", recorder, responseImpl: fakeResponse },
   );
 
   // 第一轮：上下文只有新任务
@@ -47,5 +70,92 @@ test("session transcript accumulates across runs and seeds the model context", a
   assert.equal(seen[1][1].content, "Hello from the model");
   assert.equal(seen[1][2].content, "第二句");
   // 会话存量跟着追加：两轮 = user/assistant x2
-  assert.deepEqual(sessionStore.snapshot().map((message) => message.role), ["user", "assistant", "user", "assistant"]);
+  assert.deepEqual(recorder.messages.map((message) => message.role), ["user", "assistant", "user", "assistant"]);
+  assert.deepEqual(recorder.commits, ["user", "assistant", "user", "assistant"]);
+});
+
+test("persistence barriers complete before provider, tools, and next provider request", async () => {
+  const recorder = createTestRecorder();
+  const order: string[] = [];
+  let requestCount = 0;
+  const fakeResponse = async function* (
+    _modelConfig: ModelConfig,
+    _messages: ModelMessage[],
+  ): AsyncGenerator<ModelStreamEvent> {
+    order.push(`provider-${++requestCount}`);
+    if (requestCount === 1) {
+      yield {
+        type: "completed",
+        content: "",
+        toolCalls: [{ id: "call-1", name: "test", input: {}, inputComplete: true }],
+        stopReason: "tool_use",
+      };
+      return;
+    }
+    yield { type: "completed", content: "done", toolCalls: [], stopReason: "stop" };
+  };
+  const tool = {
+    definition: { name: "test", description: "test", parameters: { type: "object" as const, properties: {}, required: [] } },
+    execute: async () => {
+      order.push("tool-execute");
+      return { ok: true, output: "ok", returncode: 0, truncated: false };
+    },
+  };
+
+  const result = await run("执行", { provider: "openai", model: "fake" }, {
+    runId: "run-barrier",
+    systemPrompt: "test",
+    cwd: process.cwd(),
+    tools: new Map([["test", tool]]),
+    recorder: {
+      ...recorder,
+      commitUser: async (message, context) => {
+        order.push("commit-user");
+        await recorder.commitUser(message, context);
+      },
+      commitAssistant: async (message, context) => {
+        order.push("commit-assistant");
+        await recorder.commitAssistant(message, context);
+      },
+      commitToolResult: async (message, context) => {
+        order.push("commit-tool");
+        await recorder.commitToolResult(message, context);
+      },
+      finishRun: async (status) => {
+        order.push(`finish-${status.status}`);
+        await recorder.finishRun(status);
+      },
+    },
+    responseImpl: fakeResponse,
+  });
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(order, [
+    "commit-user",
+    "provider-1",
+    "commit-assistant",
+    "tool-execute",
+    "commit-tool",
+    "provider-2",
+    "commit-assistant",
+    "finish-completed",
+  ]);
+});
+
+test("a model stream without completed fails with a model protocol error", async () => {
+  const recorder = createTestRecorder();
+  const result = await run("缺少终态", { provider: "openai", model: "fake" }, {
+    runId: "run-protocol",
+    systemPrompt: "test",
+    cwd: process.cwd(),
+    tools: new Map(),
+    recorder,
+    responseImpl: async function* (): AsyncGenerator<ModelStreamEvent> {
+      yield { type: "text_delta", delta: "partial" };
+    },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.error?.kind, "model_protocol");
+  assert.deepEqual(recorder.commits, ["user"]);
 });

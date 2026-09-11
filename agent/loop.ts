@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { SessionRecorder } from "./memory/types.js";
 import { response, type ModelConfig } from "./model/index.js";
 import type { LlmResponse, ModelMessage, ModelStopReason, ToolCall, ToolDef } from "./model/types.js";
 import type { RegisteredTool, ToolResult } from "./tools/index.js";
@@ -11,8 +12,8 @@ export interface AgentRunConfig {
   cwd: string;
   tools: Map<string, RegisteredTool>;
   signal?: AbortSignal;
-  /** 会话历史（跨 run 累积）；本 run 产生的新消息经 onMessageFinalized 追加回外部。 */
-  history?: ModelMessage[];
+  /** 运行绑定的本地会话 Recorder；Recorder 提供初始的已提交消息快照。 */
+  recorder?: SessionRecorder;
   /** 测试注入点：与 provider-model-discovery 的 fetchImpl 同理。 */
   responseImpl?: typeof response;
 }
@@ -33,8 +34,6 @@ export interface AgentEvents {
   onToolCompleted?: (call: ToolCall, result: ToolResult, ctx: TurnContext) => void;
   onTurnCompleted?: (ctx: TurnContext) => void;
   onRunCompleted?: (result: { runId: string; status: RunStatus; error?: AgentError; turnCount: number }) => void;
-  /** 一条消息提交进对话（用户消息/助手完整消息/工具结果）——会话历史由外部维护时用于增量追加。 */
-  onMessageFinalized?: (message: ModelMessage) => void;
 }
 
 export interface AgentError {
@@ -47,8 +46,8 @@ const DEFAULT_SYSTEM_PROMPT = "You are a coding agent. Use the available tools w
 
 /**
  * 流式输出的唯一处理函数（本文件内）：
- * 消费模型事件流 → 转发 UI 增量事件（reasoning/text）+ 聚合整回合（content/reasoning/toolCalls）。
- * context 写入不在这里——由 run() 在聚合完成后一次性 messages.push。
+ * 消费模型事件流 → 同步通知 Recorder 与宿主事件接收器 → 聚合整回合（content/reasoning/toolCalls）。
+ * 完整消息的会话提交仍由 run() 在聚合完成后负责。
  */
 async function collectTurn(
   modelConfig: ModelConfig,
@@ -57,21 +56,26 @@ async function collectTurn(
   tools: ToolDef[],
   ctx: TurnContext,
   events: AgentEvents,
+  recorder: SessionRecorder | undefined,
   signal: AbortSignal | undefined,
   responseImpl: typeof response,
-): Promise<LlmResponse> {
+): Promise<{ response: LlmResponse; completed: boolean }> {
   const aggregated: LlmResponse = { content: "", toolCalls: [], stopReason: "stop" };
+  let completed = false;
   for await (const event of responseImpl(modelConfig, messages, system, tools, signal)) {
     switch (event.type) {
       case "reasoning_delta":
         aggregated.reasoning = (aggregated.reasoning ?? "") + event.delta;
+        recorder?.recordAssistantDelta("reasoning", event.delta, ctx);
         events.onReasoningDelta?.(event.delta, ctx);
         break;
       case "text_delta":
         aggregated.content += event.delta;
+        recorder?.recordAssistantDelta("text", event.delta, ctx);
         events.onAssistantDelta?.(event.delta, ctx);
         break;
       case "completed":
+        completed = true;
         aggregated.content = event.content;
         aggregated.reasoning = event.reasoning;
         aggregated.toolCalls = event.toolCalls;
@@ -80,7 +84,7 @@ async function collectTurn(
         break;
     }
   }
-  return aggregated;
+  return { response: aggregated, completed };
 }
 
 export async function run(
@@ -90,18 +94,34 @@ export async function run(
   events: AgentEvents = {},
 ): Promise<{ runId: string; status: RunStatus; error?: AgentError; turnCount: number }> {
   const startedAt = new Date().toISOString();
-  events.onRunStart?.({ runId: config.runId, startedAt });
-  const messages: ModelMessage[] = [...(config.history ?? []), { role: "user", content: task }];
+  const messages: ModelMessage[] = [...(config.recorder?.snapshot() ?? []), { role: "user", content: task }];
   const userMessage = messages[messages.length - 1];
-  events.onMessageFinalized?.(userMessage);
   const tools = [...config.tools.values()].map((tool) => tool.definition);
   let turnOrdinal = 0;
+  let finished = false;
 
-  const finish = (status: RunStatus, error?: AgentError) => {
-    const result = { runId: config.runId, status, error, turnCount: turnOrdinal };
+  const finish = async (status: RunStatus, error?: AgentError) => {
+    if (finished) return { runId: config.runId, status, error, turnCount: turnOrdinal };
+    let finalStatus = status;
+    let finalError = error;
+    try {
+      await config.recorder?.finishRun({ runId: config.runId, status });
+    } catch (finishError) {
+      finalStatus = "failed";
+      finalError = toAgentError(finishError);
+    }
+    const result = { runId: config.runId, status: finalStatus, error: finalError, turnCount: turnOrdinal };
+    finished = true;
     events.onRunCompleted?.(result);
     return result;
   };
+
+  try {
+    await config.recorder?.commitUser(userMessage, { runId: config.runId });
+  } catch (error) {
+    return finish("failed", toAgentError(error));
+  }
+  events.onRunStart?.({ runId: config.runId, startedAt });
 
   while (true) {
     if (config.signal?.aborted) return finish("cancelled");
@@ -111,16 +131,25 @@ export async function run(
 
     let result: LlmResponse;
     try {
-      result = await collectTurn(modelConfig, messages, config.systemPrompt || DEFAULT_SYSTEM_PROMPT, tools, ctx, events, config.signal, config.responseImpl ?? response);
+      const collected = await collectTurn(modelConfig, messages, config.systemPrompt || DEFAULT_SYSTEM_PROMPT, tools, ctx, events, config.recorder, config.signal, config.responseImpl ?? response);
+      if (config.signal?.aborted) return finish("cancelled");
+      if (!collected.completed) {
+        return finish("failed", { kind: "model_protocol", message: "模型流结束时缺少 completed 终态。" });
+      }
+      result = collected.response;
     } catch (error) {
       if (config.signal?.aborted) return finish("cancelled");
-      return finish("failed", { kind: "runtime", message: error instanceof Error ? error.message : String(error) });
+      return finish("failed", toAgentError(error));
     }
 
-    events.onAssistantCompleted?.(result, ctx);
     const assistantMessage: ModelMessage = { role: "assistant", content: result.content, reasoning: result.reasoning, toolCalls: result.toolCalls };
+    try {
+      await config.recorder?.commitAssistant(assistantMessage, ctx);
+    } catch (error) {
+      return finish("failed", toAgentError(error));
+    }
     messages.push(assistantMessage);
-    events.onMessageFinalized?.(assistantMessage);
+    events.onAssistantCompleted?.(result, ctx);
 
     if (config.signal?.aborted || result.stopReason === "aborted") return finish("cancelled");
     if (result.stopReason === "error" || result.error) {
@@ -134,14 +163,27 @@ export async function run(
     for (const call of result.toolCalls) {
       if (config.signal?.aborted) return finish("cancelled");
       events.onToolStart?.(call, ctx);
-      const result = await executeTool(call, config.tools, config.cwd, config.signal);
-      const toolMessage: ModelMessage = { role: "tool", content: formatToolResult(result), toolCallId: call.id, toolName: call.name, isError: !result.ok, media: result.media };
+      let toolResult: ToolResult;
+      try {
+        toolResult = await executeTool(call, config.tools, config.cwd, config.signal);
+      } catch (error) {
+        return finish("failed", { kind: "tool", message: error instanceof Error ? error.message : String(error) });
+      }
+      const toolMessage: ModelMessage = { role: "tool", content: formatToolResult(toolResult), toolCallId: call.id, toolName: call.name, isError: !toolResult.ok, media: toolResult.media };
+      try {
+        await config.recorder?.commitToolResult(toolMessage, { ...ctx, toolCallId: call.id });
+      } catch (error) {
+        return finish("failed", toAgentError(error));
+      }
       messages.push(toolMessage);
-      events.onMessageFinalized?.(toolMessage);
-      events.onToolCompleted?.(call, result, ctx);
+      events.onToolCompleted?.(call, toolResult, ctx);
     }
     events.onTurnCompleted?.(ctx);
   }
+}
+
+function toAgentError(error: unknown): AgentError {
+  return { kind: "runtime", message: error instanceof Error ? error.message : String(error) };
 }
 
 async function executeTool(call: ToolCall, tools: Map<string, RegisteredTool>, cwd: string, signal?: AbortSignal): Promise<ToolResult> {

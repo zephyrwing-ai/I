@@ -1,0 +1,182 @@
+---
+title: 会话存储
+description: Agent 会话的本地数据结构、写入事务与恢复规则。
+---
+
+身份层级。
+
+- sessionId：一个后台任务会话的稳定身份，跨运行和进程重启保持稳定。
+- runId：用户一次发送触发的完整 Agent 运行，同一会话可以包含多个运行。
+- turnId：一次模型请求以及随后产生的工具批次。
+- toolCallId：模型产生的一次工具调用，由工具调用和对应结果共同使用。
+- entryId：一条持久化记录的稳定身份，流式草稿转为完整消息时保持稳定。
+- sessionSeq：记录在所属会话内的严格递增顺序。
+
+关系模型。
+
+sessions 1 ──────── N entries
+   │                    │
+   │                    ├─ user_message
+   │                    ├─ assistant_message
+   │                    └─ tool_result
+   │
+   └─ 会话身份、任务范围、状态和下一条顺序
+
+sessions 表。
+
+| 字段 | SQLite 类型 | 约束 | 语义 |
+| --- | --- | --- | --- |
+| id | TEXT | 主键 | sessionId，由 Agent 创建的 UUID |
+| scope_key | TEXT | 非空 | 会话所属的项目或宿主范围，默认由宿主提供稳定值 |
+| objective | TEXT | 可空 | 当前任务目标；空值表示会话目标等待会话管理模块补充 |
+| status | TEXT | 非空 | active、waiting 或 closed |
+| next_entry_seq | INTEGER | 非空，默认1 | 下一条记录的 sessionSeq，在追加事务内递增 |
+| revision | INTEGER | 非空，默认0 | 会话目标和状态的递增版本 |
+| created_at | INTEGER | 非空 | Unix 毫秒时间戳 |
+| updated_at | INTEGER | 非空 | 最近一次记录提交或会话元数据更新的 Unix 毫秒时间戳 |
+
+- objective 保存会话对应的任务目标。
+- status 保存会话的生命周期状态。
+- 存储结构支持多个会话，每条记录通过 session_id 归入一个确定会话。
+
+entries 表。
+
+| 字段 | SQLite 类型 | 约束 | 语义 |
+| --- | --- | --- | --- |
+| id | TEXT | 主键 | entryId，由 Agent 创建的 UUID |
+| session_id | TEXT | 非空，外键 | 所属 sessions.id |
+| session_seq | INTEGER | 非空 | 所属会话内的严格递增顺序 |
+| type | TEXT | 非空 | user_message、assistant_message 或 tool_result |
+| status | TEXT | 非空 | streaming、completed、interrupted 或 failed |
+| run_id | TEXT | 非空 | 关联一次 Agent 运行 |
+| turn_id | TEXT | 可空 | 关联一次模型请求；用户消息允许为空 |
+| tool_call_id | TEXT | 可空 | 工具调用和工具结果的关联身份 |
+| revision | INTEGER | 非空，默认0 | 记录内容和状态的递增版本 |
+| payload_version | INTEGER | 非空，默认1 | payload_json 的结构版本 |
+| payload_json | TEXT | 非空 | 对应记录类型的结构化内容 |
+| created_at | INTEGER | 非空 | 记录首次创建的 Unix 毫秒时间戳 |
+| updated_at | INTEGER | 非空 | 草稿或状态最近更新的 Unix 毫秒时间戳 |
+
+- 唯一索引 (session_id, session_seq) 保证同一会话只有一个确定顺序，并支持按会话顺序恢复模型上下文。
+- payload_json 保存会话记录的完整结构化内容。
+- user_message、assistant_message 和 tool_result 的 payload 分别保存对应的完整 ModelMessage；恢复过程直接按顺序读取这些模型消息。
+- assistant_message 的 payload 保存正文、可选 reasoning 和完整 toolCalls，每次工具调用拥有一个规范存储位置。
+- tool_result 的 payload 保存模型可见结果、错误状态、mediaType 和 dataUrl，并通过 tool_call_id 关联助手消息中的调用。
+
+记录状态。
+
+- 用户消息直接以 completed 提交。事务成功后，Runtime 才开始对应运行。
+- 助手消息在首次有效正文或思考增量到达时以 streaming 创建，同一条消息后续更新保持相同 entryId 和 sessionSeq。
+- 助手流完成后，同一行更新为 completed 并写入聚合后的完整 ModelMessage。
+- 进程退出或流异常留下的 streaming 消息在恢复时更新为 interrupted，已经保存的正文继续保留。
+- 带工具调用的完整助手消息以 assistant_message 保存，对应工具结果以 tool_result 保存。
+- 纯工具调用响应在 completed 事件到达时直接创建 completed 状态的 assistant_message。
+- tool_result 的 completed 表示结果记录已经完成本地提交，payload.isError 表示工具执行的业务结果。
+
+写入事务。
+
+- 创建会话：插入 sessions，next_entry_seq 初始化为1。
+- 追加记录：读取并占用 next_entry_seq，插入 entries，递增 next_entry_seq，更新 sessions.updated_at；三个动作在同一事务中完成。
+- 提交用户输入：Runtime 使用 Host 分配的 runId 创建一次用户消息，通过 SessionRecorder 完成本地提交，随后开始模型请求。
+- 创建助手草稿：首次增量创建 streaming 记录，后续增量持续更新同一记录。
+- 提交助手消息：模型输出完成时更新同一条助手记录，写入最终聚合内容并把状态更新为 completed。
+- 提交工具结果：工具执行完成时追加 tool_result，并保存对应的 runId、turnId 和 toolCallId。
+- 提交失败：Runtime 进入失败状态、暂停自动续轮并报告持久化错误，持久化历史停留在最后一次成功提交。
+- 重复追加：appendEntry 以 entryId 识别同一次追加。相同 entryId 和相同 payload 返回已有结果；相同 entryId 和差异 payload 返回冲突错误。
+- 版本更新：updateEntry 使用 expectedRevision 匹配当前 revision，更新成功后递增 revision。
+
+流式草稿持久化。
+
+| 参数 | 值 | 作用 |
+| --- | --- | --- |
+| DRAFT_FLUSH_INTERVAL_MS | 500 | 活跃输出每500毫秒刷新一次草稿 |
+| DRAFT_FLUSH_BYTES | 4096 | 新增缓冲内容达到4096字节时立即刷新草稿 |
+
+- 每个 text_delta 和 reasoning_delta 立即更新内存中的助手草稿。
+- 持久化队列保留同一 entryId 的最新草稿快照，一个刷新窗口可以合并多个模型增量。
+- 时间阈值和字节阈值中的任一条件触发 SessionRepository.updateEntry。
+- 每次 updateEntry 成功提交后，Repository 递增持久化记录的 revision，Recorder 保存返回的新 revision。
+- 模型流持续接收后续增量，持久化队列按照独立节奏更新 SQLite。
+- 模型 completed、取消、失败和应用正常退出触发立即刷新。
+- 最终刷新更新同一条 assistant_message 的完整 ModelMessage、revision 和终态。
+
+SQLite 运行参数。
+
+- journal_mode=WAL 允许读取与串行写入并行进行。
+- foreign_keys=ON 保证每条记录指向真实会话。
+- synchronous=FULL 保证成功返回的提交完成 SQLite 要求的持久化同步。
+- busy_timeout=5000 为短暂锁竞争提供有界等待。
+
+Repository 接口。
+
+- createSession(input) 创建会话并返回完整 Session。
+- getSession(sessionId) 按稳定身份读取会话。
+- getLatestOpenSession(scopeKey) 按范围读取最近一个 active 或 waiting 会话。
+- appendEntry(sessionId, entry) 在事务中分配 sessionSeq，并返回完整 SessionEntry。
+- updateEntry(entryId, expectedRevision, patch) 使用 revision 条件更新流式草稿和记录状态。
+- getEntry(entryId) 按稳定身份读取单条记录。
+- listEntries(sessionId, cursor, limit) 按 session_seq ASC 分页读取会话记录。
+- updateSession(sessionId, expectedRevision, patch) 使用 revision 条件更新会话目标和状态。
+
+SessionRecorder 接口。
+
+```ts
+type AssistantDeltaKind = "text" | "reasoning";
+
+interface MessageCommitContext {
+  runId: string;
+}
+
+interface TurnCommitContext extends MessageCommitContext {
+  turnId: string;
+  turnOrdinal: number;
+}
+
+interface ToolCommitContext extends TurnCommitContext {
+  toolCallId: string;
+}
+
+type RecordedRunStatus = "completed" | "cancelled" | "failed";
+
+interface SessionRecorder {
+  readonly sessionId: string;
+  snapshot(): ModelMessage[];
+  commitUser(message: ModelMessage, context: MessageCommitContext): Promise<void>;
+  recordAssistantDelta(kind: AssistantDeltaKind, delta: string, context: TurnCommitContext): void;
+  commitAssistant(message: ModelMessage, context: TurnCommitContext): Promise<void>;
+  commitToolResult(message: ModelMessage, context: ToolCommitContext): Promise<void>;
+  finishRun(result: { runId: string; status: RecordedRunStatus }): Promise<void>;
+  close(): Promise<void>;
+}
+```
+
+- sessionId 保存当前 Recorder 绑定的会话身份。
+- snapshot() 返回该会话中 completed 状态的有序 ModelMessage 快照。
+- commitUser(message, context) 提交用户消息，MessageCommitContext 携带 runId。
+- recordAssistantDelta(kind, delta, context) 同步更新内存草稿并调度合并写入，TurnCommitContext 携带 runId、turnId 和 turnOrdinal。
+- commitAssistant(message, context) 立即刷新草稿并提交完整助手消息。
+- commitToolResult(message, context) 提交完整工具结果，ToolCommitContext 携带 runId、turnId、turnOrdinal 和 toolCallId。
+- finishRun(result) 在运行终态刷新活动草稿并提交对应记录状态。
+- close() 在宿主退出阶段刷新剩余草稿并关闭 Recorder 写入入口。
+- Delta 接口完成内存更新后立即返回；commit 和 finish 接口返回 Promise，并以本地提交结果完成 Promise。
+- Recorder 使用私有消息快照、活动草稿和写入队列，调用方通过方法传递冻结值。
+
+读取与恢复。
+
+- Repository 启动时检查 schema version；当前支持版本为1，后续版本通过显式 migration 扩展。
+- 会话读取按 sessions.id 定位单条会话记录。
+- 会话内容读取按 session_id 过滤，并按 session_seq ASC 返回。
+- payload_version 保存 payload 结构版本；当前版本1直接解码 JSON，后续版本通过对应解码器转换为当前版本的 SessionEntry。
+- 启动恢复把遗留的 streaming 记录更新为 interrupted，并保留已经提交的草稿内容。
+- next_entry_seq 保存下一次追加位置，追加事务持续生成严格递增的会话顺序。
+- Repository 返回独立解码的 Session 和 SessionEntry；SessionRecorder.snapshot() 返回冻结的 ModelMessage 快照，后续变化通过更新接口提交。
+- SessionRecorder 的模型消息快照由 completed 状态的 user_message、assistant_message 和 tool_result 组成。
+- interrupted 和 failed 状态记录保留在本地会话中，并通过状态字段保持恢复信息。
+
+验证要求。
+
+- 正常退出后重新启动，同一会话恢复完整用户消息、助手消息、工具调用和工具结果。
+- 相同 entryId 和相同 payload 的重复提交返回已有记录；差异 payload 返回冲突错误。
+- 流式生成中退出后，已刷新草稿恢复为 interrupted，下一条正式消息继续使用新的顺序。
+- 带工具调用的助手消息和对应工具结果在重启后保持原有 toolCallId 与会话顺序。
+- 多个会话分别按照各自的 sessionSeq 保存内部顺序。

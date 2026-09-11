@@ -3,6 +3,8 @@
   "icon": "Bot",
   "pages": [
     "architecture",
+    "memory",
+    "session-storage-tasks",
     "model-request",
     "runtime-loop",
     "...tools",

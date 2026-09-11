@@ -1,0 +1,61 @@
+会话存储装配。
+
+Main 生命周期。
+
+- Main 在应用就绪时使用 `app.getPath("userData")` 生成会话数据库路径，并创建一个 `SqliteSessionRepository`。
+- Repository 使用 Electron 内嵌 Node 提供的 `node:sqlite`，数据库连接保持在 Main 进程。
+- Main 的会话路由在每次运行前返回一个确定的 `sessionId`。
+- Runner 使用该 `sessionId` 创建或取得 `SessionRecorder`，并把 Recorder 与运行事件接收器注入 Runtime。
+- Main 在应用退出阶段先请求 Runner 取消当前运行并等待其进入空闲，再等待 Recorder 刷新活动草稿并关闭数据库连接。
+
+Runner 注入。
+
+- Runner 为一次运行创建 `runId`，接收会话路由提供的 `sessionId`，并取得该会话的 Recorder。
+- Recorder 通过方法接收消息和增量，运行事件接收器通过回调接收 AgentEvent；二者采用主动推送接口。
+- Runtime 是 Recorder 和 AgentEvent 的调用方。Runner 创建并注入两种接收器，同时负责把 AgentEvent 转发到 IPC。
+- Recorder 维护私有的消息快照、活动草稿和 SQLite 写入队列。
+- Renderer 维护私有的 AgentEvent 数组队列，并在动画帧中把队列事件交给 Reducer。
+- Recorder 与 Renderer 使用各自的数据结构，通过 `runId`、`turnId`、`toolCallId` 和冻结事件值保持关联。
+
+流式事件链路。
+
+```text
+Provider Adapter
+  → Runtime 接收 delta
+      → SessionRecorder 更新内存草稿并调度 SQLite 刷新
+      → AgentEvents 发出 reasoningDelta 或 assistantDelta
+          → Runner emit
+              → Main IPC
+                  → Renderer eventQueue
+                      → agentReducer
+```
+
+- Recorder 的草稿更新和 Renderer 的流式渲染共享同一个 Runtime delta 来源。
+- Recorder 的500毫秒或4096字节刷新策略影响 SQLite 写入节奏。
+- Renderer 按动画帧批处理事件，并保持现有流式渲染节奏。
+- 模型完成时，Runtime 等待 Recorder 提交完整 Assistant Message，随后发出 `assistantCompleted`。
+- 工具完成时，Runtime 等待 Recorder 提交完整 Tool Message，随后发出 `toolCompleted`。
+- 运行终态由 Recorder 完成草稿刷新后进入 IPC 事件流。
+
+IPC 边界。
+
+- AgentEvent 延续现有 `agent:event` 通道。
+- 会话写入通过 Main 内的直接对象调用完成。
+- Renderer 通过 AgentEvent 接收实时过程，通过后续历史读取接口接收持久化页面数据。
+- 本地存储接入保持现有 Composer 提交字段和消息流事件格式。
+
+错误收敛。
+
+- 用户消息提交失败时，Runner 返回运行失败并保留 Composer 已有错误呈现路径。
+- Assistant Message 提交失败时，Runtime 结束本次运行并跳过工具执行。
+- Tool Message 提交失败时，Runtime 结束本次运行并跳过下一次模型请求。
+- 草稿定时刷新失败时，Recorder 保存失败状态，终态提交读取该状态并把运行收敛为失败。
+- 数据库初始化失败时，Main 启动装配流程报告初始化错误并停止创建工作台，避免在存储不可用时启动无持久化运行。
+
+实现入口。
+
+- `shell/main/index.ts` 创建和关闭 Repository。
+- `shell/main/runner.ts` 取得 SessionRecorder、注入 Runtime、转发 AgentEvent，并在退出时提供运行空闲屏障。
+- `agent/memory/session-recorder.ts` 提供会话 Recorder 与缓存，Main 负责创建并注入。
+- `shell/shared/ipc.ts` 保持实时 AgentEvent 契约；页面历史恢复接口在对应页面设计中定义。
+- `frontend/src/App.tsx` 保持现有 `eventQueue` 与 Reducer 分发方式。

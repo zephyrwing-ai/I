@@ -1,4 +1,4 @@
 {
   "title": "主工作台页面",
-  "pages": ["index", "tokens", "titlebar", "settings", "provider-editor", "message-stream", "elastic-scroll", "composer", "sidebar", "security"]
+  "pages": ["index", "session-storage", "tokens", "titlebar", "settings", "provider-editor", "message-stream", "elastic-scroll", "composer", "sidebar", "security"]
 }

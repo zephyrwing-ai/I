@@ -30,7 +30,9 @@ description: 模型上下文、Provider 适配、流式消息和停止原因的�
 
 ## 流式请求
 
-当前 `ModelStreamEvent` 只有 `reasoning_delta`、`text_delta` 和 `completed`。适配器持续发送思考、正文增量；工具调用在流结束时随 `completed` 一次性提交，不发送开始消息或工具参数增量事件。Runtime 将增量转发给宿主，并在收集完成后一次性写入完整 assistant 消息。
+`ModelStreamEvent` 包含 `reasoning_delta`、`text_delta` 和 `completed`。适配器持续发送思考与正文增量，工具调用在流结束时随 `completed` 一次性提交。纯工具调用响应可以直接发送 `completed`，其中正文和思考为空，`toolCalls` 携带完整调用。
+
+每个成功模型流以一个 `completed` 事件结束。Runtime 记录终态事件并以其聚合内容构造完整 Assistant Message；网络流结束时的终态检查把终态缺失归为 `model_protocol` 错误。模型增量的会话持久化与宿主事件分发由 Runtime 契约定义，Adapter 保持 Provider 协议归一化职责。
 
 当前适配器的请求异常直接抛出，由 Runtime 捕获：信号已取消时结束为 `cancelled`，其余异常结束为 `failed`，错误种类目前统一为 `runtime`。类型虽保留 `error`、`aborted` 停止原因，但当前 OpenAI 适配器不会通过最终消息产生这两类结果。
 
@@ -54,6 +56,8 @@ Provider chunk 只由 Adapter 解析；Runtime 只接收归一化消息并发出
 ## 验证要求（不代表已全部实现或验证）
 
 - 当前 OpenAI 兼容流正确聚合正文、思考和工具调用，保留调用 ID；后续新增 Provider 须验证相同调用归一化一致。
+- 成功模型流以一个 `completed` 事件结束，纯工具调用响应直接提供完整 `toolCalls`。
+- 模型流终态缺失进入 `model_protocol` 错误。
 - 当前工具调用分片按 index 聚合；后续块式协议须额外验证交错顺序。
 - 无效工具参数不会被静默丢弃。
 - `error`、`aborted`、`length` 和正常 `stop` 分别进入正确分支。

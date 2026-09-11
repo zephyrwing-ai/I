@@ -25,6 +25,11 @@ import { composeTaskWithAttachments, InputAttachmentRegistry } from "./input-att
 import { ProviderStore } from "./provider-store.js";
 import { discoverProviderModels, discoveryErrorResult } from "./provider-model-discovery.js";
 import { AgentRunner } from "./runner.js";
+import {
+  createSessionRecorder,
+  SqliteSessionRepository,
+  type SessionRecorder,
+} from "../../agent/memory/index.js";
 
 const mainProcessDirectory = fileURLToPath(new URL(".", import.meta.url));
 
@@ -35,6 +40,8 @@ function createWindow(): BrowserWindow {
     minWidth: 840,
     minHeight: 560,
     title: "",
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 20 },
     show: false,
     webPreferences: {
       preload: join(mainProcessDirectory, "../preload/index.cjs"),
@@ -69,6 +76,7 @@ function registerIpc(
   providers: ProviderStore,
   outputFiles: OutputFileRegistry,
   inputAttachments: InputAttachmentRegistry,
+  sessionId: string,
 ): void {
   const discoveryControllers = new Map<string, AbortController>();
 
@@ -81,7 +89,7 @@ function registerIpc(
       if (!modelOptionId) return { ok: false, error: "请选择模型。" };
       const attachments = await inputAttachments.resolve(Array.isArray(req.attachmentIds) ? req.attachmentIds : []);
       const resolved = await providers.resolve(modelOptionId);
-      const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, ...resolved }, (payload) => {
+      const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, sessionId, ...resolved }, (payload) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
@@ -186,7 +194,14 @@ function registerIpc(
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const sessionRepository = new SqliteSessionRepository(join(app.getPath("userData"), "agent-sessions.sqlite"));
+  const sessionScopeKey = "desktop:local";
+  const reusableSession = await sessionRepository.getLatestOpenSession(sessionScopeKey);
+  const activeSession = reusableSession ?? await sessionRepository.createSession({ scopeKey: sessionScopeKey });
+  const recorder = await createSessionRecorder(sessionRepository, activeSession.id);
+  let closing = false;
+
   const providers = new ProviderStore(
     join(app.getPath("userData"), "provider-profiles.json"),
     {
@@ -197,13 +212,36 @@ app.whenReady().then(() => {
   );
   const outputFiles = new OutputFileRegistry();
   const inputAttachments = new InputAttachmentRegistry();
-  const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts));
-  registerIpc(runner, providers, outputFiles, inputAttachments);
+  const createRecorder = (sessionId: string): SessionRecorder => {
+    if (sessionId !== activeSession.id) throw new Error("当前会话未加载。");
+    return recorder;
+  };
+  const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts), createRecorder);
+  registerIpc(runner, providers, outputFiles, inputAttachments, activeSession.id);
   createWindow();
+
+  app.on("before-quit", (event) => {
+    if (closing) return;
+    event.preventDefault();
+    closing = true;
+    runner.stop();
+    void (async () => {
+      try {
+        await runner.waitForIdle();
+        await recorder.close();
+      } finally {
+        sessionRepository.close();
+        app.quit();
+      }
+    })();
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch((error: unknown) => {
+  dialog.showErrorBox("会话存储初始化失败", error instanceof Error ? error.message : String(error));
+  app.quit();
 });
 
 app.on("window-all-closed", () => {

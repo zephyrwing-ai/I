@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { run, type AgentEvents } from "../../agent/loop.js";
+import type { SessionRecorder } from "../../agent/memory/types.js";
 import type { ModelConfig } from "../../agent/model/index.js";
-import { sessionStore } from "./session-store.js";
 import { createLocalBashOps } from "../../agent/environment.js";
 import { createToolRegistry, type ToolResult as InternalToolResult } from "../../agent/tools/index.js";
 import type { FileArtifact } from "../../agent/types.js";
@@ -18,6 +18,8 @@ export interface RunnerHandle {
 export interface ResolvedRunRequest {
   task: string;
   cwd: string;
+  /** 会话路由提供的稳定后台会话身份。Main 接入持久化后填充。 */
+  sessionId?: string;
   modelOptionId: string;
   providerProfileId: string;
   provider: Provider;
@@ -32,14 +34,25 @@ export type ArtifactRegistrar = (
   artifacts: FileArtifact[],
 ) => OutputFileDescriptor[];
 
+export type SessionRecorderFactory = (sessionId: string, runId: string) => SessionRecorder;
+
 export class AgentRunner {
   private controller = new AbortController();
   private active = false;
+  private readonly idleResolvers = new Set<() => void>();
 
-  constructor(private readonly registerArtifacts?: ArtifactRegistrar) {}
+  constructor(
+    private readonly registerArtifacts?: ArtifactRegistrar,
+    private readonly createSessionRecorder?: SessionRecorderFactory,
+  ) {}
 
   get isActive(): boolean {
     return this.active;
+  }
+
+  waitForIdle(): Promise<void> {
+    if (!this.active) return Promise.resolve();
+    return new Promise((resolve) => this.idleResolvers.add(resolve));
   }
 
   start(req: ResolvedRunRequest, emit: (event: AgentEvent) => void): RunnerHandle {
@@ -47,13 +60,24 @@ export class AgentRunner {
     this.active = true;
     this.controller = new AbortController();
     const runId = randomUUID();
+    if (this.createSessionRecorder && !req.sessionId) {
+      this.markIdle();
+      throw new Error("运行请求缺少会话身份。");
+    }
+    let recorder: SessionRecorder | undefined;
+    try {
+      recorder = this.createSessionRecorder?.(req.sessionId!, runId);
+    } catch (error) {
+      this.markIdle();
+      throw error;
+    }
     const emitOnce = (() => {
       let completed = false;
       return (event: AgentEvent) => {
         if (event.type === "runCompleted") {
           if (completed) return;
           completed = true;
-          this.active = false;
+          this.markIdle();
         }
         emit(event);
       };
@@ -61,7 +85,6 @@ export class AgentRunner {
 
     const events: AgentEvents = {
       onRunStart: (ctx) => emitOnce({ type: "runStarted", ...ctx }),
-      onMessageFinalized: (message) => sessionStore.append(message),
       onTurnStart: (ctx) => emitOnce({ type: "turnStarted", ...ctx }),
       onReasoningDelta: (delta, ctx) => emitOnce({ type: "reasoningDelta", ...ctx, delta }),
       onAssistantDelta: (delta, ctx) => emitOnce({ type: "assistantDelta", ...ctx, delta }),
@@ -103,9 +126,8 @@ export class AgentRunner {
         cwd: req.cwd,
         tools: createToolRegistry(createLocalBashOps()),
         signal: this.controller.signal,
-        history: sessionStore.snapshot(),
+        recorder,
       }, events).catch((error: unknown) => {
-        this.active = false;
         emitOnce({ type: "runCompleted", runId, status: "failed", turnCount: 0, error: { kind: "runtime", message: error instanceof Error ? error.message : String(error) } });
       });
     });
@@ -115,6 +137,13 @@ export class AgentRunner {
 
   stop(): void {
     if (this.active) this.controller.abort();
+  }
+
+  private markIdle(): void {
+    if (!this.active) return;
+    this.active = false;
+    for (const resolve of this.idleResolvers) resolve();
+    this.idleResolvers.clear();
   }
 }
 

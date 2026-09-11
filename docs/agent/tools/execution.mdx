@@ -15,7 +15,11 @@ description: 模型工具调用如何分发到真实实现并将结果回填模�
 
 ## 执行顺序
 
-当前运行循环先发出 `toolStarted`，再校验 `inputComplete` 与工具注册情况；Bash 实现校验 command 为非空字符串后执行。结果写入模型上下文，再发出 `toolCompleted`。因此未知工具和无效调用也会有开始、完成事件。当前没有通用 JSON Schema 校验器，参数校验由具体工具实现承担。
+Runtime 在工具执行前完成带 `toolCalls` 的 Assistant Message 本地提交。运行循环随后发出 `toolStarted`，校验 `inputComplete` 与工具注册情况，并调用对应执行实现。Bash 实现校验 command 为非空字符串后执行；未知工具和无效调用生成结构化错误结果。
+
+工具返回 `ToolResult` 后，Runtime 构造携带 `toolCallId` 的完整 Tool Message，并等待 SessionRecorder 完成本地提交。提交成功后，Runtime 把 Tool Message 加入本次运行的内存上下文并发出 `toolCompleted`。同一工具批次的结果全部完成该顺序后，Runtime 开始下一次模型请求。
+
+工具返回的业务失败仍然形成 completed 状态的会话记录，`isError` 与错误内容保存在 Tool Message payload 中。持久化失败形成 Runtime 失败，并结束本次自动续轮。
 
 当前工具默认按模型给出的顺序执行，以保持文件修改和命令副作用可预测。同一回合的结果也按原始调用顺序写回模型上下文。未来只有明确声明互不依赖且不会产生冲突的只读工具，才可以并行执行。
 
@@ -28,3 +32,11 @@ description: 模型工具调用如何分发到真实实现并将结果回填模�
 待完善目标：停止整个命令进程组、让文件扫描及时响应取消，并给超时与取消提供可区分诊断。未来文件工具须在写入前后检查取消状态。Runtime 应保证每次运行只有一个终止事件。
 
 Assistant Message 因长度限制而截断且仍包含工具调用时，适配器将 `inputComplete` 标为 false，执行器拒绝调用并回填错误。运行循环的现有控制流及后续扩展边界见 [运行循环](../runtime-loop.mdx)。
+
+## 会话提交验证
+
+- 带 `toolCalls` 的 Assistant Message 完成本地提交后，工具执行器收到对应调用。
+- 每个 Tool Message 完成本地提交后，`toolCompleted` 进入事件接收器。
+- 同一工具批次的 Tool Message 全部完成本地提交后，Runtime 开始下一次模型请求。
+- 工具业务失败形成 completed 会话记录，Tool Message 的 `isError` 保存失败语义。
+- 会话提交失败形成 Runtime 失败，并保持后续调用处于待执行或待请求状态。

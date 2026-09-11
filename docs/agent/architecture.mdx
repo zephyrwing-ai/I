@@ -3,11 +3,11 @@ title: Agent 总览
 description: Agent 内核的模块边界、依赖方向与跨模块运行主链路。
 ---
 
-本目录只描述 Agent 内核如何完成任务：如何请求模型、判断是否继续、执行已注册工具，以及向宿主发出运行事件。桌面窗口、Electron IPC、Renderer 状态、设置、搜索和界面偏好属于 `docs/desktop/design/`，不在这里重复定义。
+本目录描述 Agent 内核如何保存会话、请求模型、判断是否继续、执行已注册工具，以及向宿主发出运行事件。桌面窗口、Electron IPC、Renderer 状态、设置、搜索和界面偏好归入 `docs/desktop/design/`。
 
 ## 当前实现边界
 
-当前模型层只实现 OpenAI 兼容协议，工具注册表只注册 Bash。Read、Edit、Write、Query 保留为待实现工具设计；循环的宿主队列与回合终止钩子也尚未实现。各模块文档分别标注已实现契约与扩展目标，不能把目标目录当成现有能力清单。
+当前模型层实现 OpenAI 兼容协议，工具注册表已经注册 Bash、Read、Write、Edit、List Dir、Find Files 和 Search Content。Main 装配由 `agent/memory` 提供的 SessionRecorder 与 SQLite Repository；[会话存储](./memory.mdx)定义本地持久化契约，[会话存储实现清单](./session-storage-tasks.mdx)列出跨模块落地顺序。
 
 ## 模块划分
 
@@ -15,30 +15,32 @@ Agent 设计按稳定的运行模块组织：
 
 | 模块 | 负责回答的问题 |
 | --- | --- |
+| [会话存储](./memory.mdx) | 会话和模型消息如何落盘、更新与恢复 |
 | [模型请求](./model-request.mdx) | 上下文、工具定义和 Provider 参数如何形成请求，流式结果如何归一化 |
 | [运行循环](./runtime-loop.mdx) | Agent 为什么继续、何时自然完成、何时取消或失败 |
 | [工具系统](./tools/index.mdx) | Agent 有哪些工具，模型调用如何落到真实实现并返回结果 |
 | [运行事件](./events.mdx) | Agent 如何用稳定身份向宿主报告运行、回合和工具状态 |
 
-跨模块字段只由一个模块完整定义，其他文件通过链接引用，不维护平行副本。
+跨模块字段由所属模块完整定义，其他文件通过链接引用。跨模块实施顺序统一记录在[会话存储实现清单](./session-storage-tasks.mdx)。
 
 ## 分层职责
 
-| 层 | 职责 | 不负责 |
+| 层 | 职责 | 协作边界 |
 | --- | --- | --- |
-| Host boundary | 提交不可变运行输入、提供取消信号、接收 Agent 事件 | 不解析模型正文决定控制流，不临时改变工具定义 |
-| Agent Runtime | 编排模型请求、工具调用、工具结果和下一轮请求 | 不依赖 Electron、React 或具体页面状态 |
-| Provider Adapter | 将不同模型协议归一化为统一消息、流事件和停止原因 | 不执行工具，不决定任务是否完成 |
-| Tool Registry | 保存模型可见的工具定义与对应执行实现 | 不从普通文本猜测工具调用，不由单次运行动态扩权 |
-| Execution | 执行经过注册和校验的 Bash、文件与查询操作，返回结构化结果 | 不调用模型，不自行扩大权限 |
+| Host boundary | 提交冻结运行输入、提供取消信号、接收 Agent 事件 | Runtime 负责控制流，Tool Registry 负责工具定义 |
+| Session Memory | 保存会话消息与草稿，提供完成消息快照和本地恢复 | Execution 负责工具，Desktop 负责页面渲染 |
+| Agent Runtime | 编排模型请求、工具调用、工具结果和下一轮请求 | Host 负责平台装配，Desktop 负责页面状态 |
+| Provider Adapter | 将不同模型协议归一化为统一消息、流事件和停止原因 | Execution 负责工具调用，Runtime 负责完成判断 |
+| Tool Registry | 保存模型可见的工具定义与对应执行实现 | Provider 提供结构化调用，权限策略提供运行边界 |
+| Execution | 执行经过注册和校验的 Bash、文件与查询操作，返回结构化结果 | Runtime 负责模型续轮，权限策略负责能力范围 |
 
 宿主可以是 Electron 桌面端、CLI 或测试程序。Agent 只依赖稳定的输入、事件回调和执行接口，因此桌面交互变化不会反向污染运行循环。
 
 ## 跨模块主链路
 
-一次运行从不可变的运行输入开始。宿主创建 `runId` 和取消信号，Runtime 为每次模型请求创建 `turnId`，Provider 返回归一化的 Assistant Message；存在工具调用时，Runtime 以 Provider 调用 ID 作为 `toolCallId`，校验并执行工具，再把结果加入下一次模型请求。没有工具调用时自然完成，模型错误进入失败，中止信号进入取消。
+一次运行从不可变的运行输入开始。宿主创建 `runId`、取消信号和绑定 `sessionId` 的 SessionRecorder。Runtime 提交用户消息后创建 `turnId` 并请求模型，完整 Assistant Message 提交后进入工具执行，完整 Tool Message 提交后进入下一次模型请求。没有工具调用时自然完成，模型错误进入失败，中止信号进入取消。
 
-Agent 通过结构化运行事件报告过程和唯一终止结果。宿主如何跨进程传递这些事件、保存哪些数据以及怎样渲染状态，不属于 Agent 内核。
+Agent 通过 SessionRecorder 保存会话事实，并通过结构化运行事件报告过程和唯一终止结果。宿主负责跨进程传递事件和渲染状态。
 
 
 ## 权限边界
