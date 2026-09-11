@@ -1,4 +1,4 @@
-import { app, safeStorage, BrowserWindow, ipcMain, dialog, shell } from "electron";
+import { app, safeStorage, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { resolve, basename, relative, sep, extname, dirname, join, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -6,6 +6,8 @@ import { realpath, stat, readFile, open, mkdir, writeFile, rename, opendir, lsta
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
+import { Buffer as Buffer$1 } from "node:buffer";
 const IPC = {
   run: "agent:run",
   stop: "agent:stop",
@@ -120,11 +122,11 @@ class OutputFileRegistry {
 }
 async function validateOutputForOpen(record) {
   try {
-    const canonical = await realpath(record.path);
-    if (canonical !== record.path) return { ok: false, error: "输出文件路径已经变化。" };
-    const fileStats = await stat(canonical);
+    const canonical2 = await realpath(record.path);
+    if (canonical2 !== record.path) return { ok: false, error: "输出文件路径已经变化。" };
+    const fileStats = await stat(canonical2);
     if (!fileStats.isFile()) return { ok: false, error: "输出目标不再是文件。" };
-    return { ok: true, path: canonical };
+    return { ok: true, path: canonical2 };
   } catch {
     return { ok: false, error: "输出文件不存在或无法访问。" };
   }
@@ -136,9 +138,9 @@ function displayPath(cwd, path) {
 }
 async function verifyRecord(record) {
   try {
-    const canonical = await realpath(record.path);
-    if (canonical !== record.path) return { ok: false, message: "输出文件路径已经变化。" };
-    const stats = await stat(canonical);
+    const canonical2 = await realpath(record.path);
+    if (canonical2 !== record.path) return { ok: false, message: "输出文件路径已经变化。" };
+    const stats = await stat(canonical2);
     if (!stats.isFile()) return { ok: false, message: "输出目标不再是文件。" };
     return { ok: true, stats };
   } catch {
@@ -710,19 +712,23 @@ async function* response(config, messages, system, tools, signal) {
   }
 }
 const DEFAULT_SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
-async function collectTurn(modelConfig, messages, system, tools, ctx, events, signal, responseImpl) {
+async function collectTurn(modelConfig, messages, system, tools, ctx, events, recorder, signal, responseImpl) {
   const aggregated = { content: "", toolCalls: [], stopReason: "stop" };
+  let completed = false;
   for await (const event of responseImpl(modelConfig, messages, system, tools, signal)) {
     switch (event.type) {
       case "reasoning_delta":
         aggregated.reasoning = (aggregated.reasoning ?? "") + event.delta;
+        recorder?.recordAssistantDelta("reasoning", event.delta, ctx);
         events.onReasoningDelta?.(event.delta, ctx);
         break;
       case "text_delta":
         aggregated.content += event.delta;
+        recorder?.recordAssistantDelta("text", event.delta, ctx);
         events.onAssistantDelta?.(event.delta, ctx);
         break;
       case "completed":
+        completed = true;
         aggregated.content = event.content;
         aggregated.reasoning = event.reasoning;
         aggregated.toolCalls = event.toolCalls;
@@ -731,36 +737,60 @@ async function collectTurn(modelConfig, messages, system, tools, ctx, events, si
         break;
     }
   }
-  return aggregated;
+  return { response: aggregated, completed };
 }
 async function run(task, modelConfig, config, events = {}) {
   const startedAt = (/* @__PURE__ */ new Date()).toISOString();
-  events.onRunStart?.({ runId: config.runId, startedAt });
-  const messages = [...config.history ?? [], { role: "user", content: task }];
+  const messages = [...config.recorder?.snapshot() ?? [], { role: "user", content: task }];
   const userMessage = messages[messages.length - 1];
-  events.onMessageFinalized?.(userMessage);
   const tools = [...config.tools.values()].map((tool) => tool.definition);
   let turnOrdinal = 0;
-  const finish = (status, error) => {
-    const result = { runId: config.runId, status, error, turnCount: turnOrdinal };
+  let finished = false;
+  const finish = async (status, error) => {
+    if (finished) return { runId: config.runId, status, error, turnCount: turnOrdinal };
+    let finalStatus = status;
+    let finalError = error;
+    try {
+      await config.recorder?.finishRun({ runId: config.runId, status });
+    } catch (finishError) {
+      finalStatus = "failed";
+      finalError = toAgentError(finishError);
+    }
+    const result = { runId: config.runId, status: finalStatus, error: finalError, turnCount: turnOrdinal };
+    finished = true;
     events.onRunCompleted?.(result);
     return result;
   };
+  try {
+    await config.recorder?.commitUser(userMessage, { runId: config.runId });
+  } catch (error) {
+    return finish("failed", toAgentError(error));
+  }
+  events.onRunStart?.({ runId: config.runId, startedAt });
   while (true) {
     if (config.signal?.aborted) return finish("cancelled");
     const ctx = { runId: config.runId, turnId: randomUUID(), turnOrdinal: ++turnOrdinal };
     events.onTurnStart?.(ctx);
     let result;
     try {
-      result = await collectTurn(modelConfig, messages, config.systemPrompt || DEFAULT_SYSTEM_PROMPT, tools, ctx, events, config.signal, config.responseImpl ?? response);
+      const collected = await collectTurn(modelConfig, messages, config.systemPrompt || DEFAULT_SYSTEM_PROMPT, tools, ctx, events, config.recorder, config.signal, config.responseImpl ?? response);
+      if (config.signal?.aborted) return finish("cancelled");
+      if (!collected.completed) {
+        return finish("failed", { kind: "model_protocol", message: "模型流结束时缺少 completed 终态。" });
+      }
+      result = collected.response;
     } catch (error) {
       if (config.signal?.aborted) return finish("cancelled");
-      return finish("failed", { kind: "runtime", message: error instanceof Error ? error.message : String(error) });
+      return finish("failed", toAgentError(error));
     }
-    events.onAssistantCompleted?.(result, ctx);
     const assistantMessage = { role: "assistant", content: result.content, reasoning: result.reasoning, toolCalls: result.toolCalls };
+    try {
+      await config.recorder?.commitAssistant(assistantMessage, ctx);
+    } catch (error) {
+      return finish("failed", toAgentError(error));
+    }
     messages.push(assistantMessage);
-    events.onMessageFinalized?.(assistantMessage);
+    events.onAssistantCompleted?.(result, ctx);
     if (config.signal?.aborted || result.stopReason === "aborted") return finish("cancelled");
     if (result.stopReason === "error" || result.error) {
       return finish("failed", result.error ?? { kind: "provider", message: "模型请求失败。" });
@@ -772,14 +802,26 @@ async function run(task, modelConfig, config, events = {}) {
     for (const call of result.toolCalls) {
       if (config.signal?.aborted) return finish("cancelled");
       events.onToolStart?.(call, ctx);
-      const result2 = await executeTool(call, config.tools, config.cwd, config.signal);
-      const toolMessage = { role: "tool", content: formatToolResult(result2), toolCallId: call.id, toolName: call.name, isError: !result2.ok, media: result2.media };
+      let toolResult;
+      try {
+        toolResult = await executeTool(call, config.tools, config.cwd, config.signal);
+      } catch (error) {
+        return finish("failed", { kind: "tool", message: error instanceof Error ? error.message : String(error) });
+      }
+      const toolMessage = { role: "tool", content: formatToolResult(toolResult), toolCallId: call.id, toolName: call.name, isError: !toolResult.ok, media: toolResult.media };
+      try {
+        await config.recorder?.commitToolResult(toolMessage, { ...ctx, toolCallId: call.id });
+      } catch (error) {
+        return finish("failed", toAgentError(error));
+      }
       messages.push(toolMessage);
-      events.onMessageFinalized?.(toolMessage);
-      events.onToolCompleted?.(call, result2, ctx);
+      events.onToolCompleted?.(call, toolResult, ctx);
     }
     events.onTurnCompleted?.(ctx);
   }
+}
+function toAgentError(error) {
+  return { kind: "runtime", message: error instanceof Error ? error.message : String(error) };
 }
 async function executeTool(call, tools, cwd, signal) {
   if (!call.inputComplete) return invalidResult("工具参数被模型响应截断，未执行。请重新生成完整的工具调用。", "truncated_arguments");
@@ -798,19 +840,6 @@ function formatToolResult(result) {
 ${result.output}
 </output>${note}`;
 }
-class SessionStore {
-  messages = [];
-  append(message) {
-    this.messages.push(message);
-  }
-  snapshot() {
-    return this.messages.slice();
-  }
-  clear() {
-    this.messages = [];
-  }
-}
-const sessionStore = new SessionStore();
 const MAX_OUTPUT = 1e4;
 const TRUNCATE_KEEP = 6e3;
 const MAX_SNAPSHOT_ENTRIES = 12e3;
@@ -1619,34 +1648,51 @@ function createToolRegistry(ops) {
 }
 const SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
 class AgentRunner {
-  constructor(registerArtifacts) {
+  constructor(registerArtifacts, createSessionRecorder2) {
     this.registerArtifacts = registerArtifacts;
+    this.createSessionRecorder = createSessionRecorder2;
   }
   registerArtifacts;
+  createSessionRecorder;
   controller = new AbortController();
   active = false;
+  idleResolvers = /* @__PURE__ */ new Set();
   get isActive() {
     return this.active;
+  }
+  waitForIdle() {
+    if (!this.active) return Promise.resolve();
+    return new Promise((resolve2) => this.idleResolvers.add(resolve2));
   }
   start(req, emit) {
     if (this.active) throw new Error("已有运行正在进行，请先停止当前任务。");
     this.active = true;
     this.controller = new AbortController();
     const runId = randomUUID();
+    if (this.createSessionRecorder && !req.sessionId) {
+      this.markIdle();
+      throw new Error("运行请求缺少会话身份。");
+    }
+    let recorder;
+    try {
+      recorder = this.createSessionRecorder?.(req.sessionId, runId);
+    } catch (error) {
+      this.markIdle();
+      throw error;
+    }
     const emitOnce = /* @__PURE__ */ (() => {
       let completed = false;
       return (event) => {
         if (event.type === "runCompleted") {
           if (completed) return;
           completed = true;
-          this.active = false;
+          this.markIdle();
         }
         emit(event);
       };
     })();
     const events = {
       onRunStart: (ctx) => emitOnce({ type: "runStarted", ...ctx }),
-      onMessageFinalized: (message) => sessionStore.append(message),
       onTurnStart: (ctx) => emitOnce({ type: "turnStarted", ...ctx }),
       onReasoningDelta: (delta, ctx) => emitOnce({ type: "reasoningDelta", ...ctx, delta }),
       onAssistantDelta: (delta, ctx) => emitOnce({ type: "assistantDelta", ...ctx, delta }),
@@ -1681,9 +1727,8 @@ class AgentRunner {
         cwd: req.cwd,
         tools: createToolRegistry(createLocalBashOps()),
         signal: this.controller.signal,
-        history: sessionStore.snapshot()
+        recorder
       }, events).catch((error) => {
-        this.active = false;
         emitOnce({ type: "runCompleted", runId, status: "failed", turnCount: 0, error: { kind: "runtime", message: error instanceof Error ? error.message : String(error) } });
       });
     });
@@ -1691,6 +1736,12 @@ class AgentRunner {
   }
   stop() {
     if (this.active) this.controller.abort();
+  }
+  markIdle() {
+    if (!this.active) return;
+    this.active = false;
+    for (const resolve2 of this.idleResolvers) resolve2();
+    this.idleResolvers.clear();
   }
 }
 function toPublicToolResult(result) {
@@ -1702,6 +1753,563 @@ function toPublicToolResult(result) {
     error: result.error
   };
 }
+const SCHEMA_VERSION = 1;
+function initializeSchema(database) {
+  database.exec("PRAGMA journal_mode = WAL");
+  database.exec("PRAGMA foreign_keys = ON");
+  database.exec("PRAGMA synchronous = FULL");
+  database.exec("PRAGMA busy_timeout = 5000");
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      scope_key TEXT NOT NULL,
+      objective TEXT,
+      status TEXT NOT NULL CHECK (status IN ('active', 'waiting', 'closed')),
+      next_entry_seq INTEGER NOT NULL DEFAULT 1,
+      revision INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS entries (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      session_seq INTEGER NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('user_message', 'assistant_message', 'tool_result')),
+      status TEXT NOT NULL CHECK (status IN ('streaming', 'completed', 'interrupted', 'failed')),
+      run_id TEXT NOT NULL,
+      turn_id TEXT,
+      tool_call_id TEXT,
+      revision INTEGER NOT NULL DEFAULT 0,
+      payload_version INTEGER NOT NULL DEFAULT 1,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (session_id, session_seq)
+    );
+
+    CREATE INDEX IF NOT EXISTS entries_session_order_idx
+      ON entries (session_id, session_seq ASC);
+    CREATE INDEX IF NOT EXISTS entries_tool_call_idx
+      ON entries (session_id, tool_call_id);
+  `);
+  const current = database.prepare("PRAGMA user_version").get();
+  if (Number(current.user_version) === 0) {
+    database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    return;
+  }
+  if (Number(current.user_version) !== SCHEMA_VERSION) {
+    throw new Error(`Unsupported session storage schema version: ${current.user_version}`);
+  }
+}
+class RepositoryError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+    this.name = "RepositoryError";
+  }
+  code;
+}
+function now() {
+  return Date.now();
+}
+function canonical$1(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical$1).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonical$1(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+function parsePayload(value) {
+  if (typeof value !== "string") throw new RepositoryError("Stored entry payload is not text.", "storage");
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new RepositoryError("Stored entry payload is invalid JSON.", "storage");
+  }
+  if (!parsed || typeof parsed !== "object" || !["user", "assistant", "tool"].includes(parsed.role) || typeof parsed.content !== "string") {
+    throw new RepositoryError("Stored entry payload is not a ModelMessage.", "storage");
+  }
+  return parsed;
+}
+function validatePayloadForType(type, payload, toolCallId) {
+  const expectedRole = type === "user_message" ? "user" : type === "assistant_message" ? "assistant" : "tool";
+  if (payload.role !== expectedRole) throw new RepositoryError(`${type} payload must use role ${expectedRole}.`, "invalid");
+  if (type === "tool_result" && !toolCallId) throw new RepositoryError("tool_result requires toolCallId.", "invalid");
+}
+function rowToSession(row) {
+  return {
+    id: String(row.id),
+    scopeKey: String(row.scope_key),
+    objective: row.objective === null || row.objective === void 0 ? null : String(row.objective),
+    status: String(row.status),
+    nextEntrySeq: Number(row.next_entry_seq),
+    revision: Number(row.revision),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at)
+  };
+}
+function rowToEntry(row) {
+  return {
+    id: String(row.id),
+    sessionId: String(row.session_id),
+    sessionSeq: Number(row.session_seq),
+    type: String(row.type),
+    status: String(row.status),
+    runId: String(row.run_id),
+    turnId: row.turn_id === null || row.turn_id === void 0 ? null : String(row.turn_id),
+    toolCallId: row.tool_call_id === null || row.tool_call_id === void 0 ? null : String(row.tool_call_id),
+    revision: Number(row.revision),
+    payloadVersion: Number(row.payload_version),
+    payload: parsePayload(row.payload_json),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at)
+  };
+}
+class SqliteSessionRepository {
+  database;
+  constructor(path) {
+    this.database = new DatabaseSync(path);
+    initializeSchema(this.database);
+  }
+  async createSession(input) {
+    const id = input.id ?? randomUUID();
+    const createdAt = input.createdAt ?? now();
+    const status = input.status ?? "active";
+    const session = {
+      id,
+      scopeKey: input.scopeKey,
+      objective: input.objective ?? null,
+      status,
+      nextEntrySeq: 1,
+      revision: 0,
+      createdAt,
+      updatedAt: createdAt
+    };
+    try {
+      this.database.prepare(`
+        INSERT INTO sessions
+          (id, scope_key, objective, status, next_entry_seq, revision, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, 0, ?, ?)
+      `).run(session.id, session.scopeKey, session.objective, session.status, session.createdAt, session.updatedAt);
+    } catch (error) {
+      throw new RepositoryError(`Failed to create session: ${error instanceof Error ? error.message : String(error)}`, "storage");
+    }
+    return session;
+  }
+  async getSession(sessionId) {
+    const row = this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+    return row ? rowToSession(row) : null;
+  }
+  async getLatestOpenSession(scopeKey) {
+    const row = this.database.prepare(`
+      SELECT * FROM sessions
+      WHERE scope_key = ? AND status != 'closed'
+      ORDER BY updated_at DESC, created_at DESC, id DESC
+      LIMIT 1
+    `).get(scopeKey);
+    return row ? rowToSession(row) : null;
+  }
+  async appendEntry(sessionId, entry) {
+    validatePayloadForType(entry.type, entry.payload, entry.toolCallId);
+    const result = this.transaction(() => {
+      const sessionRow = this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+      if (!sessionRow) throw new RepositoryError(`Session not found: ${sessionId}`, "not_found");
+      const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id);
+      if (existingRow) {
+        const existing = rowToEntry(existingRow);
+        const same = existing.sessionId === sessionId && existing.type === entry.type && existing.status === entry.status && existing.runId === entry.runId && existing.turnId === (entry.turnId ?? null) && existing.toolCallId === (entry.toolCallId ?? null) && existing.payloadVersion === (entry.payloadVersion ?? 1) && canonical$1(existing.payload) === canonical$1(entry.payload);
+        if (same) return existing;
+        throw new RepositoryError(`Entry already exists with different content: ${entry.id}`, "conflict");
+      }
+      const timestamp = entry.createdAt ?? now();
+      const updatedAt = entry.updatedAt ?? timestamp;
+      const sessionSeq = Number(sessionRow.next_entry_seq);
+      this.database.prepare(`
+        INSERT INTO entries
+          (id, session_id, session_seq, type, status, run_id, turn_id, tool_call_id,
+           revision, payload_version, payload_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        entry.id,
+        sessionId,
+        sessionSeq,
+        entry.type,
+        entry.status,
+        entry.runId,
+        entry.turnId ?? null,
+        entry.toolCallId ?? null,
+        entry.revision ?? 0,
+        entry.payloadVersion ?? 1,
+        JSON.stringify(entry.payload),
+        timestamp,
+        updatedAt
+      );
+      this.database.prepare(`
+        UPDATE sessions
+        SET next_entry_seq = ?, revision = revision + 1, updated_at = ?
+        WHERE id = ?
+      `).run(sessionSeq + 1, updatedAt, sessionId);
+      const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id);
+      return rowToEntry(row);
+    });
+    return result;
+  }
+  async updateEntry(entryId, expectedRevision, patch) {
+    const result = this.transaction(() => {
+      const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId);
+      if (!existingRow) throw new RepositoryError(`Entry not found: ${entryId}`, "not_found");
+      const existing = rowToEntry(existingRow);
+      if (existing.revision !== expectedRevision) {
+        throw new RepositoryError(`Entry revision conflict: ${entryId}`, "conflict");
+      }
+      const updatedAt = patch.updatedAt ?? now();
+      const nextStatus = patch.status ?? existing.status;
+      const nextPayload = patch.payload ?? existing.payload;
+      const nextPayloadVersion = patch.payloadVersion ?? existing.payloadVersion;
+      const nextTurnId = patch.turnId === void 0 ? existing.turnId : patch.turnId;
+      const nextToolCallId = patch.toolCallId === void 0 ? existing.toolCallId : patch.toolCallId;
+      validatePayloadForType(existing.type, nextPayload, nextToolCallId);
+      this.database.prepare(`
+        UPDATE entries
+        SET status = ?, turn_id = ?, tool_call_id = ?, revision = revision + 1,
+            payload_version = ?, payload_json = ?, updated_at = ?
+        WHERE id = ? AND revision = ?
+      `).run(
+        nextStatus,
+        nextTurnId,
+        nextToolCallId,
+        nextPayloadVersion,
+        JSON.stringify(nextPayload),
+        updatedAt,
+        entryId,
+        expectedRevision
+      );
+      this.database.prepare(`
+        UPDATE sessions
+        SET revision = revision + 1, updated_at = ?
+        WHERE id = ?
+      `).run(updatedAt, existing.sessionId);
+      const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId);
+      return rowToEntry(row);
+    });
+    return result;
+  }
+  async getEntry(entryId) {
+    const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId);
+    return row ? rowToEntry(row) : null;
+  }
+  async listEntries(sessionId, cursor = 0, limit = 100) {
+    if (!Number.isInteger(cursor) || cursor < 0) throw new RepositoryError("Entry cursor must be a non-negative integer.", "invalid");
+    if (!Number.isInteger(limit) || limit <= 0) throw new RepositoryError("Entry limit must be a positive integer.", "invalid");
+    const rows = this.database.prepare(`
+      SELECT * FROM entries
+      WHERE session_id = ? AND session_seq > ?
+      ORDER BY session_seq ASC
+      LIMIT ?
+    `).all(sessionId, cursor, limit);
+    return rows.map(rowToEntry);
+  }
+  async updateSession(sessionId, expectedRevision, patch) {
+    const result = this.transaction(() => {
+      const existingRow = this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+      if (!existingRow) throw new RepositoryError(`Session not found: ${sessionId}`, "not_found");
+      const existing = rowToSession(existingRow);
+      if (existing.revision !== expectedRevision) throw new RepositoryError(`Session revision conflict: ${sessionId}`, "conflict");
+      const updatedAt = patch.updatedAt ?? now();
+      this.database.prepare(`
+        UPDATE sessions
+        SET objective = ?, status = ?, revision = revision + 1, updated_at = ?
+        WHERE id = ? AND revision = ?
+      `).run(
+        patch.objective === void 0 ? existing.objective : patch.objective,
+        patch.status ?? existing.status,
+        updatedAt,
+        sessionId,
+        expectedRevision
+      );
+      return rowToSession(this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId));
+    });
+    return result;
+  }
+  close() {
+    this.database.close();
+  }
+  transaction(operation) {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const result = operation();
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        this.database.exec("ROLLBACK");
+      } catch {
+      }
+      throw error;
+    }
+  }
+}
+const DRAFT_FLUSH_INTERVAL_MS = 500;
+const DRAFT_FLUSH_BYTES = 4096;
+function cloneMessage(message) {
+  return JSON.parse(JSON.stringify(message));
+}
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+function isSameMessage(left, right) {
+  return canonical(left) === canonical(right);
+}
+function freezeSnapshot(messages) {
+  return messages.map((message) => Object.freeze(cloneMessage(message)));
+}
+function validateMessage(message, role) {
+  if (message.role !== role) throw new RepositoryError(`Expected a ${role} message.`, "invalid");
+}
+class DefaultSessionRecorder {
+  sessionId;
+  repository;
+  completedMessages = [];
+  activeDrafts = /* @__PURE__ */ new Map();
+  userEntries = /* @__PURE__ */ new Map();
+  toolEntries = /* @__PURE__ */ new Map();
+  writeChain = Promise.resolve();
+  backgroundError;
+  closed = false;
+  constructor(sessionId, repository, entries = []) {
+    this.sessionId = sessionId;
+    this.repository = repository;
+    for (const entry of [...entries].sort((left, right) => left.sessionSeq - right.sessionSeq)) {
+      if (entry.type === "user_message") this.userEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload) });
+      if (entry.type === "tool_result" && entry.toolCallId) this.toolEntries.set(entry.toolCallId, { entryId: entry.id, message: cloneMessage(entry.payload) });
+      if (entry.status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
+    }
+  }
+  snapshot() {
+    return freezeSnapshot(this.completedMessages);
+  }
+  commitUser(message, context) {
+    validateMessage(message, "user");
+    this.ensureOpen();
+    const previous = this.userEntries.get(context.runId);
+    if (previous) {
+      if (!isSameMessage(previous.message, message)) {
+        return Promise.reject(new RepositoryError(`A different user message already belongs to run ${context.runId}.`, "conflict"));
+      }
+      return this.waitForWrites();
+    }
+    const entryId = randomUUID();
+    const copy = cloneMessage(message);
+    this.userEntries.set(context.runId, { entryId, message: copy });
+    return this.enqueueAndCheck(async () => {
+      const entry = await this.repository.appendEntry(this.sessionId, {
+        id: entryId,
+        type: "user_message",
+        status: "completed",
+        runId: context.runId,
+        payload: copy
+      });
+      this.completedMessages.push(cloneMessage(entry.payload));
+    });
+  }
+  recordAssistantDelta(kind, delta, context) {
+    this.ensureOpen();
+    if (!delta) return;
+    let draft = this.activeDrafts.get(context.turnId);
+    if (!draft) {
+      draft = {
+        entryId: randomUUID(),
+        runId: context.runId,
+        turnId: context.turnId,
+        turnOrdinal: context.turnOrdinal,
+        message: { role: "assistant", content: "" },
+        revision: null,
+        pendingBytes: 0,
+        dirty: false,
+        timer: void 0,
+        terminal: false
+      };
+      this.activeDrafts.set(context.turnId, draft);
+    }
+    if (kind === "text") draft.message.content += delta;
+    else draft.message.reasoning = (draft.message.reasoning ?? "") + delta;
+    draft.pendingBytes += Buffer$1.byteLength(delta, "utf8");
+    draft.dirty = true;
+    if (draft.pendingBytes >= DRAFT_FLUSH_BYTES) {
+      this.scheduleFlush(draft, true);
+    } else if (draft.timer === void 0) {
+      draft.timer = setTimeout(() => {
+        draft.timer = void 0;
+        void this.enqueue(() => this.flushDraft(draft));
+      }, DRAFT_FLUSH_INTERVAL_MS);
+    }
+  }
+  commitAssistant(message, context) {
+    validateMessage(message, "assistant");
+    this.ensureOpen();
+    let draft = this.activeDrafts.get(context.turnId);
+    if (!draft) {
+      draft = {
+        entryId: randomUUID(),
+        runId: context.runId,
+        turnId: context.turnId,
+        turnOrdinal: context.turnOrdinal,
+        message: cloneMessage(message),
+        revision: null,
+        pendingBytes: 0,
+        dirty: true,
+        timer: void 0,
+        terminal: true
+      };
+      this.activeDrafts.set(context.turnId, draft);
+    } else {
+      if (draft.terminal && !isSameMessage(draft.message, message)) {
+        return Promise.reject(new RepositoryError(`Assistant message already committed for turn ${context.turnId}.`, "conflict"));
+      }
+      if (draft.terminal) return this.waitForWrites();
+      draft.message = cloneMessage(message);
+      draft.dirty = true;
+      draft.terminal = true;
+      if (draft.timer !== void 0) clearTimeout(draft.timer);
+      draft.timer = void 0;
+    }
+    return this.enqueueAndCheck(async () => {
+      await this.flushDraft(draft);
+    });
+  }
+  commitToolResult(message, context) {
+    validateMessage(message, "tool");
+    this.ensureOpen();
+    if (!message.toolCallId || message.toolCallId !== context.toolCallId) {
+      return Promise.reject(new RepositoryError(`Tool result does not match ${context.toolCallId}.`, "invalid"));
+    }
+    const previous = this.toolEntries.get(context.toolCallId);
+    if (previous) {
+      if (!isSameMessage(previous.message, message)) return Promise.reject(new RepositoryError(`Tool result already exists with different content: ${context.toolCallId}`, "conflict"));
+      return this.waitForWrites();
+    }
+    const entryId = randomUUID();
+    const copy = cloneMessage(message);
+    this.toolEntries.set(context.toolCallId, { entryId, message: copy });
+    return this.enqueueAndCheck(async () => {
+      const entry = await this.repository.appendEntry(this.sessionId, {
+        id: entryId,
+        type: "tool_result",
+        status: "completed",
+        runId: context.runId,
+        turnId: context.turnId,
+        toolCallId: context.toolCallId,
+        payload: copy
+      });
+      this.completedMessages.push(cloneMessage(entry.payload));
+    });
+  }
+  async finishRun(result) {
+    this.ensureOpen();
+    for (const draft of this.activeDrafts.values()) {
+      if (draft.runId !== result.runId) continue;
+      if (draft.timer !== void 0) clearTimeout(draft.timer);
+      draft.timer = void 0;
+      draft.terminal = true;
+      draft.dirty = true;
+      draft.finalStatus = result.status === "completed" ? "completed" : result.status === "cancelled" ? "interrupted" : "failed";
+      await this.enqueue(() => this.flushDraft(draft));
+    }
+    await this.waitForWrites();
+  }
+  async close() {
+    if (this.closed) return;
+    for (const draft of this.activeDrafts.values()) {
+      if (draft.timer !== void 0) clearTimeout(draft.timer);
+      draft.timer = void 0;
+      draft.terminal = true;
+      draft.dirty = true;
+      draft.finalStatus = "interrupted";
+      await this.enqueue(() => this.flushDraft(draft));
+    }
+    await this.waitForWrites();
+    this.closed = true;
+  }
+  scheduleFlush(draft, immediate) {
+    if (draft.timer !== void 0) {
+      clearTimeout(draft.timer);
+      draft.timer = void 0;
+    }
+    if (immediate) void this.enqueue(() => this.flushDraft(draft));
+  }
+  async flushDraft(draft) {
+    if (!draft.dirty && draft.revision !== null) return;
+    const finalStatus = draft.finalStatus;
+    const status = finalStatus ?? (draft.terminal ? "completed" : "streaming");
+    let entry;
+    if (draft.revision === null) {
+      entry = await this.repository.appendEntry(this.sessionId, {
+        id: draft.entryId,
+        type: "assistant_message",
+        status,
+        runId: draft.runId,
+        turnId: draft.turnId,
+        payload: cloneMessage(draft.message)
+      });
+    } else {
+      entry = await this.repository.updateEntry(draft.entryId, draft.revision, {
+        status,
+        payload: cloneMessage(draft.message)
+      });
+    }
+    draft.revision = entry.revision;
+    draft.pendingBytes = 0;
+    draft.dirty = false;
+    if (status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
+    if (draft.terminal) this.activeDrafts.delete(draft.turnId);
+  }
+  enqueue(operation) {
+    const next = this.writeChain.then(operation, operation);
+    this.writeChain = next.catch((error) => {
+      this.backgroundError = error;
+    });
+    return next;
+  }
+  async enqueueAndCheck(operation) {
+    await this.enqueue(operation);
+    await this.waitForWrites();
+  }
+  async waitForWrites() {
+    await this.writeChain;
+    if (this.backgroundError) throw this.backgroundError;
+  }
+  ensureOpen() {
+    if (this.closed) throw new RepositoryError("Session recorder is closed.", "storage");
+  }
+}
+async function readAllEntries(repository, sessionId) {
+  const entries = [];
+  let cursor = 0;
+  while (true) {
+    const batch = await repository.listEntries(sessionId, cursor, 500);
+    entries.push(...batch);
+    if (batch.length < 500) return entries;
+    cursor = batch[batch.length - 1].sessionSeq;
+  }
+}
+async function createSessionRecorder(repository, sessionId) {
+  const session = await repository.getSession(sessionId);
+  if (!session) throw new RepositoryError(`Session not found: ${sessionId}`, "not_found");
+  const entries = await readAllEntries(repository, sessionId);
+  for (const entry of entries) {
+    if (entry.status !== "streaming") continue;
+    await repository.updateEntry(entry.id, entry.revision, { status: "interrupted" });
+    entry.status = "interrupted";
+    entry.revision += 1;
+  }
+  return new DefaultSessionRecorder(sessionId, repository, entries);
+}
 const mainProcessDirectory = fileURLToPath(new URL(".", import.meta.url));
 function createWindow() {
   const win = new BrowserWindow({
@@ -1710,6 +2318,8 @@ function createWindow() {
     minWidth: 840,
     minHeight: 560,
     title: "",
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 20 },
     show: false,
     webPreferences: {
       preload: join(mainProcessDirectory, "../preload/index.cjs"),
@@ -1732,7 +2342,7 @@ function createWindow() {
   });
   return win;
 }
-function registerIpc(runner, providers, outputFiles, inputAttachments) {
+function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId) {
   const discoveryControllers = /* @__PURE__ */ new Map();
   ipcMain.handle(IPC.run, async (event, req) => {
     try {
@@ -1743,7 +2353,7 @@ function registerIpc(runner, providers, outputFiles, inputAttachments) {
       if (!modelOptionId) return { ok: false, error: "请选择模型。" };
       const attachments = await inputAttachments.resolve(Array.isArray(req.attachmentIds) ? req.attachmentIds : []);
       const resolved = await providers.resolve(modelOptionId);
-      const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, ...resolved }, (payload) => {
+      const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, sessionId, ...resolved }, (payload) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
@@ -1837,7 +2447,13 @@ function registerIpc(runner, providers, outputFiles, inputAttachments) {
     return error ? { ok: false, error } : { ok: true };
   });
 }
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const sessionRepository = new SqliteSessionRepository(join(app.getPath("userData"), "agent-sessions.sqlite"));
+  const sessionScopeKey = "desktop:local";
+  const reusableSession = await sessionRepository.getLatestOpenSession(sessionScopeKey);
+  const activeSession = reusableSession ?? await sessionRepository.createSession({ scopeKey: sessionScopeKey });
+  const recorder = await createSessionRecorder(sessionRepository, activeSession.id);
+  let closing = false;
   const providers = new ProviderStore(
     join(app.getPath("userData"), "provider-profiles.json"),
     {
@@ -1848,12 +2464,34 @@ app.whenReady().then(() => {
   );
   const outputFiles = new OutputFileRegistry();
   const inputAttachments = new InputAttachmentRegistry();
-  const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts));
-  registerIpc(runner, providers, outputFiles, inputAttachments);
+  const createRecorder = (sessionId) => {
+    if (sessionId !== activeSession.id) throw new Error("当前会话未加载。");
+    return recorder;
+  };
+  const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts), createRecorder);
+  registerIpc(runner, providers, outputFiles, inputAttachments, activeSession.id);
   createWindow();
+  app.on("before-quit", (event) => {
+    if (closing) return;
+    event.preventDefault();
+    closing = true;
+    runner.stop();
+    void (async () => {
+      try {
+        await runner.waitForIdle();
+        await recorder.close();
+      } finally {
+        sessionRepository.close();
+        app.quit();
+      }
+    })();
+  });
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch((error) => {
+  dialog.showErrorBox("会话存储初始化失败", error instanceof Error ? error.message : String(error));
+  app.quit();
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

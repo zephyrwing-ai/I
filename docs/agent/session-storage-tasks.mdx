@@ -1,0 +1,99 @@
+---
+title: 会话存储实现清单
+description: 会话本地存储跨模块实现顺序、代码入口与验证标准。
+---
+
+交付结果。
+
+- Agent 使用 SQLite 保存 sessions 和 entries。
+- 每次运行绑定一个确定的 sessionId。
+- Runtime 从 SessionRecorder 取得 completed ModelMessage 快照。
+- 用户消息、完整助手消息和工具结果在对应语义边界完成本地提交。
+- 模型增量持续更新 Recorder 内存草稿，并按照500毫秒或4096字节阈值合并写入。
+- Renderer 延续现有 AgentEvent 流式渲染链路。
+
+一、实现会话存储模块。
+
+- [x] 创建 `agent/memory/types.ts`，定义 Session、SessionEntry、EntryStatus、EntryType、MessageCommitContext、TurnCommitContext、ToolCommitContext、RecordedRunStatus 和 revision 更新结果。
+- [x] 创建 `agent/memory/schema.ts`，定义 sessions、entries、唯一索引和 schema version。
+- [x] 创建 `agent/memory/repository.ts`，定义 createSession、getSession、appendEntry、updateEntry、getEntry、listEntries 和 updateSession。
+- [x] 在 Repository 中提供按 scopeKey 读取最近 active 或 waiting 会话的查询，供 Host 会话路由使用。
+- [x] 创建 `agent/memory/sqlite-repository.ts`，使用 `node:sqlite`、prepared statements 和显式事务实现 Repository。
+- [x] 创建 `agent/memory/session-recorder.ts`，实现 completed 消息快照、活动草稿、合并写入队列和终态刷新。
+- [x] 在 `agent/memory/session-recorder.ts` 提供临时 Recorder 工厂，供 CLI 和隔离测试使用相同的 Runtime 契约。
+- [x] 创建 `agent/memory/index.ts`，导出模块公开契约。
+- [x] 使用 `journal_mode=WAL`、`foreign_keys=ON`、`synchronous=FULL` 和 `busy_timeout=5000` 初始化数据库连接。
+- [x] 使用 `(session_id, session_seq)` 唯一索引和 sessions.next_entry_seq 事务生成会话顺序。
+- [x] 使用 revision 条件更新会话与草稿，并为重复追加返回稳定结果。
+- [x] 保存 payload_version，并按当前版本解码持久化记录。
+
+二、接入 Runtime Loop。
+
+- [x] 在 `agent/loop.ts` 的 AgentRunConfig 中接收 SessionRecorder，并由 Recorder 提供初始消息快照。
+- [x] 删除 history 与 Recorder 并行提供上下文的双入口。
+- [x] 由 Runtime 创建一次用户 ModelMessage，并在第一次 Provider 请求前等待 commitUser。
+- [x] 在 reasoning_delta 和 text_delta 分支同步调用 recordAssistantDelta，并继续发出已有 AgentEvent。
+- [x] 记录 completed 终态；模型流结束时校验该终态并将终态缺失归为 model_protocol 错误。
+- [x] 构造完整 Assistant Message 后等待 commitAssistant，成功后加入本次运行上下文并发出 assistantCompleted。
+- [x] 带 toolCalls 的 Assistant Message 提交成功后进入工具执行。
+- [x] 构造 Tool Message 后等待 commitToolResult，成功后加入本次运行上下文并发出 toolCompleted。
+- [x] 将 finish 改为异步终态路径，等待 finishRun 刷新活动草稿后发出 runCompleted。
+- [x] 删除 onMessageFinalized 回调及其调用点。
+
+三、接入桌面 Runner 与 Main。
+
+- [x] 在会话路由完成后，把 sessionId 放入 `ResolvedRunRequest`。
+- [x] 在 `shell/main/runner.ts` 中按 sessionId 取得 SessionRecorder，并把 Recorder 与 AgentEvents 接收器注入 Runtime。
+- [x] SessionRecorder 和 AgentEvents 作为两个独立接收器传入 Runtime，Runtime 分别调用二者。
+- [x] 保持 AgentEvents 到 `emitOnce` 的现有 IPC 转发路径。
+- [x] 保持 Renderer eventQueue 与 Reducer 的现有流式消费路径。
+- [x] 使用 Recorder 私有队列处理 SQLite 草稿刷新，Renderer 与 Recorder 通过稳定 ID 关联。
+- [x] 在 `shell/main/index.ts` 的应用就绪阶段创建 SqliteSessionRepository，并使用 `app.getPath("userData")` 生成数据库路径。
+- [x] 在应用退出阶段停止运行、等待 Runner 空闲、刷新 Recorder 并关闭 SQLite 连接。
+- [x] 使用 Repository 支持的 Recorder 与会话缓存替代 `shell/main/session-store.ts` 的全局消息数组。
+- [x] 在 `agent/run.ts` 中注入临时 Recorder，保持 CLI 运行入口可用。
+
+四、保持模型与工具边界。
+
+- [x] 复用 `agent/model/openai.ts` 已有 reasoning_delta、text_delta 和 completed 输出。
+- [x] 在 Runtime 校验模型流终态，Provider Adapter 保持协议归一化职责。
+- [x] 复用各个工具的 execute 实现和 ToolResult 契约。
+- [x] 把 Assistant Message 中的 toolCalls 保存为模型调用事实。
+- [x] 把工具完成后生成的 Tool Message 保存为 tool_result。
+- [x] 由工具执行设计继续定义计划、派发、结算、幂等和副作用核验。
+
+五、更新设计文档。
+
+- [x] `docs/agent/memory.mdx` 与最终 sessions、entries、Repository 和 Recorder 实现保持一致。
+- [x] `docs/agent/runtime-loop.mdx` 与 Runtime 的提交顺序和失败屏障保持一致。
+- [x] `docs/agent/events.mdx` 与 AgentEvent、Recorder 双接收器边界保持一致。
+- [x] `docs/agent/model-request.mdx` 与 completed 终态契约保持一致。
+- [x] `docs/agent/tools/execution.mdx` 与工具结果持久化屏障保持一致。
+- [x] `docs/desktop/design/workbench/session-storage.mdx` 与 Runner、Main 和 IPC 装配保持一致。
+
+六、验证数据与运行顺序。
+
+- [x] 验证 createSession 创建 next_entry_seq=1 和 revision=0。
+- [ ] 验证并发 appendEntry 生成连续且唯一的 sessionSeq。
+- [x] 验证 updateEntry 的 revision 成功递增并返回版本冲突。
+- [ ] 验证相同 entryId 和相同 payload 的重复追加返回已有记录。
+- [ ] 验证 text_delta 和 reasoning_delta 在内存中连续聚合。
+- [ ] 验证500毫秒和4096字节阈值均能触发同一草稿记录更新。
+- [ ] 验证 completed、取消、失败和应用退出立即刷新活动草稿。
+- [ ] 验证纯工具调用响应直接创建 completed Assistant Message。
+- [x] 验证用户消息提交完成后发生第一次 Provider 请求。
+- [x] 验证 Assistant Message 提交完成后发生第一次工具执行。
+- [x] 验证 Tool Message 提交完成后发生下一次 Provider 请求。
+- [ ] 验证持久化失败把运行收敛为 failed。
+- [ ] 验证进程重启把 streaming 草稿恢复为 interrupted。
+- [x] 验证 SessionRecorder.snapshot 返回 completed 状态的有序 ModelMessage。
+- [ ] 验证 Electron 运行时完成数据库冷启动、写入、关闭和重新打开。
+- [ ] 验证 CLI 使用临时 Recorder 完成一次普通回答和一次工具回合。
+
+七、交付边界。
+
+- [x] 本次交付包含会话本地存储、活动会话 Recorder、Runtime 提交屏障和桌面装配。
+- [x] 会话路由在运行前提供确定的 sessionId。
+- [ ] 页面历史读取、跨会话连续时间线和虚拟渲染由 Desktop 历史交付承接。
+- [ ] 上下文压缩、历史检索和长期记忆由后续 Memory 交付承接。
+- [ ] 工具执行日志、幂等和副作用恢复由后续工具执行交付承接。

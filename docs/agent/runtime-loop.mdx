@@ -19,11 +19,45 @@ description: Agent 的继续、自然完成、取消和失败判定。
 
 普通工具失败作为 `ModelMessage(role: "tool", isError: true)` 回填，允许模型在下一轮恢复。被截断或未注册的调用不执行，改为错误工具结果。
 
-流式处理与上下文提交。
+## 会话存储接入
 
-`collectTurn` 消费 Adapter 的正文、思考增量与最终完成事件，向宿主广播增量并聚合当前回合。只有聚合结束后才将完整助手消息加入上下文并调用 `onMessageFinalized`；每个工具结束后再提交对应结果。API Key 由宿主提供给模型配置，循环不负责凭据解析。是否跨运行保存上下文由宿主决定。
+Runtime 使用 Host 注入的 `SessionRecorder` 维护本次运行对应的持久化会话。Runtime 是用户消息、完整助手消息和工具结果提交顺序的唯一控制者；Host 负责创建 Recorder 并提供运行事件接收器。
 
-当前逐条提交不保证整个工具批次的原子性：批次中途取消可能留下缺少工具结果的助手消息。宿主复用历史前需要保证调用与结果完整配对；这一点属于待完善行为，不能视为已实现的恢复保证。
+用户消息提交顺序。
+
+1. Host 创建 `runId` 并把已经绑定 `sessionId` 的 Recorder 注入 Runtime。
+2. Runtime 创建一次用户 `ModelMessage`。
+3. Runtime 等待 `commitUser` 完成本地提交。
+4. Runtime 发出 `runStarted` 和 `turnStarted`，随后调用 Provider。
+
+流式助手消息顺序。
+
+1. `collectTurn` 消费 Adapter 的 `reasoning_delta` 和 `text_delta`。
+2. Runtime 把每个增量同步交给 `recordAssistantDelta`，Recorder 更新内存草稿并调度合并写入。
+3. Runtime 把相同的增量作为 AgentEvent 发给宿主，模型流、Recorder 和事件接收器分别维护自己的状态。
+4. Adapter 的 `completed` 事件提供聚合后的正文、思考、工具调用和停止原因。
+5. Runtime 构造完整 Assistant Message，并等待 `commitAssistant` 完成最终提交。
+6. Runtime 把已经提交的 Assistant Message 加入本次运行的内存上下文，并发出 `assistantCompleted`。
+
+工具结果提交顺序。
+
+1. 带工具调用的 Assistant Message 完成本地提交。
+2. Runtime 发出 `toolStarted` 并执行对应工具。
+3. Runtime 根据 `ToolResult` 构造完整 Tool Message。
+4. Runtime 等待 `commitToolResult` 完成本地提交。
+5. Runtime 把已经提交的 Tool Message 加入内存上下文，并发出 `toolCompleted`。
+6. 同一工具批次完成全部结果提交后，Runtime 发出 `turnCompleted` 并开始下一次模型请求。
+
+终态提交顺序。
+
+- 模型成功流包含一个 `completed` 事件。流结束时的终态检查把缺少 `completed` 的响应收敛为 `model_protocol` 失败。
+- `completed` 事件直接承载工具调用时，`commitAssistant` 创建完成状态的助手记录。
+- 取消和失败调用 `finishRun` 刷新活动草稿并提交终态，然后 Runtime 发出唯一的 `runCompleted`。
+- 用户消息提交失败时，Runtime 直接收敛为 `failed`，Provider 保持待调用状态。
+- Assistant Message 提交失败时，Runtime 直接收敛为 `failed`，工具保持待执行状态。
+- Tool Message 提交失败时，Runtime 直接收敛为 `failed`，下一次模型请求保持待调用状态。
+
+SessionRecorder 的数据结构、草稿刷新和本地事务以[会话存储](./memory.mdx)为准。AgentEvent 的身份和订阅契约以[运行事件](./events.mdx)为准。
 
 ## 后续扩展设计（尚未实现）
 
@@ -101,3 +135,9 @@ Agent 的运行状态在模型请求与工具执行之间切换，并最终收�
 | 模型请求失败 | `failed`，不执行消息中残留的工具调用 |
 | 用户停止模型或命令 | `stopping → cancelled`，不发起下一轮 |
 | 连续多轮工具调用 | 持续运行，不因 turn 数达到固定值而结束 |
+| 用户消息提交失败 | `failed`，Provider 保持待调用状态 |
+| 模型流结束时缺少 `completed` | `failed`，错误类型为 `model_protocol` |
+| Assistant Message 提交失败 | `failed`，工具保持待执行状态 |
+| Tool Message 提交失败 | `failed`，下一次模型请求保持待调用状态 |
+| 纯工具调用响应 | 直接提交 completed Assistant Message，再进入工具执行 |
+| 取消发生在助手流式输出期间 | Recorder 刷新草稿并提交 interrupted，随后发出 `runCompleted` |
