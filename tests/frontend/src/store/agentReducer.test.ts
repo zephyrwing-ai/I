@@ -196,6 +196,37 @@ test("agentReducer projects one run from streamed content through cancellation",
   assert.equal(state.runs["run-1"].turnCount, 1);
 });
 
+test("agentReducer exposes model retrying without marking the turn completed", () => {
+  let state = acceptRun("run-retry");
+  state = event(state, {
+    type: "turnStarted",
+    runId: "run-retry",
+    turnId: "turn-1",
+    turnOrdinal: 1,
+    attempt: 1,
+  });
+  state = event(state, {
+    type: "reasoningDelta",
+    runId: "run-retry",
+    turnId: "turn-1",
+    delta: "partial thought",
+  });
+  state = event(state, {
+    type: "turnRetrying",
+    runId: "run-retry",
+    turnId: "turn-1",
+    attempt: 1,
+    nextAttempt: 2,
+    reason: "reasoning_only",
+    delayMs: 0,
+    maxAttempts: 3,
+  });
+
+  const turn = state.runs["run-retry"].turns["turn-1"];
+  assert.equal(turn.status, "retrying");
+  assert.equal(turn.reasoningContent, "partial thought");
+});
+
 test("a rejected start exposes the error without creating a phantom run", () => {
   let state = agentReducer(initialAgentState, { type: "runRequested" });
   state = agentReducer(state, { type: "runRejected", error: "请选择模型。" });

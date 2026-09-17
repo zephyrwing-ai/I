@@ -2,11 +2,14 @@ import type {
   AgentEvent,
   OutputFileDescriptor,
   RunStatus,
+  SessionPageResult,
   ToolResult,
 } from "../../../shell/shared/ipc";
+import { initialSessionHistoryState, mergeHistoryEntries, type SessionHistoryState } from "./sessionHistory";
+import { mergePersistedEntries } from "./sessionProjection";
 
 export type AppStatus = "idle" | "starting" | "running" | "stopping" | RunStatus;
-export type TurnStatus = "running" | "completed";
+export type TurnStatus = "running" | "retrying" | "completed" | "failed";
 export type ToolStatus = "running" | "completed";
 
 export interface ToolState {
@@ -52,6 +55,7 @@ export interface AgentState {
   runs: Record<string, RunState>;
   runOrder: string[];
   error: string | null;
+  history: SessionHistoryState;
 }
 
 export type AgentAction =
@@ -59,6 +63,10 @@ export type AgentAction =
   | { type: "runAccepted"; runId: string; task: string; taskAt: number }
   | { type: "runRejected"; error: string }
   | { type: "stopRequested" }
+  | { type: "historyLoadStarted"; scope: "initial" | "older" }
+  | { type: "sessionHydrated"; page: SessionPageResult }
+  | { type: "olderHistoryLoaded"; page: SessionPageResult }
+  | { type: "historyLoadFailed"; scope: "initial" | "older"; error: string }
   | { type: "event"; event: AgentEvent };
 
 export const initialAgentState: AgentState = {
@@ -67,6 +75,7 @@ export const initialAgentState: AgentState = {
   runs: {},
   runOrder: [],
   error: null,
+  history: initialSessionHistoryState,
 };
 
 function createRun(runId: string, task: string, taskAt: number): RunState {
@@ -162,6 +171,48 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
     case "runRejected":
       return { ...state, status: "failed", currentRunId: null, error: action.error };
 
+    case "historyLoadStarted":
+      return {
+        ...state,
+        history: {
+          ...state.history,
+          loadingInitial: action.scope === "initial" ? true : state.history.loadingInitial,
+          loadingOlder: action.scope === "older" ? true : state.history.loadingOlder,
+          error: null,
+        },
+      };
+
+    case "sessionHydrated": {
+      const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
+      const projected = mergePersistedEntries({ runs: {}, runOrder: [] }, action.page.entries);
+      return {
+        ...state,
+        history,
+        runs: projected.runs,
+        runOrder: projected.runOrder,
+        currentRunId: null,
+        status: "idle",
+        error: null,
+      };
+    }
+
+    case "olderHistoryLoaded": {
+      const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
+      const projected = mergePersistedEntries(state, action.page.entries);
+      return { ...state, history, runs: projected.runs, runOrder: projected.runOrder };
+    }
+
+    case "historyLoadFailed":
+      return {
+        ...state,
+        history: {
+          ...state.history,
+          loadingInitial: action.scope === "initial" ? false : state.history.loadingInitial,
+          loadingOlder: action.scope === "older" ? false : state.history.loadingOlder,
+          error: action.error,
+        },
+      };
+
     case "event": {
       const event = action.event;
 
@@ -198,6 +249,13 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
             ...turn,
             reasoningContent: turn.reasoningContent + event.delta,
           }));
+        });
+      }
+
+      if (event.type === "turnRetrying") {
+        return withCurrentRun(state, (run) => {
+          const next = ensureTurn(run, event.turnId);
+          return updateTurn(next, event.turnId, (turn) => ({ ...turn, status: "retrying" }));
         });
       }
 

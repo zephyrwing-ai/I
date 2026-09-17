@@ -8,6 +8,7 @@ description: Agent 会话的本地数据结构、写入事务与恢复规则。
 - sessionId：一个后台任务会话的稳定身份，跨运行和进程重启保持稳定。
 - runId：用户一次发送触发的完整 Agent 运行，同一会话可以包含多个运行。
 - turnId：一次模型请求以及随后产生的工具批次。
+- attempt：同一逻辑 turn 内的一次模型请求尝试；重试会创建新的 attempt，但保持逻辑 turnId。
 - toolCallId：模型产生的一次工具调用，由工具调用和对应结果共同使用。
 - entryId：一条持久化记录的稳定身份，流式草稿转为完整消息时保持稳定。
 - sessionSeq：记录在所属会话内的严格递增顺序。
@@ -63,11 +64,19 @@ entries 表。
 - assistant_message 的 payload 保存正文、可选 reasoning 和完整 toolCalls，每次工具调用拥有一个规范存储位置。
 - tool_result 的 payload 保存模型可见结果、错误状态、mediaType 和 dataUrl，并通过 tool_call_id 关联助手消息中的调用。
 
+Agent 存储与页面展示边界。
+
+- SessionRecorder 保存模型可见事实：用户消息、完整 Assistant Message、reasoning、toolCalls 和 tool_result。
+- 工具调用的折叠摘要、reasoning 的展开状态、工具输出的预览长度和页面块结构由 Desktop Renderer 根据这些事实生成。
+- 历史分页读取和虚拟渲染使用已有 SessionEntry 作为输入，不改变工具结果和 reasoning 的持久化格式。
+- 页面历史投影通过 `sessionSeq`、`runId`、`turnId` 和 `toolCallId` 重新组织记录；Agent 存储层继续保持模型消息顺序和关联身份。
+
 记录状态。
 
 - 用户消息直接以 completed 提交。事务成功后，Runtime 才开始对应运行。
 - 助手消息在首次有效正文或思考增量到达时以 streaming 创建，同一条消息后续更新保持相同 entryId 和 sessionSeq。
 - 助手流完成后，同一行更新为 completed 并写入聚合后的完整 ModelMessage。
+- 只有 reasoning、空响应、长度截断、缺少终止原因或无效工具调用的 attempt 更新为 interrupted；它们不会进入 `snapshot()`。
 - 进程退出或流异常留下的 streaming 消息在恢复时更新为 interrupted，已经保存的正文继续保留。
 - 带工具调用的完整助手消息以 assistant_message 保存，对应工具结果以 tool_result 保存。
 - 纯工具调用响应在 completed 事件到达时直接创建 completed 状态的 assistant_message。
@@ -118,6 +127,8 @@ Repository 接口。
 - listEntries(sessionId, cursor, limit) 按 session_seq ASC 分页读取会话记录。
 - updateSession(sessionId, expectedRevision, patch) 使用 revision 条件更新会话目标和状态。
 
+Desktop 历史分页可以在 Repository 上组合两类读取：按会话尾部读取最新记录，以及使用 `beforeSeq` 游标读取更早记录。分页批次、页面缓存和可见窗口属于 Desktop 历史交付；Repository 只返回有序 SessionEntry 和稳定游标。
+
 SessionRecorder 接口。
 
 ```ts
@@ -130,6 +141,7 @@ interface MessageCommitContext {
 interface TurnCommitContext extends MessageCommitContext {
   turnId: string;
   turnOrdinal: number;
+  attempt?: number;
 }
 
 interface ToolCommitContext extends TurnCommitContext {
@@ -143,6 +155,7 @@ interface SessionRecorder {
   snapshot(): ModelMessage[];
   commitUser(message: ModelMessage, context: MessageCommitContext): Promise<void>;
   recordAssistantDelta(kind: AssistantDeltaKind, delta: string, context: TurnCommitContext): void;
+  finishAssistantAttempt(context: TurnCommitContext, status: "completed" | "interrupted" | "failed", message?: ModelMessage): Promise<void>;
   commitAssistant(message: ModelMessage, context: TurnCommitContext): Promise<void>;
   commitToolResult(message: ModelMessage, context: ToolCommitContext): Promise<void>;
   finishRun(result: { runId: string; status: RecordedRunStatus }): Promise<void>;
@@ -153,13 +166,15 @@ interface SessionRecorder {
 - sessionId 保存当前 Recorder 绑定的会话身份。
 - snapshot() 返回该会话中 completed 状态的有序 ModelMessage 快照。
 - commitUser(message, context) 提交用户消息，MessageCommitContext 携带 runId。
-- recordAssistantDelta(kind, delta, context) 同步更新内存草稿并调度合并写入，TurnCommitContext 携带 runId、turnId 和 turnOrdinal。
-- commitAssistant(message, context) 立即刷新草稿并提交完整助手消息。
+- recordAssistantDelta(kind, delta, context) 同步更新内存草稿并调度合并写入，TurnCommitContext 携带 runId、turnId、turnOrdinal 和可选 attempt。
+- finishAssistantAttempt(context, status, message) 结束一次模型 attempt；完整结果提交为 completed，不完整结果提交为 interrupted，不可恢复错误提交为 failed。
+- commitAssistant(message, context) 是 completed attempt 的兼容入口，内部使用 finishAssistantAttempt。
 - commitToolResult(message, context) 提交完整工具结果，ToolCommitContext 携带 runId、turnId、turnOrdinal 和 toolCallId。
 - finishRun(result) 在运行终态刷新活动草稿并提交对应记录状态。
 - close() 在宿主退出阶段刷新剩余草稿并关闭 Recorder 写入入口。
 - Delta 接口完成内存更新后立即返回；commit 和 finish 接口返回 Promise，并以本地提交结果完成 Promise。
 - Recorder 使用私有消息快照、活动草稿和写入队列，调用方通过方法传递冻结值。
+- 同一逻辑 turn 的不同 attempt 使用独立草稿键；SQLite 可以保留 interrupted/failed attempt，但 `snapshot()` 只返回 completed 消息。
 
 读取与恢复。
 

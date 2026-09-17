@@ -9,9 +9,9 @@ description: 模型上下文、Provider 适配、流式消息和停止原因的�
 
 当前 `response` 接收 `ModelConfig`、`ModelMessage[]`、系统提示、工具定义和可选 `AbortSignal`。`runId`、`turnId` 由 Runtime 的回合上下文维护，用于关联对外事件，不直接传入适配器。
 
-`ModelMessage` 使用字符串 `content`，可附带 `reasoning` 和独立的 `toolCalls` 数组；工具结果消息携带 `toolCallId`、`toolName` 和 `isError`。当前不是正文与工具调用交错的块式消息。`ToolCall` 包含 `id`、`name`、`input` 和 `inputComplete`；`LlmResponse` 包含正文、工具调用、归一化停止原因及可选诊断字段。
+`ModelMessage` 使用字符串 `content`，可附带独立的 `reasoning` 和 `toolCalls` 数组；工具结果消息携带 `toolCallId`、`toolName` 和 `isError`。当前不是正文与工具调用交错的块式消息。`ToolCall` 包含 `id`、`name`、`input` 和 `inputComplete`；`LlmResponse` 包含正文、思考、工具调用、归一化停止原因、原始停止原因及可选诊断字段。
 
-`runId` 关联整次运行，`turnId` 关联本次请求，`toolCallId` 贯穿工具调用和结果。请求中不存在 `stepLimit`、`maxSteps` 或其他按次数终止循环的字段。
+`runId` 关联整次运行，`turnId` 关联一次逻辑模型回合，`attempt` 区分该回合中的具体请求，`toolCallId` 贯穿工具调用和结果。请求中不存在 `stepLimit`、`maxSteps` 或其他按次数终止循环的字段。
 
 ## Provider 归一化
 
@@ -19,24 +19,24 @@ description: 模型上下文、Provider 适配、流式消息和停止原因的�
 
 - OpenAI-compatible 的 `tool_calls[].function.arguments` 必须解析并保留原始调用 ID；
 - 工具调用分片按 Provider 的 index 累积，最终转换为 `ToolCall[]`；参数解析失败仍保留调用，并设置 `inputComplete: false`；
-- Provider 的原始完成原因保留在 `rawStopReason`，控制层只消费归一化的 `stopReason`；
+- Provider 的原始完成原因保留在 `rawStopReason`，控制层只消费归一化的 `stopReason`；`content_filter` 和未知原因不会被伪装成 `stop`；
 - 工具调用是否合法由工具执行模块判断，Adapter 不能静默丢弃解析失败的调用并伪装成“没有工具调用”。
 
 `tool_use` 是归一化停止原因；Runtime 以 `LlmResponse.toolCalls` 是否非空作为自动续轮依据，不从正文猜测工具调用。
 
-`reasoning_content` 及正文中识别出的 thinking 标记内容进入独立 reasoning 通道。后续请求将保留的 reasoning 拼成 thinking 文本随 assistant 消息回传，这是当前兼容策略，不是所有 Provider 的通用协议。
+Provider 返回的 `reasoning_content` 以及正文中识别出的 thinking 标记内容统一进入 reasoning 通道。每个连接通过 `reasoningField` 配置对应的 Provider 字段，Adapter 按连接能力回传已完成 Assistant Message 的 reasoning。Adapter 将 reasoning 与 content 保持独立，并依据结构化 `tool_calls` 生成工具调用。
 
-后续扩展目标：Anthropic 的 `tool_use` 和 Google 的 `functionCall` 应映射到统一工具调用契约；若需要保留文本与工具块交错顺序，须先扩展当前字符串正文与独立数组的类型，再实现块式 `ToolCallBlock`，不能将它视为已有接口。
+后续扩展覆盖 Anthropic 的 `tool_use` 和 Google 的 `functionCall`，统一映射到当前工具调用契约。文本与工具块的交错顺序由扩展后的消息类型承载，先补充块式 `ToolCallBlock`，再接入对应的 Provider 适配器。
 
 ## 流式请求
 
-`ModelStreamEvent` 包含 `reasoning_delta`、`text_delta` 和 `completed`。适配器持续发送思考与正文增量，工具调用在流结束时随 `completed` 一次性提交。纯工具调用响应可以直接发送 `completed`，其中正文和思考为空，`toolCalls` 携带完整调用。
+`ModelStreamEvent` 包含 `reasoning_delta`、`text_delta` 和 `completed`。适配器持续发送思考与正文增量，工具调用在流结束时随 `completed` 一次性提交。`completed` 只表示 Adapter 已完成 Provider 流的解析，不表示 Runtime 已确认 Agent 回合成功。纯工具调用响应可以发送 `completed`，其中正文和思考为空，`toolCalls` 携带完整调用。
 
-每个成功模型流以一个 `completed` 事件结束。Runtime 记录终态事件并以其聚合内容构造完整 Assistant Message；网络流结束时的终态检查把终态缺失归为 `model_protocol` 错误。模型增量的会话持久化与宿主事件分发由 Runtime 契约定义，Adapter 保持 Provider 协议归一化职责。
+每个成功模型流必须以明确的 `finish_reason` 结束。Adapter 对流结束时缺少终止原因的情况抛出可重试的 `model_protocol` 错误，而不会合成 `stop`。模型增量的会话持久化与宿主事件分发由 Runtime 契约定义，Adapter 保持 Provider 协议归一化职责。
 
-当前适配器的请求异常直接抛出，由 Runtime 捕获：信号已取消时结束为 `cancelled`，其余异常结束为 `failed`，错误种类目前统一为 `runtime`。类型虽保留 `error`、`aborted` 停止原因，但当前 OpenAI 适配器不会通过最终消息产生这两类结果。
+适配器将配置、网络、Provider 和模型协议错误归一化为 `ModelAdapterError`，并附带 `retryable`。Runtime 捕获后把它们映射为 `TurnOutcome`，由回合重试逻辑决定是否恢复；取消信号仍由 Runtime 结束为 `cancelled`。
 
-后续错误归一化目标：适配器提供明确的请求错误与中止结果，Runtime 稳定区分配置、网络、Provider 和协议错误；若通过流事件传递，须同时扩展 `ModelStreamEvent` 的错误载荷。任何方案都必须保证运行收敛为唯一终止事件。
+任何方案都必须保证运行收敛为唯一终止事件。Adapter 不持有会话上下文，不直接写 Recorder，也不直接调用重试；它只返回一次性流或抛出归一化错误。
 
 Provider chunk 只由 Adapter 解析；Runtime 只接收归一化消息并发出 AgentEvent，不把 Provider SDK 的原始流对象泄漏给宿主。宿主如何跨进程传输和批处理高频增量，由对应宿主设计定义。
 
@@ -45,20 +45,21 @@ Provider chunk 只由 Adapter 解析；Runtime 只接收归一化消息并发出
 `stopReason: "length"` 是诊断信息，不是 Step 上限：
 
 - 如果消息包含工具调用，适配器将 `inputComplete` 设为 false，即使 JSON 仍能解析也禁止执行；Runtime 生成 `ok: false` 的结果，并以 `isError: true` 的工具消息回填模型，让模型在下一轮重新发出完整调用。
-- 如果消息不包含工具调用，运行循环按“无工具调用”自然结束，同时保留 `length` 供最终回答提示内容可能不完整。
+- 如果消息不包含工具调用，Runtime 将其分类为 `incomplete/length`，不把半截 Assistant Message 加入上下文，并交给回合重试逻辑判断恢复或失败。
 
 ## 错误与重试
 
-错误类型预留稳定的 `kind`、用户可读的 `message` 和可选的 `retryable`。配置、网络、Provider 与协议错误的细分尚未贯穿当前适配器；Runtime 捕获异常时直接使用 `error.message`。API Key、完整请求头和 Provider 原始敏感负载不得进入事件或日志是设计约束，统一脱敏尚待实现。
+错误类型使用稳定的 `kind`、用户可读的 `message` 和可选的 `retryable`。Adapter 将配置、网络、Provider 和模型协议错误归一化后交给 Runtime；API Key、完整请求头和 Provider 原始敏感负载不得进入事件或日志是设计约束，统一脱敏尚待实现。
 
-当前未实现应用层重试调度，也未显式覆盖 OpenAI SDK 的重试配置。后续重试策略应限制在同一次 Model Request 内，并且满足 Provider 明确可重试、请求未产生不可安全重放的副作用。重试不能创建伪造的 Agent turn，也不能以重试次数充当 Agent 循环上限。
+当前模型回合重试由 `agent/loop.ts` 的 `retryModelTurn()` 负责。只有 Runtime 将响应分类为 reasoning-only、empty、length、缺少终止原因、无效工具调用或明确可重试的网络/Provider 错误时才调用它。它检查总 attempt 次数、发送 `turnRetrying`、等待退避时间，然后让主循环重新进入同一个 `response()` 入口；它不序列化 Provider 消息、不写 Recorder，也不修改 `Runtime.messages`。重试使用最后一个稳定上下文，失败 attempt 不会作为 Assistant Message 回填模型。
 
 ## 验证要求（不代表已全部实现或验证）
 
-- 当前 OpenAI 兼容流正确聚合正文、思考和工具调用，保留调用 ID；后续新增 Provider 须验证相同调用归一化一致。
-- 成功模型流以一个 `completed` 事件结束，纯工具调用响应直接提供完整 `toolCalls`。
-- 模型流终态缺失进入 `model_protocol` 错误。
+- 当前 OpenAI 兼容流正确聚合正文、独立 reasoning 和工具调用，保留调用 ID；后续新增 Provider 须验证相同调用归一化一致。
+- 成功模型流以一个带明确 `finish_reason` 的 `completed` 事件结束，纯工具调用响应直接提供完整 `toolCalls`。
+- 模型流终态缺失进入可重试的 `model_protocol` 错误。
 - 当前工具调用分片按 index 聚合；后续块式协议须额外验证交错顺序。
 - 无效工具参数不会被静默丢弃。
-- `error`、`aborted`、`length` 和正常 `stop` 分别进入正确分支。
+- `content_filter`、未知原因、`length`、缺少终止原因和正常 `stop` 分别进入正确分支。
+- reasoning-only 响应不进入下一次模型上下文，有限重试后显示失败。
 - 任何模型请求日志、错误和 AgentEvent 均不包含 API Key。

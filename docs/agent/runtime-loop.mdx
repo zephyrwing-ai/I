@@ -3,21 +3,23 @@ title: 运行循环
 description: Agent 的继续、自然完成、取消和失败判定。
 ---
 
-运行循环只负责“请求模型 → 处理工具调用 → 回填工具结果 → 再请求模型”
+运行循环只负责“请求模型 → 分类响应 → 提交状态 → 完成、执行工具、重试或失败”。`response()` 是唯一的模型请求入口。
 
 ## 当前实现
 
-当前 `agent/loop.ts` 使用单层循环，工具按模型给出的顺序串行执行。没有 Step 次数上限，也没有 `terminate`、`shouldStopAfterTurn`、steering 或 follow-up 接口；这些扩展设计见后文，不代表现有能力。
+当前 `agent/loop.ts` 使用单层循环，工具按模型给出的顺序串行执行。模型回合以 attempt 计数进行有限重试；没有 Step 次数上限，也没有 `terminate`、`shouldStopAfterTurn`、steering 或 follow-up 接口；这些扩展设计见后文，不代表现有能力。
 
-| 条件 | 当前结果 |
+| Runtime Outcome | 当前结果 |
 | --- | --- |
-| 取消信号或模型 `aborted` | `cancelled`，不发起下一轮 |
-| 模型流抛出异常 | 已取消则 `cancelled`，否则 `failed`，当前错误归为 `runtime` |
-| 完整响应为 `error` 或携带错误 | `failed`，不执行其中的工具调用 |
-| 无工具调用 | 发出 `turnCompleted`，运行 `completed` |
-| 有工具调用 | 校验并逐个执行，回填工具结果，发出 `turnCompleted`，再请求模型 |
+| `answer` | Recorder 提交 completed Assistant Message，提交成功后加入 `messages`，运行 completed |
+| `tool_calls` | Recorder 提交 completed Assistant Message，提交成功后执行工具并回填结果，再请求模型 |
+| `incomplete/reasoning_only`、`empty_response`、`length` | Recorder 提交 interrupted attempt，不修改 `messages`，调用 `retryModelTurn()` |
+| `incomplete/missing_finish_reason`、`invalid_tool_calls` | 保存 interrupted attempt，有限重试或失败 |
+| 可重试的网络、Provider 或模型协议错误 | 保存 failed/interrupted attempt，调用 `retryModelTurn()` |
+| 内容过滤、未知停止原因或不可重试错误 | 保存 failed attempt，运行 failed |
+| 取消信号或模型 `aborted` | 保存 interrupted attempt，运行 cancelled，不发起下一轮 |
 
-普通工具失败作为 `ModelMessage(role: "tool", isError: true)` 回填，允许模型在下一轮恢复。被截断或未注册的调用不执行，改为错误工具结果。
+普通工具失败作为 `ModelMessage(role: "tool", isError: true)` 回填，允许模型在下一轮恢复。被截断或未注册的调用不执行，改为错误工具结果；工具级重试不属于本次模型回合重试。
 
 ## 会话存储接入
 
@@ -35,9 +37,10 @@ Runtime 使用 Host 注入的 `SessionRecorder` 维护本次运行对应的持�
 1. `collectTurn` 消费 Adapter 的 `reasoning_delta` 和 `text_delta`。
 2. Runtime 把每个增量同步交给 `recordAssistantDelta`，Recorder 更新内存草稿并调度合并写入。
 3. Runtime 把相同的增量作为 AgentEvent 发给宿主，模型流、Recorder 和事件接收器分别维护自己的状态。
-4. Adapter 的 `completed` 事件提供聚合后的正文、思考、工具调用和停止原因。
-5. Runtime 构造完整 Assistant Message，并等待 `commitAssistant` 完成最终提交。
-6. Runtime 把已经提交的 Assistant Message 加入本次运行的内存上下文，并发出 `assistantCompleted`。
+4. Adapter 的 `completed` 事件提供聚合后的正文、思考、工具调用和停止原因；它只表示流解析完成。
+5. Runtime 将结果分类为 `TurnOutcome`。
+6. Runtime 在分类后调用 `finishAssistantAttempt`：完整结果为 `completed`，不完整结果为 `interrupted`，不可恢复错误为 `failed`。
+7. 只有 Recorder 提交成功的完整 Assistant Message 才加入本次运行的内存上下文，并发出 `assistantCompleted`。
 
 工具结果提交顺序。
 
@@ -50,8 +53,9 @@ Runtime 使用 Host 注入的 `SessionRecorder` 维护本次运行对应的持�
 
 终态提交顺序。
 
-- 模型成功流包含一个 `completed` 事件。流结束时的终态检查把缺少 `completed` 的响应收敛为 `model_protocol` 失败。
-- `completed` 事件直接承载工具调用时，`commitAssistant` 创建完成状态的助手记录。
+- 模型成功流包含一个带明确 `finish_reason` 的 `completed` 事件。Adapter 对缺少终止原因的流抛出可重试的 `model_protocol` 错误。
+- `answer` 和 `tool_calls` 经过 Runtime 分类后，Recorder 才创建 completed Assistant Message；`messages.push` 位于成功提交之后。
+- 只有 reasoning、长度截断或无效工具调用不会写入模型上下文；它们作为 interrupted attempt 保存后交给回合重试逻辑。
 - 取消和失败调用 `finishRun` 刷新活动草稿并提交终态，然后 Runtime 发出唯一的 `runCompleted`。
 - 用户消息提交失败时，Runtime 直接收敛为 `failed`，Provider 保持待调用状态。
 - Assistant Message 提交失败时，Runtime 直接收敛为 `failed`，工具保持待执行状态。
@@ -59,9 +63,23 @@ Runtime 使用 Host 注入的 `SessionRecorder` 维护本次运行对应的持�
 
 SessionRecorder 的数据结构、草稿刷新和本地事务以[会话存储](./memory.mdx)为准。AgentEvent 的身份和订阅契约以[运行事件](./events.mdx)为准。
 
+## 模型回合重试
+
+`retryModelTurn()` 位于 Runtime Loop，负责检查 attempt 次数、发送 `turnRetrying`、等待退避时间，并把控制权交回主循环。它不直接序列化 Provider 消息、不写 Recorder，也不创建第二个模型入口；主循环的下一次迭代仍然调用同一个 `response()`。
+
+重试顺序固定为：
+
+1. `collectTurn` 消费流并聚合响应。
+2. Runtime 分类 `TurnOutcome`。
+3. Recorder 结束当前 attempt。
+4. 只有 `incomplete` 或可重试错误才调用 `retryModelTurn()`。
+5. 重试允许时，Runtime 使用最后一个稳定的 `messages` 上下文重新调用 `response()`。
+
+不完整 attempt 的 reasoning 和正文可以保留在 Recorder 的 interrupted 草稿与宿主界面中，但不会加入下一次模型上下文。正常 answer 和完整 tool-call 则必须在 Recorder 提交成功后才调用 `messages.push`。
+
 ## 后续扩展设计（尚未实现）
 
-以下描述工具批次终止和宿主队列的目标语义。引入这些能力前，需要一起实现接口、控制流和验证；当前无工具调用即自然完成。
+以下描述工具批次终止和宿主队列的目标语义。引入这些能力前，需要一起实现接口、控制流和验证；当前的模型完整性判断与回合重试由前面的流程负责。
 
 ## `terminate` 的作用域
 
@@ -132,11 +150,13 @@ Agent 的运行状态在模型请求与工具执行之间切换，并最终收�
 | 首轮只返回正文 | 一次模型请求后 `completed` |
 | 首轮返回工具调用，第二轮返回正文 | 执行工具、回填结果、第二轮后 `completed` |
 | 工具返回非零状态 | 作为错误结果回填，模型仍获得下一轮 |
-| 模型请求失败 | `failed`，不执行消息中残留的工具调用 |
+| 只有 reasoning | 保存 interrupted attempt，发送 `turnRetrying`，有限重试或失败 |
+| 流结束时缺少 finish_reason | `model_protocol`，有限重试或失败 |
+| 模型请求失败 | 可重试错误有限重试，不执行消息中残留的工具调用 |
 | 用户停止模型或命令 | `stopping → cancelled`，不发起下一轮 |
 | 连续多轮工具调用 | 持续运行，不因 turn 数达到固定值而结束 |
 | 用户消息提交失败 | `failed`，Provider 保持待调用状态 |
-| 模型流结束时缺少 `completed` | `failed`，错误类型为 `model_protocol` |
+| 模型流结束时缺少 `finish_reason` | `model_protocol`，进入有限重试 |
 | Assistant Message 提交失败 | `failed`，工具保持待执行状态 |
 | Tool Message 提交失败 | `failed`，下一次模型请求保持待调用状态 |
 | 纯工具调用响应 | 直接提交 completed Assistant Message，再进入工具执行 |

@@ -6,7 +6,11 @@ export const ELASTIC_SATURATION = 400;
 export const ELASTIC_OMEGA = 28;
 export const ELASTIC_ZETA = 0.9;
 /** wheel 静默后进入回弹；触摸以抬起作为回弹起点。 */
-export const ELASTIC_WHEEL_IDLE = 80;
+export const ELASTIC_WHEEL_IDLE = 40;
+/** 越界跟手上限：同一轮连续 wheel 手势中，越界跟手超过该时长后剩余惯性事件不再延长位移。 */
+export const ELASTIC_TRACK_MAX = 200;
+/** wheel 手势间隔：相邻输入超过该间隔视为新手势，重新获得完整跟手窗口。 */
+export const ELASTIC_GESTURE_GAP = 160;
 
 type ElasticPhase = "idle" | "tracking" | "returning";
 
@@ -58,12 +62,11 @@ function nestedCanScroll(target: EventTarget | null, container: HTMLElement, del
 
 /**
  * 容器提供稳定的滚动几何，contentRef 位于布局裁剪层内并负责弹性位移。
- * 单一动画帧同步写入内容位移与可选滑块填充层的缩放、透明度。
+ * 单一动画帧写入内容位移；滚动条不参与弹性，只反映原生滚动几何。
  */
 export function useElasticScroll(
   scrollRef: RefObject<HTMLElement | null>,
   contentRef: RefObject<HTMLElement | null>,
-  thumbRef?: RefObject<HTMLElement | null>,
 ): () => void {
   const resetRef = useRef<() => void>(() => {});
   const reset = useCallback(() => resetRef.current(), []);
@@ -71,7 +74,6 @@ export function useElasticScroll(
   useEffect(() => {
     const el = scrollRef.current;
     const content = contentRef.current;
-    const thumb = thumbRef?.current;
     if (!el || !content) return;
 
     let phase: ElasticPhase = "idle";
@@ -81,18 +83,14 @@ export function useElasticScroll(
     let lastFrame = 0;
     let frameId = 0;
     let idleTimerId = 0;
+    let lastWheelAt = 0;
+    let overscrollStartAt = 0;
+    let capped = false;
     let touchLastY: number | null = null;
-    let origin = "top";
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
     const paint = (): void => {
       content.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
-      if (thumb) {
-        const scale = 1 - 0.4 * Math.min(Math.abs(offset) / ELASTIC_MAX, 1);
-        thumb.style.transformOrigin = origin;
-        thumb.style.transform = offset === 0 ? "" : `scaleY(${scale})`;
-        thumb.style.opacity = String(scale);
-      }
     };
     const rest = (): void => {
       clearTimeout(idleTimerId);
@@ -133,6 +131,14 @@ export function useElasticScroll(
     const consume = (delta: number, event: Event, wheel: boolean): void => {
       if (delta === 0 || !event.cancelable || event.defaultPrevented || reducedMotion.matches) return;
       if (nestedCanScroll(event.target, el, delta)) return;
+      if (wheel) {
+        const now = performance.now();
+        if (now - lastWheelAt > ELASTIC_GESTURE_GAP) {
+          capped = false;
+          overscrollStartAt = 0;
+        }
+        lastWheelAt = now;
+      }
       const scrollMax = el.scrollHeight - el.clientHeight;
       const kind = boundaryKind(el.scrollTop, scrollMax, delta);
       if (phase === "idle" && kind !== "outward") return;
@@ -140,6 +146,16 @@ export function useElasticScroll(
       if (kind === "within") {
         startReturning();
         return;
+      }
+      if (wheel) {
+        if (overscrollStartAt === 0) overscrollStartAt = performance.now();
+        // 同一手势内跟手上限已到：忽略剩余惯性事件，让位移回弹而不是被持续挂住。
+        if (!capped && performance.now() - overscrollStartAt > ELASTIC_TRACK_MAX) {
+          capped = true;
+          startReturning();
+          return;
+        }
+        if (capped) return;
       }
       if (phase === "returning") {
         pull = Math.sign(offset) * pullFromOffset(offset, ELASTIC_SATURATION, ELASTIC_MAX);
@@ -156,7 +172,6 @@ export function useElasticScroll(
       } else {
         pull = nextPull;
         offset = offsetFromPull(Math.abs(pull), ELASTIC_SATURATION, ELASTIC_MAX, Math.sign(pull));
-        origin = pull < 0 && scrollMax > 1 ? "bottom" : "top";
         velocity = 0;
         phase = "tracking";
         if (wheel) idleTimerId = window.setTimeout(startReturning, ELASTIC_WHEEL_IDLE);
@@ -207,7 +222,7 @@ export function useElasticScroll(
       resetMotion();
       resetRef.current = () => {};
     };
-  }, [scrollRef, contentRef, thumbRef]);
+  }, [scrollRef, contentRef]);
 
   return reset;
 }

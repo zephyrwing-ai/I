@@ -19,7 +19,7 @@ try {
   result = await run(task, {
     provider: "openai",
     model: "deepseek-chat",
-    openai: { baseURL: process.env.DEEPSEEK_BASE_URL },
+    openai: { baseURL: process.env.DEEPSEEK_BASE_URL, reasoningField: "reasoning_content" },
   }, {
     runId,
     systemPrompt: "You are a coding agent. Use the available tools when needed, then provide a concise final answer.",

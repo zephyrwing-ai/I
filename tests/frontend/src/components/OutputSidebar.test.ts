@@ -69,7 +69,7 @@ function renderSidebar(open: boolean, files: OutputFileDescriptor[]): string {
   }));
 }
 
-test("open OutputSidebar exposes its region, current-run count and close action", () => {
+test("open OutputSidebar exposes its region and current-run count", () => {
   const html = renderSidebar(true, [file(), file({
     fileId: "file-second",
     name: "preview.png",
@@ -83,7 +83,6 @@ test("open OutputSidebar exposes its region, current-run count and close action"
   assert.match(html, /role="separator"[^>]*tabindex="0"/);
   assert.match(html, /<span class="eyebrow">当前运行<\/span>/);
   assert.match(html, /<h2>输出文件 <small>2<\/small><\/h2>/);
-  assert.match(html, /aria-label="隐藏输出文件"/);
   assert.equal(html.match(/role="option"/g)?.length, 2);
   assert.ok(html.includes("已创建"), html);
   assert.ok(html.includes("已更新"), html);

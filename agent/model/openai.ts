@@ -7,7 +7,7 @@
  *   choices[0].delta.reasoning_content  ← DeepSeek 思考增量（非 OpenAI 标准字段）
  *   choices[0].delta.tool_calls[i]      ← 工具调用分片（按 index 聚合，arguments 为 JSON 片段）
  *
- * 思考的两种形态都在适配层归入 reasoning 通道（不回传 UI 正文；后续请求按 string-thinking 方案回传）：
+ * 思考的两种形态都在适配层归入 reasoning 通道（不回传 UI 正文；后续请求按 Provider 能力回传）：
  *   1) reasoning_content 字段 → reasoning_delta；
  *   2) 夹带在正文里的 <thinking>…</thinking> 与 </| | DSML | | parameter> 标记 → stripStreamThinking 剥离。
  *
@@ -16,7 +16,7 @@
  */
 
 import OpenAI from "openai";
-import type { ModelMessage, ModelStopReason, ModelStreamEvent, ToolCall, ToolDef } from "./types.js";
+import { ModelAdapterError, type ModelMessage, type ModelStopReason, type ModelStreamEvent, type ToolCall, type ToolDef } from "./types.js";
 
 function toOpenAITool(t: ToolDef): OpenAI.Chat.Completions.ChatCompletionTool {
   return {
@@ -33,9 +33,15 @@ export interface OpenAIConfig {
   baseURL?: string;   // DeepSeek: "https://api.deepseek.com"
   apiKey?: string;    // 不传则从 DEEPSEEK_API_KEY 或 OPENAI_API_KEY 环境变量读取
   model?: string;     // 默认 "deepseek-chat"
+  /** DeepSeek 等 Provider 使用的 assistant 思考字段；未声明时不添加非标准字段。 */
+  reasoningField?: "reasoning_content";
 }
 
-function toOpenAIMessages(messages: ModelMessage[], system: string): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+export function toOpenAIMessages(
+  messages: ModelMessage[],
+  system: string,
+  reasoningField?: "reasoning_content",
+): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   return [
     { role: "system", content: system },
     ...messages.map((message): OpenAI.Chat.Completions.ChatCompletionMessageParam => {
@@ -51,23 +57,19 @@ function toOpenAIMessages(messages: ModelMessage[], system: string): OpenAI.Chat
         return { role: "tool", tool_call_id: message.toolCallId ?? "unknown", content };
       }
       if (message.role === "assistant") {
-        // 思考回传：Anthropic 用 signature 回放；OpenAI 兼容协议没有标准字段，
-        // 采用 string-thinking 方案——拼成 <thinking> 文本随消息一起回传。
-        const text = message.reasoning
-          ? `<thinking>\n${message.reasoning}\n</thinking>${message.content ? `\n${message.content}` : ""}`
-          : message.content;
+        const assistant: Record<string, unknown> = {
+          role: "assistant",
+          content: message.content || null,
+        };
+        if (reasoningField && message.reasoning) assistant[reasoningField] = message.reasoning;
         if (message.toolCalls?.length) {
-          return {
-            role: "assistant",
-            content: text || null,
-            tool_calls: message.toolCalls.map((call) => ({
-              id: call.id,
-              type: "function" as const,
-              function: { name: call.name, arguments: JSON.stringify(call.input) },
-            })),
-          };
+          assistant.tool_calls = message.toolCalls.map((call) => ({
+            id: call.id,
+            type: "function" as const,
+            function: { name: call.name, arguments: JSON.stringify(call.input) },
+          }));
         }
-        return { role: "assistant", content: text };
+        return assistant as unknown as OpenAI.Chat.Completions.ChatCompletionMessageParam;
       }
       return { role: message.role, content: message.content };
     }),
@@ -81,7 +83,7 @@ const THINKING_CLOSE = "</thinking>";
  * 流式剥离正文中夹带的思考标记（<thinking>…</thinking>、孤立 thinking 标签、</| | DSML | | parameter> 等）。
  * 分片可能切断标签（"<thin" + "king>"），因此未闭合的 "<…" 尾部会暂扣为 pending，
  * 等下一片段拼回再处理；流结束时 endOfStream=true 收尾。剥离出的思考内容返回 thinking，
- * 由调用方归入 reasoning 通道（供 string-thinking 回传），主体不进入正文展示。
+ * 由调用方归入 reasoning 通道，主体不进入正文展示。
  */
 export function stripStreamThinking(
   chunk: string,
@@ -155,7 +157,8 @@ export async function* streamOpenAI(
 ): AsyncGenerator<ModelStreamEvent> {
   const apiKey = config.apiKey ?? process.env.DEEPSEEK_API_KEY ?? process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    throw new Error(
+    throw new ModelAdapterError(
+      "config",
       "未提供 API Key。请在桌面端「设置」面板填入，或设置 DEEPSEEK_API_KEY / OPENAI_API_KEY 环境变量。",
     );
   }
@@ -164,12 +167,17 @@ export async function* streamOpenAI(
     apiKey,
   });
 
-  const stream = await client.chat.completions.create({
-    model: config.model ?? "deepseek-chat",
-    messages: toOpenAIMessages(messages, system),
-    tools: tools.map(toOpenAITool),
-    stream: true,
-  }, { signal });
+  let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+  try {
+    stream = await client.chat.completions.create({
+      model: config.model ?? "deepseek-chat",
+      messages: toOpenAIMessages(messages, system, config.reasoningField),
+      tools: tools.map(toOpenAITool),
+      stream: true,
+    }, { signal });
+  } catch (error) {
+    throw normalizeOpenAIError(error, signal);
+  }
 
   let content = "";
   let reasoning = "";
@@ -177,36 +185,44 @@ export async function* streamOpenAI(
   const toolAcc = new Map<number, { id: string; name: string; arguments: string }>();
   let finishReason: string | null = null;
 
-  for await (const chunk of stream) {
-    const choice = chunk.choices[0];
-    if (!choice) continue;
-    if (choice.finish_reason) finishReason = choice.finish_reason;
-    const delta = choice.delta ?? {};
-    const reasoningDelta = (delta as { reasoning_content?: string }).reasoning_content;
-    if (reasoningDelta) {
-      reasoning += reasoningDelta;
-      yield { type: "reasoning_delta", delta: reasoningDelta };
-    }
-    if (delta.content) {
-      // 正文夹带的思考标记在适配层剥离：思考归入 reasoning 通道保留，正文保持干净
-      const cleaned = stripStreamThinking(delta.content, held, false);
-      if (cleaned.thinking) {
-        reasoning += cleaned.thinking;
-        yield { type: "reasoning_delta", delta: cleaned.thinking };
+  try {
+    for await (const chunk of stream) {
+      const choice = chunk.choices[0];
+      if (!choice) continue;
+      if (choice.finish_reason !== null && choice.finish_reason !== undefined) finishReason = choice.finish_reason;
+      const delta = choice.delta ?? {};
+      const reasoningDelta = (delta as { reasoning_content?: string }).reasoning_content;
+      if (reasoningDelta) {
+        reasoning += reasoningDelta;
+        yield { type: "reasoning_delta", delta: reasoningDelta };
       }
-      if (cleaned.text) {
-        content += cleaned.text;
-        yield { type: "text_delta", delta: cleaned.text };
+      if (delta.content) {
+        // 正文夹带的思考标记在适配层剥离：思考归入 reasoning 通道，正文保持干净。
+        const cleaned = stripStreamThinking(delta.content, held, false);
+        if (cleaned.thinking) {
+          reasoning += cleaned.thinking;
+          yield { type: "reasoning_delta", delta: cleaned.thinking };
+        }
+        if (cleaned.text) {
+          content += cleaned.text;
+          yield { type: "text_delta", delta: cleaned.text };
+        }
+        held = cleaned.pending;
       }
-      held = cleaned.pending;
+      for (const part of delta.tool_calls ?? []) {
+        const acc = toolAcc.get(part.index) ?? { id: part.id ?? "", name: part.function?.name ?? "", arguments: "" };
+        if (part.id) acc.id = part.id;
+        if (part.function?.name) acc.name = part.function.name;
+        if (part.function?.arguments) acc.arguments += part.function.arguments;
+        toolAcc.set(part.index, acc);
+      }
     }
-    for (const part of delta.tool_calls ?? []) {
-      const acc = toolAcc.get(part.index) ?? { id: part.id ?? "", name: part.function?.name ?? "", arguments: "" };
-      if (part.id) acc.id = part.id;
-      if (part.function?.name) acc.name = part.function.name;
-      if (part.function?.arguments) acc.arguments += part.function.arguments;
-      toolAcc.set(part.index, acc);
-    }
+  } catch (error) {
+    throw normalizeOpenAIError(error, signal);
+  }
+
+  if (finishReason === null) {
+    throw new ModelAdapterError("model_protocol", "模型流结束时缺少 finish_reason。", true);
   }
 
   const toolCalls: ToolCall[] = [...toolAcc.entries()]
@@ -228,6 +244,26 @@ export async function* streamOpenAI(
   if (tail.thinking) reasoning += tail.thinking;
   if (tail.text) content += tail.text;
 
-  const stopReason: ModelStopReason = finishReason === "tool_calls" ? "tool_use" : finishReason === "length" ? "length" : "stop";
+  const stopReason = normalizeStopReason(finishReason);
   yield { type: "completed", content, reasoning: reasoning || undefined, toolCalls, stopReason, rawStopReason: finishReason ?? undefined };
+}
+
+function normalizeStopReason(value: string): ModelStopReason {
+  if (value === "tool_calls" || value === "function_call") return "tool_use";
+  if (value === "length") return "length";
+  if (value === "content_filter") return "content_filter";
+  if (value === "stop") return "stop";
+  return "unknown";
+}
+
+function normalizeOpenAIError(error: unknown, signal?: AbortSignal): ModelAdapterError {
+  if (signal?.aborted) return new ModelAdapterError("network", "模型请求已取消。", false);
+  if (error instanceof ModelAdapterError) return error;
+  const value = error as { status?: unknown; code?: unknown; message?: unknown } | null;
+  const status = typeof value?.status === "number" ? value.status : undefined;
+  const code = typeof value?.code === "string" ? value.code : "";
+  const retryable = status === 408 || status === 409 || status === 429 || (status !== undefined && status >= 500)
+    || ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"].includes(code);
+  const kind = status === undefined && code ? "network" : "provider";
+  return new ModelAdapterError(kind, typeof value?.message === "string" ? value.message : String(error), retryable);
 }

@@ -1,3 +1,5 @@
+import type { ModelMessage } from "../../agent/model/types.js";
+
 export type Provider = "openai" | "anthropic" | "google";
 export type RunStatus = "completed" | "cancelled" | "failed";
 export type ProviderModelState = "saved" | "new" | "unavailable";
@@ -97,6 +99,34 @@ export type RunError = {
 };
 
 export type RunStartAck = { ok: true; runId: string } | { ok: false; error: string };
+
+export interface SessionPageRequest {
+  cursor: string | null;
+  limit: number;
+}
+
+export interface SessionHistoryEntry {
+  entryId: string;
+  sessionSeq: number;
+  type: "user_message" | "assistant_message" | "tool_result";
+  status: "streaming" | "completed" | "interrupted" | "failed";
+  runId: string;
+  turnId: string | null;
+  toolCallId: string | null;
+  revision: number;
+  payload: ModelMessage;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SessionPageResult {
+  sessionId: string;
+  entries: SessionHistoryEntry[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  snapshotSeq: number;
+}
+
 export type SaveProviderResult = { ok: true; profile: ProviderProfileSummary } | { ok: false; error: string };
 export type DeleteProviderResult = { ok: true } | { ok: false; error: string };
 export type RefreshProviderModelsResult =
@@ -139,19 +169,21 @@ export type OutputFilePreviewResult =
 
 export type AgentEvent =
   | { type: "runStarted"; runId: string; startedAt: string }
-  | { type: "turnStarted"; runId: string; turnId: string; turnOrdinal: number }
-  | { type: "assistantDelta"; runId: string; turnId: string; delta: string }
-  | { type: "reasoningDelta"; runId: string; turnId: string; delta: string }
+  | { type: "turnStarted"; runId: string; turnId: string; turnOrdinal: number; attempt?: number }
+  | { type: "assistantDelta"; runId: string; turnId: string; delta: string; attempt?: number }
+  | { type: "reasoningDelta"; runId: string; turnId: string; delta: string; attempt?: number }
   | { type: "assistantCompleted"; runId: string; turnId: string; content: string; toolCalls: ToolCall[]; stopReason: string }
   | { type: "toolStarted"; runId: string; turnId: string; toolCallId: string; name: string; input: Record<string, unknown> }
   | { type: "toolCompleted"; runId: string; turnId: string; toolCallId: string; name: string; result: ToolResult }
   | { type: "outputFileRegistered"; runId: string; file: OutputFileDescriptor }
+  | { type: "turnRetrying"; runId: string; turnId: string; attempt: number; nextAttempt: number; reason: string; delayMs: number; maxAttempts: number }
   | { type: "turnCompleted"; runId: string; turnId: string }
   | { type: "runCompleted"; runId: string; status: RunStatus; error?: RunError; turnCount: number };
 
 export interface AgentAPI {
   run(req: RunRequest): Promise<RunStartAck>;
   stop(): void;
+  loadSessionPage(request: SessionPageRequest): Promise<SessionPageResult>;
   listProviderProfiles(): Promise<ProviderProfileSummary[]>;
   discoverProviderModels(input: ProviderModelDiscoveryInput): Promise<ProviderModelDiscoveryResult>;
   cancelProviderModelDiscovery(requestId: string): void;
@@ -168,6 +200,7 @@ export const IPC = {
   run: "agent:run",
   stop: "agent:stop",
   event: "agent:event",
+  loadSessionPage: "session:load-page",
   listProviderProfiles: "providers:list",
   discoverProviderModels: "providers:discover-models",
   cancelProviderModelDiscovery: "providers:cancel-discovery",

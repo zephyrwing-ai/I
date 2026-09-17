@@ -19,6 +19,6 @@ test("StreamRegion 画布结构：滚动容器内含 stream-content 包裹层（
   assert.ok(html.indexOf("stream-content") > html.indexOf("message-stream"), "stream-content 位于滚动容器内");
   assert.match(html, /class="stream-scrollbar"/, "右侧滚动条存在");
   assert.match(html, /class="stream-layout"/, "布局裁剪层包裹动画内容");
-  assert.match(html, /class="stream-scrollbar-thumb-fill"/, "滑块视觉压缩由独立填充层承载");
+  assert.match(html, /class="stream-scrollbar-thumb-fill"/, "滑块填充层承载玻璃质感外观");
   assert.match(html, /aria-disabled="true"/, "短内容的滑块保持可见并标记滚动状态");
 });

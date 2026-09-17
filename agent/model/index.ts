@@ -5,7 +5,8 @@
 
 import type { ToolDef, LlmResponse, ModelMessage, ModelStreamEvent } from "./types.js";
 
-export type { ToolDef, LlmResponse, ModelMessage, ModelStreamEvent, ToolCall, ModelStopReason } from "./types.js";
+export type { ToolDef, LlmResponse, ModelMessage, ModelStreamEvent, ToolCall, ModelStopReason, ModelErrorKind } from "./types.js";
+export { ModelAdapterError } from "./types.js";
 
 /** 只保留 OpenAI 兼容协议（DeepSeek 等均走此协议）。 */
 export type Provider = "openai";
@@ -13,8 +14,8 @@ export type Provider = "openai";
 export interface ModelConfig {
   provider: Provider;
   model: string;
-  /** OpenAI 兼容接口的额外配置 (baseURL 等) */
-  openai?: { baseURL?: string; apiKey?: string };
+  /** OpenAI 兼容接口的额外配置 (baseURL、凭据和 Provider 思考字段)。 */
+  openai?: { baseURL?: string; apiKey?: string; reasoningField?: "reasoning_content" };
 }
 
 /**

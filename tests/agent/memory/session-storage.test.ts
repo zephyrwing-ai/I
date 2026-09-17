@@ -78,3 +78,31 @@ test("SessionRecorder coalesces deltas into one assistant entry and restores it"
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("SQLite history queries page backward with a strict sessionSeq cursor", async () => {
+  const repository = new SqliteSessionRepository(":memory:");
+  const session = await repository.createSession({ scopeKey: "history" });
+  for (let index = 1; index <= 5; index += 1) {
+    await repository.appendEntry(session.id, {
+      id: `entry-${index}`,
+      type: "user_message",
+      status: "completed",
+      runId: `run-${index}`,
+      payload: { role: "user", content: `message-${index}` },
+    });
+  }
+
+  assert.deepEqual(
+    (await repository.listLatestEntries(session.id, 2)).map((entry) => entry.sessionSeq),
+    [5, 4],
+  );
+  assert.deepEqual(
+    (await repository.listEntriesBefore(session.id, 4, 2)).map((entry) => entry.sessionSeq),
+    [3, 2],
+  );
+  await assert.rejects(
+    repository.listEntriesBefore(session.id, 0, 2),
+    (error: unknown) => error instanceof RepositoryError && error.code === "invalid",
+  );
+  repository.close();
+});

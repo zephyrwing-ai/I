@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { run } from "../../agent/loop.js";
+import { classifyTurn, run } from "../../agent/loop.js";
 import type { SessionRecorder } from "../../agent/memory/types.js";
 import type { ModelConfig } from "../../agent/model/index.js";
 import type { ModelMessage, ModelStreamEvent } from "../../agent/model/types.js";
@@ -18,6 +18,10 @@ function createTestRecorder(initial: ModelMessage[] = []): SessionRecorder & { m
       messages.push(message);
     },
     recordAssistantDelta: () => undefined,
+    finishAssistantAttempt: async (_context, status, message) => {
+      commits.push(status === "completed" ? "assistant" : `assistant-${status}`);
+      if (status === "completed" && message) messages.push(message);
+    },
     commitAssistant: async (message) => {
       commits.push("assistant");
       messages.push(message);
@@ -113,9 +117,9 @@ test("persistence barriers complete before provider, tools, and next provider re
         order.push("commit-user");
         await recorder.commitUser(message, context);
       },
-      commitAssistant: async (message, context) => {
-        order.push("commit-assistant");
-        await recorder.commitAssistant(message, context);
+      finishAssistantAttempt: async (context, status, message) => {
+        if (status === "completed") order.push("commit-assistant");
+        await recorder.finishAssistantAttempt(context, status, message);
       },
       commitToolResult: async (message, context) => {
         order.push("commit-tool");
@@ -150,6 +154,7 @@ test("a model stream without completed fails with a model protocol error", async
     cwd: process.cwd(),
     tools: new Map(),
     recorder,
+    modelRetry: { baseDelayMs: 0 },
     responseImpl: async function* (): AsyncGenerator<ModelStreamEvent> {
       yield { type: "text_delta", delta: "partial" };
     },
@@ -157,5 +162,49 @@ test("a model stream without completed fails with a model protocol error", async
 
   assert.equal(result.status, "failed");
   assert.equal(result.error?.kind, "model_protocol");
-  assert.deepEqual(recorder.commits, ["user"]);
+  assert.deepEqual(recorder.commits, ["user", "assistant-interrupted", "assistant-interrupted", "assistant-interrupted"]);
+});
+
+test("a reasoning-only response is interrupted, retried, and does not enter the next model context", async () => {
+  const recorder = createTestRecorder();
+  const seen: ModelMessage[][] = [];
+  const retries: string[] = [];
+  let requestCount = 0;
+  const result = await run("继续完成", { provider: "openai", model: "fake" }, {
+    runId: "run-retry",
+    systemPrompt: "test",
+    cwd: process.cwd(),
+    tools: new Map(),
+    recorder,
+    modelRetry: { baseDelayMs: 0 },
+    responseImpl: async function* (_modelConfig, messages): AsyncGenerator<ModelStreamEvent> {
+      seen.push(messages.map((message) => ({ ...message })));
+      requestCount += 1;
+      if (requestCount === 1) {
+        yield { type: "reasoning_delta", delta: "incomplete thought" };
+        yield { type: "completed", content: "", reasoning: "incomplete thought", toolCalls: [], stopReason: "stop" };
+        return;
+      }
+      yield { type: "completed", content: "完成答案", toolCalls: [], stopReason: "stop" };
+    },
+  }, {
+    onTurnRetrying: ({ reason }) => retries.push(reason),
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(requestCount, 2);
+  assert.deepEqual(retries, ["reasoning_only"]);
+  assert.deepEqual(seen[0].map((message) => message.role), ["user"]);
+  assert.deepEqual(seen[1].map((message) => message.role), ["user"]);
+  assert.deepEqual(recorder.commits, ["user", "assistant-interrupted", "assistant"]);
+  assert.equal(recorder.messages.at(-1)?.content, "完成答案");
+});
+
+test("classifyTurn separates a normal stop from incomplete and filtered responses", () => {
+  const base = { content: "", reasoning: undefined, toolCalls: [] as ModelMessage["toolCalls"] };
+  assert.equal(classifyTurn({ ...base, stopReason: "stop", toolCalls: [] }).kind, "incomplete");
+  assert.equal(classifyTurn({ ...base, content: "answer", stopReason: "stop", toolCalls: [] }).kind, "answer");
+  assert.equal(classifyTurn({ ...base, reasoning: "thinking", stopReason: "stop", toolCalls: [] }).kind, "incomplete");
+  assert.equal(classifyTurn({ ...base, content: "partial", stopReason: "length", toolCalls: [] }).kind, "incomplete");
+  assert.equal(classifyTurn({ ...base, stopReason: "content_filter", toolCalls: [] }).kind, "failed");
 });
