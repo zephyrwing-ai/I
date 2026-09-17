@@ -28,12 +28,26 @@ export interface ToolCall {
   inputComplete: boolean;
 }
 
-export type ModelStopReason = "stop" | "tool_use" | "length" | "error" | "aborted";
+export type ModelStopReason = "stop" | "tool_use" | "length" | "content_filter" | "unknown" | "error" | "aborted";
+
+export type ModelErrorKind = "config" | "network" | "provider" | "model_protocol";
+
+/** Adapter 归一化后的模型请求错误；Runtime 决定是否恢复。 */
+export class ModelAdapterError extends Error {
+  constructor(
+    readonly kind: ModelErrorKind,
+    message: string,
+    readonly retryable = false,
+  ) {
+    super(message);
+    this.name = "ModelAdapterError";
+  }
+}
 
 export interface ModelMessage {
   role: "user" | "assistant" | "tool";
   content: string;
-  /** 思考内容（模型推理过程）；随消息一起回传给模型，供后续推理使用（string-thinking 方案）。 */
+  /** 思考内容（模型推理过程）；由具体 Provider Adapter 决定是否以及如何回传。 */
   reasoning?: string;
   toolCalls?: ToolCall[];
   toolCallId?: string;

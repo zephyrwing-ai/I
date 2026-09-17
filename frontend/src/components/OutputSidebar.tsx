@@ -196,7 +196,7 @@ export function OutputSidebar({ open, files, onOpenChange }: OutputSidebarProps)
     >
       <div className="output-resizer" role="separator" tabIndex={open ? 0 : -1} aria-orientation="vertical" aria-valuemin={OUTPUT_SIDEBAR_MIN_WIDTH} aria-valuemax={maxWidth()} aria-valuenow={Math.round(targetWidth)} onPointerDown={startDrag} onDoubleClick={resetWidth} onKeyDown={resizeWithKeyboard} />
       <div className="output-sidebar-content">
-        <header className="output-sidebar-header"><div><span className="eyebrow">当前运行</span><h2>输出文件 <small>{files.length}</small></h2></div><button type="button" className="panel-close" onClick={() => onOpenChange(false)} aria-label="隐藏输出文件" title="隐藏输出文件"><Icon name="sidebar" width="17" height="17" /></button></header>
+        <header className="output-sidebar-header"><div><span className="eyebrow">当前运行</span><h2>输出文件 <small>{files.length}</small></h2></div></header>
 
         <div ref={fileListRef} className="output-file-list" role="listbox" aria-label="输出文件">
           <div className="output-file-layout">

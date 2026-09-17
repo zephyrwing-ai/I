@@ -7,7 +7,7 @@ import type { ModelOption } from "../../../../../shell/shared/ipc.js";
 
 register("../../../css-module-loader.mjs", import.meta.url);
 
-const { Composer } = await import("../../../../../frontend/src/middle-column/composer/Composer.js");
+const { Composer, parseStoredModelPickerPreference, restoreStoredModelOptionId } = await import("../../../../../frontend/src/middle-column/composer/Composer.js");
 
 const selectedModel: ModelOption = {
   modelOptionId: "model-option-a",
@@ -30,10 +30,8 @@ function renderComposer(running: boolean, stopping: boolean): string {
     return renderToStaticMarkup(createElement(Composer, {
       running,
       stopping,
-      settings: { modelOptionId: selectedModel.modelOptionId },
       modelOptions: [selectedModel],
       modelLoading: false,
-      onSettingsChange: () => undefined,
       onRun: () => undefined,
       onStop: () => undefined,
     }));
@@ -46,8 +44,38 @@ test("idle Composer exposes task input and a disabled send action until text exi
   const html = renderComposer(false, false);
   assert.match(html, /<textarea[^>]*aria-label="任务"/);
   assert.match(html, /<button[^>]*disabled=""[^>]*aria-label="发送"/);
-  assert.ok(html.includes("Model A"), html);
+  assert.ok(html.includes("选择模型"), html);
   assert.doesNotMatch(html, /aria-label="停止运行"/);
+});
+
+test("Composer restores an imported saved model even when it is temporarily unavailable", () => {
+  assert.equal(
+    restoreStoredModelOptionId("model-option-a", [{ ...selectedModel, available: false, state: "unavailable" }]),
+    "model-option-a",
+  );
+  assert.equal(
+    restoreStoredModelOptionId("model-option-a", [{ ...selectedModel, imported: false, state: "new" }]),
+    "",
+  );
+});
+
+test("Composer accepts a valid cached picker layout and falls back to the legacy model id", () => {
+  assert.deepEqual(
+    parseStoredModelPickerPreference(JSON.stringify({ modelOptionId: "model-option-a", displayName: "Model A", width: 143 }), null),
+    { modelOptionId: "model-option-a", displayName: "Model A", width: 143 },
+  );
+  assert.deepEqual(
+    parseStoredModelPickerPreference("{broken", "model-option-a"),
+    { modelOptionId: "model-option-a", displayName: "", width: null },
+  );
+  assert.deepEqual(
+    parseStoredModelPickerPreference(JSON.stringify({ modelOptionId: "model-option-a", displayName: "Model A", width: 0 }), "model-option-b"),
+    { modelOptionId: "model-option-b", displayName: "", width: null },
+  );
+  assert.deepEqual(
+    parseStoredModelPickerPreference(JSON.stringify({ modelOptionId: "model-option-a", displayName: "Model A", width: 143 }), "model-option-b"),
+    { modelOptionId: "model-option-b", displayName: "", width: null },
+  );
 });
 
 test("running Composer locks inputs and exposes the stop action", () => {

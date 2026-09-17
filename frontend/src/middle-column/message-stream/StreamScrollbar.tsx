@@ -12,8 +12,7 @@ export function StreamRegion({ scrollRef, children }: { scrollRef: RefObject<HTM
   const drag = useRef<{ startY: number; startTop: number } | null>(null);
   const layoutRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const thumbRef = useRef<HTMLDivElement>(null);
-  const resetElastic = useElasticScroll(scrollRef, contentRef, thumbRef);
+  const resetElastic = useElasticScroll(scrollRef, contentRef);
 
   const sync = useCallback(() => {
     const element = scrollRef.current;
@@ -109,7 +108,7 @@ export function StreamRegion({ scrollRef, children }: { scrollRef: RefObject<HTM
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onLostPointerCapture={onPointerUp}
-        ><div ref={thumbRef} className="stream-scrollbar-thumb-fill" /></div>
+        ><div className="stream-scrollbar-thumb-fill" /></div>
       </div>
     </div>
   );

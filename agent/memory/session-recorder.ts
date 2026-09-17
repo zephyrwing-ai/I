@@ -17,10 +17,12 @@ import {
 type Timer = ReturnType<typeof setTimeout>;
 
 interface DraftState {
+  key: string;
   entryId: string;
   runId: string;
   turnId: string;
   turnOrdinal: number;
+  attempt: number;
   message: ModelMessage;
   revision: number | null;
   pendingBytes: number;
@@ -58,6 +60,10 @@ function freezeSnapshot(messages: ModelMessage[]): ModelMessage[] {
 
 function validateMessage(message: ModelMessage, role: ModelMessage["role"]): void {
   if (message.role !== role) throw new RepositoryError(`Expected a ${role} message.`, "invalid");
+}
+
+function draftKey(context: TurnCommitContext): string {
+  return `${context.turnId}:${context.attempt ?? 1}`;
 }
 
 export class DefaultSessionRecorder implements SessionRecorder {
@@ -113,13 +119,16 @@ export class DefaultSessionRecorder implements SessionRecorder {
   recordAssistantDelta(kind: AssistantDeltaKind, delta: string, context: TurnCommitContext): void {
     this.ensureOpen();
     if (!delta) return;
-    let draft = this.activeDrafts.get(context.turnId);
+    const key = draftKey(context);
+    let draft = this.activeDrafts.get(key);
     if (!draft) {
       draft = {
+        key,
         entryId: randomUUID(),
         runId: context.runId,
         turnId: context.turnId,
         turnOrdinal: context.turnOrdinal,
+        attempt: context.attempt ?? 1,
         message: { role: "assistant", content: "" },
         revision: null,
         pendingBytes: 0,
@@ -127,7 +136,7 @@ export class DefaultSessionRecorder implements SessionRecorder {
         timer: undefined,
         terminal: false,
       };
-      this.activeDrafts.set(context.turnId, draft);
+      this.activeDrafts.set(key, draft);
     }
     if (kind === "text") draft.message.content += delta;
     else draft.message.reasoning = (draft.message.reasoning ?? "") + delta;
@@ -143,38 +152,50 @@ export class DefaultSessionRecorder implements SessionRecorder {
     }
   }
 
-  commitAssistant(message: ModelMessage, context: TurnCommitContext): Promise<void> {
-    validateMessage(message, "assistant");
+  finishAssistantAttempt(
+    context: TurnCommitContext,
+    status: "completed" | "interrupted" | "failed",
+    message?: ModelMessage,
+  ): Promise<void> {
     this.ensureOpen();
-    let draft = this.activeDrafts.get(context.turnId);
+    const key = draftKey(context);
+    let draft = this.activeDrafts.get(key);
+    if (message) validateMessage(message, "assistant");
     if (!draft) {
       draft = {
+        key,
         entryId: randomUUID(),
         runId: context.runId,
         turnId: context.turnId,
         turnOrdinal: context.turnOrdinal,
-        message: cloneMessage(message),
+        attempt: context.attempt ?? 1,
+        message: cloneMessage(message ?? { role: "assistant", content: "" }),
         revision: null,
         pendingBytes: 0,
         dirty: true,
         timer: undefined,
         terminal: true,
       };
-      this.activeDrafts.set(context.turnId, draft);
+      this.activeDrafts.set(key, draft);
     } else {
-      if (draft.terminal && !isSameMessage(draft.message, message)) {
-        return Promise.reject(new RepositoryError(`Assistant message already committed for turn ${context.turnId}.`, "conflict"));
+      if (draft.terminal && message && !isSameMessage(draft.message, message)) {
+        return Promise.reject(new RepositoryError(`Assistant message already committed for attempt ${key}.`, "conflict"));
       }
       if (draft.terminal) return this.waitForWrites();
-      draft.message = cloneMessage(message);
+      if (message) draft.message = cloneMessage(message);
       draft.dirty = true;
       draft.terminal = true;
       if (draft.timer !== undefined) clearTimeout(draft.timer);
       draft.timer = undefined;
     }
+    draft.finalStatus = status;
     return this.enqueueAndCheck(async () => {
       await this.flushDraft(draft!);
     });
+  }
+
+  commitAssistant(message: ModelMessage, context: TurnCommitContext): Promise<void> {
+    return this.finishAssistantAttempt(context, "completed", message);
   }
 
   commitToolResult(message: ModelMessage, context: ToolCommitContext): Promise<void> {
@@ -265,7 +286,7 @@ export class DefaultSessionRecorder implements SessionRecorder {
     draft.pendingBytes = 0;
     draft.dirty = false;
     if (status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
-    if (draft.terminal) this.activeDrafts.delete(draft.turnId);
+    if (draft.terminal) this.activeDrafts.delete(draft.key);
   }
 
   private enqueue(operation: () => Promise<void>): Promise<void> {

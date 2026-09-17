@@ -12,6 +12,7 @@ const IPC = {
   run: "agent:run",
   stop: "agent:stop",
   event: "agent:event",
+  loadSessionPage: "session:load-page",
   listProviderProfiles: "providers:list",
   discoverProviderModels: "providers:discover-models",
   cancelProviderModelDiscovery: "providers:cancel-discovery",
@@ -702,18 +703,33 @@ function migrateLegacyProfile(profile) {
 function defaultBaseURL(_provider) {
   return "https://api.deepseek.com/v1";
 }
+class ModelAdapterError extends Error {
+  constructor(kind, message, retryable = false) {
+    super(message);
+    this.kind = kind;
+    this.retryable = retryable;
+    this.name = "ModelAdapterError";
+  }
+  kind;
+  retryable;
+}
 async function* response(config, messages, system, tools, signal) {
   switch (config.provider) {
     case "openai": {
-      const { streamOpenAI } = await import("./openai-wf36DTXp.js");
+      const { streamOpenAI } = await import("./openai-kNEQGDUq.js");
       yield* streamOpenAI(messages, tools, { model: config.model, ...config.openai }, system, signal);
       return;
     }
   }
 }
+const DEFAULT_MODEL_RETRY = {
+  maxAttempts: 3,
+  baseDelayMs: 1e3,
+  maxDelayMs: 8e3
+};
 const DEFAULT_SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
 async function collectTurn(modelConfig, messages, system, tools, ctx, events, recorder, signal, responseImpl) {
-  const aggregated = { content: "", toolCalls: [], stopReason: "stop" };
+  const aggregated = { content: "", toolCalls: [], stopReason: "unknown" };
   let completed = false;
   for await (const event of responseImpl(modelConfig, messages, system, tools, signal)) {
     switch (event.type) {
@@ -741,10 +757,13 @@ async function collectTurn(modelConfig, messages, system, tools, ctx, events, re
 }
 async function run(task, modelConfig, config, events = {}) {
   const startedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const messages = [...config.recorder?.snapshot() ?? [], { role: "user", content: task }];
-  const userMessage = messages[messages.length - 1];
+  const messages = [...config.recorder?.snapshot() ?? []];
+  const userMessage = { role: "user", content: task };
   const tools = [...config.tools.values()].map((tool) => tool.definition);
+  const retryConfig = { ...DEFAULT_MODEL_RETRY, ...config.modelRetry };
   let turnOrdinal = 0;
+  let currentTurnId;
+  let attempt = 0;
   let finished = false;
   const finish = async (status, error) => {
     if (finished) return { runId: config.runId, status, error, turnCount: turnOrdinal };
@@ -766,62 +785,185 @@ async function run(task, modelConfig, config, events = {}) {
   } catch (error) {
     return finish("failed", toAgentError(error));
   }
+  messages.push(userMessage);
   events.onRunStart?.({ runId: config.runId, startedAt });
   while (true) {
     if (config.signal?.aborted) return finish("cancelled");
-    const ctx = { runId: config.runId, turnId: randomUUID(), turnOrdinal: ++turnOrdinal };
+    if (!currentTurnId) {
+      currentTurnId = randomUUID();
+      turnOrdinal += 1;
+      attempt = 0;
+    }
+    attempt += 1;
+    const ctx = { runId: config.runId, turnId: currentTurnId, turnOrdinal, attempt };
     events.onTurnStart?.(ctx);
-    let result;
+    let collected;
+    let outcome;
     try {
-      const collected = await collectTurn(modelConfig, messages, config.systemPrompt || DEFAULT_SYSTEM_PROMPT, tools, ctx, events, config.recorder, config.signal, config.responseImpl ?? response);
-      if (config.signal?.aborted) return finish("cancelled");
-      if (!collected.completed) {
-        return finish("failed", { kind: "model_protocol", message: "模型流结束时缺少 completed 终态。" });
-      }
-      result = collected.response;
+      collected = await collectTurn(modelConfig, messages, config.systemPrompt || DEFAULT_SYSTEM_PROMPT, tools, ctx, events, config.recorder, config.signal, config.responseImpl ?? response);
+      if (config.signal?.aborted) outcome = { kind: "cancelled", reason: "aborted" };
+      else if (!collected.completed) outcome = { kind: "incomplete", reason: "missing_finish_reason", response: collected.response };
+      else outcome = classifyTurn(collected.response);
     } catch (error) {
-      if (config.signal?.aborted) return finish("cancelled");
-      return finish("failed", toAgentError(error));
-    }
-    const assistantMessage = { role: "assistant", content: result.content, reasoning: result.reasoning, toolCalls: result.toolCalls };
-    try {
-      await config.recorder?.commitAssistant(assistantMessage, ctx);
-    } catch (error) {
-      return finish("failed", toAgentError(error));
-    }
-    messages.push(assistantMessage);
-    events.onAssistantCompleted?.(result, ctx);
-    if (config.signal?.aborted || result.stopReason === "aborted") return finish("cancelled");
-    if (result.stopReason === "error" || result.error) {
-      return finish("failed", result.error ?? { kind: "provider", message: "模型请求失败。" });
-    }
-    if (result.toolCalls.length === 0) {
-      events.onTurnCompleted?.(ctx);
-      return finish("completed");
-    }
-    for (const call of result.toolCalls) {
-      if (config.signal?.aborted) return finish("cancelled");
-      events.onToolStart?.(call, ctx);
-      let toolResult;
-      try {
-        toolResult = await executeTool(call, config.tools, config.cwd, config.signal);
-      } catch (error) {
-        return finish("failed", { kind: "tool", message: error instanceof Error ? error.message : String(error) });
+      if (config.signal?.aborted) outcome = { kind: "cancelled", reason: "aborted" };
+      else {
+        const agentError = toAgentError(error);
+        outcome = {
+          kind: "failed",
+          reason: agentError.kind === "network" ? "network_error" : agentError.kind === "model_protocol" ? "model_protocol" : "provider_error",
+          error: agentError
+        };
       }
-      const toolMessage = { role: "tool", content: formatToolResult(toolResult), toolCallId: call.id, toolName: call.name, isError: !toolResult.ok, media: toolResult.media };
+    }
+    const partialMessage = collected ? assistantMessage(collected.response) : void 0;
+    if (outcome.kind === "cancelled") {
       try {
-        await config.recorder?.commitToolResult(toolMessage, { ...ctx, toolCallId: call.id });
+        await config.recorder?.finishAssistantAttempt(ctx, "interrupted", partialMessage);
       } catch (error) {
         return finish("failed", toAgentError(error));
       }
-      messages.push(toolMessage);
-      events.onToolCompleted?.(call, toolResult, ctx);
+      return finish("cancelled");
     }
-    events.onTurnCompleted?.(ctx);
+    if (outcome.kind === "answer" || outcome.kind === "tool_calls") {
+      const message = assistantMessage(outcome.response);
+      try {
+        await config.recorder?.finishAssistantAttempt(ctx, "completed", message);
+      } catch (error) {
+        return finish("failed", toAgentError(error));
+      }
+      messages.push(message);
+      events.onAssistantCompleted?.(outcome.response, ctx);
+      if (outcome.kind === "answer") {
+        events.onTurnCompleted?.(ctx);
+        return finish("completed");
+      }
+      for (const call of outcome.response.toolCalls) {
+        if (config.signal?.aborted) return finish("cancelled");
+        events.onToolStart?.(call, ctx);
+        let toolResult;
+        try {
+          toolResult = await executeTool(call, config.tools, config.cwd, config.signal);
+        } catch (error) {
+          return finish("failed", { kind: "tool", message: error instanceof Error ? error.message : String(error) });
+        }
+        const toolMessage = { role: "tool", content: formatToolResult(toolResult), toolCallId: call.id, toolName: call.name, isError: !toolResult.ok, media: toolResult.media };
+        try {
+          await config.recorder?.commitToolResult(toolMessage, { ...ctx, toolCallId: call.id });
+        } catch (error) {
+          return finish("failed", toAgentError(error));
+        }
+        messages.push(toolMessage);
+        events.onToolCompleted?.(call, toolResult, ctx);
+      }
+      events.onTurnCompleted?.(ctx);
+      currentTurnId = void 0;
+      continue;
+    }
+    const attemptStatus = outcome.kind === "incomplete" ? "interrupted" : "failed";
+    try {
+      await config.recorder?.finishAssistantAttempt(ctx, attemptStatus, partialMessage);
+    } catch (error) {
+      return finish("failed", toAgentError(error));
+    }
+    if (outcome.kind === "incomplete") {
+      const canRetry = await retryModelTurn({
+        runId: config.runId,
+        turnId: ctx.turnId,
+        attempt,
+        reason: outcome.reason,
+        maxAttempts: retryConfig.maxAttempts,
+        baseDelayMs: retryConfig.baseDelayMs,
+        maxDelayMs: retryConfig.maxDelayMs,
+        signal: config.signal,
+        events
+      });
+      if (canRetry) continue;
+      return finish("failed", { kind: "model_protocol", message: retryFailureMessage(outcome.reason) });
+    }
+    if (outcome.kind === "failed" && outcome.error.retryable) {
+      const reason = outcome.reason === "network_error" ? "network_error" : outcome.reason === "provider_error" ? "provider_error" : "model_protocol";
+      const canRetry = await retryModelTurn({
+        runId: config.runId,
+        turnId: ctx.turnId,
+        attempt,
+        reason,
+        maxAttempts: retryConfig.maxAttempts,
+        baseDelayMs: retryConfig.baseDelayMs,
+        maxDelayMs: retryConfig.maxDelayMs,
+        signal: config.signal,
+        events
+      });
+      if (canRetry) continue;
+    }
+    return finish("failed", outcome.error);
   }
 }
+function classifyTurn(response2) {
+  if (response2.error) {
+    return { kind: "failed", reason: response2.error.kind === "network" ? "network_error" : response2.error.kind === "model_protocol" ? "model_protocol" : "provider_error", error: response2.error };
+  }
+  if (response2.stopReason === "aborted") return { kind: "cancelled", reason: "aborted" };
+  if (response2.stopReason === "content_filter") return { kind: "failed", reason: "content_filtered", error: { kind: "provider", message: "The provider filtered this response." } };
+  if (response2.stopReason === "unknown") return { kind: "failed", reason: "unknown_stop_reason", error: { kind: "model_protocol", message: `Unknown model stop reason: ${response2.rawStopReason ?? "unknown"}.` } };
+  if (response2.stopReason === "length") return { kind: "incomplete", reason: "length", response: response2 };
+  if (response2.toolCalls.length > 0) {
+    if (response2.toolCalls.some((call) => !call.inputComplete)) return { kind: "incomplete", reason: "invalid_tool_calls", response: response2 };
+    return { kind: "tool_calls", response: response2 };
+  }
+  if (response2.stopReason === "tool_use") return { kind: "incomplete", reason: "invalid_tool_calls", response: response2 };
+  if (response2.content.trim()) return { kind: "answer", response: response2 };
+  if (response2.reasoning?.trim()) return { kind: "incomplete", reason: "reasoning_only", response: response2 };
+  return { kind: "incomplete", reason: "empty_response", response: response2 };
+}
+async function retryModelTurn(input) {
+  if (input.attempt >= input.maxAttempts || input.signal?.aborted) return false;
+  const delayMs = Math.min(input.maxDelayMs, input.baseDelayMs * 2 ** Math.max(0, input.attempt - 1));
+  input.events.onTurnRetrying?.({
+    runId: input.runId,
+    turnId: input.turnId,
+    attempt: input.attempt,
+    nextAttempt: input.attempt + 1,
+    reason: input.reason,
+    delayMs,
+    maxAttempts: input.maxAttempts
+  });
+  if (!await waitForRetryDelay(delayMs, input.signal)) return false;
+  return !input.signal?.aborted;
+}
 function toAgentError(error) {
+  if (error instanceof ModelAdapterError) return { kind: error.kind, message: error.message, retryable: error.retryable };
   return { kind: "runtime", message: error instanceof Error ? error.message : String(error) };
+}
+function assistantMessage(response2) {
+  return { role: "assistant", content: response2.content, reasoning: response2.reasoning, toolCalls: response2.toolCalls };
+}
+function retryFailureMessage(reason) {
+  const messages = {
+    reasoning_only: "The model did not produce a complete response after retries.",
+    empty_response: "The model returned an empty response after retries.",
+    length: "The model response was truncated after retries.",
+    missing_finish_reason: "The model stream ended without a complete termination signal.",
+    invalid_tool_calls: "The model did not produce a complete tool call after retries.",
+    network_error: "The model request failed after retries.",
+    provider_error: "The provider request failed after retries.",
+    model_protocol: "The model response did not satisfy the protocol after retries."
+  };
+  return messages[reason];
+}
+function waitForRetryDelay(delayMs, signal) {
+  if (delayMs <= 0) return Promise.resolve(!signal?.aborted);
+  return new Promise((resolve2) => {
+    let settled = false;
+    const onAbort = () => finish(false);
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      resolve2(value);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    setTimeout(() => finish(!signal?.aborted), delayMs);
+  });
 }
 async function executeTool(call, tools, cwd, signal) {
   if (!call.inputComplete) return invalidResult("工具参数被模型响应截断，未执行。请重新生成完整的工具调用。", "truncated_arguments");
@@ -1712,13 +1854,18 @@ class AgentRunner {
           for (const file of files) emitOnce({ type: "outputFileRegistered", runId: ctx.runId, file });
         }
       },
+      onTurnRetrying: (ctx) => emitOnce({ type: "turnRetrying", ...ctx }),
       onTurnCompleted: (ctx) => emitOnce({ type: "turnCompleted", ...ctx }),
       onRunCompleted: (result) => emitOnce({ type: "runCompleted", ...result })
     };
     const modelConfig = {
       provider: "openai",
       model: req.modelId,
-      openai: { baseURL: req.baseURL, apiKey: req.apiKey }
+      openai: {
+        baseURL: req.baseURL,
+        apiKey: req.apiKey,
+        reasoningField: req.baseURL?.toLowerCase().includes("deepseek") ? "reasoning_content" : void 0
+      }
     };
     setImmediate(() => {
       void run(req.task, modelConfig, {
@@ -1752,6 +1899,93 @@ function toPublicToolResult(result) {
     truncated: result.truncated,
     error: result.error
   };
+}
+const DEFAULT_SESSION_HISTORY_PAGE_LIMIT = 100;
+const MAX_SESSION_HISTORY_PAGE_LIMIT = 200;
+class SessionHistoryError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+    this.name = "SessionHistoryError";
+  }
+  code;
+}
+function normalizePageRequest(request) {
+  if (!request || typeof request !== "object" || Array.isArray(request)) {
+    throw new SessionHistoryError("历史分页请求格式无效。", "invalid_request");
+  }
+  const candidate = request;
+  const cursor = candidate.cursor === void 0 ? null : candidate.cursor;
+  if (cursor !== null && (typeof cursor !== "string" || !/^[1-9]\d*$/.test(cursor))) {
+    throw new SessionHistoryError("历史分页游标无效。", "invalid_request");
+  }
+  const beforeSeq = cursor === null ? null : Number(cursor);
+  if (beforeSeq !== null && !Number.isSafeInteger(beforeSeq)) {
+    throw new SessionHistoryError("历史分页游标超出安全范围。", "invalid_request");
+  }
+  const limit = candidate.limit ?? DEFAULT_SESSION_HISTORY_PAGE_LIMIT;
+  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_SESSION_HISTORY_PAGE_LIMIT) {
+    throw new SessionHistoryError(
+      `历史分页数量必须在 1 到 ${MAX_SESSION_HISTORY_PAGE_LIMIT} 之间。`,
+      "invalid_request"
+    );
+  }
+  return { cursor, beforeSeq, limit };
+}
+function toHistoryEntry(entry) {
+  return {
+    entryId: entry.id,
+    sessionSeq: entry.sessionSeq,
+    type: entry.type,
+    status: entry.status,
+    runId: entry.runId,
+    turnId: entry.turnId,
+    toolCallId: entry.toolCallId,
+    revision: entry.revision,
+    payload: entry.payload,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt
+  };
+}
+class SessionHistoryService {
+  constructor(activeSessionId, repository) {
+    this.activeSessionId = activeSessionId;
+    this.repository = repository;
+  }
+  activeSessionId;
+  repository;
+  inFlight = /* @__PURE__ */ new Map();
+  async loadPage(request) {
+    const normalized = normalizePageRequest(request);
+    const requestKey = `${normalized.cursor ?? "latest"}:${normalized.limit}`;
+    const existing = this.inFlight.get(requestKey);
+    if (existing) return existing;
+    const operation = this.readPage(normalized).finally(() => {
+      if (this.inFlight.get(requestKey) === operation) this.inFlight.delete(requestKey);
+    });
+    this.inFlight.set(requestKey, operation);
+    return operation;
+  }
+  async readPage(request) {
+    const session = await this.repository.getSession(this.activeSessionId);
+    if (!session) throw new SessionHistoryError("当前会话不存在。", "not_found");
+    const fetchLimit = request.limit + 1;
+    const descendingEntries = request.beforeSeq === null ? await this.repository.listLatestEntries(this.activeSessionId, fetchLimit) : await this.repository.listEntriesBefore(this.activeSessionId, request.beforeSeq, fetchLimit);
+    const hasMore = descendingEntries.length > request.limit;
+    const pageDescending = hasMore ? descendingEntries.slice(0, request.limit) : descendingEntries;
+    const entries = pageDescending.slice().reverse();
+    const nextCursor = hasMore && entries.length > 0 ? String(entries[0].sessionSeq) : null;
+    if (nextCursor !== null && request.beforeSeq !== null && Number(nextCursor) >= request.beforeSeq) {
+      throw new SessionHistoryError("历史分页游标没有向更早记录推进。", "storage");
+    }
+    return {
+      sessionId: this.activeSessionId,
+      entries: entries.map(toHistoryEntry),
+      nextCursor,
+      hasMore,
+      snapshotSeq: Math.max(0, session.nextEntrySeq - 1)
+    };
+  }
 }
 const SCHEMA_VERSION = 1;
 function initializeSchema(database) {
@@ -2011,6 +2245,29 @@ class SqliteSessionRepository {
     `).all(sessionId, cursor, limit);
     return rows.map(rowToEntry);
   }
+  async listLatestEntries(sessionId, limit) {
+    this.validateHistoryLimit(limit);
+    const rows = this.database.prepare(`
+      SELECT * FROM entries
+      WHERE session_id = ?
+      ORDER BY session_seq DESC
+      LIMIT ?
+    `).all(sessionId, limit);
+    return rows.map(rowToEntry);
+  }
+  async listEntriesBefore(sessionId, beforeSeq, limit) {
+    if (!Number.isSafeInteger(beforeSeq) || beforeSeq <= 0) {
+      throw new RepositoryError("History cursor must be a positive safe integer.", "invalid");
+    }
+    this.validateHistoryLimit(limit);
+    const rows = this.database.prepare(`
+      SELECT * FROM entries
+      WHERE session_id = ? AND session_seq < ?
+      ORDER BY session_seq DESC
+      LIMIT ?
+    `).all(sessionId, beforeSeq, limit);
+    return rows.map(rowToEntry);
+  }
   async updateSession(sessionId, expectedRevision, patch) {
     const result = this.transaction(() => {
       const existingRow = this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
@@ -2050,6 +2307,11 @@ class SqliteSessionRepository {
       throw error;
     }
   }
+  validateHistoryLimit(limit) {
+    if (!Number.isSafeInteger(limit) || limit <= 0) {
+      throw new RepositoryError("History limit must be a positive safe integer.", "invalid");
+    }
+  }
 }
 const DRAFT_FLUSH_INTERVAL_MS = 500;
 const DRAFT_FLUSH_BYTES = 4096;
@@ -2071,6 +2333,9 @@ function freezeSnapshot(messages) {
 }
 function validateMessage(message, role) {
   if (message.role !== role) throw new RepositoryError(`Expected a ${role} message.`, "invalid");
+}
+function draftKey(context) {
+  return `${context.turnId}:${context.attempt ?? 1}`;
 }
 class DefaultSessionRecorder {
   sessionId;
@@ -2121,13 +2386,16 @@ class DefaultSessionRecorder {
   recordAssistantDelta(kind, delta, context) {
     this.ensureOpen();
     if (!delta) return;
-    let draft = this.activeDrafts.get(context.turnId);
+    const key = draftKey(context);
+    let draft = this.activeDrafts.get(key);
     if (!draft) {
       draft = {
+        key,
         entryId: randomUUID(),
         runId: context.runId,
         turnId: context.turnId,
         turnOrdinal: context.turnOrdinal,
+        attempt: context.attempt ?? 1,
         message: { role: "assistant", content: "" },
         revision: null,
         pendingBytes: 0,
@@ -2135,7 +2403,7 @@ class DefaultSessionRecorder {
         timer: void 0,
         terminal: false
       };
-      this.activeDrafts.set(context.turnId, draft);
+      this.activeDrafts.set(key, draft);
     }
     if (kind === "text") draft.message.content += delta;
     else draft.message.reasoning = (draft.message.reasoning ?? "") + delta;
@@ -2150,38 +2418,45 @@ class DefaultSessionRecorder {
       }, DRAFT_FLUSH_INTERVAL_MS);
     }
   }
-  commitAssistant(message, context) {
-    validateMessage(message, "assistant");
+  finishAssistantAttempt(context, status, message) {
     this.ensureOpen();
-    let draft = this.activeDrafts.get(context.turnId);
+    const key = draftKey(context);
+    let draft = this.activeDrafts.get(key);
+    if (message) validateMessage(message, "assistant");
     if (!draft) {
       draft = {
+        key,
         entryId: randomUUID(),
         runId: context.runId,
         turnId: context.turnId,
         turnOrdinal: context.turnOrdinal,
-        message: cloneMessage(message),
+        attempt: context.attempt ?? 1,
+        message: cloneMessage(message ?? { role: "assistant", content: "" }),
         revision: null,
         pendingBytes: 0,
         dirty: true,
         timer: void 0,
         terminal: true
       };
-      this.activeDrafts.set(context.turnId, draft);
+      this.activeDrafts.set(key, draft);
     } else {
-      if (draft.terminal && !isSameMessage(draft.message, message)) {
-        return Promise.reject(new RepositoryError(`Assistant message already committed for turn ${context.turnId}.`, "conflict"));
+      if (draft.terminal && message && !isSameMessage(draft.message, message)) {
+        return Promise.reject(new RepositoryError(`Assistant message already committed for attempt ${key}.`, "conflict"));
       }
       if (draft.terminal) return this.waitForWrites();
-      draft.message = cloneMessage(message);
+      if (message) draft.message = cloneMessage(message);
       draft.dirty = true;
       draft.terminal = true;
       if (draft.timer !== void 0) clearTimeout(draft.timer);
       draft.timer = void 0;
     }
+    draft.finalStatus = status;
     return this.enqueueAndCheck(async () => {
       await this.flushDraft(draft);
     });
+  }
+  commitAssistant(message, context) {
+    return this.finishAssistantAttempt(context, "completed", message);
   }
   commitToolResult(message, context) {
     validateMessage(message, "tool");
@@ -2267,7 +2542,7 @@ class DefaultSessionRecorder {
     draft.pendingBytes = 0;
     draft.dirty = false;
     if (status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
-    if (draft.terminal) this.activeDrafts.delete(draft.turnId);
+    if (draft.terminal) this.activeDrafts.delete(draft.key);
   }
   enqueue(operation) {
     const next = this.writeChain.then(operation, operation);
@@ -2342,7 +2617,7 @@ function createWindow() {
   });
   return win;
 }
-function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId) {
+function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId, sessionHistory) {
   const discoveryControllers = /* @__PURE__ */ new Map();
   ipcMain.handle(IPC.run, async (event, req) => {
     try {
@@ -2364,6 +2639,9 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId
   });
   ipcMain.on(IPC.stop, () => {
     runner.stop();
+  });
+  ipcMain.handle(IPC.loadSessionPage, async (_event, request) => {
+    return sessionHistory.loadPage(request);
   });
   ipcMain.handle(IPC.listProviderProfiles, async () => {
     return providers.list();
@@ -2453,6 +2731,7 @@ app.whenReady().then(async () => {
   const reusableSession = await sessionRepository.getLatestOpenSession(sessionScopeKey);
   const activeSession = reusableSession ?? await sessionRepository.createSession({ scopeKey: sessionScopeKey });
   const recorder = await createSessionRecorder(sessionRepository, activeSession.id);
+  const sessionHistory = new SessionHistoryService(activeSession.id, sessionRepository);
   let closing = false;
   const providers = new ProviderStore(
     join(app.getPath("userData"), "provider-profiles.json"),
@@ -2469,7 +2748,7 @@ app.whenReady().then(async () => {
     return recorder;
   };
   const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts), createRecorder);
-  registerIpc(runner, providers, outputFiles, inputAttachments, activeSession.id);
+  registerIpc(runner, providers, outputFiles, inputAttachments, activeSession.id, sessionHistory);
   createWindow();
   app.on("before-quit", (event) => {
     if (closing) return;
@@ -2496,3 +2775,6 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+export {
+  ModelAdapterError as M
+};

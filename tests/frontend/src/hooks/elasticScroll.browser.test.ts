@@ -49,6 +49,7 @@ test("Electron 中的弹性滚动保持布局与动画连续", { timeout: 40_000
     assert.ok(line, `Electron returns regression results: ${stdout}`);
     const result = JSON.parse(line.slice("ELASTIC_SCROLL_RESULTS=".length)) as {
       bottom: { baseline: Sample; samples: Sample[]; settled: Sample; settledAfter: number };
+      sustained: { at: number; offset: number; fillScale: number }[];
       top: { baseline: Sample; samples: Sample[] };
       returning: { beforeResume: Sample; resumed: Sample; beforeReverse: Sample; reversed: Sample };
       remainder: Sample;
@@ -59,7 +60,7 @@ test("Electron 中的弹性滚动保持布局与动画连续", { timeout: 40_000
     };
 
     for (const edge of ["bottom", "top"] as const) {
-      await t.test(`${edge}：连续输入保持几何稳定、位移递增与滑块端点固定`, () => {
+      await t.test(`${edge}：连续输入保持几何稳定、位移递增与滑块不变形`, () => {
         const { baseline, samples } = result[edge];
         assert.equal(baseline.viewportHeight, 400);
         assert.equal(baseline.scrollHeight, 1260);
@@ -71,13 +72,25 @@ test("Electron 中的弹性滚动保持布局与动画连续", { timeout: 40_000
           assert.equal(sample.thumbHeight, baseline.thumbHeight, "thumb layout height remains stable");
           assert.ok(edge === "bottom" ? sample.offset < 0 : sample.offset > 0, `direction: ${sample.offset}`);
           assert.ok(Math.abs(sample.offset) > magnitude, `continuous displacement: ${sample.offset}`);
-          assert.ok(sample.fillScale < 1 && sample.fillScale >= 0.6, `thumb compression: ${sample.fillScale}`);
+          assert.equal(sample.fillScale, 1, `thumb stays undeformed: ${sample.fillScale}`);
           assert.ok(Math.abs((edge === "bottom" ? sample.fillBottomGap : sample.fillTopGap) - 2) < 0.1, "thumb remains anchored 2px from edge");
           assert.equal(sample.consumed, true);
           magnitude = Math.abs(sample.offset);
         }
       });
     }
+
+    await t.test("持续越界输入超过跟手上限后开始回弹，滑块始终不变形", () => {
+      const samples = result.sustained;
+      assert.ok(samples.length >= 10, `samples=${samples.length}`);
+      for (const sample of samples) {
+        assert.equal(sample.fillScale, 1, `thumb stays undeformed at ${sample.at}ms`);
+      }
+      const peak = samples.reduce((max, sample) => (Math.abs(sample.offset) > Math.abs(max.offset) ? sample : max));
+      assert.ok(peak.at < 320, `displacement peaks at ${peak.at}ms`);
+      const last = samples[samples.length - 1];
+      assert.ok(Math.abs(last.offset) < Math.abs(peak.offset), `late offset ${last.offset} vs peak ${peak.offset}`);
+    });
 
     await t.test("最后输入后约 500ms 回到原位", () => {
       assert.ok(result.bottom.settledAfter < 550, `sampled at ${result.bottom.settledAfter}ms`);

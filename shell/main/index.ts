@@ -19,12 +19,15 @@ import {
   type RunRequest,
   type RunStartAck,
   type SaveProviderResult,
+  type SessionPageRequest,
+  type SessionPageResult,
 } from "../shared/ipc.js";
 import { OutputFileRegistry, validateOutputForOpen } from "./output-files.js";
 import { composeTaskWithAttachments, InputAttachmentRegistry } from "./input-attachments.js";
 import { ProviderStore } from "./provider-store.js";
 import { discoverProviderModels, discoveryErrorResult } from "./provider-model-discovery.js";
 import { AgentRunner } from "./runner.js";
+import { SessionHistoryService } from "./session-history.js";
 import {
   createSessionRecorder,
   SqliteSessionRepository,
@@ -77,6 +80,7 @@ function registerIpc(
   outputFiles: OutputFileRegistry,
   inputAttachments: InputAttachmentRegistry,
   sessionId: string,
+  sessionHistory: SessionHistoryService,
 ): void {
   const discoveryControllers = new Map<string, AbortController>();
 
@@ -101,6 +105,10 @@ function registerIpc(
 
   ipcMain.on(IPC.stop, () => {
     runner.stop();
+  });
+
+  ipcMain.handle(IPC.loadSessionPage, async (_event, request: SessionPageRequest): Promise<SessionPageResult> => {
+    return sessionHistory.loadPage(request);
   });
 
   ipcMain.handle(IPC.listProviderProfiles, async (): Promise<ProviderProfileSummary[]> => {
@@ -200,6 +208,7 @@ app.whenReady().then(async () => {
   const reusableSession = await sessionRepository.getLatestOpenSession(sessionScopeKey);
   const activeSession = reusableSession ?? await sessionRepository.createSession({ scopeKey: sessionScopeKey });
   const recorder = await createSessionRecorder(sessionRepository, activeSession.id);
+  const sessionHistory = new SessionHistoryService(activeSession.id, sessionRepository);
   let closing = false;
 
   const providers = new ProviderStore(
@@ -217,7 +226,7 @@ app.whenReady().then(async () => {
     return recorder;
   };
   const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts), createRecorder);
-  registerIpc(runner, providers, outputFiles, inputAttachments, activeSession.id);
+  registerIpc(runner, providers, outputFiles, inputAttachments, activeSession.id, sessionHistory);
   createWindow();
 
   app.on("before-quit", (event) => {

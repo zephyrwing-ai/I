@@ -4,6 +4,7 @@
   "pages": [
     "architecture",
     "memory",
+    "session-storage-flow",
     "session-storage-tasks",
     "model-request",
     "runtime-loop",

@@ -53,6 +53,14 @@ async function wheel(scroll: HTMLElement, deltaY: number, target: HTMLElement = 
   return { ...sample(scroll), consumed: event.defaultPrevented };
 }
 
+/** 单帧等待版本：连续采样必须落在跟手上限（ELASTIC_TRACK_MAX = 200ms）内。 */
+async function wheelQuick(scroll: HTMLElement, deltaY: number) {
+  const event = new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true });
+  scroll.dispatchEvent(event);
+  await frame();
+  return { ...sample(scroll), consumed: event.defaultPrevented };
+}
+
 /** 根据实际回弹进度接续输入，使交互测试适用于不同回弹速度。 */
 async function halfwayThroughReturn(scroll: HTMLElement) {
   const halfway = Math.abs(sample(scroll).offset) / 2;
@@ -71,11 +79,28 @@ async function boundarySequence(delta: number) {
   const baseline = sample(scroll);
   const samples = [];
   let lastInputAt = 0;
-  for (let i = 0; i < 8; i += 1) {
+  for (let i = 0; i < 6; i += 1) {
     lastInputAt = performance.now();
-    samples.push(await wheel(scroll, delta));
+    samples.push(await wheelQuick(scroll, delta));
   }
   return { scroll, baseline, samples, lastInputAt };
+}
+
+/** 持续越界输入超过跟手上限：位移应在 200ms 附近见顶，随后回落，滑块始终不变形。 */
+async function sustainedSequence() {
+  const scroll = await mount(1200);
+  scroll.scrollTo({ top: scroll.scrollHeight, behavior: "instant" });
+  await frames();
+  const samples: { at: number; offset: number; fillScale: number }[] = [];
+  const start = performance.now();
+  while (performance.now() - start < 420) {
+    const event = new WheelEvent("wheel", { deltaY: 40, bubbles: true, cancelable: true });
+    scroll.dispatchEvent(event);
+    await frame();
+    const current = sample(scroll);
+    samples.push({ at: performance.now() - start, offset: current.offset, fillScale: current.fillScale });
+  }
+  return samples;
 }
 
 async function runElasticScrollRegression() {
@@ -85,7 +110,11 @@ async function runElasticScrollRegression() {
   const settled = sample(bottom.scroll);
   const settledAfter = performance.now() - bottom.lastInputAt;
 
+  const sustained = await sustainedSequence();
+
   const top = await boundarySequence(-40);
+  await delay(250); // 手势间隔：回弹完成并重置跟手窗口，再接续输入
+  await wheel(top.scroll, -40);
   const beforeResume = await halfwayThroughReturn(top.scroll);
   const resumed = await wheel(top.scroll, -8);
   const beforeReverse = await halfwayThroughReturn(top.scroll);
@@ -131,6 +160,7 @@ async function runElasticScrollRegression() {
   root.unmount();
   return {
     bottom: { baseline: bottom.baseline, samples: bottom.samples, settled, settledAfter },
+    sustained,
     top: { baseline: top.baseline, samples: top.samples },
     returning: { beforeResume, resumed, beforeReverse, reversed },
     remainder,

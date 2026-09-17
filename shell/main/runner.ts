@@ -104,6 +104,7 @@ export class AgentRunner {
           for (const file of files) emitOnce({ type: "outputFileRegistered", runId: ctx.runId, file });
         }
       },
+      onTurnRetrying: (ctx) => emitOnce({ type: "turnRetrying", ...ctx }),
       onTurnCompleted: (ctx) => emitOnce({ type: "turnCompleted", ...ctx }),
       onRunCompleted: (result) => emitOnce({ type: "runCompleted", ...result }),
     };
@@ -113,7 +114,11 @@ export class AgentRunner {
     const modelConfig: ModelConfig = {
       provider: "openai",
       model: req.modelId,
-      openai: { baseURL: req.baseURL, apiKey: req.apiKey },
+      openai: {
+        baseURL: req.baseURL,
+        apiKey: req.apiKey,
+        reasoningField: req.baseURL?.toLowerCase().includes("deepseek") ? "reasoning_content" : undefined,
+      },
     };
 
     // Let the invoke handler return the runId before the first event reaches

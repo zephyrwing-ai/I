@@ -8,20 +8,21 @@ import { TopBar, SearchPopover } from "./components/TopBar";
 import { ConfigPanel } from "./components/ConfigPanel";
 import { OutputSidebar } from "./components/OutputSidebar";
 import { useFloatingPanel } from "./hooks/useFloatingPanel";
+import { useSessionHistory } from "./hooks/useSessionHistory";
 import { agentReducer, initialAgentState } from "./store/agentReducer";
-import { DEFAULT_SETTINGS, type RunSettings } from "./store/runSettings";
 import { useProviderCatalog } from "./store/providerCatalog";
 import type { AgentEvent, RunRequest } from "../../shell/shared/ipc";
 
 export default function App() {
   const [state, dispatch] = useReducer(agentReducer, initialAgentState);
-  const [settings, setSettings] = useState<RunSettings>(DEFAULT_SETTINGS);
   const catalog = useProviderCatalog();
   const [configOpen, setConfigOpen] = useState(false);
   const [outputOpen, setOutputOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const eventQueue = useRef<AgentEvent[]>([]);
+  const hydrationEventQueue = useRef<AgentEvent[]>([]);
+  const historyReadyRef = useRef(false);
   const eventFrame = useRef<number | null>(null);
   // 计时是 Renderer 侧对事件的观察（事件本身不带时间戳）；reducer 保持纯函数，不写入时间。
   // run 级总时长：runStarted → runCompleted（含全部回合与工具调用）；回合级时间不展示。
@@ -47,6 +48,10 @@ export default function App() {
   useEffect(() => {
     if (!window.agentAPI || typeof window.agentAPI.onEvent !== "function") return;
     const offEvent = window.agentAPI.onEvent((event) => {
+      if (!historyReadyRef.current) {
+        hydrationEventQueue.current.push(event);
+        return;
+      }
       eventQueue.current.push(event);
       if (eventFrame.current !== null) return;
       eventFrame.current = requestAnimationFrame(() => {
@@ -75,11 +80,15 @@ export default function App() {
     };
   }, []);
 
+  const history = useSessionHistory(state, dispatch);
+
   useEffect(() => {
-    if (catalog.selectedModelOptionId !== settings.modelOptionId) {
-      setSettings((current) => ({ ...current, modelOptionId: catalog.selectedModelOptionId }));
-    }
-  }, [catalog.selectedModelOptionId, settings.modelOptionId]);
+    if (!history.hydrated || historyReadyRef.current) return;
+    historyReadyRef.current = true;
+    const pending = hydrationEventQueue.current;
+    hydrationEventQueue.current = [];
+    pending.forEach((event) => dispatch({ type: "event", event }));
+  }, [history.hydrated]);
 
   useEffect(() => {
     if (!configOpen) return;
@@ -94,7 +103,7 @@ export default function App() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [state.currentRunId, totalTurnCount, toolActivityHash]);
+  }, [state.currentRunId, state.history.hydrated, totalTurnCount, toolActivityHash]);
 
   // 底部占位高度 = Composer 实时高度（外壳 116px + 输入/附件增减同步），见设计文档「滚动条-底部占位」
   useEffect(() => {
@@ -154,11 +163,6 @@ export default function App() {
     window.agentAPI.stop();
   };
 
-  const changeSettings = (next: RunSettings): void => {
-    setSettings(next);
-    if (next.modelOptionId !== catalog.selectedModelOptionId) catalog.selectModel(next.modelOptionId);
-  };
-
   return (
     <div className="app">
       <TopBar
@@ -181,6 +185,11 @@ export default function App() {
                 order={state.runOrder}
                 runs={state.runs}
                 runTimings={runTimings.current}
+                scrollRef={streamRef}
+                hasMore={history.hasMore}
+                loadingOlder={history.loadingOlder}
+                historyError={history.error}
+                onLoadOlder={history.loadOlder}
               />
               <div ref={bottomRef} style={{ height: composerHeight }} />
             </StreamRegion>
@@ -188,18 +197,17 @@ export default function App() {
               <Composer
                 running={running}
                 stopping={stopping}
-                settings={settings}
+                ready={history.hydrated}
                 modelOptions={catalog.modelOptions}
                 modelLoading={catalog.loading}
-                onSettingsChange={changeSettings}
                 onRun={handleRun}
                 onStop={handleStop}
               />
             </div>
           </Column>
         </section>
-        <OutputSidebar open={outputOpen} files={outputFiles} onOpenChange={setOutputOpen} />
       </div>
+      <OutputSidebar open={outputOpen} files={outputFiles} onOpenChange={setOutputOpen} />
 
       {settingsPanel.mounted && (
         <div ref={settingsPanel.panelRef} className={`config-floating phase-${settingsPanel.phase}`} onTransitionEnd={settingsPanel.onTransitionEnd}>

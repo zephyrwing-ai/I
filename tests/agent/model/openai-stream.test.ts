@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { stripStreamThinking } from "../../../agent/model/openai.js";
+import { stripStreamThinking, toOpenAIMessages } from "../../../agent/model/openai.js";
 
 /** 按顺序喂入流式分片，返回拼接后的 text/thinking；endOfStream 时收尾。 */
 function stream(chunks: string[], endOfStream = false): { text: string; thinking: string } {
@@ -59,4 +59,16 @@ test("extracts multiple thinking blocks", () => {
   const { text, thinking } = stream(["<thinking>1</thinking>m<thinking>2</thinking>"]);
   assert.equal(text, "m");
   assert.equal(thinking, "1\n2");
+});
+
+test("serializes completed reasoning to the Provider reasoning field", () => {
+  const [system, assistant] = toOpenAIMessages([
+    { role: "assistant", content: "answer", reasoning: "private reasoning", toolCalls: [] },
+  ], "system", "reasoning_content");
+
+  assert.equal(system.role, "system");
+  assert.equal((assistant as { role: string }).role, "assistant");
+  assert.equal((assistant as { content: string | null }).content, "answer");
+  assert.equal((assistant as { reasoning_content?: string }).reasoning_content, "private reasoning");
+  assert.equal(String((assistant as { content: string | null }).content).includes("<thinking>"), false);
 });

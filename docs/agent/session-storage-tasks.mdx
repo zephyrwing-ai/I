@@ -21,6 +21,7 @@ description: 会话本地存储跨模块实现顺序、代码入口与验证标�
 - [x] 创建 `agent/memory/sqlite-repository.ts`，使用 `node:sqlite`、prepared statements 和显式事务实现 Repository。
 - [x] 创建 `agent/memory/session-recorder.ts`，实现 completed 消息快照、活动草稿、合并写入队列和终态刷新。
 - [x] 在 `agent/memory/session-recorder.ts` 提供临时 Recorder 工厂，供 CLI 和隔离测试使用相同的 Runtime 契约。
+- [x] 为同一逻辑 turn 的多次模型尝试提供独立 attempt 草稿，并区分 completed、interrupted 和 failed。
 - [x] 创建 `agent/memory/index.ts`，导出模块公开契约。
 - [x] 使用 `journal_mode=WAL`、`foreign_keys=ON`、`synchronous=FULL` 和 `busy_timeout=5000` 初始化数据库连接。
 - [x] 使用 `(session_id, session_seq)` 唯一索引和 sessions.next_entry_seq 事务生成会话顺序。
@@ -33,8 +34,10 @@ description: 会话本地存储跨模块实现顺序、代码入口与验证标�
 - [x] 删除 history 与 Recorder 并行提供上下文的双入口。
 - [x] 由 Runtime 创建一次用户 ModelMessage，并在第一次 Provider 请求前等待 commitUser。
 - [x] 在 reasoning_delta 和 text_delta 分支同步调用 recordAssistantDelta，并继续发出已有 AgentEvent。
-- [x] 记录 completed 终态；模型流结束时校验该终态并将终态缺失归为 model_protocol 错误。
-- [x] 构造完整 Assistant Message 后等待 commitAssistant，成功后加入本次运行上下文并发出 assistantCompleted。
+- [x] Adapter 保留原始 finish_reason；流终态缺失归为可重试的 model_protocol 错误。
+- [x] Runtime 将流结果分类为 answer、tool_calls、incomplete 或 failed，并在分类后结束 Assistant attempt。
+- [x] 只有完成 `finishAssistantAttempt(completed)` 后才把 Assistant Message 加入本次运行上下文并发出 assistantCompleted。
+- [x] reasoning-only、length、缺少终止原因和无效工具调用保存为 interrupted，不进入模型上下文，并通过 retryModelTurn 进行有限恢复。
 - [x] 带 toolCalls 的 Assistant Message 提交成功后进入工具执行。
 - [x] 构造 Tool Message 后等待 commitToolResult，成功后加入本次运行上下文并发出 toolCompleted。
 - [x] 将 finish 改为异步终态路径，等待 finishRun 刷新活动草稿后发出 runCompleted。
@@ -55,8 +58,9 @@ description: 会话本地存储跨模块实现顺序、代码入口与验证标�
 
 四、保持模型与工具边界。
 
-- [x] 复用 `agent/model/openai.ts` 已有 reasoning_delta、text_delta 和 completed 输出。
-- [x] 在 Runtime 校验模型流终态，Provider Adapter 保持协议归一化职责。
+- [x] 复用 `agent/model/openai.ts` 的 reasoning_delta、text_delta 和 completed 输出，并保留 reasoning_content。
+- [x] 在 Runtime 校验模型流终态和响应语义，Provider Adapter 保持协议归一化职责。
+- [x] 增加 `turnRetrying` 事件并保持前端重试文案为英文。
 - [x] 复用各个工具的 execute 实现和 ToolResult 契约。
 - [x] 把 Assistant Message 中的 toolCalls 保存为模型调用事实。
 - [x] 把工具完成后生成的 Tool Message 保存为 tool_result。
@@ -70,6 +74,7 @@ description: 会话本地存储跨模块实现顺序、代码入口与验证标�
 - [x] `docs/agent/model-request.mdx` 与 completed 终态契约保持一致。
 - [x] `docs/agent/tools/execution.mdx` 与工具结果持久化屏障保持一致。
 - [x] `docs/desktop/design/workbench/session-storage.mdx` 与 Runner、Main 和 IPC 装配保持一致。
+- [x] `docs/desktop/design/workbench/message-stream.mdx` 与历史投影、游标分页和 MessageStream 虚拟渲染实现保持一致。
 
 六、验证数据与运行顺序。
 
@@ -94,6 +99,27 @@ description: 会话本地存储跨模块实现顺序、代码入口与验证标�
 
 - [x] 本次交付包含会话本地存储、活动会话 Recorder、Runtime 提交屏障和桌面装配。
 - [x] 会话路由在运行前提供确定的 sessionId。
-- [ ] 页面历史读取、跨会话连续时间线和虚拟渲染由 Desktop 历史交付承接。
+- [x] 页面历史读取、跨会话连续时间线和虚拟渲染由 Desktop 历史交付承接。
+- [x] 历史展示复用已保存的 reasoning、toolCalls 和 tool_result；会话存储不增加页面折叠格式。
 - [ ] 上下文压缩、历史检索和长期记忆由后续 Memory 交付承接。
 - [ ] 工具执行日志、幂等和副作用恢复由后续工具执行交付承接。
+
+八、Desktop 历史投影与虚拟渲染。
+
+- [x] 在 Repository 中增加会话尾页读取和 `beforeSeq` 游标读取，返回稳定顺序和下一页边界。
+- [x] 创建 `shell/main/session-history.ts`，校验 active session、限制页大小、合并相同 cursor 的在途请求并生成页面 DTO。
+- [x] 在 `shell/shared/ipc.ts` 定义 `session:load-page`、SessionPageRequest、SessionHistoryEntry 和 SessionPageResult。
+- [x] 在 Preload 暴露 `loadSessionPage()`，Renderer 只通过受限 IPC 读取 active session。
+- [x] 创建 `frontend/src/store/sessionProjection.ts`，按 sessionSeq、runId、turnId 和 toolCallId 投影历史记录。
+- [x] 创建 Renderer 历史状态，保存 entriesById、entryOrder、nextCursor、hasMore、snapshotSeq、loadingInitial、loadingOlder 和 error。
+- [x] 在 agentReducer 中增加 sessionHydrated、olderHistoryLoaded 和历史加载错误动作，并与实时 AgentEvent 合并。
+- [x] Renderer 在 hydrate 前注册 AgentEvent，缓冲 hydrate 期间事件，完成历史基线后按原顺序回放。
+- [x] hydrate 完成前 Composer 使用加载状态；失败保留重试入口并保持事件订阅。
+- [x] 直接重构 MessageStream 为虚拟渲染，使用稳定 blockId、累计高度、上下 spacer 和 overscan。
+- [x] 使用 ResizeObserver 测量 Markdown、reasoning、工具输出和折叠展开后的动态高度。
+- [x] 顶部加载旧历史时保存可见 blockId 锚点，prepend 后恢复其视口偏移。
+- [ ] StreamScrollbar 使用虚拟总高度计算滑块，并协调顶部加载与弹性边界。
+- [ ] 搜索改为读取已加载历史投影；离屏命中先滚动挂载，再进行高亮。
+- [ ] 验证首次恢复、连续分页、cursor 去重、失败重试、实时事件竞态和 nextCursor 终止。
+- [ ] 验证工具调用、tool_result、reasoning、interrupted 和 failed 记录恢复到正确 run 与 turn。
+- [ ] 验证长会话中 DOM 节点保持在虚拟窗口范围，滚动与流式输出不触发全量重建。

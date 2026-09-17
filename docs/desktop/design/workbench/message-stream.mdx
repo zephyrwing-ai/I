@@ -5,6 +5,47 @@
 - 内容列最大宽度：760px，水平居中。
 - 空状态：空白视图。
 
+历史投影与虚拟渲染。
+
+- MessageStream 接收统一的 AgentState，历史恢复和实时运行使用同一套 RunState、TurnState 和 ToolState。
+- SessionEntry 到页面状态的转换由历史投影完成；MessageStream 不直接读取 SQLite，也不解析 SessionEntry。
+- MessageStream 始终使用虚拟窗口：根据 scrollTop、viewportHeight 和已测量消息高度计算 visibleRange，并渲染可见消息与 overscan 消息。
+- 虚拟窗口前后使用占位高度保持完整滚动范围；历史缓存可以包含多页消息，DOM 只挂载当前可见区域附近的消息。
+- 历史消息从顶部追加时，Renderer 记录插入前的 scrollHeight 和 scrollTop，在 DOM 更新后按高度差修正 scrollTop，保持用户阅读位置。
+- 首次历史加载完成后，消息流定位到最新消息；实时 AgentEvent 继续更新同一 AgentState，并由 MessageStream 的虚拟窗口显示当前运行内容。
+- 工具折叠、reasoning 折叠、输出预览和展开状态属于页面投影状态；完整 reasoning、toolCalls 和 tool_result 由会话存储提供。
+- 分页、hydrate 和实时事件合并以[历史投影](./history-projection.mdx)为准。
+
+虚拟窗口数据模型。
+
+- MessageStream 先把 AgentState 转换成有稳定身份的 MessageBlock 序列；用户消息、run 过程块和最终答案分别拥有稳定 blockId。
+- blockId 由 runId、turnId 和块类型组成，虚拟窗口和高度缓存都不使用数组位置作为身份。
+- 每个 MessageBlock 保存估算高度和已测量高度；首次布局使用估算值，ResizeObserver 返回真实高度后只更新受影响区间的累计高度。
+- 可见范围通过 scrollTop、viewportHeight 和累计高度索引计算；overscan 在视口上下各保留一段内容，覆盖快速滚动和动态高度误差。
+- DOM 结构固定为顶部 spacer、可见 MessageBlock 和底部 spacer，两个 spacer 共同表示未挂载内容的总高度。
+- 当前流式 Assistant Message 保持在虚拟窗口中；增量改变高度时更新测量缓存，并在用户停留底部时保持吸底。
+
+分页触发与滚动锚点。
+
+- MessageStream 接近顶部阈值时调用 `onLoadOlder`，请求状态和 cursor 由历史 hook 管理。
+- 旧页面插入前记录第一个可见 blockId 及其视口偏移；插入和测量完成后恢复同一 blockId 的偏移。
+- loadingOlder 期间显示不改变布局高度的顶部加载状态，并禁止重复触发。
+- hasMore=false 时顶部进入正常弹性边界；hasMore=true 时历史加载先于“已经到达完整历史开头”的语义。
+- 历史请求失败保留当前列表和锚点，顶部状态提供重试，不清空已加载页面。
+
+折叠与动态高度。
+
+- run、turn 和工具折叠继续使用 Renderer 本地状态；历史 hydrate 后默认折叠。
+- 展开 reasoning、工具输入或工具输出会改变 MessageBlock 高度，ResizeObserver 更新高度缓存并保持当前锚点。
+- 长工具输出的600字符预览和320px内部滚动继续限制单个块的布局成本；复制操作使用完整结果。
+- reasoning、toolCalls 和 tool_result 已由会话存储提供，虚拟渲染不改变其保存和恢复规则。
+
+搜索边界。
+
+- 虚拟渲染后，未挂载的已加载消息仍存在 AgentState，搜索不能再只遍历当前 DOM。
+- 搜索使用历史投影中的可搜索文本建立 Renderer 本地匹配结果；选中离屏结果时，MessageStream 先滚动到对应 blockId，再对已挂载块应用高亮。
+- 未加载的磁盘历史不参与当前页面搜索；需要全量历史搜索时使用独立的持久化检索能力。
+
 滚动区域与覆盖。
 - 覆盖关系：Composer 固定在消息主列底部，消息在其后方滚动，重叠区域由 Composer 表面覆盖。
 - 底部占位：内容列末尾预留与 Composer 实际高度相等的占位，高度随输入与附件增减同步更新，保证滚动到底时最后一条消息完整停在 Composer 上缘。

@@ -19966,11 +19966,12 @@ function RunProcess({
     (turn) => turn.status === "completed" && turn.toolOrder.length === 0
   );
   const runningTurn = turns[turns.length - 1];
+  const retrying = turns.some((turn) => turn.status === "retrying");
   const answerTurn = runningTurn?.status === "running" && runningTurn.toolOrder.length === 0 ? runningTurn : finalTurn;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "run-process", "data-searchable": true, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: "run-fold", "aria-expanded": open, onClick: () => setOpen((value) => !value), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `turn-state${working ? " working" : ""}`, children: [
-        working ? "Working for" : "Worked for",
+        retrying ? "Retrying response" : working ? "Working for" : "Worked for",
         totalElapsed !== void 0 && ` ${formatElapsed(totalElapsed)}`
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(Chevron, { expanded: open })
@@ -20041,29 +20042,238 @@ function ToolRow({ tool }) {
     ] }) })
   ] });
 }
+const DEFAULT_VIEWPORT_HEIGHT = 800;
+const DEFAULT_OVERSCAN = 600;
+const LOAD_OLDER_THRESHOLD = 240;
+const STICK_TO_BOTTOM_THRESHOLD = 24;
+const useBrowserLayoutEffect = typeof window === "undefined" ? reactExports.useEffect : reactExports.useLayoutEffect;
+function buildVirtualMessageLayout(items, measuredHeights) {
+  let start = 0;
+  const layoutItems = items.map((item, index2) => {
+    const measured = measuredHeights.get(item.blockId);
+    const size = measured !== void 0 && measured > 0 ? measured : item.estimatedHeight;
+    const layoutItem = { ...item, index: index2, start, size, end: start + size };
+    start += size;
+    return layoutItem;
+  });
+  return { items: layoutItems, totalSize: start };
+}
+function firstItemEndingAfter(items, offset) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (items[middle].end < offset) low = middle + 1;
+    else high = middle;
+  }
+  return Math.min(low, Math.max(0, items.length - 1));
+}
+function firstItemStartingAfter(items, offset) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (items[middle].start <= offset) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+function calculateVirtualMessageRange(layout, scrollTop, viewportHeight, overscan = DEFAULT_OVERSCAN) {
+  if (layout.items.length === 0) {
+    return { startIndex: 0, endIndex: 0, topSpacer: 0, bottomSpacer: 0 };
+  }
+  const visibleTop = Math.max(0, scrollTop - overscan);
+  const visibleBottom = Math.min(layout.totalSize, scrollTop + Math.max(viewportHeight, 1) + overscan);
+  const startIndex = firstItemEndingAfter(layout.items, visibleTop);
+  const endIndex = Math.max(startIndex + 1, firstItemStartingAfter(layout.items, visibleBottom));
+  const clampedEnd = Math.min(layout.items.length, endIndex);
+  const topSpacer = layout.items[startIndex]?.start ?? 0;
+  const bottomSpacer = Math.max(0, layout.totalSize - (layout.items[clampedEnd - 1]?.end ?? 0));
+  return { startIndex, endIndex: clampedEnd, topSpacer, bottomSpacer };
+}
+function findScrollElement(root2, explicit) {
+  return explicit?.current ?? root2?.closest(".stream-scroll") ?? null;
+}
+function useVirtualMessageWindow({
+  items,
+  rootRef,
+  scrollRef,
+  hasMore,
+  loadingOlder,
+  onLoadOlder
+}) {
+  const measuredHeights = reactExports.useRef(/* @__PURE__ */ new Map());
+  const previousLayout = reactExports.useRef(null);
+  const loadRequested = reactExports.useRef(false);
+  const stickToBottom = reactExports.useRef(true);
+  const [measurementVersion, setMeasurementVersion] = reactExports.useState(0);
+  const [viewport, setViewport] = reactExports.useState({ scrollTop: 0, height: DEFAULT_VIEWPORT_HEIGHT, ready: false });
+  const layout = reactExports.useMemo(
+    () => buildVirtualMessageLayout(items, measuredHeights.current),
+    // measurementVersion deliberately invalidates the layout after ResizeObserver updates the cache.
+    [items, measurementVersion]
+  );
+  const effectiveScrollTop = viewport.ready ? viewport.scrollTop : Math.max(0, layout.totalSize - viewport.height);
+  const range = reactExports.useMemo(
+    () => calculateVirtualMessageRange(layout, effectiveScrollTop, viewport.height),
+    [effectiveScrollTop, layout, viewport.height]
+  );
+  const requestOlder = reactExports.useCallback(() => {
+    if (!hasMore || loadingOlder || loadRequested.current || !onLoadOlder) return;
+    loadRequested.current = true;
+    void Promise.resolve(onLoadOlder()).finally(() => {
+      loadRequested.current = false;
+    });
+  }, [hasMore, loadingOlder, onLoadOlder]);
+  reactExports.useEffect(() => {
+    const element2 = findScrollElement(rootRef.current, scrollRef);
+    if (!element2) return;
+    const sync = () => {
+      const maxScrollTop = Math.max(0, element2.scrollHeight - element2.clientHeight);
+      stickToBottom.current = maxScrollTop - element2.scrollTop <= STICK_TO_BOTTOM_THRESHOLD;
+      setViewport((current) => {
+        const next = { scrollTop: element2.scrollTop, height: element2.clientHeight, ready: true };
+        return current.scrollTop === next.scrollTop && current.height === next.height && current.ready ? current : next;
+      });
+      if (element2.scrollTop <= LOAD_OLDER_THRESHOLD) requestOlder();
+    };
+    element2.addEventListener("scroll", sync, { passive: true });
+    const observer = new ResizeObserver(sync);
+    observer.observe(element2);
+    sync();
+    return () => {
+      element2.removeEventListener("scroll", sync);
+      observer.disconnect();
+    };
+  }, [requestOlder, rootRef, scrollRef]);
+  useBrowserLayoutEffect(() => {
+    const element2 = findScrollElement(rootRef.current, scrollRef);
+    const oldLayout = previousLayout.current;
+    previousLayout.current = layout;
+    if (!element2 || !oldLayout || oldLayout.items.length === 0 || layout.items.length === 0) return;
+    const oldFirst = oldLayout.items[0];
+    const newFirstIndex = layout.items.findIndex((item) => item.blockId === oldFirst.blockId);
+    if (newFirstIndex <= 0) return;
+    const newStart = layout.items[newFirstIndex].start;
+    const delta = newStart - oldFirst.start;
+    if (delta <= 0) return;
+    element2.scrollTop += delta;
+    setViewport({ scrollTop: element2.scrollTop, height: element2.clientHeight, ready: true });
+  }, [layout, rootRef, scrollRef]);
+  useBrowserLayoutEffect(() => {
+    const root2 = rootRef.current;
+    const element2 = findScrollElement(root2, scrollRef);
+    if (!root2 || !element2 || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      let changed = false;
+      let correction = 0;
+      const viewportTop = element2.getBoundingClientRect().top;
+      for (const entry of entries) {
+        const node2 = entry.target;
+        const blockId = node2.dataset.messageBlockId;
+        if (!blockId) continue;
+        const nextHeight = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+        const previousHeight = measuredHeights.current.get(blockId);
+        if (nextHeight <= 0 || previousHeight !== void 0 && Math.abs(previousHeight - nextHeight) < 0.5) continue;
+        measuredHeights.current.set(blockId, nextHeight);
+        changed = true;
+        if (!stickToBottom.current && node2.getBoundingClientRect().bottom <= viewportTop + 1) {
+          correction += nextHeight - (previousHeight ?? nextHeight);
+        }
+      }
+      if (!changed) return;
+      if (correction !== 0) element2.scrollTop += correction;
+      setMeasurementVersion((value) => value + 1);
+      if (stickToBottom.current) {
+        requestAnimationFrame(() => {
+          element2.scrollTop = element2.scrollHeight;
+        });
+      }
+    });
+    root2.querySelectorAll("[data-message-block-id]").forEach((node2) => observer.observe(node2));
+    return () => observer.disconnect();
+  }, [range.startIndex, range.endIndex, rootRef, scrollRef]);
+  useBrowserLayoutEffect(() => {
+    const element2 = findScrollElement(rootRef.current, scrollRef);
+    if (!element2 || items.length === 0) return;
+    const oldLayout = previousLayout.current;
+    if (!oldLayout || oldLayout.items.length !== 0 || !stickToBottom.current) return;
+    element2.scrollTop = element2.scrollHeight;
+  }, [items.length, rootRef, scrollRef]);
+  return { layout, range };
+}
+const USER_MESSAGE_ESTIMATE = 88;
+const RUN_PROCESS_ESTIMATE = 140;
+function buildMessageBlocks(order2, runs, runTimings) {
+  return order2.flatMap((runId) => {
+    const run = runs[runId];
+    if (!run) return [];
+    const blocks = [];
+    if (run.task) {
+      const taskText = normalizePunctuation(run.task);
+      blocks.push({
+        blockId: `${runId}:task`,
+        estimatedHeight: USER_MESSAGE_ESTIMATE,
+        content: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "user-message-row", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "user-message-group", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "user-message", "data-searchable": true, children: taskText }),
+          run.taskAt !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(MessageMeta, { time: run.taskAt, text: taskText })
+        ] }) })
+      });
+    }
+    blocks.push({
+      blockId: `${runId}:process`,
+      estimatedHeight: RUN_PROCESS_ESTIMATE,
+      content: /* @__PURE__ */ jsxRuntimeExports.jsx(RunProcess, { run, runTiming: runTimings[runId] })
+    });
+    return blocks;
+  });
+}
 function MessageStream({
   order: order2,
   runs,
-  runTimings
+  runTimings,
+  scrollRef,
+  hasMore = false,
+  loadingOlder = false,
+  historyError = null,
+  onLoadOlder
 }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: order2.flatMap((runId) => {
-    const run = runs[runId];
-    if (!run) return [];
-    const taskText = run.task ? normalizePunctuation(run.task) : "";
-    return [
-      run.task ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "user-message-row", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "user-message-group", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "user-message", "data-searchable": true, children: taskText }),
-        run.taskAt !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(MessageMeta, { time: run.taskAt, text: taskText })
-      ] }) }, `${runId}:task`) : null,
-      /* @__PURE__ */ jsxRuntimeExports.jsx(RunProcess, { run, runTiming: runTimings[runId] }, runId)
-    ];
-  }) });
+  const rootRef = reactExports.useRef(null);
+  const blocks = reactExports.useMemo(
+    () => buildMessageBlocks(order2, runs, runTimings),
+    [order2, runTimings, runs]
+  );
+  const { range } = useVirtualMessageWindow({
+    items: blocks,
+    rootRef,
+    scrollRef,
+    hasMore,
+    loadingOlder,
+    onLoadOlder
+  });
+  const visibleBlocks = blocks.slice(range.startIndex, range.endIndex);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: rootRef, className: "message-stream", "data-block-count": blocks.length, children: [
+    (loadingOlder || historyError) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message-history-status${historyError ? " is-error" : ""}`, role: historyError ? "alert" : "status", children: historyError ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void onLoadOlder?.(), children: "历史加载失败，点击重试" }) : "正在加载更早的消息…" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "message-virtual-spacer", "data-virtual-spacer": "top", style: { height: range.topSpacer } }),
+    visibleBlocks.map((block) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "div",
+      {
+        className: "message-virtual-block",
+        "data-message-block-id": block.blockId,
+        children: block.content
+      },
+      block.blockId
+    )),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "message-virtual-spacer", "data-virtual-spacer": "bottom", style: { height: range.bottomSpacer } })
+  ] });
 }
 const ELASTIC_MAX = 96;
 const ELASTIC_SATURATION = 400;
 const ELASTIC_OMEGA = 28;
 const ELASTIC_ZETA = 0.9;
-const ELASTIC_WHEEL_IDLE = 80;
+const ELASTIC_WHEEL_IDLE = 40;
+const ELASTIC_TRACK_MAX = 200;
+const ELASTIC_GESTURE_GAP = 160;
 function offsetFromPull(pull, saturation, max, sign) {
   return sign * max * (1 - 1 / (pull / saturation + 1));
 }
@@ -20101,14 +20311,13 @@ function nestedCanScroll(target, container, delta) {
   }
   return false;
 }
-function useElasticScroll(scrollRef, contentRef, thumbRef) {
+function useElasticScroll(scrollRef, contentRef) {
   const resetRef = reactExports.useRef(() => {
   });
   const reset = reactExports.useCallback(() => resetRef.current(), []);
   reactExports.useEffect(() => {
     const el = scrollRef.current;
     const content2 = contentRef.current;
-    const thumb = thumbRef?.current;
     if (!el || !content2) return;
     let phase = "idle";
     let pull = 0;
@@ -20117,17 +20326,13 @@ function useElasticScroll(scrollRef, contentRef, thumbRef) {
     let lastFrame = 0;
     let frameId = 0;
     let idleTimerId = 0;
+    let lastWheelAt = 0;
+    let overscrollStartAt = 0;
+    let capped = false;
     let touchLastY = null;
-    let origin = "top";
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const paint = () => {
       content2.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
-      if (thumb) {
-        const scale = 1 - 0.4 * Math.min(Math.abs(offset) / ELASTIC_MAX, 1);
-        thumb.style.transformOrigin = origin;
-        thumb.style.transform = offset === 0 ? "" : `scaleY(${scale})`;
-        thumb.style.opacity = String(scale);
-      }
     };
     const rest = () => {
       clearTimeout(idleTimerId);
@@ -20167,12 +20372,29 @@ function useElasticScroll(scrollRef, contentRef, thumbRef) {
     const consume = (delta, event, wheel) => {
       if (delta === 0 || !event.cancelable || event.defaultPrevented || reducedMotion.matches) return;
       if (nestedCanScroll(event.target, el, delta)) return;
+      if (wheel) {
+        const now = performance.now();
+        if (now - lastWheelAt > ELASTIC_GESTURE_GAP) {
+          capped = false;
+          overscrollStartAt = 0;
+        }
+        lastWheelAt = now;
+      }
       const scrollMax = el.scrollHeight - el.clientHeight;
       const kind = boundaryKind(el.scrollTop, scrollMax, delta);
       if (phase === "idle" && kind !== "outward") return;
       if (kind === "within") {
         startReturning();
         return;
+      }
+      if (wheel) {
+        if (overscrollStartAt === 0) overscrollStartAt = performance.now();
+        if (!capped && performance.now() - overscrollStartAt > ELASTIC_TRACK_MAX) {
+          capped = true;
+          startReturning();
+          return;
+        }
+        if (capped) return;
       }
       if (phase === "returning") {
         pull = Math.sign(offset) * pullFromOffset(offset, ELASTIC_SATURATION, ELASTIC_MAX);
@@ -20189,7 +20411,6 @@ function useElasticScroll(scrollRef, contentRef, thumbRef) {
       } else {
         pull = nextPull;
         offset = offsetFromPull(Math.abs(pull), ELASTIC_SATURATION, ELASTIC_MAX, Math.sign(pull));
-        origin = pull < 0 && scrollMax > 1 ? "bottom" : "top";
         velocity = 0;
         phase = "tracking";
         if (wheel) idleTimerId = window.setTimeout(startReturning, ELASTIC_WHEEL_IDLE);
@@ -20238,7 +20459,7 @@ function useElasticScroll(scrollRef, contentRef, thumbRef) {
       resetRef.current = () => {
       };
     };
-  }, [scrollRef, contentRef, thumbRef]);
+  }, [scrollRef, contentRef]);
   return reset;
 }
 const THUMB_MIN = 48;
@@ -20250,8 +20471,7 @@ function StreamRegion({ scrollRef, children }) {
   const drag = reactExports.useRef(null);
   const layoutRef = reactExports.useRef(null);
   const contentRef = reactExports.useRef(null);
-  const thumbRef = reactExports.useRef(null);
-  const resetElastic = useElasticScroll(scrollRef, contentRef, thumbRef);
+  const resetElastic = useElasticScroll(scrollRef, contentRef);
   const sync = reactExports.useCallback(() => {
     const element2 = scrollRef.current;
     if (!element2) return;
@@ -20338,7 +20558,7 @@ function StreamRegion({ scrollRef, children }) {
         onPointerUp,
         onPointerCancel: onPointerUp,
         onLostPointerCapture: onPointerUp,
-        children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: thumbRef, className: "stream-scrollbar-thumb-fill" })
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "stream-scrollbar-thumb-fill" })
       }
     ) })
   ] });
@@ -20346,22 +20566,56 @@ function StreamRegion({ scrollRef, children }) {
 function isSendKey(key, shiftKey, composing) {
   return key === "Enter" && !shiftKey && !composing;
 }
-function Composer({ running, stopping, settings, modelOptions, modelLoading, onSettingsChange, onRun, onStop }) {
+const MODEL_OPTION_STORAGE_KEY = "workbench.modelOptionId";
+const MODEL_PICKER_LAYOUT_STORAGE_KEY = "workbench.modelPickerLayout.v1";
+function restoreStoredModelOptionId(storedId, modelOptions) {
+  const modelOptionId = storedId.trim();
+  return modelOptions.some((model) => model.imported && model.modelOptionId === modelOptionId) ? modelOptionId : "";
+}
+function parseStoredModelPickerPreference(serialized, legacyModelOptionId) {
+  const legacyId = legacyModelOptionId?.trim() ?? "";
+  if (serialized) {
+    try {
+      const parsed = JSON.parse(serialized);
+      const modelOptionId = typeof parsed.modelOptionId === "string" ? parsed.modelOptionId.trim() : "";
+      const displayName = typeof parsed.displayName === "string" ? parsed.displayName.trim() : "";
+      const width = typeof parsed.width === "number" && Number.isFinite(parsed.width) && parsed.width > 0 ? parsed.width : null;
+      if (modelOptionId && displayName && width !== null) {
+        if (legacyId && legacyId !== modelOptionId) return { modelOptionId: legacyId, displayName: "", width: null };
+        return { modelOptionId, displayName, width };
+      }
+    } catch {
+    }
+  }
+  return { modelOptionId: legacyId, displayName: "", width: null };
+}
+function Composer({ running, stopping, ready = true, modelOptions, modelLoading, onRun, onStop }) {
   const [task, setTask] = reactExports.useState("");
   const [attachments, setAttachments] = reactExports.useState([]);
   const [modelOpen, setModelOpen] = reactExports.useState(false);
+  const { selectedModelOptionId, selectModel, storedPreference } = useSelectedModelOption(modelOptions, modelLoading);
   const modelRootRef = reactExports.useRef(null);
   const modelTriggerRef = reactExports.useRef(null);
   const modelLabelRef = reactExports.useRef(null);
   const taskInputRef = reactExports.useRef(null);
-  const selectedModel = modelOptions.find((option) => option.modelOptionId === settings.modelOptionId);
-  const selectableModels = modelOptions.filter((option) => option.available);
-  const canRun = !running && task.trim() !== "" && Boolean(selectedModel?.available);
+  const modelSelectionChangedRef = reactExports.useRef(false);
+  const modelPickerPreferenceRef = reactExports.useRef(storedPreference);
+  const [modelTriggerWidth, setModelTriggerWidth] = reactExports.useState(() => storedPreference.modelOptionId === selectedModelOptionId ? storedPreference.width : null);
+  const [animateModelWidth, setAnimateModelWidth] = reactExports.useState(false);
+  const selectedModel = modelOptions.find((option) => option.imported && option.modelOptionId === selectedModelOptionId);
+  const selectableModels = modelOptions.filter((option) => option.imported && option.available);
+  const cachedModelDisplayName = storedPreference.modelOptionId === selectedModelOptionId ? storedPreference.displayName : "";
+  const modelDisplayName = selectedModel?.displayName ?? (cachedModelDisplayName || (modelLoading ? "读取模型…" : "选择模型"));
+  const canRun = ready && !running && task.trim() !== "" && Boolean(selectedModel?.available);
   const disabledReason = !task.trim() ? "请输入任务" : !selectedModel?.available ? "请选择可用模型" : null;
   reactExports.useLayoutEffect(() => {
     const trigger = modelTriggerRef.current;
     const label = modelLabelRef.current;
     if (!trigger || !label) return;
+    const cachedPreference = modelPickerPreferenceRef.current;
+    const cachedLayoutMatches = cachedPreference.modelOptionId === selectedModelOptionId && cachedPreference.displayName === modelDisplayName && cachedPreference.width !== null && modelTriggerWidth === cachedPreference.width;
+    if (cachedLayoutMatches) return;
+    if (modelLoading && !selectedModel && !cachedModelDisplayName) return;
     const previousFlex = label.style.flex;
     const previousMaxWidth = label.style.maxWidth;
     label.style.flex = "none";
@@ -20369,8 +20623,22 @@ function Composer({ running, stopping, settings, modelOptions, modelLoading, onS
     const naturalWidth = Math.ceil(label.getBoundingClientRect().width);
     label.style.flex = previousFlex;
     label.style.maxWidth = previousMaxWidth;
-    trigger.style.width = `${naturalWidth + 43}px`;
-  }, [modelLoading, selectedModel?.displayName]);
+    const nextWidth = naturalWidth + 43;
+    const shouldAnimate = modelSelectionChangedRef.current;
+    modelSelectionChangedRef.current = false;
+    if (modelTriggerWidth !== nextWidth) setModelTriggerWidth(nextWidth);
+    setAnimateModelWidth(shouldAnimate);
+    if (selectedModel) {
+      const nextPreference = { modelOptionId: selectedModelOptionId, displayName: selectedModel.displayName, width: nextWidth };
+      modelPickerPreferenceRef.current = nextPreference;
+      persistModelPickerPreference(nextPreference);
+    }
+  }, [cachedModelDisplayName, modelDisplayName, modelLoading, selectedModel?.displayName, selectedModelOptionId, storedPreference.displayName, storedPreference.modelOptionId, storedPreference.width]);
+  reactExports.useEffect(() => {
+    if (!animateModelWidth) return;
+    const timer = window.setTimeout(() => setAnimateModelWidth(false), 220);
+    return () => window.clearTimeout(timer);
+  }, [animateModelWidth]);
   reactExports.useEffect(() => {
     if (!modelOpen) return;
     const close = (event) => {
@@ -20411,7 +20679,7 @@ function Composer({ running, stopping, settings, modelOptions, modelLoading, onS
     if (!canRun) return;
     const request = {
       task: task.trim(),
-      modelOptionId: settings.modelOptionId,
+      modelOptionId: selectedModelOptionId,
       attachmentIds: attachments.map((attachment) => attachment.attachmentId)
     };
     onRun(request);
@@ -20442,7 +20710,7 @@ function Composer({ running, stopping, settings, modelOptions, modelLoading, onS
         /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: attachment.name }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: formatBytes$1(attachment.byteSize) })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId)), disabled: running, "aria-label": `移除附件 ${attachment.name}`, title: "移除附件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "close", width: "14", height: "14" }) })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId)), disabled: running || !ready, "aria-label": `移除附件 ${attachment.name}`, title: "移除附件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "close", width: "14", height: "14" }) })
     ] }, attachment.attachmentId)) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       "textarea",
@@ -20451,37 +20719,74 @@ function Composer({ running, stopping, settings, modelOptions, modelLoading, onS
         className: "task-input",
         placeholder: "What's up?",
         value: task,
-        disabled: running,
+        disabled: running || !ready,
         onChange: (event) => updateTask(event.currentTarget),
         onKeyDown: onTaskKeyDown,
         "aria-label": "任务"
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-left", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "composer-icon-button", onClick: () => void pickAttachments(), disabled: running, "aria-label": "上传文件", title: "上传文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "plus", width: "18", height: "18" }) }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-left", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "composer-icon-button", onClick: () => void pickAttachments(), disabled: running || !ready, "aria-label": "上传文件", title: "上传文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "plus", width: "18", height: "18" }) }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-right", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-picker", ref: modelRootRef, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { ref: modelTriggerRef, type: "button", className: "model-picker-trigger", onClick: () => setModelOpen((value) => !value), disabled: running || modelLoading, "aria-haspopup": "listbox", "aria-expanded": modelOpen, title: "选择模型", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { ref: modelLabelRef, children: modelLoading ? "读取模型…" : selectedModel?.displayName ?? "选择模型" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { ref: modelTriggerRef, type: "button", className: `model-picker-trigger ${animateModelWidth ? "is-width-animated" : ""}`, style: modelTriggerWidth === null ? void 0 : { width: `${modelTriggerWidth}px` }, onClick: () => setModelOpen((value) => !value), disabled: running || !ready || modelLoading, "aria-haspopup": "listbox", "aria-expanded": modelOpen, title: ready ? "选择模型" : "正在加载历史", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { ref: modelLabelRef, children: modelDisplayName }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "chevron-right", width: "15", height: "15" })
           ] }),
           modelOpen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-popover", role: "listbox", "aria-label": "选择模型", onKeyDown: navigateModels, children: [
             selectableModels.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "model-empty", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "尚未添加可用模型" }) }),
-            selectableModels.map((model) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", role: "option", "aria-selected": model.modelOptionId === settings.modelOptionId, onClick: () => {
-              onSettingsChange({ ...settings, modelOptionId: model.modelOptionId });
+            selectableModels.map((model) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", role: "option", "aria-selected": model.modelOptionId === selectedModelOptionId, onClick: () => {
+              if (model.modelOptionId !== selectedModelOptionId) modelSelectionChangedRef.current = true;
+              selectModel(model.modelOptionId);
               setModelOpen(false);
               modelTriggerRef.current?.focus();
             }, children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: model.displayName }),
-              model.modelOptionId === settings.modelOptionId && /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "check", width: "16", height: "16" })
+              model.modelOptionId === selectedModelOptionId && /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "check", width: "16", height: "16" })
             ] }, model.modelOptionId))
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: `send-stop-button ${running ? "is-stop" : "is-send"}`, onClick: running ? onStop : submit, disabled: running ? stopping : !canRun, "aria-label": running ? stopping ? "正在停止" : "停止运行" : "发送", title: running ? stopping ? "正在停止" : "停止运行" : disabledReason ?? "发送", "aria-busy": stopping || void 0, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "send-stop-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: running ? "stop" : "arrow-up", width: 18, height: 18 }) }, running ? "stop" : "send") })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: `send-stop-button ${running ? "is-stop" : "is-send"}`, onClick: running ? onStop : submit, disabled: running ? stopping : !canRun, "aria-label": running ? stopping ? "正在停止" : "停止运行" : "发送", title: running ? stopping ? "正在停止" : "停止运行" : ready ? disabledReason ?? "发送" : "正在加载历史", "aria-busy": stopping || void 0, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "send-stop-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: running ? "stop" : "arrow-up", width: 18, height: 18 }) }, running ? "stop" : "send") })
       ] })
     ] }),
     !running && disabledReason && task.trim() && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "composer-hint", role: "status", children: disabledReason })
   ] }) });
+}
+function useSelectedModelOption(modelOptions, modelLoading) {
+  const [storedPreference] = reactExports.useState(readStoredModelPickerPreference);
+  const [selectedModelOptionId, setSelectedModelOptionId] = reactExports.useState(storedPreference.modelOptionId);
+  reactExports.useEffect(() => {
+    if (modelLoading) return;
+    setSelectedModelOptionId((current) => restoreStoredModelOptionId(current || storedPreference.modelOptionId, modelOptions));
+  }, [modelLoading, modelOptions, storedPreference.modelOptionId]);
+  const selectModel = reactExports.useCallback((modelOptionId) => {
+    setSelectedModelOptionId(modelOptionId);
+    persistModelOptionId(modelOptionId);
+  }, []);
+  return { selectedModelOptionId, selectModel, storedPreference };
+}
+function readStoredModelPickerPreference() {
+  try {
+    return parseStoredModelPickerPreference(
+      globalThis.localStorage?.getItem(MODEL_PICKER_LAYOUT_STORAGE_KEY) ?? null,
+      globalThis.localStorage?.getItem(MODEL_OPTION_STORAGE_KEY) ?? null
+    );
+  } catch {
+    return { modelOptionId: "", displayName: "", width: null };
+  }
+}
+function persistModelOptionId(modelOptionId) {
+  try {
+    globalThis.localStorage?.setItem(MODEL_OPTION_STORAGE_KEY, modelOptionId);
+  } catch {
+  }
+}
+function persistModelPickerPreference(preference) {
+  try {
+    globalThis.localStorage?.setItem(MODEL_PICKER_LAYOUT_STORAGE_KEY, JSON.stringify(preference));
+    globalThis.localStorage?.setItem(MODEL_OPTION_STORAGE_KEY, preference.modelOptionId);
+  } catch {
+  }
 }
 function formatBytes$1(value) {
   if (value < 1024) return `${value} B`;
@@ -21029,16 +21334,13 @@ function OutputSidebar({ open, files, onOpenChange }) {
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-resizer", role: "separator", tabIndex: open ? 0 : -1, "aria-orientation": "vertical", "aria-valuemin": OUTPUT_SIDEBAR_MIN_WIDTH, "aria-valuemax": maxWidth(), "aria-valuenow": Math.round(targetWidth), onPointerDown: startDrag, onDoubleClick: resetWidth, onKeyDown: resizeWithKeyboard }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "output-sidebar-content", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "output-sidebar-header", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "eyebrow", children: "当前运行" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("h2", { children: [
-                "输出文件 ",
-                /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: files.length })
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "panel-close", onClick: () => onOpenChange(false), "aria-label": "隐藏输出文件", title: "隐藏输出文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "sidebar", width: "17", height: "17" }) })
-          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("header", { className: "output-sidebar-header", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "eyebrow", children: "当前运行" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("h2", { children: [
+              "输出文件 ",
+              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: files.length })
+            ] })
+          ] }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: fileListRef, className: "output-file-list", role: "listbox", "aria-label": "输出文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-file-layout", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: fileContentRef, className: "output-file-content", children: [
             fileGroups.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "panel-empty", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "book-open", width: "24", height: "24" }),
@@ -21139,12 +21441,168 @@ function useFloatingPanel(open, returnFocusRef) {
   };
   return { mounted, onTransitionEnd, panelRef, phase };
 }
+function useSessionHistory(state, dispatch) {
+  const loadInitial = reactExports.useCallback(async () => {
+    dispatch({ type: "historyLoadStarted", scope: "initial" });
+    try {
+      const page = await window.agentAPI.loadSessionPage({ cursor: null, limit: 100 });
+      dispatch({ type: "sessionHydrated", page });
+    } catch (error) {
+      dispatch({ type: "historyLoadFailed", scope: "initial", error: error instanceof Error ? error.message : String(error) });
+    }
+  }, [dispatch]);
+  const loadOlder = reactExports.useCallback(async () => {
+    const history = state.history;
+    if (!history.hydrated) {
+      if (!history.loadingInitial) await loadInitial();
+      return;
+    }
+    if (!history.hydrated || history.loadingOlder || !history.hasMore || !history.nextCursor) return;
+    dispatch({ type: "historyLoadStarted", scope: "older" });
+    try {
+      const page = await window.agentAPI.loadSessionPage({ cursor: history.nextCursor, limit: 100 });
+      dispatch({ type: "olderHistoryLoaded", page });
+    } catch (error) {
+      dispatch({ type: "historyLoadFailed", scope: "older", error: error instanceof Error ? error.message : String(error) });
+    }
+  }, [dispatch, loadInitial, state.history]);
+  reactExports.useEffect(() => {
+    void loadInitial();
+  }, [loadInitial]);
+  return {
+    hydrated: state.history.hydrated,
+    loadingOlder: state.history.loadingOlder,
+    hasMore: state.history.hasMore,
+    error: state.history.error,
+    loadOlder
+  };
+}
+const initialSessionHistoryState = {
+  sessionId: null,
+  entriesById: {},
+  entryOrder: [],
+  nextCursor: null,
+  hasMore: false,
+  snapshotSeq: 0,
+  loadingInitial: true,
+  loadingOlder: false,
+  hydrated: false,
+  error: null
+};
+function mergeHistoryEntries(state, entries, page) {
+  const entriesById = { ...state.entriesById };
+  for (const entry of entries) {
+    const previous2 = entriesById[entry.entryId];
+    if (!previous2 || entry.revision >= previous2.revision) entriesById[entry.entryId] = entry;
+  }
+  const entryOrder = Object.values(entriesById).sort((left, right) => left.sessionSeq - right.sessionSeq).map((entry) => entry.entryId);
+  return {
+    ...state,
+    sessionId: page.sessionId,
+    entriesById,
+    entryOrder,
+    nextCursor: page.nextCursor,
+    hasMore: page.hasMore,
+    snapshotSeq: Math.max(state.snapshotSeq, page.snapshotSeq),
+    loadingInitial: false,
+    loadingOlder: false,
+    hydrated: true,
+    error: null
+  };
+}
+function newRun(runId, task, taskAt) {
+  return {
+    runId,
+    task,
+    taskAt,
+    status: "completed",
+    turnOrder: [],
+    turns: {},
+    outputFileOrder: [],
+    outputFiles: {}
+  };
+}
+function toolResult(message) {
+  return {
+    ok: !message.isError,
+    output: message.content,
+    returncode: message.isError ? -1 : 0,
+    truncated: false
+  };
+}
+function ensureTurn$1(run, entry) {
+  const turnId = entry.turnId ?? `${entry.entryId}:turn`;
+  const existing = run.turns[turnId];
+  if (existing) return existing;
+  const turn = {
+    turnId,
+    turnOrdinal: run.turnOrder.length + 1,
+    status: entry.status === "failed" ? "failed" : "completed",
+    assistantContent: "",
+    reasoningContent: "",
+    toolOrder: [],
+    tools: {}
+  };
+  run.turnOrder.push(turnId);
+  run.turns[turnId] = turn;
+  return turn;
+}
+function mergePersistedEntries(state, entries) {
+  const runs = { ...state.runs };
+  const runOrder = [...state.runOrder];
+  const sorted = [...entries].sort((left, right) => left.sessionSeq - right.sessionSeq);
+  for (const entry of sorted) {
+    let run = runs[entry.runId];
+    if (!run) {
+      run = newRun(entry.runId);
+      runs[entry.runId] = run;
+      runOrder.push(entry.runId);
+    }
+    if (entry.type === "user_message") {
+      run.task = entry.payload.content;
+      run.taskAt = entry.createdAt;
+      continue;
+    }
+    const turn = ensureTurn$1(run, entry);
+    if (entry.status === "failed") run.status = "failed";
+    if (entry.type === "assistant_message") {
+      turn.assistantContent = entry.payload.content;
+      turn.finalContent = entry.status === "completed" ? entry.payload.content : void 0;
+      turn.reasoningContent = entry.payload.reasoning ?? "";
+      turn.stopReason = entry.payload.toolCalls?.length ? "tool_use" : "stop";
+      for (const call of entry.payload.toolCalls ?? []) {
+        if (turn.tools[call.id]) continue;
+        turn.toolOrder.push(call.id);
+        turn.tools[call.id] = {
+          toolCallId: call.id,
+          name: call.name,
+          input: call.input,
+          status: "running"
+        };
+      }
+    } else if (entry.toolCallId) {
+      const existing = turn.tools[entry.toolCallId];
+      const tool = {
+        toolCallId: entry.toolCallId,
+        name: existing?.name ?? entry.payload.toolName ?? "工具",
+        input: existing?.input,
+        status: "completed",
+        result: toolResult(entry.payload)
+      };
+      if (!existing) turn.toolOrder.push(entry.toolCallId);
+      turn.tools[entry.toolCallId] = tool;
+    }
+  }
+  runOrder.sort((left, right) => (runs[left]?.taskAt ?? 0) - (runs[right]?.taskAt ?? 0));
+  return { runs, runOrder };
+}
 const initialAgentState = {
   status: "idle",
   currentRunId: null,
   runs: {},
   runOrder: [],
-  error: null
+  error: null,
+  history: initialSessionHistoryState
 };
 function createRun(runId, task, taskAt) {
   return {
@@ -21223,6 +21681,44 @@ function agentReducer(state, action) {
     }
     case "runRejected":
       return { ...state, status: "failed", currentRunId: null, error: action.error };
+    case "historyLoadStarted":
+      return {
+        ...state,
+        history: {
+          ...state.history,
+          loadingInitial: action.scope === "initial" ? true : state.history.loadingInitial,
+          loadingOlder: action.scope === "older" ? true : state.history.loadingOlder,
+          error: null
+        }
+      };
+    case "sessionHydrated": {
+      const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
+      const projected = mergePersistedEntries({ runs: {}, runOrder: [] }, action.page.entries);
+      return {
+        ...state,
+        history,
+        runs: projected.runs,
+        runOrder: projected.runOrder,
+        currentRunId: null,
+        status: "idle",
+        error: null
+      };
+    }
+    case "olderHistoryLoaded": {
+      const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
+      const projected = mergePersistedEntries(state, action.page.entries);
+      return { ...state, history, runs: projected.runs, runOrder: projected.runOrder };
+    }
+    case "historyLoadFailed":
+      return {
+        ...state,
+        history: {
+          ...state.history,
+          loadingInitial: action.scope === "initial" ? false : state.history.loadingInitial,
+          loadingOlder: action.scope === "older" ? false : state.history.loadingOlder,
+          error: action.error
+        }
+      };
     case "event": {
       const event = action.event;
       if (event.type !== "runStarted" && !belongsToCurrentRun(state, event.runId)) return state;
@@ -21252,6 +21748,12 @@ function agentReducer(state, action) {
             ...turn,
             reasoningContent: turn.reasoningContent + event.delta
           }));
+        });
+      }
+      if (event.type === "turnRetrying") {
+        return withCurrentRun(state, (run) => {
+          const next = ensureTurn(run, event.turnId);
+          return updateTurn(next, event.turnId, (turn) => ({ ...turn, status: "retrying" }));
         });
       }
       if (event.type === "assistantCompleted") {
@@ -21337,25 +21839,11 @@ function agentReducer(state, action) {
     }
   }
 }
-const DEFAULT_SETTINGS = {
-  modelOptionId: ""
-};
-function retainSelectedModelOption(currentId, models) {
-  if (!currentId) return "";
-  return models.some((model) => model.imported && model.modelOptionId === currentId) ? currentId : "";
-}
-function restoreSelectedModelOption(storedId, models) {
-  if (!storedId) return "";
-  return models.some((model) => model.imported && model.available && model.modelOptionId === storedId) ? storedId : "";
-}
-const MODEL_OPTION_KEY = "workbench.modelOptionId";
 function useProviderCatalog() {
   const [profiles, setProfiles] = reactExports.useState([]);
-  const [selectedModelOptionId, setSelectedModelOptionId] = reactExports.useState("");
   const [loading, setLoading] = reactExports.useState(true);
   const [error, setError] = reactExports.useState(null);
   const requestId = reactExports.useRef(0);
-  const restoredSelection = reactExports.useRef(false);
   const refresh = reactExports.useCallback(async () => {
     const currentRequest = ++requestId.current;
     setLoading(true);
@@ -21375,40 +21863,21 @@ function useProviderCatalog() {
     void refresh();
   }, [refresh]);
   const modelOptions = reactExports.useMemo(
-    () => profiles.flatMap((profile) => profile.models.filter((model) => model.imported)),
+    () => profiles.flatMap((profile) => profile.models),
     [profiles]
   );
-  reactExports.useEffect(() => {
-    if (loading) return;
-    setSelectedModelOptionId((current) => {
-      const retained = retainSelectedModelOption(current, modelOptions);
-      if (retained) return retained;
-      if (!restoredSelection.current) {
-        restoredSelection.current = true;
-        const stored = localStorage.getItem(MODEL_OPTION_KEY) ?? "";
-        const restored = restoreSelectedModelOption(stored, modelOptions);
-        if (restored) return restored;
-      }
-      localStorage.removeItem(MODEL_OPTION_KEY);
-      return "";
-    });
-  }, [loading, modelOptions]);
-  const selectModel = reactExports.useCallback((modelOptionId) => {
-    setSelectedModelOptionId(modelOptionId);
-    if (modelOptionId) localStorage.setItem(MODEL_OPTION_KEY, modelOptionId);
-    else localStorage.removeItem(MODEL_OPTION_KEY);
-  }, []);
-  return { profiles, modelOptions, selectedModelOptionId, loading, error, refresh, selectModel };
+  return { profiles, modelOptions, loading, error, refresh };
 }
 function App() {
   const [state, dispatch] = reactExports.useReducer(agentReducer, initialAgentState);
-  const [settings, setSettings] = reactExports.useState(DEFAULT_SETTINGS);
   const catalog = useProviderCatalog();
   const [configOpen, setConfigOpen] = reactExports.useState(false);
   const [outputOpen, setOutputOpen] = reactExports.useState(false);
   const [searchOpen, setSearchOpen] = reactExports.useState(false);
   const [searchQuery, setSearchQuery] = reactExports.useState("");
   const eventQueue = reactExports.useRef([]);
+  const hydrationEventQueue = reactExports.useRef([]);
+  const historyReadyRef = reactExports.useRef(false);
   const eventFrame = reactExports.useRef(null);
   const runTimings = reactExports.useRef({});
   const bottomRef = reactExports.useRef(null);
@@ -21429,6 +21898,10 @@ function App() {
   reactExports.useEffect(() => {
     if (!window.agentAPI || typeof window.agentAPI.onEvent !== "function") return;
     const offEvent = window.agentAPI.onEvent((event) => {
+      if (!historyReadyRef.current) {
+        hydrationEventQueue.current.push(event);
+        return;
+      }
       eventQueue.current.push(event);
       if (eventFrame.current !== null) return;
       eventFrame.current = requestAnimationFrame(() => {
@@ -21454,11 +21927,14 @@ function App() {
       eventQueue.current = [];
     };
   }, []);
+  const history = useSessionHistory(state, dispatch);
   reactExports.useEffect(() => {
-    if (catalog.selectedModelOptionId !== settings.modelOptionId) {
-      setSettings((current) => ({ ...current, modelOptionId: catalog.selectedModelOptionId }));
-    }
-  }, [catalog.selectedModelOptionId, settings.modelOptionId]);
+    if (!history.hydrated || historyReadyRef.current) return;
+    historyReadyRef.current = true;
+    const pending = hydrationEventQueue.current;
+    hydrationEventQueue.current = [];
+    pending.forEach((event) => dispatch({ type: "event", event }));
+  }, [history.hydrated]);
   reactExports.useEffect(() => {
     if (!configOpen) return;
     const close = (event) => {
@@ -21471,7 +21947,7 @@ function App() {
   }, [configOpen, settingsPanel.panelRef]);
   reactExports.useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [state.currentRunId, totalTurnCount, toolActivityHash]);
+  }, [state.currentRunId, state.history.hydrated, totalTurnCount, toolActivityHash]);
   reactExports.useEffect(() => {
     const element2 = composerRef.current;
     if (!element2) return;
@@ -21521,10 +21997,6 @@ function App() {
     dispatch({ type: "stopRequested" });
     window.agentAPI.stop();
   };
-  const changeSettings = (next) => {
-    setSettings(next);
-    if (next.modelOptionId !== catalog.selectedModelOptionId) catalog.selectModel(next.modelOptionId);
-  };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "app", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       TopBar,
@@ -21540,36 +22012,38 @@ function App() {
       }
     ),
     searchOpen && /* @__PURE__ */ jsxRuntimeExports.jsx(SearchPopover, { query: searchQuery, onQueryChange: setSearchQuery }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "workspace", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "main-column", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Column, { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(StreamRegion, { scrollRef: streamRef, children: [
-          state.error && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "error-banner", children: state.error }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            MessageStream,
-            {
-              order: state.runOrder,
-              runs: state.runs,
-              runTimings: runTimings.current
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: bottomRef, style: { height: composerHeight } })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: composerRef, className: "composer-inner", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-          Composer,
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "workspace", children: /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "main-column", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Column, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(StreamRegion, { scrollRef: streamRef, children: [
+        state.error && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "error-banner", children: state.error }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          MessageStream,
           {
-            running,
-            stopping,
-            settings,
-            modelOptions: catalog.modelOptions,
-            modelLoading: catalog.loading,
-            onSettingsChange: changeSettings,
-            onRun: handleRun,
-            onStop: handleStop
+            order: state.runOrder,
+            runs: state.runs,
+            runTimings: runTimings.current,
+            scrollRef: streamRef,
+            hasMore: history.hasMore,
+            loadingOlder: history.loadingOlder,
+            historyError: history.error,
+            onLoadOlder: history.loadOlder
           }
-        ) })
-      ] }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(OutputSidebar, { open: outputOpen, files: outputFiles, onOpenChange: setOutputOpen })
-    ] }),
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: bottomRef, style: { height: composerHeight } })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: composerRef, className: "composer-inner", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        Composer,
+        {
+          running,
+          stopping,
+          ready: history.hydrated,
+          modelOptions: catalog.modelOptions,
+          modelLoading: catalog.loading,
+          onRun: handleRun,
+          onStop: handleStop
+        }
+      ) })
+    ] }) }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(OutputSidebar, { open: outputOpen, files: outputFiles, onOpenChange: setOutputOpen }),
     settingsPanel.mounted && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: settingsPanel.panelRef, className: `config-floating phase-${settingsPanel.phase}`, onTransitionEnd: settingsPanel.onTransitionEnd, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ConfigPanel, { profiles: catalog.profiles, loading: catalog.loading, error: catalog.error, disabled: running, onClose: () => setConfigOpen(false), onRefresh: catalog.refresh }) })
   ] });
 }

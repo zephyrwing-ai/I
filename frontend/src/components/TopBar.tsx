@@ -18,7 +18,7 @@ export function TopBar({ outputOpen, outputCount, searchOpen, settingsOpen, sett
       <h1 className="sr-only">主工作台</h1>
       <div className="topbar-actions">
         <button className={`icon-button ${outputOpen ? "active" : ""}`} onClick={onOutput} title={outputOpen ? "隐藏输出文件" : "显示输出文件"} aria-label={outputOpen ? "隐藏输出文件" : "显示输出文件"} aria-expanded={outputOpen} aria-controls="output-sidebar">
-          <Icon name="sidebar" width="18" height="18" />
+          <Icon name="sidebar" width="18" height="18" strokeWidth={2} />
           {!outputOpen && outputCount > 0 && <span className="icon-badge">{outputCount > 9 ? "9+" : outputCount}</span>}
         </button>
         <button className={`icon-button ${searchOpen ? "active" : ""}`} onClick={onSearch} title="搜索全局内容" aria-label="搜索全局内容">

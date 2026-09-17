@@ -20,12 +20,18 @@ import {
   type RunRequest,
   type RunStartAck,
   type SaveProviderResult,
+  type SessionPageRequest,
+  type SessionPageResult,
 } from "../shared/ipc.js";
 
 const api: AgentAPI = {
   run: (req: RunRequest): Promise<RunStartAck> => ipcRenderer.invoke(IPC.run, req),
 
   stop: (): void => ipcRenderer.send(IPC.stop),
+
+  loadSessionPage: (request: SessionPageRequest): Promise<SessionPageResult> => (
+    ipcRenderer.invoke(IPC.loadSessionPage, request)
+  ),
 
   listProviderProfiles: (): Promise<ProviderProfileSummary[]> => ipcRenderer.invoke(IPC.listProviderProfiles),
 

@@ -167,6 +167,7 @@ export function RunProcess({
   // 流式回答：运行中的最后回合若未动用工具，即为正在生成的最终回答——
   // 不等待 completed，随 text_delta 增量实时渲染进阅读流。
   const runningTurn = turns[turns.length - 1];
+  const retrying = turns.some((turn) => turn.status === "retrying");
   const answerTurn =
     runningTurn?.status === "running" && runningTurn.toolOrder.length === 0
       ? runningTurn
@@ -176,7 +177,7 @@ export function RunProcess({
     <section className="run-process" data-searchable>
       <button type="button" className="run-fold" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <span className={`turn-state${working ? " working" : ""}`}>
-          {working ? "Working for" : "Worked for"}
+          {retrying ? "Retrying response" : working ? "Working for" : "Worked for"}
           {totalElapsed !== undefined && ` ${formatElapsed(totalElapsed)}`}
         </span>
         <Chevron expanded={open} />

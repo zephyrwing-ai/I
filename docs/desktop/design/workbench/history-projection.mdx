@@ -1,0 +1,160 @@
+---
+title: 历史投影
+description: 持久化会话记录的分页读取、Renderer hydrate、实时事件合并与页面状态投影。
+---
+
+范围。
+
+- 历史投影把 Main 返回的持久化会话记录转换成 Renderer 已有的 AgentState。
+- 历史记录和实时 AgentEvent 汇入同一组 RunState、TurnState 和 ToolState，随后由 MessageStream 统一渲染。
+- SQLite 查询留在 Main，页面状态投影留在 Renderer，MessageStream 只消费已经完成投影的 AgentState。
+- reasoning、toolCalls 和 tool_result 沿用会话存储中的完整事实；历史投影只决定它们在页面状态中的位置。
+
+分页契约。
+
+```ts
+interface SessionPageRequest {
+  cursor: string | null;
+  limit: number;
+}
+
+interface SessionHistoryEntry {
+  entryId: string;
+  sessionSeq: number;
+  type: "user_message" | "assistant_message" | "tool_result";
+  status: "streaming" | "completed" | "interrupted" | "failed";
+  runId: string;
+  turnId: string | null;
+  toolCallId: string | null;
+  revision: number;
+  payload: ModelMessage;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface SessionPageResult {
+  sessionId: string;
+  entries: SessionHistoryEntry[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  snapshotSeq: number;
+}
+```
+
+- `cursor: null` 读取当前会话最新一页；默认 `limit` 为100。
+- Main 使用 `sessionSeq DESC` 查询最新记录，再把结果反转为 `sessionSeq ASC` 返回 Renderer。
+- `nextCursor` 表示当前页最早记录之前的稳定边界；下一页只返回该边界之前的记录。
+- `hasMore` 表示 Main 已确认存在更早记录。
+- `snapshotSeq` 表示当前查询快照看到的最大 sessionSeq，用于区分历史快照和 hydrate 期间到达的实时事件。
+- Main 为同一 session 保存正在加载的 cursor 和已经使用过的 cursor，重复请求返回既有状态或被合并为同一个请求。
+
+启动 hydrate。
+
+```text
+Main 初始化 Repository 与 active sessionId
+  → Renderer 注册 AgentEvent 监听
+  → Renderer 暂存 hydrate 期间到达的实时事件
+  → loadSessionPage(cursor=null, limit=100)
+  → Preload 调用 session:load-page
+  → Main 历史服务查询 Repository
+  → 返回 SessionPageResult
+  → sessionProjection 转换 entries
+  → agentReducer 接收 sessionHydrated
+  → Renderer 回放暂存的实时事件
+  → MessageStream 渲染统一 AgentState
+```
+
+- Renderer 在发起历史请求前完成 AgentEvent 订阅。
+- Composer 在首次 hydrate 完成前保持加载状态，避免新运行早于历史基线进入页面状态。
+- hydrate 失败保留结构化错误和重试入口；实时事件订阅继续存在，重试成功后按稳定身份合并。
+- 首次 hydrate 完成后，消息流定位到最新消息底部。
+
+历史状态。
+
+```ts
+interface SessionHistoryState {
+  sessionId: string | null;
+  entriesById: Record<string, SessionHistoryEntry>;
+  entryOrder: string[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  snapshotSeq: number;
+  loadingInitial: boolean;
+  loadingOlder: boolean;
+  hydrated: boolean;
+  error: string | null;
+}
+```
+
+- `entriesById` 以 entryId 去重，`entryOrder` 按 sessionSeq 升序保存稳定顺序。
+- `loadingInitial` 和 `loadingOlder` 分离，旧历史请求不会覆盖首次 hydrate 状态。
+- `nextCursor` 只在成功合并一页后前进；失败请求保留原 cursor，允许原位置重试。
+- `hasMore=false` 后顶部滚动不再发起历史请求。
+
+投影规则。
+
+| 持久化记录 | 页面投影 |
+| --- | --- |
+| user_message | 按 runId 创建或补全 RunState，payload.content 写入 task |
+| assistant_message | 按 runId 和 turnId 创建 TurnState，写入正文、reasoning 和 toolCalls |
+| tool_result | 按 toolCallId 找到 ToolState，写入结果、错误状态和 media |
+| completed | 进入正常历史消息和模型可见上下文 |
+| interrupted | 保留已写入草稿并显示中断状态 |
+| failed | 保留错误记录并显示失败状态 |
+
+- 同一页先按 sessionSeq 排序，再按 runId、turnId 和 toolCallId 关联。
+- Assistant Message 中的 toolCalls 创建工具占位；后续 tool_result 补全同一个 ToolState。
+- 工具折叠摘要从 ToolState 计算，reasoning 展开状态和工具展开状态使用 Renderer 本地状态。
+- 历史时间使用 entries 的 createdAt 和 updatedAt；精确运行计时需要独立运行元数据时再扩展协议。
+- 投影函数只处理传入页面，旧页面加载时把新增 RunState 或新增 turn 合并到既有 AgentState，不重建全部历史。
+
+实时事件合并。
+
+```text
+持久化 SessionHistoryEntry ─→ sessionProjection ─┐
+                                                  ├→ agentReducer → AgentState
+实时 AgentEvent ─────────────→ event reducer ─────┘
+                                                                    ↓
+                                                              MessageStream
+```
+
+- history hydrate 和实时事件共享 runId、turnId 和 toolCallId，不使用数组位置关联。
+- hydrate 期间的实时事件先进入缓冲队列，`sessionHydrated` 完成后按接收顺序回放。
+- 历史页与实时事件描述同一对象时，entryId 和稳定运行身份完成去重；completed 数据覆盖 streaming 草稿，较小 revision 不覆盖较新状态。
+- 当前运行继续通过 AgentEvent 更新 AgentState，历史分页不会重新请求或重放模型输出。
+
+加载更早历史。
+
+```text
+MessageStream 接近顶部
+  → hasMore && !loadingOlder
+  → loadSessionPage(nextCursor, 100)
+  → Main 返回更早 entries
+  → entries 插入历史缓存前面
+  → sessionProjection 只投影新增页面
+  → agentReducer 接收 olderHistoryLoaded
+  → MessageStream 保持滚动锚点并更新虚拟窗口
+```
+
+- 顶部触发阈值使用像素距离或虚拟列表起始索引，单次边界停留只产生一个在途请求。
+- Renderer 在插入前记录锚点消息身份和视口内偏移，布局更新后把同一消息恢复到原位置。
+- 一页为空或 nextCursor 为空时进入完整历史状态。
+
+实现归属。
+
+- `shell/main/session-history.ts` 提供 Main 历史分页服务并返回 SessionPageResult。
+- `shell/shared/ipc.ts` 定义 `session:load-page` 和分页 DTO。
+- `shell/preload/index.ts` 暴露 `loadSessionPage()`。
+- `frontend/src/store/sessionProjection.ts` 执行 SessionHistoryEntry 到页面状态的转换。
+- `frontend/src/store/agentReducer.ts` 合并 hydrate、旧历史页面和实时事件。
+- `frontend/src/hooks/useSessionHistory.ts` 管理首次加载、游标、去重、错误和重试。
+- `frontend/src/App.tsx` 协调启动 hydrate、实时事件缓冲和 Composer 就绪状态。
+
+验证。
+
+- 重启后最新历史按照 sessionSeq 正序恢复，页面定位到最新消息。
+- hydrate 期间到达的 AgentEvent 在历史完成后按原顺序出现一次。
+- 工具调用、tool_result 和 reasoning 恢复到原 run 与 turn。
+- 顶部连续滚动只产生一个在途请求，失败重试继续使用同一 cursor。
+- 旧历史插入后锚点消息保持原来的视口位置。
+- nextCursor 为空后不再发起旧历史请求。

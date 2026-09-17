@@ -41,8 +41,34 @@ IPC 边界。
 
 - AgentEvent 延续现有 `agent:event` 通道。
 - 会话写入通过 Main 内的直接对象调用完成。
-- Renderer 通过 AgentEvent 接收实时过程，通过后续历史读取接口接收持久化页面数据。
+- Renderer 通过 AgentEvent 接收实时过程，通过 `session:load-page` 接收持久化页面数据。
 - 本地存储接入保持现有 Composer 提交字段和消息流事件格式。
+
+历史页面读取与虚拟渲染。
+
+- Main 在应用就绪阶段持有 active `sessionId`；Renderer 启动后先注册 AgentEvent，再通过 Preload 调用 `loadSessionPage({ cursor: null, limit: 100 })`。
+- `session:load-page` 进入 Main 的历史读取服务，历史服务校验 active session、cursor 和 limit，调用 Repository 读取最新一页 entries，返回 `entries`、`nextCursor`、`hasMore` 和 `snapshotSeq`。
+- Main 将 SQLite 倒序查询结果恢复为 `sessionSeq` 升序后返回 Renderer。Renderer 保存历史页和游标状态，并通过历史投影转换为 `RunState`、`TurnState` 和 `ToolState`。
+- `user_message` 创建 RunState；`assistant_message` 提供正文、reasoning 和 toolCalls；`tool_result` 通过 toolCallId 关联工具状态。折叠摘要和展开状态由 Renderer 生成，SessionRecorder 继续保存完整事实。
+- 用户向上滚动接近历史顶部时，Renderer 使用 `nextCursor` 请求更早的一页。返回记录插入历史缓存前面，投影层只处理新增记录，滚动锚点通过新增内容高度差保持稳定。
+- MessageStream 直接重构为虚拟渲染消息流。历史缓存保存已加载的页面，MessageStream 只挂载视口附近的可见块和 overscan 块，并使用上下占位维持完整滚动高度。
+- 历史恢复期间到达的实时 AgentEvent 进入 Renderer 缓冲队列；历史 hydrate 完成后按原顺序回放，历史数据和实时运行共同进入现有 agentReducer 与 MessageStream。
+- 历史分页、历史投影和虚拟渲染属于 Desktop/Renderer 历史交付，Agent Runtime、Provider Adapter、SessionRecorder 和工具执行契约保持原有职责。
+- 分页 DTO、hydrate 状态、投影合并与实时事件竞态以[历史投影](./history-projection.mdx)为准；虚拟窗口和动态高度以[消息流](./message-stream.mdx)为准。
+
+Main 历史服务。
+
+- `shell/main/session-history.ts` 接收 active sessionId 和 Repository，通过 `loadPage(cursor, limit)` 返回页面 DTO。
+- `cursor=null` 表示读取会话尾部最新一页；非空 cursor 表示读取该稳定边界之前的记录。
+- 历史服务限制页大小、拒绝未知 session、合并相同 cursor 的在途请求，并阻止重复 cursor 形成循环。
+- Repository 负责 SQLite 顺序查询，历史服务负责协议 DTO 和游标状态；两层都不生成 RunState 或页面折叠内容。
+
+IPC 契约。
+
+- `SessionPageRequest` 携带 `cursor` 和有上限的 `limit`。
+- `SessionPageResult` 携带 active `sessionId`、正序 entries、`nextCursor`、`hasMore` 和 `snapshotSeq`。
+- Preload 只暴露 `loadSessionPage()`；Renderer 无法取得数据库路径、Repository 或任意 sessionId 查询能力。
+- IPC 读取失败返回结构化错误，Renderer 保留原 cursor 并提供重试。
 
 错误收敛。
 
@@ -55,7 +81,8 @@ IPC 边界。
 实现入口。
 
 - `shell/main/index.ts` 创建和关闭 Repository。
+- `shell/main/session-history.ts` 提供 active session 的游标分页读取。
 - `shell/main/runner.ts` 取得 SessionRecorder、注入 Runtime、转发 AgentEvent，并在退出时提供运行空闲屏障。
 - `agent/memory/session-recorder.ts` 提供会话 Recorder 与缓存，Main 负责创建并注入。
-- `shell/shared/ipc.ts` 保持实时 AgentEvent 契约；页面历史恢复接口在对应页面设计中定义。
-- `frontend/src/App.tsx` 保持现有 `eventQueue` 与 Reducer 分发方式。
+- `shell/shared/ipc.ts` 同时定义实时 AgentEvent 和只读历史分页契约。
+- `frontend/src/App.tsx` 保持现有 `eventQueue`，并协调首次 hydrate 与实时事件回放。

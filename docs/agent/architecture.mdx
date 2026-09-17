@@ -9,6 +9,8 @@ description: Agent 内核的模块边界、依赖方向与跨模块运行主链�
 
 当前模型层实现 OpenAI 兼容协议，工具注册表已经注册 Bash、Read、Write、Edit、List Dir、Find Files 和 Search Content。Main 装配由 `agent/memory` 提供的 SessionRecorder 与 SQLite Repository；[会话存储](./memory.mdx)定义本地持久化契约，[会话存储实现清单](./session-storage-tasks.mdx)列出跨模块落地顺序。
 
+会话从用户输入到 SQLite 的运行链路见[会话本地存储流程](./session-storage-flow.mdx)。
+
 ## 模块划分
 
 Agent 设计按稳定的运行模块组织：
@@ -38,7 +40,7 @@ Agent 设计按稳定的运行模块组织：
 
 ## 跨模块主链路
 
-一次运行从不可变的运行输入开始。宿主创建 `runId`、取消信号和绑定 `sessionId` 的 SessionRecorder。Runtime 提交用户消息后创建 `turnId` 并请求模型，完整 Assistant Message 提交后进入工具执行，完整 Tool Message 提交后进入下一次模型请求。没有工具调用时自然完成，模型错误进入失败，中止信号进入取消。
+一次运行从不可变的运行输入开始。宿主创建 `runId`、取消信号和绑定 `sessionId` 的 SessionRecorder。Runtime 提交用户消息后创建 `turnId` 并请求模型，Adapter 只负责协议归一化，Runtime 将流结果分类为完整回答、工具调用、不完整或失败。完整 Assistant Message 提交成功后才进入工具执行或结束运行；不完整 attempt 先保存为 interrupted，再由 `retryModelTurn()` 进行有限恢复。完整 Tool Message 提交后进入下一次模型请求；模型错误进入失败或重试，中止信号进入取消。
 
 Agent 通过 SessionRecorder 保存会话事实，并通过结构化运行事件报告过程和唯一终止结果。宿主负责跨进程传递事件和渲染状态。
 

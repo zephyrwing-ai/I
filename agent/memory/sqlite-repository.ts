@@ -245,6 +245,31 @@ export class SqliteSessionRepository implements SessionRepository {
     return rows.map(rowToEntry);
   }
 
+  async listLatestEntries(sessionId: string, limit: number): Promise<SessionEntry[]> {
+    this.validateHistoryLimit(limit);
+    const rows = this.database.prepare(`
+      SELECT * FROM entries
+      WHERE session_id = ?
+      ORDER BY session_seq DESC
+      LIMIT ?
+    `).all(sessionId, limit) as Row[];
+    return rows.map(rowToEntry);
+  }
+
+  async listEntriesBefore(sessionId: string, beforeSeq: number, limit: number): Promise<SessionEntry[]> {
+    if (!Number.isSafeInteger(beforeSeq) || beforeSeq <= 0) {
+      throw new RepositoryError("History cursor must be a positive safe integer.", "invalid");
+    }
+    this.validateHistoryLimit(limit);
+    const rows = this.database.prepare(`
+      SELECT * FROM entries
+      WHERE session_id = ? AND session_seq < ?
+      ORDER BY session_seq DESC
+      LIMIT ?
+    `).all(sessionId, beforeSeq, limit) as Row[];
+    return rows.map(rowToEntry);
+  }
+
   async updateSession(sessionId: string, expectedRevision: number, patch: SessionPatch): Promise<Session> {
     const result = this.transaction(() => {
       const existingRow = this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as Row | undefined;
@@ -285,6 +310,12 @@ export class SqliteSessionRepository implements SessionRepository {
         // Preserve the original transaction error.
       }
       throw error;
+    }
+  }
+
+  private validateHistoryLimit(limit: number): void {
+    if (!Number.isSafeInteger(limit) || limit <= 0) {
+      throw new RepositoryError("History limit must be a positive safe integer.", "invalid");
     }
   }
 }
