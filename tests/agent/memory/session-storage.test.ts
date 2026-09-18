@@ -106,3 +106,43 @@ test("SQLite history queries page backward with a strict sessionSeq cursor", asy
   );
   repository.close();
 });
+
+test("tool invocation ledger advances through durable phases and reuses its result identity", async () => {
+  const repository = new SqliteSessionRepository(":memory:");
+  const session = await repository.createSession({ scopeKey: "tools" });
+  const invocation = await repository.registerToolInvocation({
+    sessionId: session.id,
+    runId: "run-tool",
+    turnId: "turn-tool",
+    cwd: process.cwd(),
+    assistantEntryId: "assistant-tool",
+    toolCallId: "call-tool",
+    ordinal: 0,
+    toolName: "read",
+    toolVersion: "1",
+    inputJson: '{"path":"a.txt"}',
+    inputHash: "hash-a",
+    recoveryModeSnapshot: "safe",
+    resultEntryId: "entry-tool",
+  });
+  assert.equal(invocation.phase, "planned");
+  assert.equal(invocation.attemptCount, 0);
+
+  const pending = await repository.beginToolAttempt(invocation.id);
+  assert.equal(pending.phase, "effect_pending");
+  assert.equal(pending.attemptCount, 1);
+
+  const outcome = await repository.saveToolOutcome(invocation.id, {
+    status: "failed",
+    outcome: { ok: false, output: "missing", returncode: -1, truncated: false, error: "not_found" },
+  });
+  assert.equal(outcome.phase, "outcome_ready");
+  assert.equal(outcome.outcomeStatus, "failed");
+
+  const completed = await repository.completeToolInvocation(invocation.id, "entry-tool");
+  assert.equal(completed.phase, "completed");
+  assert.equal(completed.resultEntryId, "entry-tool");
+  assert.equal((await repository.getToolInvocation(session.id, "call-tool"))?.phase, "completed");
+  assert.deepEqual(await repository.listOpenToolInvocations(session.id), []);
+  repository.close();
+});

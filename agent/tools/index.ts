@@ -6,7 +6,7 @@ import { createEditTool } from "./edit.js";
 import { createQueryTools } from "./query.js";
 import type { RegisteredTool } from "./types.js";
 
-export type { RegisteredTool, ToolResult, ToolExecutionContext, ToolResultMedia } from "./types.js";
+export type { RegisteredTool, ToolResult, ToolExecutionContext, ToolResultMedia, ToolRecoveryMode, ToolRecoverySpec, ToolRecoveryResult, ToolCheckpoint } from "./types.js";
 export { toolResultForInvalidCall } from "./types.js";
 
 /**

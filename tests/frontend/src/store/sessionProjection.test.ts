@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mergePersistedEntries } from "../../../../frontend/src/store/sessionProjection";
-import { buildVirtualMessageLayout, calculateVirtualMessageRange } from "../../../../frontend/src/middle-column/message-stream/useVirtualMessageWindow";
+import {
+  buildVirtualMessageLayout,
+  calculateVirtualMessageRange,
+  shouldStickToBottom,
+} from "../../../../frontend/src/middle-column/message-stream/useVirtualMessageWindow";
 import type { SessionHistoryEntry } from "../../../../shell/shared/ipc";
 
 function entry(partial: Partial<SessionHistoryEntry> & Pick<SessionHistoryEntry, "entryId" | "sessionSeq" | "type" | "runId" | "payload">): SessionHistoryEntry {
@@ -69,4 +73,10 @@ test("virtual message range keeps a bounded window and spacer sizes", () => {
   assert.ok(range.endIndex - range.startIndex < 20);
   assert.equal(range.topSpacer, range.startIndex * 20);
   assert.equal(range.topSpacer + (range.endIndex - range.startIndex) * 20 + range.bottomSpacer, layout.totalSize);
+});
+
+test("stream auto-follow stops once the user leaves the bottom threshold", () => {
+  assert.equal(shouldStickToBottom(900, 1000, 1900), true);
+  assert.equal(shouldStickToBottom(876, 1000, 1900), true);
+  assert.equal(shouldStickToBottom(875, 1000, 1900), false);
 });

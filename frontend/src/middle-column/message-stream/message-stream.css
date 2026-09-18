@@ -8,11 +8,11 @@
 .stream-layout { min-height: 100%; overflow: clip; }
 .stream-scrollbar { position: absolute; top: 0; right: 0; bottom: 0; width: 12px; z-index: 13; }
 .stream-scrollbar-thumb { position: absolute; right: 2px; width: 8px; border-radius: 8px; touch-action: none; }
-.stream-scrollbar-thumb-fill { width: 100%; height: 100%; border-radius: inherit; background: linear-gradient(180deg, #bec2c9, #b4b8bf 45%); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.6); transition: box-shadow 120ms var(--ease-standard); }
+.stream-scrollbar-thumb-fill { width: 100%; height: 100%; border-radius: inherit; background: linear-gradient(180deg, #c8c0b5, #b9b0a3 45%); box-shadow: inset 0 0.5px 0 rgba(255, 252, 247, 0.6); transition: box-shadow 120ms var(--ease-standard); }
 .stream-scrollbar-thumb:hover > .stream-scrollbar-thumb-fill,
-.stream-scrollbar-thumb.is-dragging > .stream-scrollbar-thumb-fill { background: linear-gradient(180deg, #9aa1ab, #9198a3 55%); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.35); }
-/* 内容列：30px 上下内边距，桌面 24px 水平内边距 */
-.stream-content { padding: 30px 24px; }
+.stream-scrollbar-thumb.is-dragging > .stream-scrollbar-thumb-fill { background: linear-gradient(180deg, #a79c8f, #968a7b 55%); box-shadow: inset 0 0.5px 0 rgba(255, 252, 247, 0.35); }
+/* 内容列：仅保留30px上下间距，水平宽度与 Composer 共用760px */
+.stream-content { padding: 30px 0; }
 
 /* 消息流始终由虚拟窗口承载：spacer 表示未挂载区间，block 用稳定 blockId 测量动态高度。 */
 .message-stream { position: relative; min-height: 0; }
@@ -23,8 +23,8 @@
 .message-history-status button:hover { color: var(--text); }
 
 /* 用户消息：右对齐气泡（14px / 24px 行高，四角一致 16px，扁平纯填充），与后续内容 28px 垂直间距 */
-.user-message-row { margin: 0 0 28px; display: flex; justify-content: flex-end; }
-.user-message-group { display: flex; flex-direction: column; align-items: flex-end; max-width: 76%; }
+.user-message-row { width: 100%; margin: 0 0 28px; display: flex; justify-content: flex-end; }
+.user-message-group { width: fit-content; display: flex; flex-direction: column; align-items: flex-end; max-width: 76%; }
 .user-message { width: fit-content; max-width: 100%; padding: 8px 14px; border-radius: 16px; background: var(--surface-bubble); color: var(--text); font-size: 14px; line-height: 24px; letter-spacing: 0.02em; white-space: pre-wrap; word-break: break-word; }
 
 /* ===== 过程块：Working for 折叠行 ===== */
@@ -48,11 +48,11 @@
 .fold-turn { min-width: 0; }
 .fold-turn + .fold-turn { margin-top: 8px; }
 /* 思考块：reasoning 通道正文，无标签直接堆叠；字样与用户消息一致（14px/24px 行高、0.02em 字距）；结构由 .markdown 接管 */
-.think-block { max-width: 680px; }
+.think-block { width: 100%; max-width: none; }
 .think-text { margin: 0; color: var(--text); font-size: 14px; line-height: 24px; letter-spacing: 0.02em; word-break: break-word; }
 .think-block + .model-text,
 .think-block + .turn-action { margin-top: 6px; } /* 思考块 ↔ 回合折叠行：视觉 17px */
-.model-text { margin: 0; max-width: 680px; color: var(--text-secondary); font-size: 14px; line-height: 24px; word-break: break-word; }
+.model-text { width: 100%; max-width: none; margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 24px; word-break: break-word; }
 
 /* ===== markdown 结构层：基础块间距 8px（与思考块一致）；结构块上下 12px 加宽；结构元素小步定义，自动适配亮暗主题 ===== */
 .markdown > * + * { margin-top: 8px; }
@@ -71,7 +71,7 @@
 .markdown a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 .markdown a:hover { color: var(--text); }
 .markdown code { font-family: var(--mono); font-size: 0.92em; padding: 1px 4px; border-radius: 4px; background: var(--surface-secondary); }
-.markdown pre { margin: 0; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-secondary); }
+.markdown pre { margin: 0; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-secondary); }
 .markdown pre code { display: block; padding: 0; border-radius: 0; background: transparent; font-size: 12px; line-height: 20px; white-space: pre; }
 .markdown table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 20px; }
 .md-table-wrap { overflow-x: auto; }
@@ -84,11 +84,11 @@
 .markdown ul, .markdown ol, .markdown pre, .markdown blockquote,
 .md-table-wrap, .markdown hr { margin-top: 12px; margin-bottom: 12px; }
 
-/* 最终答案：作为独立 MessageBlock 进入阅读流，与消息流左对齐、右侧留白；文字 14px / 24px 行高、阅读黑 #23242A、0.02em 字距 */
+/* 最终答案：作为独立 MessageBlock 进入阅读流，与消息流左对齐、右侧留白；文字 14px / 24px 行高、阅读黑 #3B352B、0.02em 字距 */
 .final-answer { margin: 14px 0 0; font-size: 14px; line-height: 24px; color: var(--text-reading); letter-spacing: 0.02em; }
 
-/* ===== 时间戳与复制行：11px 时间 + 12×12 复制图标；用户消息右对齐、模型消息左对齐，距消息下缘 8px；默认隐藏，悬停/聚焦消息区域时淡入 ===== */
-.model-message { display: flex; flex-direction: column; }
+/* ===== 时间戳与复制行：13px 时间 + 14×14 复制/Check 图标；用户消息右对齐、模型消息左对齐，距消息下缘 8px；默认隐藏，悬停/聚焦消息区域时淡入 ===== */
+.model-message { width: 100%; display: flex; flex-direction: column; }
 .model-message > .message-meta { align-self: flex-start; }
 .message-meta { margin-top: 8px; display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity 120ms var(--ease-standard); }
 .message-meta.has-copy-feedback { opacity: 1; }
@@ -102,8 +102,8 @@
 .message-time { color: var(--text-muted); font-size: 13px; line-height: 20px; }
 .message-copy { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); display: grid; place-items: center; transition: color 120ms var(--ease-standard); }
 .message-copy:hover { color: var(--text); }
-.message-copy.is-copied { color: var(--success); }
-.message-copy.is-copied:hover { color: var(--success); }
+.message-copy.is-copied { color: var(--text); }
+.message-copy.is-copied:hover { color: var(--text); }
 .message-copy.is-copy-error { color: var(--danger); }
 .message-copy.is-copy-error:hover { color: var(--danger); }
 

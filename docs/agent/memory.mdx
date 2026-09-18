@@ -23,6 +23,12 @@ sessions 1 ──────── N entries
    │
    └─ 会话身份、任务范围、状态和下一条顺序
 
+### 工具执行账本
+
+`entries` 保持模型可见消息的职责。工具执行恢复契约在同一 SQLite 数据库中定义独立的 `tool_invocations`：它以 `sessionId / runId / turnId / toolCallId` 关联会话与工具批次，并保存执行阶段、恢复证据和 `resultEntryId`。
+
+`tool_invocations` 服务恢复协调器；`snapshot()` 继续从已完成的 `entries` 构建模型上下文，`tool_result` 继续保存模型可见结果。字段、阶段和不变量见[工具执行恢复](./tools/recovery.mdx)。
+
 sessions 表。
 
 | 字段 | SQLite 类型 | 约束 | 语义 |

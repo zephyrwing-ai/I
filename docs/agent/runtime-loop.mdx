@@ -19,7 +19,7 @@ description: Agent 的继续、自然完成、取消和失败判定。
 | 内容过滤、未知停止原因或不可重试错误 | 保存 failed attempt，运行 failed |
 | 取消信号或模型 `aborted` | 保存 interrupted attempt，运行 cancelled，不发起下一轮 |
 
-普通工具失败作为 `ModelMessage(role: "tool", isError: true)` 回填，允许模型在下一轮恢复。被截断或未注册的调用不执行，改为错误工具结果；工具级重试不属于本次模型回合重试。
+普通工具失败作为 `ModelMessage(role: "tool", isError: true)` 回填，允许模型在下一轮恢复。被截断或未注册的调用不执行，改为错误工具结果；工具级重试不属于本次模型回合重试。持久化 ToolCall 的安全重放、状态核对和批次恢复遵守[工具执行恢复](./tools/recovery.mdx)。
 
 ## 会话存储接入
 

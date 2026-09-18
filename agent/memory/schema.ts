@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 3;
 
 export function initializeSchema(database: DatabaseSync): void {
   database.exec("PRAGMA journal_mode = WAL");
@@ -41,10 +41,43 @@ export function initializeSchema(database: DatabaseSync): void {
       ON entries (session_id, session_seq ASC);
     CREATE INDEX IF NOT EXISTS entries_tool_call_idx
       ON entries (session_id, tool_call_id);
+
+    CREATE TABLE IF NOT EXISTS tool_invocations (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      assistant_entry_id TEXT NOT NULL,
+      tool_call_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+      tool_name TEXT NOT NULL,
+      tool_version TEXT NOT NULL,
+      input_json TEXT NOT NULL,
+      input_hash TEXT NOT NULL,
+      phase TEXT NOT NULL CHECK (phase IN ('planned', 'effect_pending', 'outcome_ready', 'completed')),
+      outcome_status TEXT CHECK (outcome_status IS NULL OR outcome_status IN ('succeeded', 'failed', 'cancelled', 'interrupted')),
+      outcome_json TEXT,
+      recovery_mode_snapshot TEXT NOT NULL CHECK (recovery_mode_snapshot IN ('safe', 'reconcile', 'never')),
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      checkpoint_json TEXT,
+      result_entry_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (session_id, tool_call_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS tool_invocations_session_phase_idx
+      ON tool_invocations (session_id, phase, ordinal ASC);
   `);
 
   const current = database.prepare("PRAGMA user_version").get() as { user_version?: number };
-  if (Number(current.user_version) === 0) {
+  if (Number(current.user_version) === 0 || Number(current.user_version) === 1) {
+    database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    return;
+  }
+  if (Number(current.user_version) === 2) {
+    database.exec("ALTER TABLE tool_invocations ADD COLUMN cwd TEXT NOT NULL DEFAULT ''");
     database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     return;
   }

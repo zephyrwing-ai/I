@@ -11,6 +11,7 @@ export {
 export type {
   AppendEntryInput,
   AssistantDeltaKind,
+  CreateToolInvocationInput,
   CreateSessionInput,
   EntryPatch,
   EntryStatus,
@@ -24,6 +25,12 @@ export type {
   SessionRecorder,
   SessionRepository,
   SessionStatus,
+  RegisterToolInvocationInput,
+  ToolInvocationPhase,
+  ToolInvocationRecord,
   ToolCommitContext,
+  ToolOutcomeInput,
+  ToolOutcomeStatus,
+  ToolRecoveryMode,
   TurnCommitContext,
 } from "./types.js";

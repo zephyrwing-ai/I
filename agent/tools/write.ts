@@ -3,6 +3,7 @@ import { isAbsolute, resolve, relative, dirname } from "node:path";
 import { mediaTypeForPath } from "../environment.js";
 import type { ToolDef } from "../model/types.js";
 import type { RegisteredTool, ToolResult } from "./types.js";
+import { checkpointForTextFile, readTextFileIfPresent, reconcileTextFile, resolveToolPath } from "./recovery.js";
 
 /** Write 工具定义 — 整文件写入；目标目录不存在时创建父目录。 */
 export const WRITE_TOOL: ToolDef = {
@@ -21,6 +22,17 @@ export const WRITE_TOOL: ToolDef = {
 export function createWriteTool(): RegisteredTool {
   return {
     definition: WRITE_TOOL,
+    recovery: {
+      version: "1",
+      mode: "reconcile",
+      async prepare(input, context) {
+        if (typeof input.path !== "string" || typeof input.content !== "string") return undefined;
+        const target = resolveToolPath(input.path, context.cwd);
+        const previous = await readTextFileIfPresent(target);
+        return checkpointForTextFile(target, previous.exists ? previous.content : null, input.content, previous.exists ? "updated" : "created", mediaTypeForPath(target));
+      },
+      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Write"),
+    },
     async execute(input, context): Promise<ToolResult> {
       if (typeof input.path !== "string" || input.path.trim() === "") {
         return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };

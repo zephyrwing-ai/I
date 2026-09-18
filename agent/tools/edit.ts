@@ -3,6 +3,8 @@ import { isAbsolute, resolve, relative } from "node:path";
 import { mediaTypeForPath } from "../environment.js";
 import type { ToolDef } from "../model/types.js";
 import type { RegisteredTool, ToolResult } from "./types.js";
+import type { ToolCheckpoint, ToolExecutionContext } from "./types.js";
+import { checkpointForTextFile, reconcileTextFile, resolveToolPath } from "./recovery.js";
 
 /** Edit 工具定义 — 一组基于同一份原始内容、互不重叠的“原文本→新文本”替换。 */
 export const EDIT_TOOL: ToolDef = {
@@ -38,6 +40,12 @@ interface EditItem {
 export function createEditTool(): RegisteredTool {
   return {
     definition: EDIT_TOOL,
+    recovery: {
+      version: "1",
+      mode: "reconcile",
+      prepare: prepareEditCheckpoint,
+      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Edit"),
+    },
     async execute(input, context): Promise<ToolResult> {
       if (typeof input.path !== "string" || input.path.trim() === "") {
         return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
@@ -138,4 +146,40 @@ export function createEditTool(): RegisteredTool {
       };
     },
   };
+}
+
+async function prepareEditCheckpoint(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolCheckpoint | undefined> {
+  if (typeof input.path !== "string" || !Array.isArray(input.edits)) return undefined;
+  const edits: EditItem[] = [];
+  for (const item of input.edits) {
+    if (!item || typeof item !== "object") return undefined;
+    const record = item as Record<string, unknown>;
+    if (typeof record.oldText !== "string" || record.oldText.length === 0 || typeof record.newText !== "string") return undefined;
+    edits.push({ oldText: record.oldText, newText: record.newText });
+  }
+  const target = resolveToolPath(input.path, context.cwd);
+  let original: string;
+  try {
+    const buffer = await readFile(target);
+    if (buffer.includes(0)) return undefined;
+    original = buffer.toString("utf8");
+  } catch {
+    return undefined;
+  }
+  const matches: Array<{ index: number; length: number; edit: EditItem }> = [];
+  for (const edit of edits) {
+    const positions: number[] = [];
+    for (let at = original.indexOf(edit.oldText); at !== -1; at = original.indexOf(edit.oldText, at + 1)) positions.push(at);
+    if (positions.length !== 1) return undefined;
+    matches.push({ index: positions[0], length: edit.oldText.length, edit });
+  }
+  matches.sort((left, right) => left.index - right.index);
+  for (let i = 1; i < matches.length; i += 1) {
+    if (matches[i].index < matches[i - 1].index + matches[i - 1].length) return undefined;
+  }
+  let updated = original;
+  for (const match of [...matches].sort((left, right) => right.index - left.index)) {
+    updated = updated.slice(0, match.index) + match.edit.newText + updated.slice(match.index + match.length);
+  }
+  return checkpointForTextFile(target, original, updated, "updated", mediaTypeForPath(target));
 }

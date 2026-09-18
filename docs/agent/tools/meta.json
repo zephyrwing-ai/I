@@ -1,4 +1,4 @@
 {
   "title": "工具系统",
-  "pages": ["index", "execution", "bash", "read", "edit", "write", "query"]
+  "pages": ["index", "execution", "recovery", "bash", "read", "edit", "write", "query"]
 }

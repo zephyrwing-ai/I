@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, writeFile, readFile, mkdir, stat } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, mkdir, stat, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createToolRegistry } from "../../agent/tools/index.js";
@@ -100,6 +100,26 @@ test("write tool rejects directory target", async () => {
   const result = await write.execute({ path: "sub", content: "x" }, makeContext(dir));
   assert.equal(result.ok, false);
   assert.equal(result.error, "target_is_directory");
+});
+
+test("write recovery reconciles before and after file states", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "tools-recovery-"));
+  const write = makeRegistry().get("write")!;
+  const context = makeContext(dir);
+  try {
+    const checkpoint = await write.recovery.prepare?.({ path: "result.txt", content: "hello" }, context);
+    assert.ok(checkpoint);
+    const before = await write.recovery.reconcile?.({ path: "result.txt", content: "hello" }, checkpoint, context);
+    assert.equal(before?.kind, "retry");
+
+    await write.execute({ path: "result.txt", content: "hello" }, context);
+    const after = await write.recovery.reconcile?.({ path: "result.txt", content: "hello" }, checkpoint, context);
+    assert.equal(after?.kind, "succeeded");
+    assert.equal(after?.kind === "succeeded" && after.result.ok, true);
+  } finally {
+    await rm(join(dir, "result.txt"), { force: true }).catch(() => undefined);
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("edit tool applies unique non-overlapping replacements and reports positions", async () => {

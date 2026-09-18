@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { SessionRecorder } from "./memory/types.js";
+import type { SessionRecorder, ToolInvocationRecord, ToolOutcomeStatus } from "./memory/types.js";
 import { response, type ModelConfig } from "./model/index.js";
 import { ModelAdapterError, type LlmResponse, type ModelMessage, type ToolCall, type ToolDef } from "./model/types.js";
-import type { RegisteredTool, ToolResult } from "./tools/index.js";
+import { canonicalJson, toolInputHash } from "./tools/recovery.js";
+import type { RegisteredTool, ToolRecoveryResult, ToolResult } from "./tools/index.js";
 
 export type RunStatus = "completed" | "cancelled" | "failed";
 
@@ -162,6 +163,13 @@ export async function run(
   };
 
   try {
+    await recoverOpenToolInvocations(config, messages);
+    if (config.recorder) messages.splice(0, messages.length, ...config.recorder.snapshot());
+  } catch (error) {
+    return finish("failed", toAgentError(error));
+  }
+
+  try {
     await config.recorder?.commitUser(userMessage, { runId: config.runId });
   } catch (error) {
     return finish("failed", toAgentError(error));
@@ -224,18 +232,46 @@ export async function run(
         return finish("completed");
       }
 
+      let invocations: Map<string, ToolInvocationRecord>;
+      try {
+        invocations = await registerToolBatch(outcome.response.toolCalls, ctx, config);
+      } catch (error) {
+        return finish("failed", toAgentError(error));
+      }
       for (const call of outcome.response.toolCalls) {
         if (config.signal?.aborted) return finish("cancelled");
         events.onToolStart?.(call, ctx);
+        const invocation = invocations.get(call.id);
+        let executionInvocation = invocation;
         let toolResult: ToolResult;
-        try {
-          toolResult = await executeTool(call, config.tools, config.cwd, config.signal);
-        } catch (error) {
-          return finish("failed", { kind: "tool", message: error instanceof Error ? error.message : String(error) });
+        if (invocation?.phase === "completed" || invocation?.phase === "outcome_ready") {
+          toolResult = toolResultFromInvocation(invocation);
+        } else {
+          const recovered = invocation?.phase === "effect_pending"
+            ? await recoverToolInvocation(call, invocation, config)
+            : undefined;
+          if (recovered?.kind === "succeeded") toolResult = recovered.result;
+          else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
+          else {
+            if (invocation && config.recorder) executionInvocation = await config.recorder.beginToolAttempt(invocation.id);
+            try {
+              toolResult = await executeTool(call, config.tools, executionInvocation?.cwd ?? config.cwd, config.signal, executionInvocation);
+            } catch (error) {
+              toolResult = interruptedToolResult(error instanceof Error ? error.message : String(error));
+            }
+          }
         }
         const toolMessage: ModelMessage = { role: "tool", content: formatToolResult(toolResult), toolCallId: call.id, toolName: call.name, isError: !toolResult.ok, media: toolResult.media };
+        const resultEntryId = executionInvocation?.resultEntryId ?? randomUUID();
         try {
-          await config.recorder?.commitToolResult(toolMessage, { ...ctx, toolCallId: call.id });
+          if (executionInvocation && config.recorder) {
+            await config.recorder.saveToolOutcome(executionInvocation.id, {
+              status: toolOutcomeStatus(toolResult),
+              outcome: toolResult,
+            });
+          }
+          await config.recorder?.commitToolResult(toolMessage, { ...ctx, toolCallId: call.id, entryId: resultEntryId });
+          if (executionInvocation && config.recorder) await config.recorder.completeToolInvocation(executionInvocation.id, resultEntryId);
         } catch (error) {
           return finish("failed", toAgentError(error));
         }
@@ -372,11 +408,169 @@ function waitForRetryDelay(delayMs: number, signal?: AbortSignal): Promise<boole
   });
 }
 
-async function executeTool(call: ToolCall, tools: Map<string, RegisteredTool>, cwd: string, signal?: AbortSignal): Promise<ToolResult> {
+async function recoverOpenToolInvocations(config: AgentRunConfig, messages: ModelMessage[]): Promise<void> {
+  const recorder = config.recorder;
+  if (!recorder || typeof recorder.listOpenToolInvocations !== "function") return;
+  const records = await recorder.listOpenToolInvocations(recorder.sessionId);
+  for (const invocation of records) {
+    if (invocation.phase === "completed") continue;
+    let input: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(invocation.inputJson) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Tool input must be an object.");
+      input = parsed as Record<string, unknown>;
+    } catch (error) {
+      const result = interruptedToolResult(error instanceof Error ? error.message : String(error));
+      await recorder.saveToolOutcome(invocation.id, { status: "interrupted", outcome: result });
+      continue;
+    }
+    const call: ToolCall = { id: invocation.toolCallId, name: invocation.toolName, input, inputComplete: true };
+    let executionInvocation = invocation;
+    let toolResult: ToolResult;
+    if (invocation.phase === "outcome_ready") {
+      toolResult = toolResultFromInvocation(invocation);
+    } else {
+      const recovered = invocation.phase === "effect_pending"
+        ? await recoverToolInvocation(call, invocation, config)
+        : undefined;
+      if (recovered?.kind === "succeeded") toolResult = recovered.result;
+      else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
+      else {
+        executionInvocation = await recorder.beginToolAttempt(invocation.id);
+        try {
+          toolResult = await executeTool(call, config.tools, executionInvocation.cwd, config.signal, executionInvocation);
+        } catch (error) {
+          toolResult = interruptedToolResult(error instanceof Error ? error.message : String(error));
+        }
+      }
+    }
+    const toolMessage: ModelMessage = {
+      role: "tool",
+      content: formatToolResult(toolResult),
+      toolCallId: call.id,
+      toolName: call.name,
+      isError: !toolResult.ok,
+      media: toolResult.media,
+    };
+    const resultEntryId = executionInvocation.resultEntryId ?? randomUUID();
+    await recorder.saveToolOutcome(executionInvocation.id, { status: toolOutcomeStatus(toolResult), outcome: toolResult });
+    await recorder.commitToolResult(toolMessage, {
+      runId: invocation.runId,
+      turnId: invocation.turnId,
+      turnOrdinal: invocation.ordinal,
+      toolCallId: call.id,
+      entryId: resultEntryId,
+    });
+    await recorder.completeToolInvocation(executionInvocation.id, resultEntryId);
+    if (!messages.some((message) => message.role === "tool" && message.toolCallId === call.id)) messages.push(toolMessage);
+  }
+}
+
+async function registerToolBatch(
+  calls: ToolCall[],
+  ctx: TurnContext,
+  config: AgentRunConfig,
+): Promise<Map<string, ToolInvocationRecord>> {
+  const records = new Map<string, ToolInvocationRecord>();
+  const recorder = config.recorder;
+  if (!recorder || typeof recorder.registerToolInvocation !== "function" || typeof recorder.getToolInvocation !== "function") return records;
+  for (const [ordinal, call] of calls.entries()) {
+    const existing = await recorder.getToolInvocation(recorder.sessionId, call.id);
+    const tool = config.tools.get(call.name);
+    const toolVersion = tool?.recovery.version ?? "unknown";
+    const recoveryMode = tool?.recovery.mode ?? "never";
+    const inputJson = canonicalJson(call.input);
+    const inputHash = toolInputHash(call.name, toolVersion, call.input);
+    if (existing) {
+      if (existing.inputHash !== inputHash || existing.toolName !== call.name) throw new Error(`Tool call identity conflict: ${call.id}`);
+      records.set(call.id, existing);
+      continue;
+    }
+    const checkpoint = tool?.recovery.prepare
+      ? await tool.recovery.prepare(call.input, { cwd: config.cwd, toolCallId: call.id })
+      : undefined;
+    const assistantEntryId = await recorder.getAssistantEntryId?.(ctx.turnId) ?? `${ctx.turnId}:assistant:${ctx.attempt}`;
+    const record = await recorder.registerToolInvocation({
+      runId: ctx.runId,
+      turnId: ctx.turnId,
+      cwd: config.cwd,
+      assistantEntryId,
+      toolCallId: call.id,
+      ordinal,
+      toolName: call.name,
+      toolVersion,
+      inputJson,
+      inputHash,
+      recoveryModeSnapshot: recoveryMode,
+      resultEntryId: randomUUID(),
+      checkpoint,
+    });
+    records.set(call.id, record);
+  }
+  return records;
+}
+
+async function recoverToolInvocation(
+  call: ToolCall,
+  invocation: ToolInvocationRecord,
+  config: AgentRunConfig,
+): Promise<ToolRecoveryResult | undefined> {
+  const tool = config.tools.get(call.name);
+  if (!tool || !config.recorder) return { kind: "interrupted", reason: `Tool ${call.name} is unavailable during recovery.` };
+  if (invocation.phase !== "effect_pending") return undefined;
+  if (tool.recovery.version !== invocation.toolVersion) {
+    return { kind: "interrupted", reason: `Tool ${call.name} version ${invocation.toolVersion} requires a matching recovery implementation.` };
+  }
+  if (invocation.recoveryModeSnapshot === "never") return { kind: "interrupted", reason: `Tool ${call.name} requires manual recovery after an interrupted execution.` };
+  if (invocation.recoveryModeSnapshot === "reconcile" && !tool.recovery.reconcile) {
+    return { kind: "interrupted", reason: `Tool ${call.name} has no recovery reconciler.` };
+  }
+  if (invocation.recoveryModeSnapshot === "reconcile" && tool.recovery.reconcile) {
+    const recovered = await tool.recovery.reconcile(call.input, invocation.checkpoint as never, {
+      cwd: invocation.cwd,
+      signal: config.signal,
+      invocationId: invocation.id,
+      toolCallId: call.id,
+      attempt: invocation.attemptCount,
+      checkpoint: invocation.checkpoint as never,
+    });
+    if (recovered.kind !== "retry") return recovered;
+  }
+  return { kind: "retry", reason: "tool recovery permits another execution attempt" };
+}
+
+function toolResultFromInvocation(invocation: ToolInvocationRecord): ToolResult {
+  const outcome = invocation.outcomeJson;
+  if (outcome && typeof outcome === "object" && "ok" in outcome && "output" in outcome) return outcome as ToolResult;
+  return interruptedToolResult("The persisted tool outcome is missing or invalid.");
+}
+
+function interruptedToolResult(reason: string): ToolResult {
+  return { ok: false, output: reason, returncode: -1, truncated: false, error: "interrupted" };
+}
+
+function toolOutcomeStatus(result: ToolResult): ToolOutcomeStatus {
+  return result.error === "interrupted" ? "interrupted" : result.ok ? "succeeded" : "failed";
+}
+
+async function executeTool(
+  call: ToolCall,
+  tools: Map<string, RegisteredTool>,
+  cwd: string,
+  signal?: AbortSignal,
+  invocation?: ToolInvocationRecord,
+): Promise<ToolResult> {
   if (!call.inputComplete) return invalidResult("The tool arguments were truncated by the model response and were not executed. Please regenerate the complete tool call.", "truncated_arguments");
   const tool = tools.get(call.name);
   if (!tool) return invalidResult(`Unknown tool: ${call.name}`, "unknown_tool");
-  return tool.execute(call.input, { cwd, signal });
+  return tool.execute(call.input, {
+    cwd,
+    signal,
+    invocationId: invocation?.id,
+    toolCallId: call.id,
+    attempt: invocation?.attemptCount,
+    checkpoint: invocation?.checkpoint as never,
+  });
 }
 
 function invalidResult(output: string, error: string): ToolResult {

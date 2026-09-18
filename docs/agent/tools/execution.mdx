@@ -40,3 +40,9 @@ Assistant Message 因长度限制而截断且仍包含工具调用时，适配�
 - 同一工具批次的 Tool Message 全部完成本地提交后，Runtime 开始下一次模型请求。
 - 工具业务失败形成 completed 会话记录，Tool Message 的 `isError` 保存失败语义。
 - 会话提交失败形成 Runtime 失败，并保持后续调用处于待执行或待请求状态。
+
+## 持久化执行恢复
+
+`entries` 保存模型可见消息；`tool_invocations` 保存每个逻辑 ToolCall 的登记阶段、恢复策略快照、checkpoint 与结果入口。两类记录共同构成工具执行恢复事实。
+
+恢复协调器根据 `planned → effect_pending → outcome_ready → completed` 阶段，决定重新调度、安全重放、状态核对、结果物化或停止。模型通过完成后的 Tool Message 获取执行结果；模型回合重试与工具级恢复分别由 Runtime 的对应控制路径处理。完整规则见[工具执行恢复](./recovery.mdx)。

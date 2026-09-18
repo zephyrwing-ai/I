@@ -79,7 +79,7 @@ export function MessageMeta({
         aria-label={feedbackLabel}
         onClick={() => void copyMessage()}
       >
-        <Icon name={iconName} width={copyState === "success" ? 24 : 14} height={copyState === "success" ? 24 : 14} strokeWidth={copyState === "success" ? 2 : undefined} />
+        <Icon name={iconName} width={14} height={14} strokeWidth={2} />
       </button>
       <span className="sr-only" role="status" aria-live="polite">
         {copyState === "success" ? "Copied" : copyState === "error" ? "Copy failed" : ""}
