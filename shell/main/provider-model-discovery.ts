@@ -116,13 +116,13 @@ export async function discoverProviderModels(
         if (error instanceof ProviderDiscoveryError && error.kind === "authentication") throw error;
         lastError = error instanceof ProviderDiscoveryError
           ? error
-          : new ProviderDiscoveryError("network", "无法连接到服务，请检查网络和 Base URL。", { cause: error });
+          : new ProviderDiscoveryError("network", "Unable to connect to the service. Check the network and Base URL.", { cause: error });
       }
     }
     if (controller.signal.aborted) {
       throw new ProviderDiscoveryError(
         timedOut ? "timeout" : "cancelled",
-        timedOut ? "连接超时，请重试。" : "已取消获取模型。",
+        timedOut ? "Connection timed out. Try again." : "Model retrieval was cancelled.",
         { cause: lastError },
       );
     }
@@ -131,12 +131,12 @@ export async function discoverProviderModels(
       // 所有候选都失败时，以最后一个候选的错误定级（network/unsupported/invalid_response）。
       // 401/403 已在循环内终止；候选为空或成功返回空列表时按 empty 处理。
       if (lastError) throw lastError;
-      throw new ProviderDiscoveryError("empty", "连接成功，但没有返回模型。");
+      throw new ProviderDiscoveryError("empty", "The connection succeeded, but no models were returned.");
     }
     return normalized;
   } catch (error) {
     if (error instanceof ProviderDiscoveryError) throw error;
-    throw new ProviderDiscoveryError("network", "无法连接到服务，请检查网络和 Base URL。", { cause: error });
+    throw new ProviderDiscoveryError("network", "Unable to connect to the service. Check the network and Base URL.", { cause: error });
   } finally {
     clearTimeout(timeout);
     options.signal?.removeEventListener("abort", cancel);
@@ -179,7 +179,7 @@ async function fetchModelPage(
   const origin = new URL(url).origin;
   const visited = new Set<string>();
   while (true) {
-    if (visited.has(url)) throw new ProviderDiscoveryError("invalid_response", "模型列表分页游标无效。");
+    if (visited.has(url)) throw new ProviderDiscoveryError("invalid_response", "The model list pagination cursor is invalid.");
     visited.add(url);
     const response = await fetchImpl(url, {
       method: "GET",
@@ -213,19 +213,19 @@ function responseFailureKind(response: Response): ResponseFailure | "ok" {
 }
 
 function failureMessage(kind: ResponseFailure, status: number): string {
-  if (kind === "authentication") return "API Key 无效或没有访问权限。";
-  if (kind === "unsupported") return "该服务不支持获取模型列表。";
-  return `模型列表请求失败，状态码 ${status}。`;
+  if (kind === "authentication") return "The API Key is invalid or does not have access.";
+  if (kind === "unsupported") return "This service does not support model list discovery.";
+  return `The model list request failed with status code ${status}.`;
 }
 
 /** 解析 OpenAI 兼容方言的模型列表；结构不对抛 invalid_response。 */
 function parseModelPage(payload: unknown): DiscoveredModel[] {
   if (!payload || typeof payload !== "object") {
-    throw new ProviderDiscoveryError("invalid_response", "模型列表响应格式无效。");
+    throw new ProviderDiscoveryError("invalid_response", "The model list response format is invalid.");
   }
   const list = (payload as { data?: unknown }).data;
   if (!Array.isArray(list)) {
-    throw new ProviderDiscoveryError("invalid_response", "模型列表响应格式无效。");
+    throw new ProviderDiscoveryError("invalid_response", "The model list response format is invalid.");
   }
   const models: DiscoveredModel[] = [];
   for (const item of list) {
@@ -248,7 +248,7 @@ function nextPageUrl(
   const body = payload as Record<string, unknown>;
   if (typeof body.next === "string" && body.next) {
     const next = new URL(body.next, currentUrl);
-    if (next.origin !== origin) throw new ProviderDiscoveryError("invalid_response", "模型列表分页地址无效。");
+    if (next.origin !== origin) throw new ProviderDiscoveryError("invalid_response", "The model list pagination URL is invalid.");
     return next.toString();
   }
   if (body.has_more === true && typeof body.last_id === "string" && body.last_id) {
@@ -263,7 +263,7 @@ async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
   } catch (error) {
-    throw new ProviderDiscoveryError("invalid_response", "模型列表响应格式无效。", { cause: error });
+    throw new ProviderDiscoveryError("invalid_response", "The model list response format is invalid.", { cause: error });
   }
 }
 

@@ -89,8 +89,8 @@ function registerIpc(
       const task = req.task.trim();
       const cwd = req.cwd?.trim() || process.cwd();
       const modelOptionId = req.modelOptionId.trim();
-      if (!task) return { ok: false, error: "请输入任务。" };
-      if (!modelOptionId) return { ok: false, error: "请选择模型。" };
+      if (!task) return { ok: false, error: "Enter a task." };
+      if (!modelOptionId) return { ok: false, error: "Choose a model." };
       const attachments = await inputAttachments.resolve(Array.isArray(req.attachmentIds) ? req.attachmentIds : []);
       const resolved = await providers.resolve(modelOptionId);
       const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, sessionId, ...resolved }, (payload) => {
@@ -117,7 +117,7 @@ function registerIpc(
 
   ipcMain.handle(IPC.discoverProviderModels, async (event, input: ProviderModelDiscoveryInput): Promise<ProviderModelDiscoveryResult> => {
     if (!input || typeof input.requestId !== "string" || !input.requestId) {
-      return { ok: false, error: "invalid_response", message: "模型发现请求缺少有效身份。" };
+      return { ok: false, error: "invalid_response", message: "The model discovery request is missing a valid identity." };
     }
     const requestKey = `${event.sender.id}:${input.requestId}`;
     discoveryControllers.get(requestKey)?.abort();
@@ -143,9 +143,9 @@ function registerIpc(
   });
 
   ipcMain.handle(IPC.refreshProviderModels, async (_event, providerProfileId: string): Promise<RefreshProviderModelsResult> => {
-    if (runner.isActive) return { ok: false, error: "unsupported", message: "运行期间不能刷新提供商。" };
+    if (runner.isActive) return { ok: false, error: "unsupported", message: "Providers cannot be refreshed while a run is active." };
     if (typeof providerProfileId !== "string" || !providerProfileId) {
-      return { ok: false, error: "invalid_response", message: "缺少提供商身份。" };
+      return { ok: false, error: "invalid_response", message: "The provider identity is missing." };
     }
     try {
       const connection = await providers.refreshConnection(providerProfileId);
@@ -157,7 +157,7 @@ function registerIpc(
   });
 
   ipcMain.handle(IPC.saveProvider, async (_event, input: ProviderProfileInput): Promise<SaveProviderResult> => {
-    if (runner.isActive) return { ok: false, error: "运行期间不能修改提供商。" };
+    if (runner.isActive) return { ok: false, error: "Providers cannot be changed while a run is active." };
     try {
       return { ok: true, profile: await providers.save(input) };
     } catch (error) {
@@ -166,7 +166,7 @@ function registerIpc(
   });
 
   ipcMain.handle(IPC.deleteProvider, async (_event, providerProfileId: string): Promise<DeleteProviderResult> => {
-    if (runner.isActive) return { ok: false, error: "运行期间不能删除提供商。" };
+    if (runner.isActive) return { ok: false, error: "Providers cannot be deleted while a run is active." };
     try {
       await providers.delete(providerProfileId);
       return { ok: true };
@@ -184,17 +184,17 @@ function registerIpc(
 
   ipcMain.handle(IPC.previewOutputFile, async (_event, runId: string, fileId: string): Promise<OutputFilePreviewResult> => {
     if (typeof runId !== "string" || typeof fileId !== "string" || !runId || !fileId) {
-      return { ok: false, error: "invalid_request", message: "缺少输出文件身份。" };
+      return { ok: false, error: "invalid_request", message: "The output file identity is missing." };
     }
     return outputFiles.preview(runId, fileId);
   });
 
   ipcMain.handle(IPC.openOutputFile, async (_event, runId: string, fileId: string): Promise<OpenOutputFileResult> => {
     if (typeof runId !== "string" || typeof fileId !== "string" || !runId || !fileId) {
-      return { ok: false, error: "缺少输出文件身份。" };
+      return { ok: false, error: "The output file identity is missing." };
     }
     const record = outputFiles.resolveForOpen(runId, fileId);
-    if (!record) return { ok: false, error: "输出文件不存在或已经失效。" };
+    if (!record) return { ok: false, error: "The output file does not exist or is no longer valid." };
     const validated = await validateOutputForOpen(record);
     if (!validated.ok) return { ok: false, error: validated.error };
     const error = await shell.openPath(validated.path);
@@ -222,7 +222,7 @@ app.whenReady().then(async () => {
   const outputFiles = new OutputFileRegistry();
   const inputAttachments = new InputAttachmentRegistry();
   const createRecorder = (sessionId: string): SessionRecorder => {
-    if (sessionId !== activeSession.id) throw new Error("当前会话未加载。");
+    if (sessionId !== activeSession.id) throw new Error("The current session is not loaded.");
     return recorder;
   };
   const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts), createRecorder);
@@ -249,7 +249,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 }).catch((error: unknown) => {
-  dialog.showErrorBox("会话存储初始化失败", error instanceof Error ? error.message : String(error));
+  dialog.showErrorBox("Session storage initialization failed", error instanceof Error ? error.message : String(error));
   app.quit();
 });
 

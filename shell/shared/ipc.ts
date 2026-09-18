@@ -33,7 +33,7 @@ export interface ProviderProfileInput {
   name: string;
   baseURL: string;
   apiKey?: string;
-  models: Array<DiscoveredModel & { available?: boolean }>;
+  models: DiscoveredModel[];
 }
 
 export interface ProviderModelDiscoveryInput {

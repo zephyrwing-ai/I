@@ -50,14 +50,14 @@ export class InputAttachmentRegistry {
     const attachments: ResolvedAttachment[] = [];
     for (const attachmentId of uniqueIds) {
       const record = this.records.get(attachmentId);
-      if (!record) throw new Error("附件不存在或已经失效，请重新上传。");
+      if (!record) throw new Error("The attachment does not exist or is no longer valid. Upload it again.");
       try {
         const path = await realpath(record.path);
         const fileStats = await stat(path);
         if (path !== record.path || !fileStats.isFile()) throw new Error();
         attachments.push({ ...record.descriptor, path });
       } catch {
-        throw new Error(`附件“${record.descriptor.name}”不存在或无法访问，请重新上传。`);
+        throw new Error(`The attachment “${record.descriptor.name}” does not exist or cannot be accessed. Upload it again.`);
       }
     }
     return attachments;
@@ -67,7 +67,7 @@ export class InputAttachmentRegistry {
 export function composeTaskWithAttachments(task: string, attachments: ResolvedAttachment[]): string {
   if (attachments.length === 0) return task;
   const list = attachments.map((attachment) => `- ${attachment.name}: ${JSON.stringify(attachment.path)}`).join("\n");
-  return `${task}\n\n用户附加了以下本地文件。仅在与任务相关时使用可用工具读取它们：\n${list}`;
+  return `${task}\n\nThe user attached the following local files. Use the available tools to read them only when relevant to the task:\n${list}`;
 }
 
 function mediaTypeForPath(path: string): string {

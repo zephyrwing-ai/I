@@ -56,13 +56,13 @@ export class AgentRunner {
   }
 
   start(req: ResolvedRunRequest, emit: (event: AgentEvent) => void): RunnerHandle {
-    if (this.active) throw new Error("已有运行正在进行，请先停止当前任务。");
+    if (this.active) throw new Error("A run is already in progress. Stop the current task first.");
     this.active = true;
     this.controller = new AbortController();
     const runId = randomUUID();
     if (this.createSessionRecorder && !req.sessionId) {
       this.markIdle();
-      throw new Error("运行请求缺少会话身份。");
+      throw new Error("The run request is missing a session identity.");
     }
     let recorder: SessionRecorder | undefined;
     try {

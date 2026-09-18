@@ -28,7 +28,7 @@ export function createReadTool(): RegisteredTool {
     definition: READ_TOOL,
     async execute(input, context): Promise<ToolResult> {
       if (typeof input.path !== "string" || input.path.trim() === "") {
-        return { ok: false, output: "工具参数 path 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+        return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
       }
 
       const start = typeof input.start === "number" && Number.isInteger(input.start) && input.start >= 1 ? input.start : 1;
@@ -41,10 +41,10 @@ export function createReadTool(): RegisteredTool {
       try {
         stats = await stat(target);
       } catch {
-        return { ok: false, output: `文件不存在：${input.path}`, returncode: -1, truncated: false, error: "not_found" };
+        return { ok: false, output: `File not found: ${input.path}`, returncode: -1, truncated: false, error: "not_found" };
       }
       if (stats.isDirectory()) {
-        return { ok: false, output: `目标是目录，Read 读取文件：${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
+        return { ok: false, output: `Target is a directory; Read expects a file: ${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
       }
 
       const ext = extname(target).toLowerCase();
@@ -52,7 +52,7 @@ export function createReadTool(): RegisteredTool {
       try {
         buffer = await readFile(target);
       } catch (error) {
-        return { ok: false, output: `读取失败：${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "read_failed" };
+        return { ok: false, output: `Read failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "read_failed" };
       }
 
       // 模型支持的图片：作为图片内容返回，不把二进制打印成文本。
@@ -60,7 +60,7 @@ export function createReadTool(): RegisteredTool {
         const dataUrl = `data:${mimeForExtension(ext)};base64,${buffer.toString("base64")}`;
         return {
           ok: true,
-          output: `图片已作为视觉内容返回：${input.path}（${stats.size} 字节）`,
+          output: `Image returned as visual content: ${input.path} (${stats.size} bytes)`,
           returncode: 0,
           truncated: false,
           media: { mediaType: mimeForExtension(ext), dataUrl },
@@ -69,7 +69,7 @@ export function createReadTool(): RegisteredTool {
 
       // 二进制文本检测：包含 NUL 字节的内容不是可编辑/可读文本。
       if (buffer.includes(0)) {
-        return { ok: false, output: `文件不是文本或模型支持的图片格式：${input.path}`, returncode: -1, truncated: false, error: "binary_file" };
+        return { ok: false, output: `File is neither text nor a model-supported image format: ${input.path}`, returncode: -1, truncated: false, error: "binary_file" };
       }
 
       const raw = buffer.toString("utf8");
@@ -84,13 +84,13 @@ export function createReadTool(): RegisteredTool {
       const rel = relative(context.cwd, target) || target;
 
       const rendered = page.map((line, i) => {
-        const display = line.length > MAX_LINE_DISPLAY ? `${line.slice(0, MAX_LINE_DISPLAY)} …(该行过长已截断)` : line;
+        const display = line.length > MAX_LINE_DISPLAY ? `${line.slice(0, MAX_LINE_DISPLAY)} …(Line too long; truncated)` : line;
         return `${from + i}: ${display}`;
       });
 
       const rangeNote = linesTruncated
-        ? `已读取 ${from}-${from + page.length - 1} 行，共 ${lines.length} 行；继续读取请用 start=${nextStart}`
-        : `共 ${lines.length} 行`;
+        ? `Read lines ${from}-${from + page.length - 1} of ${lines.length}; continue with start=${nextStart}`
+        : `Read ${lines.length} lines`;
 
       return {
         ok: true,

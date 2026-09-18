@@ -32,14 +32,12 @@ const components: Components = {
 function MarkdownTextInner({
   text,
   className,
-  searchable = false,
 }: {
   text: string;
   className: string;
-  searchable?: boolean;
 }) {
   return (
-    <div className={`${className} markdown`} data-searchable={searchable ? "" : undefined}>
+    <div className={`${className} markdown`}>
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
         {text}
       </ReactMarkdown>

@@ -81,13 +81,14 @@ interface SessionHistoryState {
   snapshotSeq: number;
   loadingInitial: boolean;
   loadingOlder: boolean;
+  loadingSearch: boolean;
   hydrated: boolean;
   error: string | null;
 }
 ```
 
 - `entriesById` 以 entryId 去重，`entryOrder` 按 sessionSeq 升序保存稳定顺序。
-- `loadingInitial` 和 `loadingOlder` 分离，旧历史请求不会覆盖首次 hydrate 状态。
+- `loadingInitial`、`loadingOlder` 和 `loadingSearch` 分别表达首次 hydrate、顶部滚动加载和搜索历史加载；每个状态驱动自己的界面反馈。
 - `nextCursor` 只在成功合并一页后前进；失败请求保留原 cursor，允许原位置重试。
 - `hasMore=false` 后顶部滚动不再发起历史请求。
 
@@ -96,7 +97,7 @@ interface SessionHistoryState {
 | 持久化记录 | 页面投影 |
 | --- | --- |
 | user_message | 按 runId 创建或补全 RunState，payload.content 写入 task |
-| assistant_message | 按 runId 和 turnId 创建 TurnState，写入正文、reasoning 和 toolCalls |
+| assistant_message | 按 runId 和 turnId 创建 TurnState，写入正文、`updatedAt` 映射为 `assistantAt`、reasoning 和 toolCalls |
 | tool_result | 按 toolCallId 找到 ToolState，写入结果、错误状态和 media |
 | completed | 进入正常历史消息和模型可见上下文 |
 | interrupted | 保留已写入草稿并显示中断状态 |
@@ -105,7 +106,7 @@ interface SessionHistoryState {
 - 同一页先按 sessionSeq 排序，再按 runId、turnId 和 toolCallId 关联。
 - Assistant Message 中的 toolCalls 创建工具占位；后续 tool_result 补全同一个 ToolState。
 - 工具折叠摘要从 ToolState 计算，reasoning 展开状态和工具展开状态使用 Renderer 本地状态。
-- 历史时间使用 entries 的 createdAt 和 updatedAt；精确运行计时需要独立运行元数据时再扩展协议。
+- 用户消息时间使用 `user_message.createdAt`；模型消息时间使用 `assistant_message.updatedAt`，这样完成后的完整正文拥有稳定的页面时间。精确运行计时继续由独立的运行计时字段负责。
 - 投影函数只处理传入页面，旧页面加载时把新增 RunState 或新增 turn 合并到既有 AgentState，不重建全部历史。
 
 实时事件合并。
@@ -140,6 +141,31 @@ MessageStream 接近顶部
 - Renderer 在插入前记录锚点消息身份和视口内偏移，布局更新后把同一消息恢复到原位置。
 - 一页为空或 nextCursor 为空时进入完整历史状态。
 
+搜索触发的历史加载。
+
+```text
+搜索查询非空
+  → 立即匹配 AgentState 已生成的用户消息块和最终模型消息块
+  → hasMore && !loadingSearch
+  → 搜索控制器直接调用统一历史加载器
+  → loadSessionPage(nextCursor, 100)
+  → Main 返回更早 entries
+  → sessionProjection 投影新增页面
+  → agentReducer 接收 olderHistoryLoaded
+  → MessageStream 生成新增 MessageBlock
+  → 搜索结果按 blockId 增量更新
+  → hasMore=true 时继续下一页，直至历史完整或查询被清空
+```
+
+- 搜索控制器直接调用统一历史加载器读取数据库；`scrollTop` 在用户选择已经生成的搜索结果后负责显示对应虚拟块。
+- 侧边栏宽度变化属于 Renderer 布局事件，沿用 MessageStream 已有的 ResizeObserver 和虚拟布局流程；该事件保持 AgentState、历史 cursor、搜索索引和已加载页面不变。
+- 用户滚动与搜索使用同一个 `nextCursor` 和同一个页加载协调器。相同 cursor 只有一个在途请求，任一入口收到页面后都推进共享 cursor 并合并同一份 AgentState。
+- 查询先匹配已经加载的 MessageBlock 并立即显示结果；更早页面在后台顺序加载，结果随着页面投影增量出现。用户可以在历史扫描完成前选择已经得到的结果。
+- 搜索查询变化时，已经返回的历史页仍按正常流程合并到 AgentState；搜索控制器以查询代次只接受当前查询的结果计算和后续翻页意图，并使用当前查询重新匹配已经加载的消息块。查询清空后结束连续翻页。
+- 搜索读取期间到达的 AgentEvent 继续通过实时事件路径进入 AgentState；稳定 `sessionSeq < beforeSeq` 游标持续向更早记录推进，实时消息沿用当前历史 cursor。
+- 搜索页读取失败时保留已经投影的页面和已有结果，`loadingSearch` 结束并向搜索浮层返回可重试错误；消息流顶部继续使用自己的 `loadingOlder` 状态。
+- 搜索匹配由 Renderer 完成，Main 沿用已有分页协议读取当前 session 的本地 entries。
+
 实现归属。
 
 - `shell/main/session-history.ts` 提供 Main 历史分页服务并返回 SessionPageResult。
@@ -147,7 +173,7 @@ MessageStream 接近顶部
 - `shell/preload/index.ts` 暴露 `loadSessionPage()`。
 - `frontend/src/store/sessionProjection.ts` 执行 SessionHistoryEntry 到页面状态的转换。
 - `frontend/src/store/agentReducer.ts` 合并 hydrate、旧历史页面和实时事件。
-- `frontend/src/hooks/useSessionHistory.ts` 管理首次加载、游标、去重、错误和重试。
+- `frontend/src/hooks/useSessionHistory.ts` 管理首次加载、共享游标、滚动与搜索读取的在途去重、错误和重试。
 - `frontend/src/App.tsx` 协调启动 hydrate、实时事件缓冲和 Composer 就绪状态。
 
 验证。
@@ -156,5 +182,7 @@ MessageStream 接近顶部
 - hydrate 期间到达的 AgentEvent 在历史完成后按原顺序出现一次。
 - 工具调用、tool_result 和 reasoning 恢复到原 run 与 turn。
 - 顶部连续滚动只产生一个在途请求，失败重试继续使用同一 cursor。
+- 搜索与顶部滚动同时请求同一 cursor 时合并为一次读取和投影；搜索控制器直接调用统一历史加载器。
+- 搜索旧页期间实时新增消息正常进入 AgentState，旧页 cursor 持续向前推进，搜索结果按 blockId 完成去重。
 - 旧历史插入后锚点消息保持原来的视口位置。
 - nextCursor 为空后不再发起旧历史请求。

@@ -8,7 +8,7 @@ const args = process.argv.slice(2);
 
 const task = args.join(" ").trim();
 if (!task) {
-  console.error("用法: npx tsx agent/run.ts '任务描述'");
+  console.error("Usage: npx tsx agent/run.ts 'task description'");
   process.exit(1);
 }
 
@@ -27,12 +27,12 @@ try {
     tools: createToolRegistry(createLocalBashOps()),
     recorder,
   }, {
-    onTurnStart: ({ turnOrdinal }) => console.log(`\n── 回合 ${turnOrdinal} ──`),
+    onTurnStart: ({ turnOrdinal }) => console.log(`\n── Turn ${turnOrdinal} ──`),
     onReasoningDelta: (delta) => process.stdout.write(`🤔 ${delta}`),
-    onAssistantCompleted: ({ content, toolCalls }) => console.log(`\n🤖 ${content}\n工具调用：${toolCalls.length}`),
+    onAssistantCompleted: ({ content, toolCalls }) => console.log(`\n🤖 ${content}\nTool calls: ${toolCalls.length}`),
     onToolStart: (call) => console.log(`🔧 ${call.name} ${JSON.stringify(call.input)}`),
     onToolCompleted: (_call, toolResult) => console.log(`${toolResult.ok ? "✓" : "✗"} rc=${toolResult.returncode}`),
-    onRunCompleted: ({ status, turnCount, error }) => console.log(`\n${status} — ${turnCount} 回合${error ? `：${error.message}` : ""}`),
+    onRunCompleted: ({ status, turnCount, error }) => console.log(`\n${status} — ${turnCount} turns${error ? `: ${error.message}` : ""}`),
   });
 } finally {
   await recorder.close();

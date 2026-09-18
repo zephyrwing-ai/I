@@ -9,6 +9,7 @@ export interface SessionHistoryState {
   snapshotSeq: number;
   loadingInitial: boolean;
   loadingOlder: boolean;
+  loadingSearch: boolean;
   hydrated: boolean;
   error: string | null;
 }
@@ -22,6 +23,7 @@ export const initialSessionHistoryState: SessionHistoryState = {
   snapshotSeq: 0,
   loadingInitial: true,
   loadingOlder: false,
+  loadingSearch: false,
   hydrated: false,
   error: null,
 };
@@ -49,6 +51,7 @@ export function mergeHistoryEntries(
     snapshotSeq: Math.max(state.snapshotSeq, page.snapshotSeq),
     loadingInitial: false,
     loadingOlder: false,
+    loadingSearch: false,
     hydrated: true,
     error: null,
   };

@@ -25,6 +25,8 @@ export interface TurnState {
   turnOrdinal: number;
   status: TurnStatus;
   assistantContent: string;
+  /** 模型消息时间；历史记录使用 assistant entry 的最终更新时间。 */
+  assistantAt?: number;
   /** 思考内容（reasoningDelta 增量累加）；展示在 worked for 折叠内。 */
   reasoningContent: string;
   finalContent?: string;
@@ -63,10 +65,10 @@ export type AgentAction =
   | { type: "runAccepted"; runId: string; task: string; taskAt: number }
   | { type: "runRejected"; error: string }
   | { type: "stopRequested" }
-  | { type: "historyLoadStarted"; scope: "initial" | "older" }
+  | { type: "historyLoadStarted"; scope: "initial" | "older" | "search" }
   | { type: "sessionHydrated"; page: SessionPageResult }
   | { type: "olderHistoryLoaded"; page: SessionPageResult }
-  | { type: "historyLoadFailed"; scope: "initial" | "older"; error: string }
+  | { type: "historyLoadFailed"; scope: "initial" | "older" | "search"; error: string }
   | { type: "event"; event: AgentEvent };
 
 export const initialAgentState: AgentState = {
@@ -178,6 +180,7 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
           ...state.history,
           loadingInitial: action.scope === "initial" ? true : state.history.loadingInitial,
           loadingOlder: action.scope === "older" ? true : state.history.loadingOlder,
+          loadingSearch: action.scope === "search" ? true : state.history.loadingSearch,
           error: null,
         },
       };
@@ -209,6 +212,7 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
           ...state.history,
           loadingInitial: action.scope === "initial" ? false : state.history.loadingInitial,
           loadingOlder: action.scope === "older" ? false : state.history.loadingOlder,
+          loadingSearch: action.scope === "search" ? false : state.history.loadingSearch,
           error: action.error,
         },
       };
@@ -299,7 +303,7 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
             const existing = turn.tools[event.toolCallId];
             const tool: ToolState = {
               toolCallId: event.toolCallId,
-              name: existing?.name ?? "工具",
+              name: existing?.name ?? "Tool",
               input: existing?.input,
               status: "completed",
               result: event.result,

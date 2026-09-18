@@ -1,24 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ReactElement, ReactNode } from "react";
-import { MessageMeta } from "../../../../../frontend/src/middle-column/message-stream/MessageMeta.js";
-
-function findButton(node: ReactNode): ReactElement<{ onClick: () => void }> | undefined {
-  if (!node || typeof node !== "object" || !("props" in node)) return undefined;
-  const element = node as ReactElement<{ children?: ReactNode; onClick?: () => void }>;
-  if (element.type === "button" && element.props.onClick) {
-    return element as ReactElement<{ onClick: () => void }>;
-  }
-  const children = element.props.children;
-  if (Array.isArray(children)) {
-    for (const child of children) {
-      const button = findButton(child);
-      if (button) return button;
-    }
-    return undefined;
-  }
-  return findButton(children);
-}
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { copyMessageText, formatMessageTime, MessageMeta } from "../../../../../frontend/src/middle-column/message-stream/MessageMeta.js";
 
 test("message copy writes the exact text supplied by its caller", async () => {
   const copied: string[] = [];
@@ -30,13 +14,20 @@ test("message copy writes the exact text supplied by its caller", async () => {
 
   try {
     const source = "**原始内容**，保留标记";
-    const button = findButton(MessageMeta({ time: 0, text: source }));
-    assert.ok(button, "copy button should be rendered");
-    button.props.onClick();
-    await Promise.resolve();
+    await copyMessageText(source);
     assert.deepEqual(copied, [source]);
   } finally {
     if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
     else Reflect.deleteProperty(globalThis, "navigator");
   }
+});
+
+test("message meta renders the copy action with its default accessible label", () => {
+  const html = renderToStaticMarkup(createElement(MessageMeta, { time: 0, text: "内容" }));
+  assert.match(html, /aria-label="Copy message"/);
+});
+
+test("message time uses the short English date format without commas", () => {
+  const timestamp = new Date(2026, 8, 17, 11, 45).getTime();
+  assert.equal(formatMessageTime(timestamp), "Thu Sep 17 11:45 AM");
 });

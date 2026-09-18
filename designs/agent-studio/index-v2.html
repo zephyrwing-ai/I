@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en-US">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#1c1c1e" />
-  <title>任务工作台 — 交互原型 v2</title>
+  <title>Agent Workbench — Interactive Prototype v2</title>
   <style>
     :root {
       color-scheme: dark;
@@ -431,99 +431,99 @@
   </style>
 </head>
 <body>
-  <a class="skip-link" href="#stream">跳到对话流</a>
+  <a class="skip-link" href="#stream">Skip to conversation</a>
   <div class="app" data-screen-label="agent-studio-main">
     <header class="header">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3.5l2.4 5.1 5.6.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.6-.8L12 3.5z"/></svg>
         </span>
-        <span class="brand-name">任务工作台</span>
+        <span class="brand-name">Agent Workbench</span>
       </div>
       <div class="task-title" id="taskTitle">Inspect local adapter compatibility</div>
       <div class="header-actions">
-        <span class="header-status" id="headerStatus" role="status" aria-live="polite"><span class="status-dot" id="statusDot"></span><span id="statusLabel">待命</span></span>
-        <button class="icon-button" id="searchButton" type="button" aria-label="搜索当前运行" title="搜索当前运行">
+        <span class="header-status" id="headerStatus" role="status" aria-live="polite"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Idle</span></span>
+        <button class="icon-button" id="searchButton" type="button" aria-label="Search current run" title="Search current run">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="M16 16l5 5"/></svg>
         </button>
-        <button class="icon-button" id="settingsButton" type="button" aria-label="设置" title="设置">
+        <button class="icon-button" id="settingsButton" type="button" aria-label="Settings" title="Settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z"/><path d="M19.4 13.5a7.9 7.9 0 0 0 0-3l1.7-1.3-1.8-3-2 .8a7.8 7.8 0 0 0-2.6-1.5L14.4 3h-3.5l-.3 2.5A7.8 7.8 0 0 0 8 7l-2-.8-1.8 3L5.9 10.5a7.9 7.9 0 0 0 0 3l-1.7 1.3 1.8 3 2-.8a7.8 7.8 0 0 0 2.6 1.5l.3 2.5h3.5l.3-2.5a7.8 7.8 0 0 0 2.6-1.5l2 .8 1.8-3-1.7-1.3z"/></svg>
         </button>
       </div>
     </header>
 
     <main class="stream" id="stream" tabindex="-1">
-      <h1 class="sr-only">任务工作台</h1>
+      <h1 class="sr-only">Agent Workbench</h1>
       <div class="stream-inner" id="streamInner" aria-live="polite" aria-atomic="false"></div>
     </main>
 
     <footer class="composer-wrap">
       <form class="composer" id="composerForm">
         <div class="composer-box">
-          <button class="icon-button plus-button" type="button" aria-label="添加附件" title="附件功能暂未启用" disabled>
+          <button class="icon-button plus-button" type="button" aria-label="Add attachment" title="Attachments are not enabled in this prototype" disabled>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
           </button>
-          <label class="sr-only" for="taskInput">输入任务</label>
-          <textarea id="taskInput" name="task" rows="1" placeholder="描述你希望 Agent 完成的任务…" autocomplete="off"></textarea>
+          <label class="sr-only" for="taskInput">Enter a task</label>
+          <textarea id="taskInput" name="task" rows="1" placeholder="Describe a task for Agent…" autocomplete="off"></textarea>
           <button class="send-button" id="sendButton" type="submit">
             <svg id="sendIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
-            <span id="sendLabel">发送</span>
+            <span id="sendLabel">Send</span>
           </button>
         </div>
-        <div class="composer-hint"><span>运行前请先在设置中选择工作目录</span><span><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span></div>
+        <div class="composer-hint"><span>Choose a workspace in Settings before running</span><span><kbd>Enter</kbd> Send · <kbd>Shift</kbd> + <kbd>Enter</kbd> New line</span></div>
       </form>
     </footer>
   </div>
 
   <details class="prototype-tools">
-    <summary>原型状态</summary>
-    <div class="tool-menu" aria-label="切换原型状态">
-      <button type="button" data-state="idle">空闲</button>
-      <button type="button" data-state="running">运行中</button>
-      <button type="button" data-state="done">完成</button>
-      <button type="button" data-state="error">失败</button>
-      <button type="button" data-state="cancelled">已停止</button>
+    <summary>Prototype state</summary>
+    <div class="tool-menu" aria-label="Switch prototype state">
+      <button type="button" data-state="idle">Idle</button>
+      <button type="button" data-state="running">Running</button>
+      <button type="button" data-state="done">Complete</button>
+      <button type="button" data-state="error">Failed</button>
+      <button type="button" data-state="cancelled">Stopped</button>
     </div>
   </details>
 
-  <div class="search-popover hidden" id="searchPopover" role="dialog" aria-label="搜索当前运行" aria-modal="false">
+  <div class="search-popover hidden" id="searchPopover" role="dialog" aria-label="Search current run" aria-modal="false">
     <div class="search-row">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="M16 16l5 5"/></svg>
-      <label class="sr-only" for="searchInput">搜索当前运行</label>
-      <input class="search-input" id="searchInput" name="query" type="search" placeholder="搜索任务、命令或输出…" autocomplete="off" />
+      <label class="sr-only" for="searchInput">Search current run</label>
+      <input class="search-input" id="searchInput" name="query" type="search" placeholder="Search tasks, commands, or output…" autocomplete="off" />
       <span class="search-count" id="searchCount" aria-live="polite">0 / 0</span>
     </div>
-    <div class="search-help">按 Enter 定位下一个结果 · Esc 关闭</div>
+    <div class="search-help">Press Enter for the next result · Esc to close</div>
   </div>
 
   <div class="settings-backdrop hidden" id="settingsBackdrop"></div>
   <aside class="settings-drawer hidden" id="settingsDrawer" role="dialog" aria-labelledby="settingsTitle" aria-modal="true" aria-hidden="true">
     <div class="drawer-header">
-      <span class="drawer-title" id="settingsTitle">设置</span>
-      <button class="icon-button" id="closeSettings" type="button" aria-label="关闭设置" title="关闭设置">
+      <span class="drawer-title" id="settingsTitle">Settings</span>
+      <button class="icon-button" id="closeSettings" type="button" aria-label="Close settings" title="Close settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
     <div class="drawer-content">
       <div class="lock-note" id="lockNote">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-        <span>当前运行配置只读。修改内容将用于下一次运行。</span>
+        <span>Current run settings are read-only. Changes apply to the next run.</span>
       </div>
       <section class="field-group">
-        <div class="group-label">模型连接</div>
+        <div class="group-label">Model connection</div>
         <div class="field"><label for="provider">Provider</label><select id="provider" name="provider"><option>OpenAI / DeepSeek</option><option>Anthropic (Claude)</option><option>Google (Gemini)</option></select></div>
         <div class="field"><label for="model">Model</label><input id="model" name="model" value="deepseek-chat" autocomplete="off" spellcheck="false" /></div>
         <div class="field"><label for="baseUrl">Base URL</label><input id="baseUrl" name="baseURL" type="url" value="https://api.deepseek.com" autocomplete="url" spellcheck="false" /></div>
         <div class="field"><label for="apiKey">API Key</label><input id="apiKey" name="apiKey" type="password" value="sk-demo-redacted" autocomplete="off" /></div>
       </section>
       <section class="field-group">
-        <div class="group-label">执行策略</div>
-        <div class="toggle-row"><span>用 Docker 运行命令</span><label class="toggle"><input id="dockerToggle" name="useDocker" type="checkbox" checked /><span class="toggle-track"></span><span class="toggle-thumb"></span></label></div>
-        <div class="field"><label for="stepLimit">Steps 上限</label><input id="stepLimit" name="stepLimit" type="number" min="1" max="100" value="20" inputmode="numeric" /></div>
+        <div class="group-label">Execution strategy</div>
+        <div class="toggle-row"><span>Run commands with Docker</span><label class="toggle"><input id="dockerToggle" name="useDocker" type="checkbox" checked /><span class="toggle-track"></span><span class="toggle-thumb"></span></label></div>
+        <div class="field"><label for="stepLimit">Step limit</label><input id="stepLimit" name="stepLimit" type="number" min="1" max="100" value="20" inputmode="numeric" /></div>
       </section>
       <section class="field-group">
-        <div class="group-label">工作目录</div>
-        <div class="field"><label for="cwd">当前目录</label><input id="cwd" name="cwd" value="/Users/zephyrwing/Project/I" autocomplete="off" spellcheck="false" /></div>
+        <div class="group-label">Workspace</div>
+        <div class="field"><label for="cwd">Current directory</label><input id="cwd" name="cwd" value="/Users/zephyrwing/Project/I" autocomplete="off" spellcheck="false" /></div>
       </section>
     </div>
   </aside>
@@ -539,11 +539,11 @@
     };
 
     const demoRuns = {
-      idle: { label: '待命', className: '', task: 'Inspect local adapter compatibility' },
-      running: { label: '运行中', className: 'running', task: 'Inspect local adapter compatibility' },
-      done: { label: '已完成', className: 'completed', task: 'Inspect local adapter compatibility' },
-      error: { label: '运行失败', className: 'error', task: 'Inspect local adapter compatibility' },
-      cancelled: { label: '已停止', className: 'cancelled', task: 'Inspect local adapter compatibility' }
+      idle: { label: 'Idle', className: '', task: 'Inspect local adapter compatibility' },
+      running: { label: 'Running', className: 'running', task: 'Inspect local adapter compatibility' },
+      done: { label: 'Complete', className: 'completed', task: 'Inspect local adapter compatibility' },
+      error: { label: 'Run failed', className: 'error', task: 'Inspect local adapter compatibility' },
+      cancelled: { label: 'Stopped', className: 'cancelled', task: 'Inspect local adapter compatibility' }
     };
 
     let currentState = 'idle';
@@ -576,9 +576,9 @@
 
     function renderAction(command, output, state) {
       const stateMeta = state === 'running'
-        ? { label: '执行中', className: 'running', icon: icons.loader }
+        ? { label: 'Running', className: 'running', icon: icons.loader }
         : state === 'failed'
-          ? { label: '失败', className: 'failed', icon: icons.alert }
+          ? { label: 'Failed', className: 'failed', icon: icons.alert }
           : { label: 'rc 0', className: '', icon: icons.check };
       return `<div class="action-row searchable" data-search="${escapeHtml(`${command} ${output}`)}">
         <div class="action-head"><span class="action-command"><span class="prompt">$</span> ${escapeHtml(command)}</span><span class="action-state ${stateMeta.className}">${stateMeta.icon}<span>${stateMeta.label}</span></span></div>
@@ -587,8 +587,8 @@
     }
 
     function renderIdle() {
-      streamInner.innerHTML = `<section class="empty-state searchable" data-search="开始一次 agent 运行">
-        <div class="empty-state-content"><div class="empty-kicker">Ready when you are</div><h1>开始一次 Agent 运行</h1><p>在底部输入任务。Agent 会在当前工作目录中执行命令，并把进度、结果和最终回答留在这条对话里。</p></div>
+      streamInner.innerHTML = `<section class="empty-state searchable" data-search="Start an agent run">
+        <div class="empty-state-content"><div class="empty-kicker">Ready when you are</div><h1>Start an Agent run</h1><p>Enter a task below. Agent will execute commands in the current workspace and keep progress, results, and the final answer in this conversation.</p></div>
       </section>`;
     }
 
@@ -597,25 +597,25 @@
       const running = state === 'running';
       const failed = state === 'error';
       const cancelled = state === 'cancelled';
-      const progress = running ? '正在验证 OpenAI-compatible adapter 的请求链路。' : failed ? '模型连接没有完成，下面保留了已经产生的诊断信息。' : cancelled ? '本次运行已由你停止，已产生的执行证据仍然保留。' : '已完成兼容性检查，并整理了可复现的验证结果。';
+      const progress = running ? 'Verifying the OpenAI-compatible adapter request path.' : failed ? 'The model connection did not complete. Diagnostics remain available below.' : cancelled ? 'You stopped this run. The execution evidence remains available.' : 'Compatibility checks completed with reproducible verification results.';
       const actions = running
         ? renderAction('npm test -- --runInBand', '', 'running')
         : failed
           ? renderAction('npm test -- --runInBand', 'Unable to connect to api.deepseek.com — 401 Invalid API Key', 'failed')
           : renderAction('npm test -- --runInBand', '18 tests passed · adapter request shape verified', 'done');
       const final = failed
-        ? `<div class="error-card searchable" role="alert" data-search="API Key 401 Invalid API Key 检查设置 重试">${icons.alert}<div><div class="error-title">运行失败</div><div class="error-detail">Error: 401 Invalid API Key for deepseek-chat。检查设置中的 API Key 后可以重试。</div><div class="error-actions"><button class="text-button" type="button" data-action="settings">检查设置</button><button class="text-button" type="button" data-action="retry">重试</button></div></div></div>`
+        ? `<div class="error-card searchable" role="alert" data-search="API Key 401 Invalid API Key Check settings Retry">${icons.alert}<div><div class="error-title">Run failed</div><div class="error-detail">Error: 401 Invalid API Key for deepseek-chat. Check the API Key in Settings and try again.</div><div class="error-actions"><button class="text-button" type="button" data-action="settings">Check settings</button><button class="text-button" type="button" data-action="retry">Retry</button></div></div></div>`
         : cancelled
-          ? `<div class="final-answer searchable" data-search="已停止 取消">${icons.check}<div class="final-answer-header">已停止</div><p>运行在完成前被停止。已经产生的命令和输出仍然可展开查看。</p></div>`
+          ? `<div class="final-answer searchable" data-search="Stopped Cancel">${icons.check}<div class="final-answer-header">Stopped</div><p>The run was stopped before completion. Existing commands and output remain available to expand.</p></div>`
           : running
             ? ''
-            : `<div class="final-answer searchable" data-search="完成 adapter compatibility tests passed"><div class="final-answer-header">${icons.check}<span>任务完成</span></div><p>Adapter 兼容性检查通过。请求格式、工具调用和结果回传均符合当前运行契约。</p><div class="answer-meta">18 tests passed · 2.4s · /Users/zephyrwing/Project/I</div></div>`;
+            : `<div class="final-answer searchable" data-search="Complete adapter compatibility tests passed"><div class="final-answer-header">${icons.check}<span>Task complete</span></div><p>Adapter compatibility checks passed. Request format, tool calls, and result delivery match the current run contract.</p><div class="answer-meta">18 tests passed · 2.4s · /Users/zephyrwing/Project/I</div></div>`;
       const detailsOpen = state === 'done' || state === 'error';
-      const workingLabel = running ? 'Working for' : state === 'cancelled' ? '已停止' : failed ? '需要处理' : '执行摘要';
+      const workingLabel = running ? 'Working for' : state === 'cancelled' ? 'Stopped' : failed ? 'Action required' : 'Execution summary';
       const workingIcon = running ? icons.loader : failed ? icons.alert : cancelled ? icons.square : icons.check;
       streamInner.innerHTML = `<div class="message-list">
-        <article class="message user searchable" data-search="${escapeHtml(task)}"><div class="message-body"><div class="message-label">你</div><div class="user-copy">${escapeHtml(task)}</div></div></article>
-        <article class="message agent-message"><div class="message-avatar">${icons.bot}</div><div class="message-body"><div class="progress-copy searchable" data-search="${escapeHtml(progress)}">${running ? '<strong>正在工作</strong> · ' : ''}${escapeHtml(progress)}</div>
+        <article class="message user searchable" data-search="${escapeHtml(task)}"><div class="message-body"><div class="message-label">You</div><div class="user-copy">${escapeHtml(task)}</div></div></article>
+        <article class="message agent-message"><div class="message-avatar">${icons.bot}</div><div class="message-body"><div class="progress-copy searchable" data-search="${escapeHtml(progress)}">${running ? '<strong>Working</strong> · ' : ''}${escapeHtml(progress)}</div>
           <details class="run-details" ${detailsOpen ? 'open' : ''}><summary><span>${icons.chevron}</span><span class="run-summary-title"><span class="working-state ${running ? 'active' : ''} searchable" data-search="${escapeHtml(workingLabel)}">${workingIcon}<span>${workingLabel}</span></span></span><span class="run-summary-meta">${running ? '1 action' : failed ? 'rc 1' : cancelled ? 'cancelled' : 'rc 0'}</span></summary><div class="action-list">${actions}</div></details>
           ${final}
         </div></article>
@@ -632,14 +632,14 @@
       taskTitle.textContent = meta.task;
       sendButton.className = 'send-button';
       sendIcon.innerHTML = '<path d="M5 12h13M13 6l6 6-6 6"/>';
-      sendLabel.textContent = '发送';
+      sendLabel.textContent = 'Send';
       if (state === 'running') {
         sendButton.classList.add('stop');
         sendIcon.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>';
-        sendLabel.textContent = '停止';
+        sendLabel.textContent = 'Stop';
       }
-      if (state === 'cancelled') sendLabel.textContent = '重新运行';
-      if (state === 'error' || state === 'done') sendLabel.textContent = '重新运行';
+      if (state === 'cancelled') sendLabel.textContent = 'Run again';
+      if (state === 'error' || state === 'done') sendLabel.textContent = 'Run again';
       document.querySelectorAll('[data-state]').forEach((button) => button.classList.toggle('active', button.dataset.state === state));
     }
 
@@ -651,8 +651,8 @@
       taskInput.disabled = state === 'running';
       document.querySelectorAll('.field input, .field select, .toggle input').forEach((field) => { field.disabled = state === 'running'; });
       document.getElementById('lockNote').innerHTML = state === 'running'
-        ? `${icons.loader}<span>当前运行配置已锁定，停止后可编辑下一次运行设置。</span>`
-        : `${icons.check}<span>配置修改将用于下一次运行。</span>`;
+        ? `${icons.loader}<span>Current run settings are locked. Stop the run to edit settings for the next run.</span>`
+        : `${icons.check}<span>Settings changes apply to the next run.</span>`;
     }
 
     function startDemoRun() {
@@ -667,7 +667,7 @@
       }
       if (!taskInput.value.trim()) {
         taskInput.focus();
-        taskInput.setCustomValidity('请先输入任务');
+        taskInput.setCustomValidity('Enter a task first');
         taskInput.reportValidity();
         taskInput.setCustomValidity('');
         return;

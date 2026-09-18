@@ -25,7 +25,7 @@ export function createToolRegistry(ops: BashOperations): Map<string, RegisteredT
   const registry = new Map<string, RegisteredTool>();
   for (const tool of tools) {
     if (registry.has(tool.definition.name)) {
-      throw new Error(`工具名重复注册：${tool.definition.name}`);
+      throw new Error(`Duplicate tool registration: ${tool.definition.name}`);
     }
     registry.set(tool.definition.name, tool);
   }

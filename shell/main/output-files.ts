@@ -54,7 +54,7 @@ export class OutputFileRegistry {
 
   async preview(runId: string, fileId: string): Promise<OutputFilePreviewResult> {
     const record = this.get(runId, fileId);
-    if (!record) return failure("not_found", "输出文件不存在或已经失效。");
+    if (!record) return failure("not_found", "The output file does not exist or is no longer valid.");
     const verified = await verifyRecord(record);
     if (!verified.ok) return failure("not_found", verified.message);
 
@@ -62,7 +62,7 @@ export class OutputFileRegistry {
     const updatedAt = fileStats.mtime.toISOString();
     const byteSize = Number(fileStats.size);
     if (IMAGE_MEDIA_TYPES.has(record.descriptor.mediaType)) {
-      if (byteSize > MAX_IMAGE_BYTES) return failure("too_large", "图片超过 5 MB，无法内嵌预览。", record.descriptor.mediaType, byteSize);
+      if (byteSize > MAX_IMAGE_BYTES) return failure("too_large", "The image exceeds 5 MB and cannot be previewed inline.", record.descriptor.mediaType, byteSize);
       try {
         const content = await readFile(record.path);
         return {
@@ -74,7 +74,7 @@ export class OutputFileRegistry {
           updatedAt,
         };
       } catch {
-        return failure("read_failed", "图片读取失败。", record.descriptor.mediaType, byteSize);
+        return failure("read_failed", "Failed to read the image.", record.descriptor.mediaType, byteSize);
       }
     }
 
@@ -107,7 +107,7 @@ export class OutputFileRegistry {
         await handle.close();
       }
     } catch {
-      return failure("read_failed", "文件读取失败。", record.descriptor.mediaType, byteSize);
+      return failure("read_failed", "Failed to read the file.", record.descriptor.mediaType, byteSize);
     }
   }
 
@@ -125,12 +125,12 @@ export async function validateOutputForOpen(record: { path: string }): Promise<
 > {
   try {
     const canonical = await realpath(record.path);
-    if (canonical !== record.path) return { ok: false, error: "输出文件路径已经变化。" };
+    if (canonical !== record.path) return { ok: false, error: "The output file path has changed." };
     const fileStats = await stat(canonical);
-    if (!fileStats.isFile()) return { ok: false, error: "输出目标不再是文件。" };
+    if (!fileStats.isFile()) return { ok: false, error: "The output target is no longer a file." };
     return { ok: true, path: canonical };
   } catch {
-    return { ok: false, error: "输出文件不存在或无法访问。" };
+    return { ok: false, error: "The output file does not exist or cannot be accessed." };
   }
 }
 
@@ -143,12 +143,12 @@ function displayPath(cwd: string, path: string): string {
 async function verifyRecord(record: OutputFileRecord): Promise<{ ok: true; stats: Awaited<ReturnType<typeof stat>> } | { ok: false; message: string }> {
   try {
     const canonical = await realpath(record.path);
-    if (canonical !== record.path) return { ok: false, message: "输出文件路径已经变化。" };
+    if (canonical !== record.path) return { ok: false, message: "The output file path has changed." };
     const stats = await stat(canonical);
-    if (!stats.isFile()) return { ok: false, message: "输出目标不再是文件。" };
+    if (!stats.isFile()) return { ok: false, message: "The output target is no longer a file." };
     return { ok: true, stats };
   } catch {
-    return { ok: false, message: "输出文件不存在或无法访问。" };
+    return { ok: false, message: "The output file does not exist or cannot be accessed." };
   }
 }
 

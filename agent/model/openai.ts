@@ -159,7 +159,7 @@ export async function* streamOpenAI(
   if (!apiKey) {
     throw new ModelAdapterError(
       "config",
-      "未提供 API Key。请在桌面端「设置」面板填入，或设置 DEEPSEEK_API_KEY / OPENAI_API_KEY 环境变量。",
+      "No API Key provided. Enter it in the desktop Settings panel, or set the DEEPSEEK_API_KEY / OPENAI_API_KEY environment variable.",
     );
   }
   const client = new OpenAI({
@@ -222,7 +222,7 @@ export async function* streamOpenAI(
   }
 
   if (finishReason === null) {
-    throw new ModelAdapterError("model_protocol", "模型流结束时缺少 finish_reason。", true);
+    throw new ModelAdapterError("model_protocol", "The model stream ended without a finish_reason.", true);
   }
 
   const toolCalls: ToolCall[] = [...toolAcc.entries()]
@@ -257,7 +257,7 @@ function normalizeStopReason(value: string): ModelStopReason {
 }
 
 function normalizeOpenAIError(error: unknown, signal?: AbortSignal): ModelAdapterError {
-  if (signal?.aborted) return new ModelAdapterError("network", "模型请求已取消。", false);
+  if (signal?.aborted) return new ModelAdapterError("network", "The model request was cancelled.", false);
   if (error instanceof ModelAdapterError) return error;
   const value = error as { status?: unknown; code?: unknown; message?: unknown } | null;
   const status = typeof value?.status === "number" ? value.status : undefined;
