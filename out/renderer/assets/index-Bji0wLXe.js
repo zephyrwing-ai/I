@@ -6986,6 +6986,34 @@ var clientExports = requireClient();
 function Column({ children }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "column", children });
 }
+function selectAnswerTurn(run) {
+  const turns = run.turnOrder.map((turnId) => run.turns[turnId]).filter((turn) => Boolean(turn));
+  const finalTurn = [...turns].reverse().find(
+    (turn) => turn.status === "completed" && turn.toolOrder.length === 0
+  );
+  const runningTurn = turns[turns.length - 1];
+  return runningTurn?.status === "running" && runningTurn.toolOrder.length === 0 ? runningTurn : finalTurn;
+}
+function buildMessageBlockRecords(state) {
+  return state.runOrder.flatMap((runId) => {
+    const run = state.runs[runId];
+    if (!run) return [];
+    const records = [];
+    if (run.task) records.push({ runId, blockId: `${runId}:task`, kind: "user", text: run.task });
+    records.push({ runId, blockId: `${runId}:process`, kind: "process" });
+    const answerTurn = selectAnswerTurn(run);
+    if (answerTurn?.assistantContent) {
+      records.push({
+        runId,
+        turnId: answerTurn.turnId,
+        blockId: `${runId}:answer:${answerTurn.turnId}`,
+        kind: "assistant",
+        text: answerTurn.finalContent ?? answerTurn.assistantContent
+      });
+    }
+    return records;
+  });
+}
 function containsCJK(text2) {
   return /[㐀-䶿一-鿿]/.test(text2);
 }
@@ -7046,8 +7074,6 @@ const paths = {
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" })
   ] }),
   check: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m5 12 4 4L19 6" }),
-  "chevron-down": /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m6 9 6 6 6-6" }),
-  "chevron-left": /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m15 18-6-6 6-6" }),
   "chevron-right": /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m9 18 6-6-6-6" }),
   close: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m6 6 12 12" }),
@@ -7063,10 +7089,7 @@ const paths = {
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M5 21h14a2 2 0 0 0 2-2v-3" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M3 16v3a2 2 0 0 0 2 2" })
   ] }),
-  edit: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 20h9" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" })
-  ] }),
+  edit: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" }),
   external: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M14 3h7v7" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M10 14 21 3" }),
@@ -7083,23 +7106,24 @@ const paths = {
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M5 12h14" })
   ] }),
   refresh: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M20 7v5h-5" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M4 17v-5h5" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M6.1 8a7 7 0 0 1 11.8-2L20 8" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m4 16 2.1 2A7 7 0 0 0 18 16" })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M21 3v5h-5" })
   ] }),
   search: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "11", cy: "11", r: "7" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m20 20-4-4" })
   ] }),
   settings: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "3" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "3" })
   ] }),
   sidebar: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "3", y: "4", width: "18", height: "16", rx: "2" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M15 4v16" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m18 9-2 3 2 3" })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { width: "18", height: "18", x: "3", y: "3", rx: "2" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M15 3v18" })
+  ] }),
+  "sidebar-collapsed": /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { width: "18", height: "18", x: "3", y: "3", rx: "3" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M16 6v12" })
   ] }),
   stop: /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "7", y: "7", width: "10", height: "10", rx: "1", fill: "currentColor", stroke: "none" }),
   terminal: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
@@ -19825,30 +19849,71 @@ const components = {
 };
 function MarkdownTextInner({
   text: text2,
-  className,
-  searchable = false
+  className
 }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `${className} markdown`, "data-searchable": searchable ? "" : void 0, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Markdown, { remarkPlugins: REMARK_PLUGINS, components, children: text2 }) });
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `${className} markdown`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Markdown, { remarkPlugins: REMARK_PLUGINS, components, children: text2 }) });
 }
 const MarkdownText = reactExports.memo(MarkdownTextInner);
+const messageTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit"
+});
 function formatMessageTime(timestamp) {
-  return new Date(timestamp).toLocaleString("en-US", {
-    weekday: "long",
-    hour: "numeric",
-    minute: "2-digit"
-  });
+  const parts = messageTimeFormatter.formatToParts(new Date(timestamp));
+  const value = (type) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("weekday")} ${value("month")} ${value("day")} ${value("hour")}:${value("minute")} ${value("dayPeriod")}`;
+}
+const COPY_FEEDBACK_DURATION = 2e3;
+async function copyMessageText(text2) {
+  const clipboard = typeof navigator === "undefined" ? void 0 : navigator.clipboard;
+  if (!clipboard) throw new Error("Clipboard API unavailable");
+  await clipboard.writeText(text2);
 }
 function MessageMeta({
   time,
   text: text2,
-  copyLabel = "复制消息"
+  copyLabel = "Copy message"
 }) {
-  const copyMessage = () => {
-    void navigator.clipboard?.writeText(text2).catch(() => void 0);
+  const [copyState, setCopyState] = reactExports.useState("idle");
+  const feedbackTimer = reactExports.useRef(null);
+  reactExports.useEffect(() => () => {
+    if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+  }, []);
+  const showCopyState = (nextState) => {
+    if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+    setCopyState(nextState);
+    feedbackTimer.current = window.setTimeout(() => {
+      feedbackTimer.current = null;
+      setCopyState("idle");
+    }, COPY_FEEDBACK_DURATION);
   };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "message-meta", children: [
+  const copyMessage = async () => {
+    try {
+      await copyMessageText(text2);
+      showCopyState("success");
+    } catch {
+      showCopyState("error");
+    }
+  };
+  const feedbackLabel = copyState === "success" ? "Copied" : copyState === "error" ? "Copy failed" : copyLabel;
+  const iconName = copyState === "success" ? "check" : copyState === "error" ? "warning" : "copy";
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `message-meta${copyState !== "idle" ? " has-copy-feedback" : ""}`, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "message-time", children: formatMessageTime(time) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "message-copy", title: copyLabel, "aria-label": copyLabel, onClick: copyMessage, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "copy", width: 14, height: 14 }) })
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        className: `message-copy${copyState === "success" ? " is-copied" : ""}${copyState === "error" ? " is-copy-error" : ""}`,
+        title: feedbackLabel,
+        "aria-label": feedbackLabel,
+        onClick: () => void copyMessage(),
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: iconName, width: copyState === "success" ? 24 : 14, height: copyState === "success" ? 24 : 14, strokeWidth: copyState === "success" ? 2 : void 0 })
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sr-only", role: "status", "aria-live": "polite", children: copyState === "success" ? "Copied" : copyState === "error" ? "Copy failed" : "" })
   ] });
 }
 function formatElapsed(milliseconds) {
@@ -19869,7 +19934,7 @@ function formatInput(input) {
   try {
     return JSON.stringify(input, null, 2) ?? "";
   } catch {
-    return "无法显示参数";
+    return "Unable to display parameters";
   }
 }
 function ThinkBlock({ text: text2 }) {
@@ -19930,10 +19995,10 @@ function summarizeTurn(tools) {
   const phrases = [];
   for (const tool of tools) {
     const kind = classifyTool(tool.name);
-    const phrase = kind === "command" ? "ran commands" : kind === "read" ? "read files" : kind === "edit" ? "edited files" : kind === "list" ? "listed files" : kind === "search" ? "searched" : null;
+    const phrase = kind === "command" ? "Ran commands" : kind === "read" ? "Read files" : kind === "edit" ? "Edited files" : kind === "list" ? "Listed files" : kind === "search" ? "Searched" : null;
     if (phrase && !phrases.includes(phrase)) phrases.push(phrase);
   }
-  return phrases.length > 0 ? phrases.join(", ") : "loaded a tool";
+  return phrases.length > 0 ? phrases.join(", ") : "Loaded a tool";
 }
 function Chevron({ expanded }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -19960,15 +20025,10 @@ function RunProcess({
     return () => clearInterval(timer);
   }, [working, runTiming]);
   const totalElapsed = runTiming ? working ? now - runTiming.startedAt : (runTiming.completedAt ?? now) - runTiming.startedAt : void 0;
-  const completedAt = runTiming?.completedAt;
   const turns = run.turnOrder.map((turnId) => run.turns[turnId]).filter((turn) => Boolean(turn));
-  const finalTurn = [...turns].reverse().find(
-    (turn) => turn.status === "completed" && turn.toolOrder.length === 0
-  );
-  const runningTurn = turns[turns.length - 1];
+  const answerTurn = selectAnswerTurn(run);
   const retrying = turns.some((turn) => turn.status === "retrying");
-  const answerTurn = runningTurn?.status === "running" && runningTurn.toolOrder.length === 0 ? runningTurn : finalTurn;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "run-process", "data-searchable": true, children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "run-process", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: "run-fold", "aria-expanded": open, onClick: () => setOpen((value) => !value), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `turn-state${working ? " working" : ""}`, children: [
         retrying ? "Retrying response" : working ? "Working for" : "Worked for",
@@ -19988,11 +20048,20 @@ function RunProcess({
         showText && /* @__PURE__ */ jsxRuntimeExports.jsx(MarkdownText, { className: "model-text", text: turn.assistantContent }),
         showTools && /* @__PURE__ */ jsxRuntimeExports.jsx(TurnActionFold, { tools })
       ] }, turn.turnId);
-    }) }) }),
-    answerTurn?.assistantContent && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-message", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(MarkdownText, { className: "model-text final-answer", text: answerTurn.assistantContent, searchable: true }),
-      completedAt !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(MessageMeta, { time: completedAt, text: answerTurn.assistantContent, copyLabel: "复制答案" })
-    ] })
+    }) }) })
+  ] });
+}
+function FinalAnswer({
+  run,
+  runTiming,
+  active = false
+}) {
+  const answerTurn = selectAnswerTurn(run);
+  if (!answerTurn?.assistantContent) return null;
+  const messageAt = answerTurn.assistantAt ?? runTiming?.completedAt;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `model-message${active ? " search-active" : ""}`, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(MarkdownText, { className: "model-text final-answer", text: answerTurn.assistantContent }),
+    messageAt !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(MessageMeta, { time: messageAt, text: answerTurn.assistantContent, copyLabel: "Copy answer" })
   ] });
 }
 function TurnActionFold({ tools }) {
@@ -20013,7 +20082,7 @@ function ToolRow({ tool }) {
   const output = result?.output ?? result?.error ?? "";
   const shouldCollapse = output.length > COLLAPSE_THRESHOLD;
   const shownOutput = shouldCollapse && !showAll ? `${output.slice(0, PREVIEW_LENGTH)}
-… 已折叠（共 ${output.length} 字符）` : output;
+… Collapsed (${output.length} characters total)` : output;
   const isCommand = classifyTool(tool.name) === "command";
   const copyOutput = () => {
     void navigator.clipboard?.writeText(output).catch(() => void 0);
@@ -20026,11 +20095,11 @@ function ToolRow({ tool }) {
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "tool-detail", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "tool-detail-clip", children: [
       !isCommand && /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { className: "tool-input-pre", children: formatInput(tool.input) }),
-      result?.ok === false && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "tool-error", children: "工具执行失败" }),
+      result?.ok === false && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "tool-error", children: "Tool execution failed" }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "output-card", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "output-card-head", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "output-label", children: isCommand ? "Shell" : tool.name }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "output-copy", title: "复制输出", "aria-label": "复制输出", onClick: copyOutput, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "copy", width: 15, height: 15 }) })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "output-copy", title: "Copy output", "aria-label": "Copy output", onClick: copyOutput, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "copy", width: 15, height: 15 }) })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("pre", { className: "output-pre", children: [
           isCommand && `$ ${inputText(tool.input)}
@@ -20038,7 +20107,7 @@ function ToolRow({ tool }) {
           shownOutput
         ] })
       ] }),
-      shouldCollapse && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "ghost-btn", onClick: () => setShowAll((value) => !value), children: showAll ? "收起" : "展开完整输出" })
+      shouldCollapse && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "ghost-btn", onClick: () => setShowAll((value) => !value), children: showAll ? "Collapse" : "Expand full output" })
     ] }) })
   ] });
 }
@@ -20047,6 +20116,23 @@ const DEFAULT_OVERSCAN = 600;
 const LOAD_OLDER_THRESHOLD = 240;
 const STICK_TO_BOTTOM_THRESHOLD = 24;
 const useBrowserLayoutEffect = typeof window === "undefined" ? reactExports.useEffect : reactExports.useLayoutEffect;
+function waitForPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+function findBlockNode(root2, blockId) {
+  if (!root2) return null;
+  return Array.from(root2.querySelectorAll("[data-message-block-id]")).find((node2) => node2.dataset.messageBlockId === blockId) ?? null;
+}
+function centerBlock(element2, node2) {
+  const containerRect = element2.getBoundingClientRect();
+  const nodeRect = node2.getBoundingClientRect();
+  const correction = nodeRect.top - containerRect.top - Math.max(0, (element2.clientHeight - nodeRect.height) / 2);
+  if (Math.abs(correction) < 1) return;
+  const maxScrollTop = Math.max(0, element2.scrollHeight - element2.clientHeight);
+  element2.scrollTop = Math.min(maxScrollTop, Math.max(0, element2.scrollTop + correction));
+}
 function buildVirtualMessageLayout(items, measuredHeights) {
   let start = 0;
   const layoutItems = items.map((item, index2) => {
@@ -20200,35 +20286,64 @@ function useVirtualMessageWindow({
     if (!oldLayout || oldLayout.items.length !== 0 || !stickToBottom.current) return;
     element2.scrollTop = element2.scrollHeight;
   }, [items.length, rootRef, scrollRef]);
-  return { layout, range };
+  const revealBlock = reactExports.useCallback(async (blockId) => {
+    const root2 = rootRef.current;
+    const element2 = findScrollElement(root2, scrollRef);
+    const item = layout.items.find((candidate) => candidate.blockId === blockId);
+    if (!root2 || !element2 || !item) return false;
+    stickToBottom.current = false;
+    const maxScrollTop = Math.max(0, element2.scrollHeight - element2.clientHeight);
+    const centeredTop = item.start - Math.max(0, (element2.clientHeight - item.size) / 2);
+    const nextScrollTop = Math.min(maxScrollTop, Math.max(0, centeredTop));
+    element2.scrollTop = nextScrollTop;
+    setViewport({ scrollTop: nextScrollTop, height: element2.clientHeight, ready: true });
+    await waitForPaint();
+    const node2 = findBlockNode(rootRef.current, blockId);
+    if (!node2) return false;
+    centerBlock(element2, node2);
+    setViewport({ scrollTop: element2.scrollTop, height: element2.clientHeight, ready: true });
+    return true;
+  }, [layout, rootRef, scrollRef]);
+  return { layout, range, revealBlock };
 }
 const USER_MESSAGE_ESTIMATE = 88;
 const RUN_PROCESS_ESTIMATE = 140;
-function buildMessageBlocks(order2, runs, runTimings) {
-  return order2.flatMap((runId) => {
-    const run = runs[runId];
+const ASSISTANT_MESSAGE_ESTIMATE = 160;
+function buildMessageBlocks(order2, runs, runTimings, activeSearchBlockId = null) {
+  return buildMessageBlockRecords({ runOrder: order2, runs }).flatMap((record) => {
+    const run = runs[record.runId];
     if (!run) return [];
-    const blocks = [];
-    if (run.task) {
-      const taskText = normalizePunctuation(run.task);
-      blocks.push({
-        blockId: `${runId}:task`,
+    if (record.kind === "user") {
+      const taskText = normalizePunctuation(record.text ?? "");
+      return [{
+        blockId: record.blockId,
+        kind: record.kind,
+        searchText: record.text,
         estimatedHeight: USER_MESSAGE_ESTIMATE,
         content: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "user-message-row", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "user-message-group", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "user-message", "data-searchable": true, children: taskText }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `user-message${activeSearchBlockId === record.blockId ? " search-active" : ""}`, children: taskText }),
           run.taskAt !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(MessageMeta, { time: run.taskAt, text: taskText })
         ] }) })
-      });
+      }];
     }
-    blocks.push({
-      blockId: `${runId}:process`,
-      estimatedHeight: RUN_PROCESS_ESTIMATE,
-      content: /* @__PURE__ */ jsxRuntimeExports.jsx(RunProcess, { run, runTiming: runTimings[runId] })
-    });
-    return blocks;
+    if (record.kind === "process") {
+      return [{
+        blockId: record.blockId,
+        kind: record.kind,
+        estimatedHeight: RUN_PROCESS_ESTIMATE,
+        content: /* @__PURE__ */ jsxRuntimeExports.jsx(RunProcess, { run, runTiming: runTimings[record.runId] })
+      }];
+    }
+    return [{
+      blockId: record.blockId,
+      kind: record.kind,
+      searchText: record.text,
+      estimatedHeight: ASSISTANT_MESSAGE_ESTIMATE,
+      content: /* @__PURE__ */ jsxRuntimeExports.jsx(FinalAnswer, { run, runTiming: runTimings[record.runId], active: activeSearchBlockId === record.blockId })
+    }];
   });
 }
-function MessageStream({
+const MessageStream = reactExports.forwardRef(function MessageStream2({
   order: order2,
   runs,
   runTimings,
@@ -20236,14 +20351,15 @@ function MessageStream({
   hasMore = false,
   loadingOlder = false,
   historyError = null,
-  onLoadOlder
-}) {
+  onLoadOlder,
+  activeSearchBlockId = null
+}, ref) {
   const rootRef = reactExports.useRef(null);
   const blocks = reactExports.useMemo(
-    () => buildMessageBlocks(order2, runs, runTimings),
-    [order2, runTimings, runs]
+    () => buildMessageBlocks(order2, runs, runTimings, activeSearchBlockId),
+    [activeSearchBlockId, order2, runTimings, runs]
   );
-  const { range } = useVirtualMessageWindow({
+  const { range, revealBlock } = useVirtualMessageWindow({
     items: blocks,
     rootRef,
     scrollRef,
@@ -20251,22 +20367,28 @@ function MessageStream({
     loadingOlder,
     onLoadOlder
   });
+  reactExports.useImperativeHandle(ref, () => ({ revealBlock }), [revealBlock]);
   const visibleBlocks = blocks.slice(range.startIndex, range.endIndex);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: rootRef, className: "message-stream", "data-block-count": blocks.length, children: [
-    (loadingOlder || historyError) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message-history-status${historyError ? " is-error" : ""}`, role: historyError ? "alert" : "status", children: historyError ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void onLoadOlder?.(), children: "历史加载失败，点击重试" }) : "正在加载更早的消息…" }),
+    (loadingOlder || historyError) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message-history-status${historyError ? " is-error" : ""}`, role: historyError ? "alert" : "status", children: historyError ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void onLoadOlder?.(), children: "History loading failed. Click to retry" }) : "Loading earlier messages…" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "message-virtual-spacer", "data-virtual-spacer": "top", style: { height: range.topSpacer } }),
-    visibleBlocks.map((block) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "div",
-      {
-        className: "message-virtual-block",
-        "data-message-block-id": block.blockId,
-        children: block.content
-      },
-      block.blockId
-    )),
+    visibleBlocks.map((block, visibleIndex) => {
+      const blockIndex = range.startIndex + visibleIndex;
+      const hasFollowingAnswer = block.kind === "process" && blocks[blockIndex + 1]?.kind === "assistant";
+      return /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "div",
+        {
+          className: `message-virtual-block block-${block.kind}${hasFollowingAnswer ? " has-following-answer" : ""}`,
+          "data-message-block-id": block.blockId,
+          children: block.content
+        },
+        block.blockId
+      );
+    }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "message-virtual-spacer", "data-virtual-spacer": "bottom", style: { height: range.bottomSpacer } })
   ] });
-}
+});
+MessageStream.displayName = "MessageStream";
 const ELASTIC_MAX = 96;
 const ELASTIC_SATURATION = 400;
 const ELASTIC_OMEGA = 28;
@@ -20545,7 +20667,7 @@ function StreamRegion({ scrollRef, children }) {
         style: { top: geometry.top, height: geometry.height },
         role: "scrollbar",
         tabIndex: 0,
-        "aria-label": "消息滚动位置",
+        "aria-label": "Message scroll position",
         "aria-orientation": "vertical",
         "aria-disabled": !geometry.scrollable,
         "aria-controls": "message-stream",
@@ -20570,7 +20692,7 @@ const MODEL_OPTION_STORAGE_KEY = "workbench.modelOptionId";
 const MODEL_PICKER_LAYOUT_STORAGE_KEY = "workbench.modelPickerLayout.v1";
 function restoreStoredModelOptionId(storedId, modelOptions) {
   const modelOptionId = storedId.trim();
-  return modelOptions.some((model) => model.imported && model.modelOptionId === modelOptionId) ? modelOptionId : "";
+  return modelOptions.some((model) => model.available && model.modelOptionId === modelOptionId) ? modelOptionId : "";
 }
 function parseStoredModelPickerPreference(serialized, legacyModelOptionId) {
   const legacyId = legacyModelOptionId?.trim() ?? "";
@@ -20602,12 +20724,12 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
   const modelPickerPreferenceRef = reactExports.useRef(storedPreference);
   const [modelTriggerWidth, setModelTriggerWidth] = reactExports.useState(() => storedPreference.modelOptionId === selectedModelOptionId ? storedPreference.width : null);
   const [animateModelWidth, setAnimateModelWidth] = reactExports.useState(false);
-  const selectedModel = modelOptions.find((option) => option.imported && option.modelOptionId === selectedModelOptionId);
-  const selectableModels = modelOptions.filter((option) => option.imported && option.available);
+  const selectedModel = modelOptions.find((option) => option.available && option.modelOptionId === selectedModelOptionId);
+  const selectableModels = modelOptions.filter((option) => option.available);
   const cachedModelDisplayName = storedPreference.modelOptionId === selectedModelOptionId ? storedPreference.displayName : "";
-  const modelDisplayName = selectedModel?.displayName ?? (cachedModelDisplayName || (modelLoading ? "读取模型…" : "选择模型"));
+  const modelDisplayName = selectedModel?.displayName ?? (cachedModelDisplayName || (modelLoading ? "Loading model…" : "Choose model"));
   const canRun = ready && !running && task.trim() !== "" && Boolean(selectedModel?.available);
-  const disabledReason = !task.trim() ? "请输入任务" : !selectedModel?.available ? "请选择可用模型" : null;
+  const disabledReason = !task.trim() ? "Enter a task" : !selectedModel?.available ? "Choose an available model" : null;
   reactExports.useLayoutEffect(() => {
     const trigger = modelTriggerRef.current;
     const label = modelLabelRef.current;
@@ -20704,13 +20826,13 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
     element2.style.overflowY = element2.scrollHeight > 180 ? "auto" : "hidden";
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsx("footer", { className: "composer", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-shell", children: [
-    attachments.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-attachments", "aria-label": "附件", children: attachments.map((attachment) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment", children: [
+    attachments.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-attachments", "aria-label": "Attachments", children: attachments.map((attachment) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "attachment-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: attachment.mediaType.startsWith("image/") ? "image" : "book-open", width: "15", height: "15" }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "attachment-info", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: attachment.name }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: formatBytes$1(attachment.byteSize) })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId)), disabled: running || !ready, "aria-label": `移除附件 ${attachment.name}`, title: "移除附件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "close", width: "14", height: "14" }) })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId)), disabled: running || !ready, "aria-label": `Remove attachment ${attachment.name}`, title: "Remove attachment", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "close", width: "14", height: "14" }) })
     ] }, attachment.attachmentId)) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       "textarea",
@@ -20722,19 +20844,19 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
         disabled: running || !ready,
         onChange: (event) => updateTask(event.currentTarget),
         onKeyDown: onTaskKeyDown,
-        "aria-label": "任务"
+        "aria-label": "Task"
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-left", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "composer-icon-button", onClick: () => void pickAttachments(), disabled: running || !ready, "aria-label": "上传文件", title: "上传文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "plus", width: "18", height: "18" }) }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-left", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "composer-icon-button", onClick: () => void pickAttachments(), disabled: running || !ready, "aria-label": "Upload files", title: "Upload files", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "plus", width: "18", height: "18" }) }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-right", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-picker", ref: modelRootRef, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { ref: modelTriggerRef, type: "button", className: `model-picker-trigger ${animateModelWidth ? "is-width-animated" : ""}`, style: modelTriggerWidth === null ? void 0 : { width: `${modelTriggerWidth}px` }, onClick: () => setModelOpen((value) => !value), disabled: running || !ready || modelLoading, "aria-haspopup": "listbox", "aria-expanded": modelOpen, title: ready ? "选择模型" : "正在加载历史", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { ref: modelTriggerRef, type: "button", className: `model-picker-trigger ${animateModelWidth ? "is-width-animated" : ""}`, style: modelTriggerWidth === null ? void 0 : { width: `${modelTriggerWidth}px` }, onClick: () => setModelOpen((value) => !value), disabled: running || !ready || modelLoading, "aria-haspopup": "listbox", "aria-expanded": modelOpen, title: ready ? "Choose model" : "Loading history", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { ref: modelLabelRef, children: modelDisplayName }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "chevron-right", width: "15", height: "15" })
           ] }),
-          modelOpen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-popover", role: "listbox", "aria-label": "选择模型", onKeyDown: navigateModels, children: [
-            selectableModels.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "model-empty", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "尚未添加可用模型" }) }),
+          modelOpen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-popover", role: "listbox", "aria-label": "Choose model", onKeyDown: navigateModels, children: [
+            selectableModels.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "model-empty", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "No available models" }) }),
             selectableModels.map((model) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", role: "option", "aria-selected": model.modelOptionId === selectedModelOptionId, onClick: () => {
               if (model.modelOptionId !== selectedModelOptionId) modelSelectionChangedRef.current = true;
               selectModel(model.modelOptionId);
@@ -20746,7 +20868,7 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
             ] }, model.modelOptionId))
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: `send-stop-button ${running ? "is-stop" : "is-send"}`, onClick: running ? onStop : submit, disabled: running ? stopping : !canRun, "aria-label": running ? stopping ? "正在停止" : "停止运行" : "发送", title: running ? stopping ? "正在停止" : "停止运行" : ready ? disabledReason ?? "发送" : "正在加载历史", "aria-busy": stopping || void 0, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "send-stop-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: running ? "stop" : "arrow-up", width: 18, height: 18 }) }, running ? "stop" : "send") })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: `send-stop-button ${running ? "is-stop" : "is-send"}`, onClick: running ? onStop : submit, disabled: running ? stopping : !canRun, "aria-label": running ? stopping ? "Stopping" : "Stop run" : "Send", title: running ? stopping ? "Stopping" : "Stop run" : ready ? disabledReason ?? "Send" : "Loading history", "aria-busy": stopping || void 0, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "send-stop-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: running ? "stop" : "arrow-up", width: 18, height: 18 }) }, running ? "stop" : "send") })
       ] })
     ] }),
     !running && disabledReason && task.trim() && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "composer-hint", role: "status", children: disabledReason })
@@ -20793,33 +20915,112 @@ function formatBytes$1(value) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
-function TopBar({ outputOpen, outputCount, searchOpen, settingsOpen, settingsButtonRef, onOutput, onSearch, onSettings }) {
+function TopBar({ outputOpen, outputCount, searchOpen, settingsOpen, searchButtonRef, settingsButtonRef, onOutput, onSearch, onSettings }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "topbar", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { className: "sr-only", children: "主工作台" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { className: "sr-only", children: "Agent Workbench" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-actions", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `icon-button ${outputOpen ? "active" : ""}`, onClick: onOutput, title: outputOpen ? "隐藏输出文件" : "显示输出文件", "aria-label": outputOpen ? "隐藏输出文件" : "显示输出文件", "aria-expanded": outputOpen, "aria-controls": "output-sidebar", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "sidebar", width: "18", height: "18" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `icon-button ${outputOpen ? "active" : ""}`, onClick: onOutput, title: outputOpen ? "Hide output files" : "Show output files", "aria-label": outputOpen ? "Hide output files" : "Show output files", "aria-expanded": outputOpen, "aria-controls": "output-sidebar", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: outputOpen ? "sidebar" : "sidebar-collapsed", width: outputOpen ? "18" : "20", height: outputOpen ? "18" : "20", strokeWidth: 2 }),
         !outputOpen && outputCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "icon-badge", children: outputCount > 9 ? "9+" : outputCount })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: `icon-button ${searchOpen ? "active" : ""}`, onClick: onSearch, title: "搜索全局内容", "aria-label": "搜索全局内容", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "search", width: "18", height: "18" }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { ref: settingsButtonRef, className: `icon-button ${settingsOpen ? "active" : ""}`, onClick: onSettings, title: "设置", "aria-label": "设置", "aria-expanded": settingsOpen, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "settings", width: "18", height: "18" }) })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { ref: searchButtonRef, className: `icon-button ${searchOpen ? "active" : ""}`, onClick: onSearch, title: "Search all content", "aria-label": "Search all content", "aria-expanded": searchOpen, "aria-controls": "search-popover", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "search", width: "18", height: "18" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { ref: settingsButtonRef, className: `icon-button ${settingsOpen ? "active" : ""}`, onClick: onSettings, title: "Settings", "aria-label": "Settings", "aria-expanded": settingsOpen, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "settings", width: "18", height: "18" }) })
     ] })
   ] });
 }
-function SearchPopover({ query, onQueryChange }) {
+function HighlightedSnippet({ result }) {
+  const { start, end } = result.snippetMatchRange;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    result.snippet.slice(0, start),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("mark", { children: result.snippet.slice(start, end) }),
+    result.snippet.slice(end)
+  ] });
+}
+function SearchPopover({
+  query,
+  onQueryChange,
+  results,
+  activeBlockId,
+  loadingHistory,
+  hydrated,
+  hasMoreHistory,
+  error,
+  panelRef,
+  onSelect,
+  onRetry
+}) {
   const inputRef = reactExports.useRef(null);
   reactExports.useEffect(() => inputRef.current?.focus(), []);
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "search-popover", role: "dialog", "aria-label": "搜索全局内容", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "search-row", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "search-glyph", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "search", width: "18", height: "18" }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("input", { ref: inputRef, value: query, onChange: (event) => onQueryChange(event.target.value), placeholder: "搜索任务、命令或输出…", "aria-label": "搜索内容" })
-  ] }) });
+  const onInputKeyDown = (event) => {
+    if (!results.length) return;
+    const currentIndex = results.findIndex((result) => result.blockId === activeBlockId);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      onSelect(results[(currentIndex + 1 + results.length) % results.length]);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      onSelect(results[(currentIndex - 1 + results.length) % results.length]);
+    } else if (event.key === "Enter" && currentIndex >= 0) {
+      event.preventDefault();
+      onSelect(results[currentIndex]);
+    }
+  };
+  const queryActive = query.trim().length > 0;
+  const activeIndex = results.findIndex((result) => result.blockId === activeBlockId);
+  const activeOptionId = activeIndex >= 0 ? `search-result-${activeIndex}` : void 0;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "search-layer", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "search-backdrop", "aria-hidden": "true" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { id: "search-popover", ref: panelRef, className: "search-popover", role: "dialog", "aria-label": "Search all content", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "search-glyph", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "search", width: "18", height: "18" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "input",
+        {
+          ref: inputRef,
+          type: "search",
+          role: "searchbox",
+          value: query,
+          onChange: (event) => onQueryChange(event.target.value),
+          onKeyDown: onInputKeyDown,
+          placeholder: "Search...",
+          "aria-label": "Search content",
+          "aria-controls": "search-results",
+          "aria-activedescendant": activeOptionId
+        }
+      ),
+      queryActive && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "search-results", id: "search-results", role: "listbox", "aria-label": "Search results", children: [
+        !hydrated && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "search-status", children: "Loading messages…" }),
+        hydrated && results.map((result, index2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            id: `search-result-${index2}`,
+            type: "button",
+            role: "option",
+            "aria-selected": result.blockId === activeBlockId,
+            className: "search-result",
+            onClick: () => onSelect(result),
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "search-result-marker", "aria-hidden": "true" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "search-result-text", children: /* @__PURE__ */ jsxRuntimeExports.jsx(HighlightedSnippet, { result }) })
+            ]
+          },
+          result.blockId
+        )),
+        hydrated && results.length === 0 && !loadingHistory && !hasMoreHistory && !error && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "search-status", children: "No matching messages found" }),
+        hydrated && loadingHistory && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "search-status", children: "Searching earlier messages…" }),
+        hydrated && hasMoreHistory && !loadingHistory && !results.length && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "search-status", children: "Preparing more messages…" }),
+        error && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "search-status search-status-error", role: "alert", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: error }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: onRetry, children: "Retry" })
+        ] })
+      ] })
+    ] })
+  ] });
 }
 function initialModels(profile) {
   return profile?.models.map((model) => ({
     id: model.modelId,
     displayName: model.displayName,
-    available: model.available,
-    selected: model.imported,
+    selected: true,
     state: model.state
   })) ?? [];
 }
@@ -20834,7 +21035,7 @@ function ProviderEditor({ profile, disabled, onCancel, onSaved }) {
   const [query, setQuery] = reactExports.useState("");
   const [discovering, setDiscovering] = reactExports.useState(false);
   const [saving, setSaving] = reactExports.useState(false);
-  const [status, setStatus] = reactExports.useState(profile ? "已加载保存的模型。" : null);
+  const [status, setStatus] = reactExports.useState(profile ? "Loaded saved models." : null);
   const [error, setError] = reactExports.useState(null);
   const activeRequest = reactExports.useRef(null);
   const nameRef = reactExports.useRef(null);
@@ -20855,7 +21056,7 @@ function ProviderEditor({ profile, disabled, onCancel, onSaved }) {
   reactExports.useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
   }, [allVisibleSelected, someVisibleSelected]);
-  const cancelDiscovery = (message = "已取消获取模型。") => {
+  const cancelDiscovery = (message = "Model retrieval cancelled.") => {
     if (activeRequest.current) window.agentAPI.cancelProviderModelDiscovery(activeRequest.current);
     activeRequest.current = null;
     setDiscovering(false);
@@ -20864,17 +21065,17 @@ function ProviderEditor({ profile, disabled, onCancel, onSaved }) {
   };
   const discover = async () => {
     if (!baseURL.trim()) {
-      setError("请填写 API Base URL。");
+      setError("Enter an API Base URL.");
       return;
     }
     if (!apiKey.trim() && !profile?.credentialConfigured) {
-      setError("请填写 API Key。");
+      setError("Enter an API Key.");
       return;
     }
     const requestId = createRequestId();
     activeRequest.current = requestId;
     setDiscovering(true);
-    setStatus("正在获取模型列表。");
+    setStatus("Loading model list.");
     setError(null);
     try {
       const result = await window.agentAPI.discoverProviderModels({
@@ -20890,23 +21091,15 @@ function ProviderEditor({ profile, disabled, onCancel, onSaved }) {
         setStatus(null);
         return;
       }
-      const previous2 = new Map(models.map((model) => [model.id, model]));
-      const remote = new Set(result.models.map((model) => model.id));
       const nextModels = result.models.map((model) => {
-        const saved = previous2.get(model.id);
         return {
           ...model,
-          available: true,
-          selected: profile ? Boolean(saved?.selected) : true,
-          state: saved?.selected ? "saved" : profile ? "new" : "saved"
+          selected: true,
+          state: "saved"
         };
       });
-      for (const model of models) {
-        if (!model.selected || remote.has(model.id)) continue;
-        nextModels.push({ ...model, available: false, state: "unavailable" });
-      }
       setModels(nextModels);
-      setStatus(`已获取 ${result.models.length} 个模型。`);
+      setStatus("Models loaded successfully.");
     } catch (cause) {
       if (activeRequest.current === requestId) {
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -20921,20 +21114,20 @@ function ProviderEditor({ profile, disabled, onCancel, onSaved }) {
   };
   const save = async () => {
     if (!providerName.trim()) {
-      setError("请填写提供商名称。");
+      setError("Enter a provider name.");
       return;
     }
     if (!baseURL.trim()) {
-      setError("请填写 API Base URL。");
+      setError("Enter an API Base URL.");
       return;
     }
     if (!profile && !apiKey.trim()) {
-      setError("请填写 API Key。");
+      setError("Enter an API Key.");
       return;
     }
     const selected = models.filter((model) => model.selected);
     if (!selected.length) {
-      setError("请至少选择一个模型。");
+      setError("Select at least one model.");
       return;
     }
     const input = {
@@ -20942,7 +21135,7 @@ function ProviderEditor({ profile, disabled, onCancel, onSaved }) {
       name: providerName.trim(),
       baseURL: baseURL.trim(),
       apiKey: apiKey.trim() || void 0,
-      models: selected.map((model) => ({ id: model.id, displayName: model.displayName, available: model.available }))
+      models: selected.map((model) => ({ id: model.id, displayName: model.displayName }))
     };
     setSaving(true);
     setError(null);
@@ -20961,16 +21154,16 @@ function ProviderEditor({ profile, disabled, onCancel, onSaved }) {
     }
   };
   const locked = disabled || saving || discovering;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "provider-editor", "aria-label": profile ? "编辑提供商" : "添加提供商", children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "provider-editor", "aria-label": profile ? "Edit provider" : "Add provider", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "provider-editor-header", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "panel-close", onClick: onCancel, "aria-label": "返回提供商列表", title: "返回提供商列表", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "chevron-left", width: "16", height: "16" }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: profile ? "编辑提供商" : "添加提供商" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "panel-close", onClick: onCancel, "aria-label": "Back to providers", title: "Back to providers", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "chevron-right", width: "15", height: "15", className: "provider-back-icon" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: profile ? "Edit provider" : "Add provider" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "header-spacer" })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "provider-editor-body", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "field", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "field-label", children: "提供商名称" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { ref: nameRef, type: "text", value: providerName, disabled: locked, onChange: (event) => setProviderName(event.target.value), placeholder: "例如 OpenAI" })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "field-label", children: "Provider name" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { ref: nameRef, type: "text", value: providerName, disabled: locked, onChange: (event) => setProviderName(event.target.value), placeholder: "e.g. OpenAI" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "field", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "field-label", children: "API Base URL" }),
@@ -20978,51 +21171,49 @@ function ProviderEditor({ profile, disabled, onCancel, onSaved }) {
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "field", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "field-label", children: "API Key" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "password", value: apiKey, disabled: locked, onChange: (event) => setApiKey(event.target.value), placeholder: profile ? "留空使用已保存凭据" : "输入 API Key", autoComplete: "off", spellCheck: false })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "password", value: apiKey, disabled: locked, onChange: (event) => setApiKey(event.target.value), placeholder: profile ? "Leave blank to use saved credentials" : "Enter an API Key", autoComplete: "off", spellCheck: false })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "model-import", "aria-label": "模型发现与导入", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "model-import", "aria-label": "Model discovery and import", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-import-toolbar", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("input", { className: "model-search", type: "search", value: query, onChange: (event) => setQuery(event.target.value), placeholder: "搜索模型", "aria-label": "搜索模型" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("input", { className: "model-search", type: "search", value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Search models", "aria-label": "Search models" }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "select-all-models", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("input", { ref: selectAllRef, type: "checkbox", checked: allVisibleSelected, disabled: !visibleModels.length || locked, onChange: (event) => {
               const visible = new Set(visibleModels.map((model) => model.id));
               setModels((current) => current.map((model) => visible.has(model.id) ? { ...model, selected: event.target.checked } : model));
             } }),
-            "全选当前结果"
+            "Select all visible results"
           ] })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-fetch-row", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: "discover-button", onClick: () => void discover(), disabled: locked || !baseURL.trim() || !apiKey.trim() && !profile?.credentialConfigured, children: [
             discovering ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spinner" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "download", width: "17", height: "17" }),
-            discovering ? "正在获取" : "获取模型列表"
+            discovering ? "Fetching" : "Fetch model list"
           ] }),
-          discovering && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "secondary-button", onClick: () => cancelDiscovery(), children: "取消获取" })
+          discovering && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "secondary-button", onClick: () => cancelDiscovery(), children: "Cancel" })
         ] }),
         (status || error) && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: error ? "form-error" : "form-status", role: error ? "alert" : "status", children: [
           error && /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "warning", width: "15", height: "15" }),
           error ?? status
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "model-selection-count", children: [
-          "选择 ",
+          "Selected ",
           selectedCount,
           "/",
           models.length,
-          " 模型"
+          " models"
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "discovered-model-list", role: "group", "aria-label": "可导入模型", children: [
-          !models.length && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "model-list-empty", children: "尚无模型，请先获取模型列表。" }),
-          visibleModels.map((model) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: `discovered-model-row ${model.state === "unavailable" ? "is-unavailable" : ""}`, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "discovered-model-list", role: "group", "aria-label": "Importable models", children: [
+          !models.length && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "model-list-empty", children: "No models yet. Fetch the model list first." }),
+          visibleModels.map((model) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "discovered-model-row", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", checked: model.selected, disabled: locked, onChange: (event) => setModels((current) => current.map((candidate) => candidate.id === model.id ? { ...candidate, selected: event.target.checked } : candidate)) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: model.id }),
-            model.state === "new" && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "model-state is-new", children: "新增" }),
-            model.state === "unavailable" && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "model-state is-unavailable", children: "不可用" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: model.id })
           ] }, model.id))
         ] })
       ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("footer", { className: "provider-editor-actions", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "secondary-button", onClick: onCancel, disabled: saving, children: "取消" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "primary-button", onClick: () => void save(), disabled: disabled || saving || discovering || selectedCount === 0, children: saving ? "正在保存" : "保存提供商" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "secondary-button", onClick: onCancel, disabled: saving, children: "Cancel" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "primary-button", onClick: () => void save(), disabled: disabled || saving || discovering || selectedCount === 0, children: saving ? "Saving" : "Save provider" })
     ] })
   ] });
 }
@@ -21104,17 +21295,15 @@ function ConfigPanel({ profiles, loading, error, disabled, onClose, onRefresh })
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "config-panel", role: "dialog", "aria-modal": "false", "aria-labelledby": "provider-settings-title", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "config-header", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { id: "provider-settings-title", children: "模型提供商" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "panel-close", onClick: onClose, "aria-label": "关闭设置", title: "关闭设置", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "close", width: "16", height: "16" }) })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { id: "provider-settings-title", children: "Providers" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "panel-close", onClick: onClose, "aria-label": "Close settings", title: "Close settings", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "close", width: "16", height: "16" }) })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "provider-list", children: [
-      loading && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "panel-empty", children: "正在读取提供商。" }),
-      !loading && profiles.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "panel-empty", children: "尚未添加提供商。添加并保存后，模型才会进入 Composer。" }),
+      loading && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "panel-empty", children: "Loading providers." }),
+      !loading && profiles.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "panel-empty", children: "No providers added. Add and save a provider to make its models available in Composer." }),
       profiles.map((profile) => {
         const isExpanded = expanded.has(profile.providerProfileId);
         const refreshState = refreshStates[profile.providerProfileId];
-        const importedCount = profile.models.filter((model) => model.imported).length;
-        const newCount = profile.models.filter((model) => model.state === "new").length;
         return /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: `provider-card ${isExpanded ? "is-expanded" : ""}`, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "provider-card-heading", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: "provider-card-toggle", "aria-expanded": isExpanded, onClick: () => {
@@ -21126,34 +21315,21 @@ function ConfigPanel({ profiles, loading, error, disabled, onClose, onRefresh })
                 return next;
               });
             }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "provider-card-chevron", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "chevron-right", width: "14", height: "14" }) }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "provider-card-identity", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: profile.name }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                  profile.baseURL,
-                  " · ",
-                  importedCount,
-                  " 个模型",
-                  newCount ? ` · ${newCount} 个新增` : ""
-                ] })
-              ] })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "provider-card-chevron", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "chevron-right", width: "15", height: "15" }) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "provider-card-identity", children: /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: profile.name }) })
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "provider-card-actions", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: refreshState?.kind === "loading" ? "is-refreshing" : "", onClick: () => void refreshProfile(profile), disabled: disabled || refreshState?.kind === "loading", "aria-label": `重新拉取 ${profile.name} 的模型`, title: "重新拉取模型", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "refresh", width: "16", height: "16" }) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: refreshState?.kind === "loading" ? "is-refreshing" : "", onClick: () => void refreshProfile(profile), disabled: disabled || refreshState?.kind === "loading", "aria-label": `Refresh ${profile.name} models`, title: "Refresh models", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "refresh", width: "16", height: "16", strokeWidth: 2 }) }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => {
                 resetDelete();
                 setMode({ kind: "edit", profile });
-              }, disabled, "aria-label": `编辑 ${profile.name}`, title: "编辑提供商", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "edit", width: "16", height: "16" }) }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: confirmDelete === profile.providerProfileId ? "danger-confirm" : "", onClick: () => void remove(profile), disabled, "aria-label": confirmDelete === profile.providerProfileId ? `再次点击删除 ${profile.name}` : `删除 ${profile.name}`, title: confirmDelete === profile.providerProfileId ? "再次点击确认删除" : "删除提供商", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "trash", width: "16", height: "16" }) })
+              }, disabled, "aria-label": `Edit ${profile.name}`, title: "Edit provider", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "edit", width: "16", height: "16", strokeWidth: 2 }) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: confirmDelete === profile.providerProfileId ? "danger-confirm" : "", onClick: () => void remove(profile), disabled, "aria-label": confirmDelete === profile.providerProfileId ? `Click again to delete ${profile.name}` : `Delete ${profile.name}`, title: confirmDelete === profile.providerProfileId ? "Click again to confirm deletion" : "Delete provider", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "trash", width: "16", height: "16" }) })
             ] })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `provider-feedback ${refreshState?.kind === "success" ? "is-visible" : ""}`, role: "status", children: "已重新拉取模型" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `provider-feedback ${refreshState?.kind === "success" ? "is-visible" : ""}`, role: "status", children: "Refresh succeeded" }),
           refreshState?.kind === "error" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "provider-refresh-error", role: "alert", children: refreshState.message }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "provider-model-collapse", "aria-hidden": !isExpanded, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "provider-model-clip", children: /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { className: "provider-models", children: profile.models.map((model) => /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: model.modelId }),
-            model.state === "new" && /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: "model-state is-new", children: "新增" }),
-            model.state === "unavailable" && /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: "model-state is-unavailable", children: "不可用" })
-          ] }, model.modelOptionId)) }) }) })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "provider-model-collapse", "aria-hidden": !isExpanded, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "provider-model-clip", children: /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { className: "provider-models", children: profile.models.map((model) => /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: model.modelId }) }, model.modelOptionId)) }) }) })
         ] }, profile.providerProfileId);
       })
     ] }),
@@ -21164,34 +21340,40 @@ function ConfigPanel({ profiles, loading, error, disabled, onClose, onRefresh })
     /* @__PURE__ */ jsxRuntimeExports.jsx("footer", { className: "config-actions", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "primary-button add-provider-button", onClick: () => {
       resetDelete();
       setMode({ kind: "create" });
-    }, disabled, children: "添加提供商" }) })
+    }, disabled, children: "Add provider" }) })
   ] });
 }
 const OUTPUT_SIDEBAR_DEFAULT_WIDTH = 360;
 const OUTPUT_SIDEBAR_MIN_WIDTH = 280;
-const OUTPUT_SIDEBAR_MAX_WIDTH = 520;
 const OUTPUT_SIDEBAR_COLLAPSE_DISTANCE = 48;
 const OUTPUT_MAIN_COLUMN_MIN_WIDTH = 360;
+function getOutputSidebarMaxWidth(viewportWidth) {
+  return Math.max(OUTPUT_SIDEBAR_MIN_WIDTH, viewportWidth - OUTPUT_MAIN_COLUMN_MIN_WIDTH);
+}
+function canKeepOutputSidebarOpen(viewportWidth) {
+  return viewportWidth >= OUTPUT_SIDEBAR_MIN_WIDTH + OUTPUT_MAIN_COLUMN_MIN_WIDTH;
+}
+function clampOutputSidebarWidth(width, viewportWidth) {
+  return Math.min(
+    Math.max(width, OUTPUT_SIDEBAR_MIN_WIDTH),
+    getOutputSidebarMaxWidth(viewportWidth)
+  );
+}
 function shouldCollapseSidebar(rawWidth) {
   return rawWidth <= OUTPUT_SIDEBAR_MIN_WIDTH - OUTPUT_SIDEBAR_COLLAPSE_DISTANCE;
 }
 const WIDTH_KEY = "workbench.outputSidebarWidth";
-function maxWidth() {
-  return Math.max(
-    OUTPUT_SIDEBAR_MIN_WIDTH,
-    Math.min(OUTPUT_SIDEBAR_MAX_WIDTH, window.innerWidth - OUTPUT_MAIN_COLUMN_MIN_WIDTH)
-  );
-}
-function clampWidth(width) {
-  return Math.min(Math.max(width, OUTPUT_SIDEBAR_MIN_WIDTH), maxWidth());
+function clampWidth(width, viewportWidth) {
+  return clampOutputSidebarWidth(width, viewportWidth);
 }
 function initialWidth() {
   const value = Number(localStorage.getItem(WIDTH_KEY));
-  return clampWidth(Number.isFinite(value) && value > 0 ? value : OUTPUT_SIDEBAR_DEFAULT_WIDTH);
+  return Number.isFinite(value) && value > 0 ? value : OUTPUT_SIDEBAR_DEFAULT_WIDTH;
 }
 function OutputSidebar({ open, files, onOpenChange }) {
   const [phase, setPhase] = reactExports.useState(open ? "open" : "closed");
   const [width, setWidth] = reactExports.useState(initialWidth);
+  const [viewportWidth, setViewportWidth] = reactExports.useState(() => window.innerWidth);
   const [dragWidth, setDragWidth] = reactExports.useState(width);
   const [collapseReady, setCollapseReady] = reactExports.useState(false);
   const [selectedId, setSelectedId] = reactExports.useState(files[0]?.fileId ?? null);
@@ -21205,7 +21387,16 @@ function OutputSidebar({ open, files, onOpenChange }) {
   const fileContentRef = reactExports.useRef(null);
   useElasticScroll(fileListRef, fileContentRef);
   const selected = files.find((file) => file.fileId === selectedId) ?? files[0];
-  const targetWidth = phase === "dragging" ? dragWidth : open ? clampWidth(width) : 0;
+  const effectiveWidth = clampWidth(width, viewportWidth);
+  const targetWidth = phase === "dragging" ? clampWidth(dragWidth, viewportWidth) : open ? effectiveWidth : 0;
+  reactExports.useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  reactExports.useEffect(() => {
+    if (open && !canKeepOutputSidebarOpen(viewportWidth)) onOpenChange(false);
+  }, [onOpenChange, open, viewportWidth]);
   reactExports.useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setPhase(open ? "open" : "closed");
@@ -21251,8 +21442,8 @@ function OutputSidebar({ open, files, onOpenChange }) {
   const startDrag = (event) => {
     if (!open || phase === "opening" || phase === "closing") return;
     event.preventDefault();
-    dragRef.current = { startX: event.clientX, startWidth: width, rawWidth: width };
-    setDragWidth(width);
+    dragRef.current = { startX: event.clientX, startWidth: effectiveWidth, rawWidth: effectiveWidth };
+    setDragWidth(effectiveWidth);
     setCollapseReady(false);
     setPhase("dragging");
     const move = (pointerEvent) => {
@@ -21261,7 +21452,7 @@ function OutputSidebar({ open, files, onOpenChange }) {
       if (frameRef.current !== null) return;
       frameRef.current = requestAnimationFrame(() => {
         frameRef.current = null;
-        setDragWidth(clampWidth(dragRef.current.rawWidth));
+        setDragWidth(clampWidth(dragRef.current.rawWidth, viewportWidth));
         setCollapseReady(shouldCollapseSidebar(dragRef.current.rawWidth));
       });
     };
@@ -21278,7 +21469,7 @@ function OutputSidebar({ open, files, onOpenChange }) {
         onOpenChange(false);
         return;
       }
-      const nextWidth = clampWidth(dragRef.current.rawWidth);
+      const nextWidth = clampWidth(dragRef.current.rawWidth, viewportWidth);
       setWidth(nextWidth);
       setDragWidth(nextWidth);
       localStorage.setItem(WIDTH_KEY, String(nextWidth));
@@ -21300,7 +21491,7 @@ function OutputSidebar({ open, files, onOpenChange }) {
     window.addEventListener("keydown", cancel);
   };
   const resetWidth = () => {
-    const nextWidth = clampWidth(OUTPUT_SIDEBAR_DEFAULT_WIDTH);
+    const nextWidth = clampWidth(OUTPUT_SIDEBAR_DEFAULT_WIDTH, viewportWidth);
     setWidth(nextWidth);
     localStorage.setItem(WIDTH_KEY, String(nextWidth));
   };
@@ -21308,11 +21499,11 @@ function OutputSidebar({ open, files, onOpenChange }) {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     const step = event.shiftKey ? 64 : 16;
-    if (event.key === "ArrowRight" && width <= OUTPUT_SIDEBAR_MIN_WIDTH) {
+    if (event.key === "ArrowRight" && effectiveWidth <= OUTPUT_SIDEBAR_MIN_WIDTH) {
       onOpenChange(false);
       return;
     }
-    const nextWidth = clampWidth(width + (event.key === "ArrowLeft" ? step : -step));
+    const nextWidth = clampWidth(effectiveWidth + (event.key === "ArrowLeft" ? step : -step), viewportWidth);
     setWidth(nextWidth);
     localStorage.setItem(WIDTH_KEY, String(nextWidth));
   };
@@ -21332,19 +21523,13 @@ function OutputSidebar({ open, files, onOpenChange }) {
       "aria-hidden": phase === "closed",
       onTransitionEnd: finishTransition,
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-resizer", role: "separator", tabIndex: open ? 0 : -1, "aria-orientation": "vertical", "aria-valuemin": OUTPUT_SIDEBAR_MIN_WIDTH, "aria-valuemax": maxWidth(), "aria-valuenow": Math.round(targetWidth), onPointerDown: startDrag, onDoubleClick: resetWidth, onKeyDown: resizeWithKeyboard }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-resizer", role: "separator", tabIndex: open ? 0 : -1, "aria-orientation": "vertical", "aria-valuemin": OUTPUT_SIDEBAR_MIN_WIDTH, "aria-valuemax": getOutputSidebarMaxWidth(viewportWidth), "aria-valuenow": Math.round(targetWidth), onPointerDown: startDrag, onDoubleClick: resetWidth, onKeyDown: resizeWithKeyboard }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "output-sidebar-content", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("header", { className: "output-sidebar-header", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "eyebrow", children: "当前运行" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("h2", { children: [
-              "输出文件 ",
-              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: files.length })
-            ] })
-          ] }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: fileListRef, className: "output-file-list", role: "listbox", "aria-label": "输出文件", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-file-layout", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: fileContentRef, className: "output-file-content", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-sidebar-header", "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: fileListRef, className: "output-file-list", role: "listbox", "aria-label": "Output files", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-file-layout", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: fileContentRef, className: "output-file-content", children: [
             fileGroups.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "panel-empty", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "book-open", width: "24", height: "24" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "当前任务尚未生成文件" })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "No files generated for this task" })
             ] }),
             fileGroups.map((file) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", role: "option", "aria-selected": file.fileId === selected?.fileId, className: file.fileId === selected?.fileId ? "selected" : "", onClick: () => setSelectedId(file.fileId), children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: file.mediaType.startsWith("image/") ? "image" : "book-open", width: "16", height: "16" }),
@@ -21352,39 +21537,39 @@ function OutputSidebar({ open, files, onOpenChange }) {
                 /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: file.name }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: file.displayPath })
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: file.operation === "created" ? "已创建" : "已更新" })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: file.operation === "created" ? "Created" : "Updated" })
             ] }, file.fileId))
           ] }) }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "output-preview", "aria-label": "文件预览", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "output-preview", "aria-label": "File preview", children: [
             selected && /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "preview-header", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: selected.name }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatBytes(selected.byteSize) })
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void refreshPreview(), "aria-label": "刷新预览", title: "刷新预览", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "refresh", width: "15", height: "15" }) }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void openInSystem(), "aria-label": "在系统中打开", title: "在系统中打开", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "external", width: "15", height: "15" }) })
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void refreshPreview(), "aria-label": "Refresh preview", title: "Refresh preview", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "refresh", width: "15", height: "15" }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void openInSystem(), "aria-label": "Open in system", title: "Open in system", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "external", width: "15", height: "15" }) })
               ] })
             ] }),
-            previewLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "preview-state", children: "正在读取预览…" }),
+            previewLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "preview-state", children: "Loading preview…" }),
             !previewLoading && preview?.ok && preview.kind === "text" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { children: preview.content }),
               preview.truncated && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "preview-notice", children: [
-                "文件较大，仅显示前 ",
+                "File is large. Showing only the first ",
                 formatBytes(512 * 1024)
               ] })
             ] }),
-            !previewLoading && preview?.ok && preview.kind === "image" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "image-preview", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: preview.dataUrl, alt: selected?.name ?? "输出图片" }) }),
+            !previewLoading && preview?.ok && preview.kind === "image" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "image-preview", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: preview.dataUrl, alt: selected?.name ?? "Output image" }) }),
             !previewLoading && preview?.ok && preview.kind === "unsupported" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preview-state", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "image", width: "28", height: "28" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "暂不支持内嵌预览" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Embedded preview not supported" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: preview.mediaType })
             ] }),
             !previewLoading && preview && !preview.ok && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preview-state preview-error", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "warning", width: "24", height: "24" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: preview.message })
             ] }),
-            !selected && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "preview-state", children: "选择文件以预览内容" }),
+            !selected && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "preview-state", children: "Select a file to preview its content" }),
             openError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "preview-open-error", role: "alert", children: openError })
           ] })
         ] })
@@ -21442,6 +21627,7 @@ function useFloatingPanel(open, returnFocusRef) {
   return { mounted, onTransitionEnd, panelRef, phase };
 }
 function useSessionHistory(state, dispatch) {
+  const olderPageInFlight = reactExports.useRef(null);
   const loadInitial = reactExports.useCallback(async () => {
     dispatch({ type: "historyLoadStarted", scope: "initial" });
     try {
@@ -21451,30 +21637,160 @@ function useSessionHistory(state, dispatch) {
       dispatch({ type: "historyLoadFailed", scope: "initial", error: error instanceof Error ? error.message : String(error) });
     }
   }, [dispatch]);
-  const loadOlder = reactExports.useCallback(async () => {
+  const loadOlderPage = reactExports.useCallback(async (scope) => {
+    if (olderPageInFlight.current) return olderPageInFlight.current;
     const history = state.history;
-    if (!history.hydrated) {
-      if (!history.loadingInitial) await loadInitial();
+    if (!history.hydrated || history.loadingOlder || history.loadingSearch || !history.hasMore || !history.nextCursor) return;
+    const cursor = history.nextCursor;
+    const operation = (async () => {
+      dispatch({ type: "historyLoadStarted", scope });
+      try {
+        const page = await window.agentAPI.loadSessionPage({ cursor, limit: 100 });
+        dispatch({ type: "olderHistoryLoaded", page });
+      } catch (error) {
+        dispatch({ type: "historyLoadFailed", scope, error: error instanceof Error ? error.message : String(error) });
+      }
+    })();
+    olderPageInFlight.current = operation;
+    void operation.then(() => {
+      if (olderPageInFlight.current === operation) olderPageInFlight.current = null;
+    });
+    return operation;
+  }, [dispatch, state.history]);
+  const loadOlder = reactExports.useCallback(async () => {
+    if (!state.history.hydrated) {
+      if (!state.history.loadingInitial) await loadInitial();
       return;
     }
-    if (!history.hydrated || history.loadingOlder || !history.hasMore || !history.nextCursor) return;
-    dispatch({ type: "historyLoadStarted", scope: "older" });
-    try {
-      const page = await window.agentAPI.loadSessionPage({ cursor: history.nextCursor, limit: 100 });
-      dispatch({ type: "olderHistoryLoaded", page });
-    } catch (error) {
-      dispatch({ type: "historyLoadFailed", scope: "older", error: error instanceof Error ? error.message : String(error) });
-    }
-  }, [dispatch, loadInitial, state.history]);
+    await loadOlderPage("older");
+  }, [loadInitial, loadOlderPage, state.history.hydrated, state.history.loadingInitial]);
+  const loadSearch = reactExports.useCallback(async () => {
+    await loadOlderPage("search");
+  }, [loadOlderPage]);
   reactExports.useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
   return {
     hydrated: state.history.hydrated,
     loadingOlder: state.history.loadingOlder,
+    loadingSearch: state.history.loadingSearch,
     hasMore: state.history.hasMore,
     error: state.history.error,
-    loadOlder
+    loadOlder,
+    loadSearch
+  };
+}
+const DEFAULT_CONTEXT_CHARS = 48;
+function buildSearchIndex(state) {
+  return buildMessageBlockRecords(state).filter((block) => (block.kind === "user" || block.kind === "assistant") && typeof block.text === "string" && block.text.length > 0).map(({ blockId, text: text2 }) => ({ blockId, text: text2 }));
+}
+function foldWithBoundaries(text2) {
+  let value = "";
+  const boundaries = [0];
+  for (let sourceOffset = 0; sourceOffset < text2.length; ) {
+    const codePoint = text2.codePointAt(sourceOffset);
+    if (codePoint === void 0) break;
+    const sourceChar = String.fromCodePoint(codePoint);
+    const foldedChar = sourceChar.toLowerCase();
+    value += foldedChar;
+    for (let foldedOffset = 0; foldedOffset < foldedChar.length; foldedOffset += 1) {
+      boundaries.push(
+        foldedOffset === foldedChar.length - 1 ? sourceOffset + sourceChar.length : sourceOffset
+      );
+    }
+    sourceOffset += sourceChar.length;
+  }
+  return { value, boundaries };
+}
+function firstMatch(text2, query) {
+  const foldedText = foldWithBoundaries(text2);
+  const foldedQuery = query.toLowerCase();
+  const start = foldedText.value.indexOf(foldedQuery);
+  if (start < 0) return null;
+  const end = start + foldedQuery.length;
+  return {
+    start: foldedText.boundaries[start] ?? start,
+    end: foldedText.boundaries[end] ?? end
+  };
+}
+function makeSnippet(text2, matchRange, contextChars) {
+  const start = Math.max(0, matchRange.start - contextChars);
+  const end = Math.min(text2.length, matchRange.end + contextChars);
+  const leadingEllipsis = start > 0 ? "…" : "";
+  const trailingEllipsis = end < text2.length ? "…" : "";
+  const snippet = `${leadingEllipsis}${text2.slice(start, end)}${trailingEllipsis}`;
+  const matchStart = leadingEllipsis.length + matchRange.start - start;
+  return {
+    snippet,
+    snippetMatchRange: { start: matchStart, end: matchStart + (matchRange.end - matchRange.start) }
+  };
+}
+function searchMessageBlocks(blocks, query, options = {}) {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) return [];
+  const contextChars = Math.max(0, Math.floor(options.contextChars ?? DEFAULT_CONTEXT_CHARS));
+  const results = [];
+  for (const block of blocks) {
+    const matchRange = firstMatch(block.text, normalizedQuery);
+    if (!matchRange) continue;
+    results.push({
+      ...block,
+      ...makeSnippet(block.text, matchRange, contextChars),
+      matchRange
+    });
+  }
+  return results;
+}
+const SEARCH_HISTORY_DEBOUNCE_MS = 120;
+function useGlobalSearch(state, loadSearchPage) {
+  const [query, setQueryState] = reactExports.useState("");
+  const [activeBlockId, setActiveBlockId] = reactExports.useState(null);
+  const [selectionVersion, setSelectionVersion] = reactExports.useState(0);
+  const searchableBlocks = reactExports.useMemo(
+    () => buildSearchIndex(state),
+    [state.runOrder, state.runs]
+  );
+  const results = reactExports.useMemo(
+    () => searchMessageBlocks(searchableBlocks, query),
+    [query, searchableBlocks]
+  );
+  const setQuery = reactExports.useCallback((nextQuery) => {
+    setQueryState(nextQuery);
+    setActiveBlockId(null);
+  }, []);
+  const selectResult = reactExports.useCallback((result) => {
+    setActiveBlockId(result.blockId);
+    setSelectionVersion((value) => value + 1);
+  }, []);
+  const clear = reactExports.useCallback(() => {
+    setQueryState("");
+    setActiveBlockId(null);
+  }, []);
+  reactExports.useEffect(() => {
+    if (activeBlockId && !results.some((result) => result.blockId === activeBlockId)) {
+      setActiveBlockId(null);
+    }
+  }, [activeBlockId, results]);
+  reactExports.useEffect(() => {
+    if (!query.trim() || !state.history.hydrated || !state.history.hasMore || state.history.loadingSearch) return;
+    const timer = window.setTimeout(() => {
+      void loadSearchPage();
+    }, SEARCH_HISTORY_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [loadSearchPage, query, state.history.hasMore, state.history.hydrated, state.history.loadingSearch, state.history.nextCursor]);
+  return {
+    query,
+    results,
+    activeBlockId,
+    selectionVersion,
+    loadingHistory: state.history.loadingSearch,
+    hydrated: state.history.hydrated,
+    hasMoreHistory: state.history.hasMore,
+    error: state.history.error,
+    setQuery,
+    selectResult,
+    clear,
+    retryHistory: loadSearchPage
   };
 }
 const initialSessionHistoryState = {
@@ -21486,6 +21802,7 @@ const initialSessionHistoryState = {
   snapshotSeq: 0,
   loadingInitial: true,
   loadingOlder: false,
+  loadingSearch: false,
   hydrated: false,
   error: null
 };
@@ -21506,6 +21823,7 @@ function mergeHistoryEntries(state, entries, page) {
     snapshotSeq: Math.max(state.snapshotSeq, page.snapshotSeq),
     loadingInitial: false,
     loadingOlder: false,
+    loadingSearch: false,
     hydrated: true,
     error: null
   };
@@ -21567,6 +21885,7 @@ function mergePersistedEntries(state, entries) {
     if (entry.status === "failed") run.status = "failed";
     if (entry.type === "assistant_message") {
       turn.assistantContent = entry.payload.content;
+      turn.assistantAt = entry.updatedAt;
       turn.finalContent = entry.status === "completed" ? entry.payload.content : void 0;
       turn.reasoningContent = entry.payload.reasoning ?? "";
       turn.stopReason = entry.payload.toolCalls?.length ? "tool_use" : "stop";
@@ -21584,7 +21903,7 @@ function mergePersistedEntries(state, entries) {
       const existing = turn.tools[entry.toolCallId];
       const tool = {
         toolCallId: entry.toolCallId,
-        name: existing?.name ?? entry.payload.toolName ?? "工具",
+        name: existing?.name ?? entry.payload.toolName ?? "Tool",
         input: existing?.input,
         status: "completed",
         result: toolResult(entry.payload)
@@ -21688,6 +22007,7 @@ function agentReducer(state, action) {
           ...state.history,
           loadingInitial: action.scope === "initial" ? true : state.history.loadingInitial,
           loadingOlder: action.scope === "older" ? true : state.history.loadingOlder,
+          loadingSearch: action.scope === "search" ? true : state.history.loadingSearch,
           error: null
         }
       };
@@ -21716,6 +22036,7 @@ function agentReducer(state, action) {
           ...state.history,
           loadingInitial: action.scope === "initial" ? false : state.history.loadingInitial,
           loadingOlder: action.scope === "older" ? false : state.history.loadingOlder,
+          loadingSearch: action.scope === "search" ? false : state.history.loadingSearch,
           error: action.error
         }
       };
@@ -21794,7 +22115,7 @@ function agentReducer(state, action) {
             const existing = turn.tools[event.toolCallId];
             const tool = {
               toolCallId: event.toolCallId,
-              name: existing?.name ?? "工具",
+              name: existing?.name ?? "Tool",
               input: existing?.input,
               status: "completed",
               result: event.result
@@ -21874,7 +22195,6 @@ function App() {
   const [configOpen, setConfigOpen] = reactExports.useState(false);
   const [outputOpen, setOutputOpen] = reactExports.useState(false);
   const [searchOpen, setSearchOpen] = reactExports.useState(false);
-  const [searchQuery, setSearchQuery] = reactExports.useState("");
   const eventQueue = reactExports.useRef([]);
   const hydrationEventQueue = reactExports.useRef([]);
   const historyReadyRef = reactExports.useRef(false);
@@ -21884,6 +22204,9 @@ function App() {
   const streamRef = reactExports.useRef(null);
   const composerRef = reactExports.useRef(null);
   const [composerHeight, setComposerHeight] = reactExports.useState(0);
+  const searchButtonRef = reactExports.useRef(null);
+  const searchPanelRef = reactExports.useRef(null);
+  const messageStreamRef = reactExports.useRef(null);
   const settingsButtonRef = reactExports.useRef(null);
   const settingsPanel = useFloatingPanel(configOpen, settingsButtonRef);
   const running = state.status === "running" || state.status === "starting" || state.status === "stopping";
@@ -21928,6 +22251,7 @@ function App() {
     };
   }, []);
   const history = useSessionHistory(state, dispatch);
+  const search2 = useGlobalSearch(state, history.loadSearch);
   reactExports.useEffect(() => {
     if (!history.hydrated || historyReadyRef.current) return;
     historyReadyRef.current = true;
@@ -21945,6 +22269,16 @@ function App() {
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [configOpen, settingsPanel.panelRef]);
+  reactExports.useEffect(() => {
+    if (!searchOpen) return;
+    const close = (event) => {
+      const target = event.target;
+      if (searchPanelRef.current?.contains(target) || searchButtonRef.current?.contains(target)) return;
+      setSearchOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [searchOpen]);
   reactExports.useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [state.currentRunId, state.history.hydrated, totalTurnCount, toolActivityHash]);
@@ -21964,13 +22298,9 @@ function App() {
     if (max - element2.scrollTop < 8) element2.scrollTop = element2.scrollHeight;
   }, [composerHeight]);
   reactExports.useEffect(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const elements = Array.from(document.querySelectorAll("[data-searchable]"));
-    elements.forEach((element2) => element2.classList.remove("search-match"));
-    if (!query) return;
-    const matches = elements.filter((element2) => (element2.textContent ?? "").toLowerCase().includes(query));
-    matches.forEach((element2) => element2.classList.add("search-match"));
-  }, [searchQuery, state]);
+    if (!searchOpen || !search2.activeBlockId) return;
+    void messageStreamRef.current?.revealBlock(search2.activeBlockId);
+  }, [search2.activeBlockId, search2.selectionVersion, searchOpen]);
   reactExports.useEffect(() => {
     const onKeyDown = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
@@ -21978,12 +22308,12 @@ function App() {
         setSearchOpen(true);
       } else if (event.key === "Escape" && searchOpen) {
         setSearchOpen(false);
-        setSearchQuery("");
+        search2.clear();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [searchOpen]);
+  }, [search2.clear, searchOpen]);
   const handleRun = async (req) => {
     dispatch({ type: "runRequested" });
     const ack = await window.agentAPI.run(req);
@@ -22005,19 +22335,36 @@ function App() {
         outputCount: outputFiles.length,
         searchOpen,
         settingsOpen: configOpen,
+        searchButtonRef,
         settingsButtonRef,
         onOutput: () => setOutputOpen((value) => !value),
         onSearch: () => setSearchOpen((value) => !value),
         onSettings: () => setConfigOpen((value) => !value)
       }
     ),
-    searchOpen && /* @__PURE__ */ jsxRuntimeExports.jsx(SearchPopover, { query: searchQuery, onQueryChange: setSearchQuery }),
+    searchOpen && /* @__PURE__ */ jsxRuntimeExports.jsx(
+      SearchPopover,
+      {
+        query: search2.query,
+        onQueryChange: search2.setQuery,
+        results: search2.results,
+        activeBlockId: search2.activeBlockId,
+        loadingHistory: search2.loadingHistory,
+        hydrated: search2.hydrated,
+        hasMoreHistory: search2.hasMoreHistory,
+        error: search2.error,
+        panelRef: searchPanelRef,
+        onSelect: search2.selectResult,
+        onRetry: search2.retryHistory
+      }
+    ),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "workspace", children: /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "main-column", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Column, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(StreamRegion, { scrollRef: streamRef, children: [
         state.error && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "error-banner", children: state.error }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           MessageStream,
           {
+            ref: messageStreamRef,
             order: state.runOrder,
             runs: state.runs,
             runTimings: runTimings.current,
@@ -22025,7 +22372,8 @@ function App() {
             hasMore: history.hasMore,
             loadingOlder: history.loadingOlder,
             historyError: history.error,
-            onLoadOlder: history.loadOlder
+            onLoadOlder: history.loadOlder,
+            activeSearchBlockId: search2.activeBlockId
           }
         ),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: bottomRef, style: { height: composerHeight } })

@@ -8,7 +8,6 @@ import type {
 import { Icon } from "./Icon";
 
 interface ModelDraft extends DiscoveredModel {
-  available: boolean;
   selected: boolean;
   state: ProviderModelState;
 }
@@ -24,8 +23,7 @@ function initialModels(profile?: ProviderProfileSummary): ModelDraft[] {
   return profile?.models.map((model) => ({
     id: model.modelId,
     displayName: model.displayName,
-    available: model.available,
-    selected: model.imported,
+    selected: true,
     state: model.state,
   })) ?? [];
 }
@@ -42,7 +40,7 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
   const [query, setQuery] = useState("");
   const [discovering, setDiscovering] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<string | null>(profile ? "已加载保存的模型。" : null);
+  const [status, setStatus] = useState<string | null>(profile ? "Loaded saved models." : null);
   const [error, setError] = useState<string | null>(null);
   const activeRequest = useRef<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -71,7 +69,7 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
     if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
   }, [allVisibleSelected, someVisibleSelected]);
 
-  const cancelDiscovery = (message = "已取消获取模型。"): void => {
+  const cancelDiscovery = (message = "Model retrieval cancelled."): void => {
     if (activeRequest.current) window.agentAPI.cancelProviderModelDiscovery(activeRequest.current);
     activeRequest.current = null;
     setDiscovering(false);
@@ -81,17 +79,17 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
 
   const discover = async (): Promise<void> => {
     if (!baseURL.trim()) {
-      setError("请填写 API Base URL。");
+      setError("Enter an API Base URL.");
       return;
     }
     if (!apiKey.trim() && !profile?.credentialConfigured) {
-      setError("请填写 API Key。");
+      setError("Enter an API Key.");
       return;
     }
     const requestId = createRequestId();
     activeRequest.current = requestId;
     setDiscovering(true);
-    setStatus("正在获取模型列表。");
+    setStatus("Loading model list.");
     setError(null);
     try {
       const result = await window.agentAPI.discoverProviderModels({
@@ -107,23 +105,15 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
         setStatus(null);
         return;
       }
-      const previous = new Map(models.map((model) => [model.id, model]));
-      const remote = new Set(result.models.map((model) => model.id));
       const nextModels: ModelDraft[] = result.models.map((model) => {
-        const saved = previous.get(model.id);
         return {
           ...model,
-          available: true,
-          selected: profile ? Boolean(saved?.selected) : true,
-          state: saved?.selected ? "saved" : profile ? "new" : "saved",
+          selected: true,
+          state: "saved",
         };
       });
-      for (const model of models) {
-        if (!model.selected || remote.has(model.id)) continue;
-        nextModels.push({ ...model, available: false, state: "unavailable" });
-      }
       setModels(nextModels);
-      setStatus(`已获取 ${result.models.length} 个模型。`);
+      setStatus("Models loaded successfully.");
     } catch (cause) {
       if (activeRequest.current === requestId) {
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -139,20 +129,20 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
 
   const save = async (): Promise<void> => {
     if (!providerName.trim()) {
-      setError("请填写提供商名称。");
+      setError("Enter a provider name.");
       return;
     }
     if (!baseURL.trim()) {
-      setError("请填写 API Base URL。");
+      setError("Enter an API Base URL.");
       return;
     }
     if (!profile && !apiKey.trim()) {
-      setError("请填写 API Key。");
+      setError("Enter an API Key.");
       return;
     }
     const selected = models.filter((model) => model.selected);
     if (!selected.length) {
-      setError("请至少选择一个模型。");
+      setError("Select at least one model.");
       return;
     }
     const input: ProviderProfileInput = {
@@ -160,7 +150,7 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
       name: providerName.trim(),
       baseURL: baseURL.trim(),
       apiKey: apiKey.trim() || undefined,
-      models: selected.map((model) => ({ id: model.id, displayName: model.displayName, available: model.available })),
+      models: selected.map((model) => ({ id: model.id, displayName: model.displayName })),
     };
     setSaving(true);
     setError(null);
@@ -182,19 +172,19 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
   const locked = disabled || saving || discovering;
 
   return (
-    <section className="provider-editor" aria-label={profile ? "编辑提供商" : "添加提供商"}>
+    <section className="provider-editor" aria-label={profile ? "Edit provider" : "Add provider"}>
       <header className="provider-editor-header">
-        <button type="button" className="panel-close" onClick={onCancel} aria-label="返回提供商列表" title="返回提供商列表">
-          <Icon name="chevron-left" width="16" height="16" />
+        <button type="button" className="panel-close" onClick={onCancel} aria-label="Back to providers" title="Back to providers">
+          <Icon name="chevron-right" width="15" height="15" className="provider-back-icon" />
         </button>
-        <h3>{profile ? "编辑提供商" : "添加提供商"}</h3>
+        <h3>{profile ? "Edit provider" : "Add provider"}</h3>
         <span className="header-spacer" />
       </header>
 
       <div className="provider-editor-body">
         <label className="field">
-          <span className="field-label">提供商名称</span>
-          <input ref={nameRef} type="text" value={providerName} disabled={locked} onChange={(event) => setProviderName(event.target.value)} placeholder="例如 OpenAI" />
+          <span className="field-label">Provider name</span>
+          <input ref={nameRef} type="text" value={providerName} disabled={locked} onChange={(event) => setProviderName(event.target.value)} placeholder="e.g. OpenAI" />
         </label>
 
         <label className="field">
@@ -204,40 +194,38 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
 
         <label className="field">
           <span className="field-label">API Key</span>
-          <input type="password" value={apiKey} disabled={locked} onChange={(event) => setApiKey(event.target.value)} placeholder={profile ? "留空使用已保存凭据" : "输入 API Key"} autoComplete="off" spellCheck={false} />
+          <input type="password" value={apiKey} disabled={locked} onChange={(event) => setApiKey(event.target.value)} placeholder={profile ? "Leave blank to use saved credentials" : "Enter an API Key"} autoComplete="off" spellCheck={false} />
         </label>
 
-        <section className="model-import" aria-label="模型发现与导入">
+        <section className="model-import" aria-label="Model discovery and import">
           <div className="model-import-toolbar">
-            <input className="model-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索模型" aria-label="搜索模型" />
+            <input className="model-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search models" aria-label="Search models" />
             <label className="select-all-models">
               <input ref={selectAllRef} type="checkbox" checked={allVisibleSelected} disabled={!visibleModels.length || locked} onChange={(event) => {
                 const visible = new Set(visibleModels.map((model) => model.id));
                 setModels((current) => current.map((model) => visible.has(model.id) ? { ...model, selected: event.target.checked } : model));
               }} />
-              全选当前结果
+              Select all visible results
             </label>
           </div>
 
           <div className="model-fetch-row">
             <button type="button" className="discover-button" onClick={() => void discover()} disabled={locked || !baseURL.trim() || (!apiKey.trim() && !profile?.credentialConfigured)}>
               {discovering ? <span className="spinner" /> : <Icon name="download" width="17" height="17" />}
-              {discovering ? "正在获取" : "获取模型列表"}
+              {discovering ? "Fetching" : "Fetch model list"}
             </button>
-            {discovering && <button type="button" className="secondary-button" onClick={() => cancelDiscovery()}>取消获取</button>}
+            {discovering && <button type="button" className="secondary-button" onClick={() => cancelDiscovery()}>Cancel</button>}
           </div>
 
           {(status || error) && <p className={error ? "form-error" : "form-status"} role={error ? "alert" : "status"}>{error && <Icon name="warning" width="15" height="15" />}{error ?? status}</p>}
-          <span className="model-selection-count">选择 {selectedCount}/{models.length} 模型</span>
+          <span className="model-selection-count">Selected {selectedCount}/{models.length} models</span>
 
-          <div className="discovered-model-list" role="group" aria-label="可导入模型">
-            {!models.length && <div className="model-list-empty">尚无模型，请先获取模型列表。</div>}
+          <div className="discovered-model-list" role="group" aria-label="Importable models">
+            {!models.length && <div className="model-list-empty">No models yet. Fetch the model list first.</div>}
             {visibleModels.map((model) => (
-                <label className={`discovered-model-row ${model.state === "unavailable" ? "is-unavailable" : ""}`} key={model.id}>
+                <label className="discovered-model-row" key={model.id}>
                   <input type="checkbox" checked={model.selected} disabled={locked} onChange={(event) => setModels((current) => current.map((candidate) => candidate.id === model.id ? { ...candidate, selected: event.target.checked } : candidate))} />
                   <strong>{model.id}</strong>
-                  {model.state === "new" && <span className="model-state is-new">新增</span>}
-                  {model.state === "unavailable" && <span className="model-state is-unavailable">不可用</span>}
                 </label>
             ))}
           </div>
@@ -245,8 +233,8 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
       </div>
 
       <footer className="provider-editor-actions">
-        <button type="button" className="secondary-button" onClick={onCancel} disabled={saving}>取消</button>
-        <button type="button" className="primary-button" onClick={() => void save()} disabled={disabled || saving || discovering || selectedCount === 0}>{saving ? "正在保存" : "保存提供商"}</button>
+        <button type="button" className="secondary-button" onClick={onCancel} disabled={saving}>Cancel</button>
+        <button type="button" className="primary-button" onClick={() => void save()} disabled={disabled || saving || discovering || selectedCount === 0}>{saving ? "Saving" : "Save provider"}</button>
       </footer>
     </section>
   );

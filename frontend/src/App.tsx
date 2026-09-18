@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { Column } from "./middle-column/Column";
-import { MessageStream } from "./middle-column/message-stream/MessageStream";
+import { MessageStream, type MessageStreamHandle } from "./middle-column/message-stream/MessageStream";
 import { StreamRegion } from "./middle-column/message-stream/StreamScrollbar";
 import type { RunTiming } from "./middle-column/message-stream/RunProcess";
 import { Composer } from "./middle-column/composer/Composer";
@@ -9,6 +9,7 @@ import { ConfigPanel } from "./components/ConfigPanel";
 import { OutputSidebar } from "./components/OutputSidebar";
 import { useFloatingPanel } from "./hooks/useFloatingPanel";
 import { useSessionHistory } from "./hooks/useSessionHistory";
+import { useGlobalSearch } from "./hooks/useGlobalSearch";
 import { agentReducer, initialAgentState } from "./store/agentReducer";
 import { useProviderCatalog } from "./store/providerCatalog";
 import type { AgentEvent, RunRequest } from "../../shell/shared/ipc";
@@ -19,7 +20,6 @@ export default function App() {
   const [configOpen, setConfigOpen] = useState(false);
   const [outputOpen, setOutputOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const eventQueue = useRef<AgentEvent[]>([]);
   const hydrationEventQueue = useRef<AgentEvent[]>([]);
   const historyReadyRef = useRef(false);
@@ -31,6 +31,9 @@ export default function App() {
   const streamRef = useRef<HTMLElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = useState(0);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+  const searchPanelRef = useRef<HTMLDivElement>(null);
+  const messageStreamRef = useRef<MessageStreamHandle>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const settingsPanel = useFloatingPanel(configOpen, settingsButtonRef);
   const running = state.status === "running" || state.status === "starting" || state.status === "stopping";
@@ -81,6 +84,7 @@ export default function App() {
   }, []);
 
   const history = useSessionHistory(state, dispatch);
+  const search = useGlobalSearch(state, history.loadSearch);
 
   useEffect(() => {
     if (!history.hydrated || historyReadyRef.current) return;
@@ -100,6 +104,17 @@ export default function App() {
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [configOpen, settingsPanel.panelRef]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const close = (event: PointerEvent): void => {
+      const target = event.target as Node;
+      if (searchPanelRef.current?.contains(target) || searchButtonRef.current?.contains(target)) return;
+      setSearchOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [searchOpen]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -125,13 +140,9 @@ export default function App() {
   }, [composerHeight]);
 
   useEffect(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-searchable]"));
-    elements.forEach((element) => element.classList.remove("search-match"));
-    if (!query) return;
-    const matches = elements.filter((element) => (element.textContent ?? "").toLowerCase().includes(query));
-    matches.forEach((element) => element.classList.add("search-match"));
-  }, [searchQuery, state]);
+    if (!searchOpen || !search.activeBlockId) return;
+    void messageStreamRef.current?.revealBlock(search.activeBlockId);
+  }, [search.activeBlockId, search.selectionVersion, searchOpen]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -140,12 +151,12 @@ export default function App() {
         setSearchOpen(true);
       } else if (event.key === "Escape" && searchOpen) {
         setSearchOpen(false);
-        setSearchQuery("");
+        search.clear();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [searchOpen]);
+  }, [search.clear, searchOpen]);
 
   const handleRun = async (req: RunRequest): Promise<void> => {
     dispatch({ type: "runRequested" });
@@ -170,18 +181,34 @@ export default function App() {
         outputCount={outputFiles.length}
         searchOpen={searchOpen}
         settingsOpen={configOpen}
+        searchButtonRef={searchButtonRef}
         settingsButtonRef={settingsButtonRef}
         onOutput={() => setOutputOpen((value) => !value)}
         onSearch={() => setSearchOpen((value) => !value)}
         onSettings={() => setConfigOpen((value) => !value)}
       />
-      {searchOpen && <SearchPopover query={searchQuery} onQueryChange={setSearchQuery} />}
+      {searchOpen && (
+        <SearchPopover
+          query={search.query}
+          onQueryChange={search.setQuery}
+          results={search.results}
+          activeBlockId={search.activeBlockId}
+          loadingHistory={search.loadingHistory}
+          hydrated={search.hydrated}
+          hasMoreHistory={search.hasMoreHistory}
+          error={search.error}
+          panelRef={searchPanelRef}
+          onSelect={search.selectResult}
+          onRetry={search.retryHistory}
+        />
+      )}
       <div className="workspace">
         <section className="main-column">
           <Column>
             <StreamRegion scrollRef={streamRef}>
               {state.error && <div className="error-banner">{state.error}</div>}
               <MessageStream
+                ref={messageStreamRef}
                 order={state.runOrder}
                 runs={state.runs}
                 runTimings={runTimings.current}
@@ -190,6 +217,7 @@ export default function App() {
                 loadingOlder={history.loadingOlder}
                 historyError={history.error}
                 onLoadOlder={history.loadOlder}
+                activeSearchBlockId={search.activeBlockId}
               />
               <div ref={bottomRef} style={{ height: composerHeight }} />
             </StreamRegion>

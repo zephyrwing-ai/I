@@ -73,37 +73,40 @@ function button(html: string, ariaLabel: string): string {
 
 test("ConfigPanel distinguishes loading, empty, and catalog error states", () => {
   const loading = renderPanel({ loading: true });
-  assert.ok(loading.includes("正在读取提供商。"), loading);
-  assert.ok(!loading.includes("尚未添加提供商。"), loading);
+  assert.ok(loading.includes("Loading providers."), loading);
+  assert.ok(!loading.includes("No providers added."), loading);
 
   const empty = renderPanel();
-  assert.ok(empty.includes("尚未添加提供商。添加并保存后，模型才会进入 Composer。"), empty);
+  assert.ok(empty.includes("No providers added. Add and save a provider to make its models available in Composer."), empty);
 
-  const failed = renderPanel({ error: "无法读取提供商" });
+  const failed = renderPanel({ error: "Unable to read providers" });
   assert.match(failed, /<p class="form-error" role="alert">/);
-  assert.ok(failed.includes("无法读取提供商"), failed);
+  assert.ok(failed.includes("Unable to read providers"), failed);
 });
 
-test("ConfigPanel summarizes imported and newly discovered models without expanding the card", () => {
+test("ConfigPanel renders a clean provider and model list without status labels", () => {
   const html = renderPanel({ profiles: [profile()] });
 
-  assert.ok(html.includes("https://api.example.test/v1 · 2 个模型 · 1 个新增"), html);
+  assert.ok(html.includes("<h2 id=\"provider-settings-title\">Providers</h2>"), html);
+  assert.ok(!html.includes("https://api.example.test/v1"), html);
+  assert.ok(!html.includes("个模型"), html);
   assert.match(html, /aria-expanded="false"/);
   assert.match(html, /class="provider-model-collapse" aria-hidden="true"/);
   assert.ok(html.includes("model-new"), html);
-  assert.ok(html.includes("新增"), html);
-  assert.ok(html.includes("不可用"), html);
+  assert.ok(!html.includes("新增"), html);
+  assert.ok(!html.includes("不可用"), html);
+  assert.ok(html.includes("Add provider"), html);
 });
 
 test("a running task locks provider mutations while leaving navigation and disclosure available", () => {
   const html = renderPanel({ profiles: [profile()], disabled: true });
 
-  assert.ok(button(html, "重新拉取 Provider A 的模型").includes('disabled=""'));
-  assert.ok(button(html, "编辑 Provider A").includes('disabled=""'));
-  assert.ok(button(html, "删除 Provider A").includes('disabled=""'));
+  assert.ok(button(html, "Refresh Provider A models").includes('disabled=""'));
+  assert.ok(button(html, "Edit Provider A").includes('disabled=""'));
+  assert.ok(button(html, "Delete Provider A").includes('disabled=""'));
   assert.match(html, /<button[^>]*class="primary-button add-provider-button"[^>]*disabled=""/);
 
-  assert.ok(!button(html, "关闭设置").includes("disabled"));
+  assert.ok(!button(html, "Close settings").includes("disabled"));
   const disclosure = html.match(/<button[^>]*class="provider-card-toggle"[^>]*>/)?.[0];
   assert.ok(disclosure, html);
   assert.ok(!disclosure.includes("disabled"), disclosure);

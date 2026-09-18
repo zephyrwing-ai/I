@@ -60,10 +60,9 @@ test("ProviderStore encrypts credentials and preserves imported model identities
     const modelB = refreshed.models.find((model) => model.modelId === "model-b");
     const modelC = refreshed.models.find((model) => model.modelId === "model-c");
     assert.deepEqual({ imported: modelA?.imported, available: modelA?.available, state: modelA?.state }, { imported: true, available: true, state: "saved" });
-    assert.deepEqual({ imported: modelB?.imported, available: modelB?.available, state: modelB?.state }, { imported: true, available: false, state: "unavailable" });
-    assert.deepEqual({ imported: modelC?.imported, available: modelC?.available, state: modelC?.state }, { imported: false, available: true, state: "new" });
-    await assert.rejects(() => store.resolve(modelB!.modelOptionId), /不可用/);
-    await assert.rejects(() => store.resolve(modelC!.modelOptionId), /不可用/);
+    assert.equal(modelB, undefined);
+    assert.deepEqual({ imported: modelC?.imported, available: modelC?.available, state: modelC?.state }, { imported: true, available: true, state: "saved" });
+    assert.equal((await store.resolve(modelC!.modelOptionId)).modelId, "model-c");
 
     const imported = await store.save({
       providerProfileId: created.providerProfileId,
@@ -115,7 +114,51 @@ test("ProviderStore migrates version one profiles without exposing credentials",
     assert.equal(profiles[0].models[0].imported, true);
     assert.equal(JSON.stringify(profiles).includes("legacy-secret"), false);
     assert.equal((await store.resolve("legacy-model")).provider, "openai");
-    await assert.rejects(() => store.resolve("legacy-anthropic-model"), /不存在|不可用/);
+    await assert.rejects(() => store.resolve("legacy-anthropic-model"), /does not exist|unavailable/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("ProviderStore removes legacy unavailable models when loading the catalog", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "agent-studio-provider-cleanup-"));
+  const file = join(directory, "providers.json");
+  try {
+    await writeFile(file, JSON.stringify({
+      version: 2,
+      profiles: [{
+        providerProfileId: "stored-profile",
+        provider: "openai",
+        name: "Stored",
+        baseURL: "https://api.example.com/v1",
+        encryptedApiKey: codec.encrypt("stored-secret"),
+        models: [
+          {
+            modelOptionId: "live-model",
+            modelId: "model-live",
+            displayName: "Model Live",
+            available: true,
+            imported: false,
+            state: "new",
+          },
+          {
+            modelOptionId: "old-model",
+            modelId: "model-old",
+            displayName: "Model Old",
+            available: false,
+            imported: true,
+            state: "unavailable",
+          },
+        ],
+      }],
+    }));
+
+    const store = new ProviderStore(file, codec);
+    const profiles = await store.list();
+    assert.deepEqual(profiles[0].models.map((model) => model.modelId), ["model-live"]);
+    assert.equal(profiles[0].models[0].imported, true);
+    assert.equal(profiles[0].models[0].state, "saved");
+    await assert.rejects(() => store.resolve("old-model"), /does not exist|unavailable/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

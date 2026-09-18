@@ -38,8 +38,39 @@ test("MessageStream follows run order and normalizes user text for display and c
   const second = html.indexOf("第二条, 消息.");
   const first = html.indexOf("第一条, 消息.");
   assert.ok(second >= 0 && first > second, html);
-  assert.equal(html.match(/aria-label="复制消息"/g)?.length, 2);
+  assert.equal(html.match(/aria-label="Copy message"/g)?.length, 2);
   assert.doesNotMatch(html, /missing/);
+});
+
+test("MessageStream gives the final model message its own stable block", () => {
+  const runs = {
+    "run-1": {
+      ...run("run-1", "用户任务"),
+      turnOrder: ["turn-1"],
+      turns: {
+        "turn-1": {
+          turnId: "turn-1",
+          turnOrdinal: 1,
+          status: "completed" as const,
+          assistantContent: "最终答案",
+          finalContent: "最终答案",
+          reasoningContent: "",
+          toolOrder: [],
+          tools: {},
+        },
+      },
+    },
+  };
+  const html = renderToStaticMarkup(createElement(MessageStream, {
+    order: ["run-1"],
+    runs,
+    runTimings: {},
+  }));
+
+  assert.match(html, /data-message-block-id="run-1:task"/);
+  assert.match(html, /data-message-block-id="run-1:process"/);
+  assert.match(html, /data-message-block-id="run-1:answer:turn-1"/);
+  assert.equal(html.match(/class="model-text final-answer markdown"/g)?.length, 1);
 });
 
 test("user message bubble has a uniform 16px corner radius", () => {

@@ -38,13 +38,13 @@ test("read tool returns lines with range and reports truncation with next start"
   const read = makeRegistry().get("read")!;
   const page = await read.execute({ path: "a.txt", start: 1, maxLines: 10 }, makeContext(dir));
   assert.equal(page.ok, true);
-  assert.match(page.output, /已读取 1-10 行/);
+  assert.match(page.output, /Read lines 1-10 of 25/);
   assert.match(page.output, /start=11/);
   assert.equal(page.truncated, true);
 
   const full = await read.execute({ path: "a.txt", maxLines: 100 }, makeContext(dir));
   assert.equal(full.ok, true);
-  assert.match(full.output, /共 25 行/);
+  assert.match(full.output, /Read 25 lines/);
   assert.equal(full.truncated, false);
 });
 
@@ -83,7 +83,7 @@ test("write tool creates file with parent dirs and reports artifact", async () =
 
   const result = await write.execute({ path: "src/lib/x.ts", content: "export const n = 1;" }, makeContext(dir));
   assert.equal(result.ok, true);
-  assert.match(result.output, /已写入 src\/lib\/x\.ts/);
+  assert.match(result.output, /Wrote src\/lib\/x\.ts/);
   assert.equal(result.artifacts?.length, 1);
   assert.equal(result.artifacts![0].operation, "created");
 
@@ -115,9 +115,9 @@ test("edit tool applies unique non-overlapping replacements and reports position
     ],
   }, makeContext(dir));
   assert.equal(result.ok, true);
-  assert.match(result.output, /修改数量: 2/);
-  assert.match(result.output, /第一处变更: 第 1 行/);
-  assert.match(result.output, /第3行/);
+  assert.match(result.output, /Edit count: 2/);
+  assert.match(result.output, /First change: line 1/);
+  assert.match(result.output, /line 3/);
   assert.equal((await readFile(join(dir, "f.ts"))).toString("utf8"), "let a = 10;\nconst b = 2;\nlet c = 30;\n");
   assert.equal(result.artifacts![0].operation, "updated");
 });

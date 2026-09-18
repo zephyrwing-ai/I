@@ -27,9 +27,9 @@
 .user-message-group { display: flex; flex-direction: column; align-items: flex-end; max-width: 76%; }
 .user-message { width: fit-content; max-width: 100%; padding: 8px 14px; border-radius: 16px; background: var(--surface-bubble); color: var(--text); font-size: 14px; line-height: 24px; letter-spacing: 0.02em; white-space: pre-wrap; word-break: break-word; }
 
-/* ===== 过程块：Working for 折叠行（下方分隔线） ===== */
-.run-process { margin: 0 0 28px; }
-.run-fold { width: 100%; min-height: 32px; padding: 0 0 4px; border: 0; border-bottom: 1px solid var(--border); background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
+/* ===== 过程块：Working for 折叠行 ===== */
+.run-process { margin: 0; }
+.run-fold { width: 100%; min-height: 32px; padding: 0 0 4px; border: 0; background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
 .turn-state { color: var(--text-muted); font-size: 14px; line-height: 20px; letter-spacing: 0.02em; }
 /* 运行中扫光（减速至 4.2s） */
 .turn-state.working { color: transparent; background: linear-gradient(100deg, var(--text-muted) 42%, var(--surface) 50%, var(--text-muted) 58%); background-size: 280% 100%; background-position: 140% 0; animation: turn-shimmer 4.2s linear infinite; -webkit-background-clip: text; background-clip: text; }
@@ -84,20 +84,28 @@
 .markdown ul, .markdown ol, .markdown pre, .markdown blockquote,
 .md-table-wrap, .markdown hr { margin-top: 12px; margin-bottom: 12px; }
 
-/* 最终答案：直接进入阅读流，与消息流左对齐、右侧留白；文字 14px / 24px 行高、阅读黑 #23242A、0.02em 字距；块间距由 .run-process 下边距 28px 承接 */
+/* 最终答案：作为独立 MessageBlock 进入阅读流，与消息流左对齐、右侧留白；文字 14px / 24px 行高、阅读黑 #23242A、0.02em 字距 */
 .final-answer { margin: 14px 0 0; font-size: 14px; line-height: 24px; color: var(--text-reading); letter-spacing: 0.02em; }
 
 /* ===== 时间戳与复制行：11px 时间 + 12×12 复制图标；用户消息右对齐、模型消息左对齐，距消息下缘 8px；默认隐藏，悬停/聚焦消息区域时淡入 ===== */
 .model-message { display: flex; flex-direction: column; }
 .model-message > .message-meta { align-self: flex-start; }
 .message-meta { margin-top: 8px; display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity 120ms var(--ease-standard); }
+.message-meta.has-copy-feedback { opacity: 1; }
 .user-message-group:hover .message-meta,
 .user-message-group:focus-within .message-meta,
 .model-message:hover .message-meta,
 .model-message:focus-within .message-meta { opacity: 1; }
+.message-virtual-block.block-process { margin-bottom: 28px; }
+.message-virtual-block.block-process.has-following-answer { margin-bottom: 14px; }
+.message-virtual-block.block-assistant .final-answer { margin-top: 0; }
 .message-time { color: var(--text-muted); font-size: 13px; line-height: 20px; }
 .message-copy { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); display: grid; place-items: center; transition: color 120ms var(--ease-standard); }
 .message-copy:hover { color: var(--text); }
+.message-copy.is-copied { color: var(--success); }
+.message-copy.is-copied:hover { color: var(--success); }
+.message-copy.is-copy-error { color: var(--danger); }
+.message-copy.is-copy-error:hover { color: var(--danger); }
 
 /* ===== 回合动作折叠：一个回合的 agent 操作合并为一级折叠，行与消息左缘对齐 ===== */
 .turn-action { margin-top: 6px; min-width: 0; }

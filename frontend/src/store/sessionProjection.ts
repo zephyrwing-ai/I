@@ -66,6 +66,7 @@ export function mergePersistedEntries(
     if (entry.status === "failed") run.status = "failed";
     if (entry.type === "assistant_message") {
       turn.assistantContent = entry.payload.content;
+      turn.assistantAt = entry.updatedAt;
       turn.finalContent = entry.status === "completed" ? entry.payload.content : undefined;
       turn.reasoningContent = entry.payload.reasoning ?? "";
       turn.stopReason = entry.payload.toolCalls?.length ? "tool_use" : "stop";
@@ -83,7 +84,7 @@ export function mergePersistedEntries(
       const existing = turn.tools[entry.toolCallId];
       const tool: ToolState = {
         toolCallId: entry.toolCallId,
-        name: existing?.name ?? entry.payload.toolName ?? "工具",
+        name: existing?.name ?? entry.payload.toolName ?? "Tool",
         input: existing?.input,
         status: "completed",
         result: toolResult(entry.payload),

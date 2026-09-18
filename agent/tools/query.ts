@@ -79,7 +79,7 @@ async function statOrError(target: string, inputPath: string | undefined): Promi
     const stats = await stat(target);
     return { stats };
   } catch {
-    return { error: fail(`路径不存在：${inputPath ?? target}`, "not_found") };
+    return { error: fail(`Path not found: ${inputPath ?? target}`, "not_found") };
   }
 }
 
@@ -114,7 +114,7 @@ async function* walkFiles(root: string, signal?: AbortSignal): AsyncGenerator<st
 
 async function listDir(input: Record<string, unknown>, context: { cwd: string; signal?: AbortSignal }): Promise<ToolResult> {
   if (input.path !== undefined && typeof input.path !== "string") {
-    return fail("工具参数 path 必须是字符串。", "invalid_arguments");
+    return fail("Tool parameter path must be a string.", "invalid_arguments");
   }
   let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : LIST_DEFAULT_LIMIT;
   limit = Math.min(Math.max(limit, 1), LIST_MAX_LIMIT);
@@ -123,14 +123,14 @@ async function listDir(input: Record<string, unknown>, context: { cwd: string; s
   const { stats, error } = await statOrError(target, input.path as string | undefined);
   if (error) return error;
   if (!stats?.isDirectory()) {
-    return fail(`目标不是目录：${input.path ?? target}`, "not_a_directory");
+    return fail(`Target is not a directory: ${input.path ?? target}`, "not_a_directory");
   }
 
   let entries;
   try {
     entries = await readdir(target, { withFileTypes: true });
   } catch (err) {
-    return fail(`读取目录失败：${err instanceof Error ? err.message : String(err)}`, "read_failed");
+    return fail(`Failed to read directory: ${err instanceof Error ? err.message : String(err)}`, "read_failed");
   }
 
   const sorted = entries.sort((a, b) => a.name.localeCompare(b.name));
@@ -138,11 +138,11 @@ async function listDir(input: Record<string, unknown>, context: { cwd: string; s
   const rel = relative(context.cwd, target);
   const label = rel === "" ? "." : rel;
   const rows = page.map((e) => `${e.isDirectory() ? "dir " : "file "}${e.name}${e.isDirectory() ? "/" : ""}`);
-  const truncNote = sorted.length > page.length ? `\n已列出前 ${page.length} 项（共 ${sorted.length} 项），未继续列出。` : "";
+  const truncNote = sorted.length > page.length ? `\nListed the first ${page.length} of ${sorted.length} items; more items were not listed.` : "";
 
   return {
     ok: true,
-    output: `<directory>${label}</directory>\n${rows.join("\n") || "（空目录）"}${truncNote}`,
+    output: `<directory>${label}</directory>\n${rows.join("\n") || "(Empty directory)"}${truncNote}`,
     returncode: 0,
     truncated: sorted.length > page.length,
   };
@@ -150,10 +150,10 @@ async function listDir(input: Record<string, unknown>, context: { cwd: string; s
 
 async function findFiles(input: Record<string, unknown>, context: { cwd: string; signal?: AbortSignal }): Promise<ToolResult> {
   if (typeof input.pattern !== "string" || input.pattern.trim() === "") {
-    return fail("工具参数 pattern 必须是非空字符串。", "invalid_arguments");
+    return fail("Tool parameter pattern must be a non-empty string.", "invalid_arguments");
   }
   if (input.path !== undefined && typeof input.path !== "string") {
-    return fail("工具参数 path 必须是字符串。", "invalid_arguments");
+    return fail("Tool parameter path must be a string.", "invalid_arguments");
   }
   let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : DEFAULT_LIMIT;
   limit = Math.min(Math.max(limit, 1), 1000);
@@ -163,7 +163,7 @@ async function findFiles(input: Record<string, unknown>, context: { cwd: string;
   const { stats, error } = await statOrError(target, input.path as string | undefined);
   if (error) return error;
   if (!stats?.isDirectory()) {
-    return fail(`目标不是目录：${input.path ?? target}`, "not_a_directory");
+    return fail(`Target is not a directory: ${input.path ?? target}`, "not_a_directory");
   }
 
   const matches: string[] = [];
@@ -171,7 +171,7 @@ async function findFiles(input: Record<string, unknown>, context: { cwd: string;
     if (matches.length >= limit) {
       return {
         ok: true,
-        output: `<search_root>${relative(context.cwd, target) || "."}</search_root>\n${matches.join("\n")}\n已找到 ${limit} 项，达到结果上限，可能未遍历全部文件。`,
+        output: `<search_root>${relative(context.cwd, target) || "."}</search_root>\n${matches.join("\n")}\nFound ${limit} matches; the result limit was reached, so not all files may have been searched.`,
         returncode: 0,
         truncated: true,
       };
@@ -185,7 +185,7 @@ async function findFiles(input: Record<string, unknown>, context: { cwd: string;
 
   return {
     ok: true,
-    output: `<search_root>${relative(context.cwd, target) || "."}</search_root>\n${matches.join("\n") || "（没有匹配的文件）"}`,
+    output: `<search_root>${relative(context.cwd, target) || "."}</search_root>\n${matches.join("\n") || "(No matching files)"}`,
     returncode: 0,
     truncated: false,
   };
@@ -193,10 +193,10 @@ async function findFiles(input: Record<string, unknown>, context: { cwd: string;
 
 async function searchContent(input: Record<string, unknown>, context: { cwd: string; signal?: AbortSignal }): Promise<ToolResult> {
   if (typeof input.text !== "string" || input.text === "") {
-    return fail("工具参数 text 必须是非空字符串。", "invalid_arguments");
+    return fail("Tool parameter text must be a non-empty string.", "invalid_arguments");
   }
   if (input.path !== undefined && typeof input.path !== "string") {
-    return fail("工具参数 path 必须是字符串。", "invalid_arguments");
+    return fail("Tool parameter path must be a string.", "invalid_arguments");
   }
   let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : DEFAULT_LIMIT;
   limit = Math.min(Math.max(limit, 1), 1000);
@@ -210,7 +210,7 @@ async function searchContent(input: Record<string, unknown>, context: { cwd: str
   const { stats, error } = await statOrError(target, input.path as string | undefined);
   if (error) return error;
   if (!stats?.isDirectory()) {
-    return fail(`目标不是目录：${input.path ?? target}`, "not_a_directory");
+    return fail(`Target is not a directory: ${input.path ?? target}`, "not_a_directory");
   }
 
   const needle = caseSensitive ? input.text : input.text.toLowerCase();
@@ -253,17 +253,17 @@ async function searchContent(input: Record<string, unknown>, context: { cwd: str
   }
 
   const suffix: string[] = [];
-  if (reachedLimit) suffix.push(`达到匹配上限 ${limit} 条，可能未遍历全部文件。`);
-  if (reachedScanCap) suffix.push(`扫描文件数达到上限 ${MAX_SCAN_FILES}，结果可能不完整。`);
+  if (reachedLimit) suffix.push(`The match limit of ${limit} was reached; not all files may have been searched.`);
+  if (reachedScanCap) suffix.push(`The scanned file limit of ${MAX_SCAN_FILES} was reached; results may be incomplete.`);
 
   return {
     ok: true,
-    output: `<search_root>${relative(context.cwd, target) || "."}</search_root>\n${lines.join("\n") || "（没有匹配的内容）"}${suffix.length ? `\n${suffix.join("\n")}` : ""}`,
+    output: `<search_root>${relative(context.cwd, target) || "."}</search_root>\n${lines.join("\n") || "(No matching content)"}${suffix.length ? `\n${suffix.join("\n")}` : ""}`,
     returncode: 0,
     truncated: reachedLimit || reachedScanCap,
   };
 }
 
 function truncateLine(line: string): string {
-  return line.length > MAX_LINE_DISPLAY ? `${line.slice(0, MAX_LINE_DISPLAY)} …(该行已截断)` : line;
+  return line.length > MAX_LINE_DISPLAY ? `${line.slice(0, MAX_LINE_DISPLAY)} …(Line truncated)` : line;
 }

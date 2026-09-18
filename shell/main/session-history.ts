@@ -26,21 +26,21 @@ interface NormalizedPageRequest {
 
 function normalizePageRequest(request: unknown): NormalizedPageRequest {
   if (!request || typeof request !== "object" || Array.isArray(request)) {
-    throw new SessionHistoryError("历史分页请求格式无效。", "invalid_request");
+    throw new SessionHistoryError("The history page request format is invalid.", "invalid_request");
   }
   const candidate = request as Partial<SessionPageRequest>;
   const cursor = candidate.cursor === undefined ? null : candidate.cursor;
   if (cursor !== null && (typeof cursor !== "string" || !/^[1-9]\d*$/.test(cursor))) {
-    throw new SessionHistoryError("历史分页游标无效。", "invalid_request");
+    throw new SessionHistoryError("The history page cursor is invalid.", "invalid_request");
   }
   const beforeSeq = cursor === null ? null : Number(cursor);
   if (beforeSeq !== null && !Number.isSafeInteger(beforeSeq)) {
-    throw new SessionHistoryError("历史分页游标超出安全范围。", "invalid_request");
+    throw new SessionHistoryError("The history page cursor is outside the safe range.", "invalid_request");
   }
   const limit = candidate.limit ?? DEFAULT_SESSION_HISTORY_PAGE_LIMIT;
   if (!Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_SESSION_HISTORY_PAGE_LIMIT) {
     throw new SessionHistoryError(
-      `历史分页数量必须在 1 到 ${MAX_SESSION_HISTORY_PAGE_LIMIT} 之间。`,
+      `The history page size must be between 1 and ${MAX_SESSION_HISTORY_PAGE_LIMIT}.`,
       "invalid_request",
     );
   }
@@ -91,7 +91,7 @@ export class SessionHistoryService {
 
   private async readPage(request: NormalizedPageRequest): Promise<SessionPageResult> {
     const session = await this.repository.getSession(this.activeSessionId);
-    if (!session) throw new SessionHistoryError("当前会话不存在。", "not_found");
+    if (!session) throw new SessionHistoryError("The current session does not exist.", "not_found");
 
     const fetchLimit = request.limit + 1;
     const descendingEntries = request.beforeSeq === null
@@ -103,7 +103,7 @@ export class SessionHistoryService {
     const nextCursor = hasMore && entries.length > 0 ? String(entries[0]!.sessionSeq) : null;
 
     if (nextCursor !== null && request.beforeSeq !== null && Number(nextCursor) >= request.beforeSeq) {
-      throw new SessionHistoryError("历史分页游标没有向更早记录推进。", "storage");
+      throw new SessionHistoryError("The history page cursor did not advance to older records.", "storage");
     }
 
     return {

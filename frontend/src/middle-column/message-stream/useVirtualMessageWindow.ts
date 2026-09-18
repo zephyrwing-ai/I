@@ -39,6 +39,27 @@ const STICK_TO_BOTTOM_THRESHOLD = 24;
 
 const useBrowserLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
+function waitForPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
+function findBlockNode(root: HTMLElement | null, blockId: string): HTMLElement | null {
+  if (!root) return null;
+  return Array.from(root.querySelectorAll<HTMLElement>("[data-message-block-id]"))
+    .find((node) => node.dataset.messageBlockId === blockId) ?? null;
+}
+
+function centerBlock(element: HTMLElement, node: HTMLElement): void {
+  const containerRect = element.getBoundingClientRect();
+  const nodeRect = node.getBoundingClientRect();
+  const correction = nodeRect.top - containerRect.top - Math.max(0, (element.clientHeight - nodeRect.height) / 2);
+  if (Math.abs(correction) < 1) return;
+  const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+  element.scrollTop = Math.min(maxScrollTop, Math.max(0, element.scrollTop + correction));
+}
+
 export function buildVirtualMessageLayout(
   items: VirtualMessageItem[],
   measuredHeights: ReadonlyMap<string, number>,
@@ -188,6 +209,10 @@ export function useVirtualMessageWindow({
     const root = rootRef.current;
     const element = findScrollElement(root, scrollRef);
     if (!root || !element || typeof ResizeObserver === "undefined") return;
+    // Width changes from the resizable sidebar can reflow mounted blocks. The
+    // existing block observer measures those new heights and feeds them back
+    // into the same virtual layout and anchor correction path used by folding,
+    // streaming, and history hydration.
     const observer = new ResizeObserver((entries) => {
       let changed = false;
       let correction = 0;
@@ -226,5 +251,25 @@ export function useVirtualMessageWindow({
     element.scrollTop = element.scrollHeight;
   }, [items.length, rootRef, scrollRef]);
 
-  return { layout, range };
+  const revealBlock = useCallback(async (blockId: string): Promise<boolean> => {
+    const root = rootRef.current;
+    const element = findScrollElement(root, scrollRef);
+    const item = layout.items.find((candidate) => candidate.blockId === blockId);
+    if (!root || !element || !item) return false;
+
+    stickToBottom.current = false;
+    const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    const centeredTop = item.start - Math.max(0, (element.clientHeight - item.size) / 2);
+    const nextScrollTop = Math.min(maxScrollTop, Math.max(0, centeredTop));
+    element.scrollTop = nextScrollTop;
+    setViewport({ scrollTop: nextScrollTop, height: element.clientHeight, ready: true });
+    await waitForPaint();
+    const node = findBlockNode(rootRef.current, blockId);
+    if (!node) return false;
+    centerBlock(element, node);
+    setViewport({ scrollTop: element.scrollTop, height: element.clientHeight, ready: true });
+    return true;
+  }, [layout, rootRef, scrollRef]);
+
+  return { layout, range, revealBlock };
 }

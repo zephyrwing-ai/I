@@ -42,20 +42,20 @@ function renderComposer(running: boolean, stopping: boolean): string {
 
 test("idle Composer exposes task input and a disabled send action until text exists", () => {
   const html = renderComposer(false, false);
-  assert.match(html, /<textarea[^>]*aria-label="任务"/);
-  assert.match(html, /<button[^>]*disabled=""[^>]*aria-label="发送"/);
-  assert.ok(html.includes("选择模型"), html);
-  assert.doesNotMatch(html, /aria-label="停止运行"/);
+  assert.match(html, /<textarea[^>]*aria-label="Task"/);
+  assert.match(html, /<button[^>]*disabled=""[^>]*aria-label="Send"/);
+  assert.ok(html.includes("Choose model"), html);
+  assert.doesNotMatch(html, /aria-label="Stop run"/);
 });
 
-test("Composer restores an imported saved model even when it is temporarily unavailable", () => {
+test("Composer restores only models returned by the latest discovery", () => {
   assert.equal(
     restoreStoredModelOptionId("model-option-a", [{ ...selectedModel, available: false, state: "unavailable" }]),
-    "model-option-a",
+    "",
   );
   assert.equal(
     restoreStoredModelOptionId("model-option-a", [{ ...selectedModel, imported: false, state: "new" }]),
-    "",
+    "model-option-a",
   );
 });
 
@@ -80,12 +80,12 @@ test("Composer accepts a valid cached picker layout and falls back to the legacy
 
 test("running Composer locks inputs and exposes the stop action", () => {
   const html = renderComposer(true, false);
-  assert.match(html, /<textarea[^>]*disabled=""[^>]*aria-label="任务"/);
-  assert.match(html, /<button[^>]*aria-label="停止运行"/);
-  assert.doesNotMatch(html, /aria-label="正在停止"/);
+  assert.match(html, /<textarea[^>]*disabled=""[^>]*aria-label="Task"/);
+  assert.match(html, /<button[^>]*aria-label="Stop run"/);
+  assert.doesNotMatch(html, /aria-label="Stopping"/);
 });
 
 test("stopping Composer disables the stop action and reports busy state", () => {
   const html = renderComposer(true, true);
-  assert.match(html, /<button[^>]*disabled=""[^>]*aria-label="正在停止"[^>]*aria-busy="true"/);
+  assert.match(html, /<button[^>]*disabled=""[^>]*aria-label="Stopping"[^>]*aria-busy="true"/);
 });

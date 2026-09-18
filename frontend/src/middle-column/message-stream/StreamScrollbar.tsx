@@ -95,7 +95,7 @@ export function StreamRegion({ scrollRef, children }: { scrollRef: RefObject<HTM
           style={{ top: geometry.top, height: geometry.height }}
           role="scrollbar"
           tabIndex={0}
-          aria-label="消息滚动位置"
+          aria-label="Message scroll position"
           aria-orientation="vertical"
           aria-disabled={!geometry.scrollable}
           aria-controls="message-stream"

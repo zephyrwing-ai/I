@@ -61,14 +61,14 @@ class OutputFileRegistry {
   }
   async preview(runId, fileId) {
     const record = this.get(runId, fileId);
-    if (!record) return failure("not_found", "输出文件不存在或已经失效。");
+    if (!record) return failure("not_found", "The output file does not exist or is no longer valid.");
     const verified = await verifyRecord(record);
     if (!verified.ok) return failure("not_found", verified.message);
     const fileStats = verified.stats;
     const updatedAt = fileStats.mtime.toISOString();
     const byteSize = Number(fileStats.size);
     if (IMAGE_MEDIA_TYPES.has(record.descriptor.mediaType)) {
-      if (byteSize > MAX_IMAGE_BYTES) return failure("too_large", "图片超过 5 MB，无法内嵌预览。", record.descriptor.mediaType, byteSize);
+      if (byteSize > MAX_IMAGE_BYTES) return failure("too_large", "The image exceeds 5 MB and cannot be previewed inline.", record.descriptor.mediaType, byteSize);
       try {
         const content = await readFile(record.path);
         return {
@@ -80,7 +80,7 @@ class OutputFileRegistry {
           updatedAt
         };
       } catch {
-        return failure("read_failed", "图片读取失败。", record.descriptor.mediaType, byteSize);
+        return failure("read_failed", "Failed to read the image.", record.descriptor.mediaType, byteSize);
       }
     }
     if (!isTextMediaType(record.descriptor.mediaType)) {
@@ -111,7 +111,7 @@ class OutputFileRegistry {
         await handle.close();
       }
     } catch {
-      return failure("read_failed", "文件读取失败。", record.descriptor.mediaType, byteSize);
+      return failure("read_failed", "Failed to read the file.", record.descriptor.mediaType, byteSize);
     }
   }
   resolveForOpen(runId, fileId) {
@@ -124,12 +124,12 @@ class OutputFileRegistry {
 async function validateOutputForOpen(record) {
   try {
     const canonical2 = await realpath(record.path);
-    if (canonical2 !== record.path) return { ok: false, error: "输出文件路径已经变化。" };
+    if (canonical2 !== record.path) return { ok: false, error: "The output file path has changed." };
     const fileStats = await stat(canonical2);
-    if (!fileStats.isFile()) return { ok: false, error: "输出目标不再是文件。" };
+    if (!fileStats.isFile()) return { ok: false, error: "The output target is no longer a file." };
     return { ok: true, path: canonical2 };
   } catch {
-    return { ok: false, error: "输出文件不存在或无法访问。" };
+    return { ok: false, error: "The output file does not exist or cannot be accessed." };
   }
 }
 function displayPath(cwd, path) {
@@ -140,12 +140,12 @@ function displayPath(cwd, path) {
 async function verifyRecord(record) {
   try {
     const canonical2 = await realpath(record.path);
-    if (canonical2 !== record.path) return { ok: false, message: "输出文件路径已经变化。" };
+    if (canonical2 !== record.path) return { ok: false, message: "The output file path has changed." };
     const stats = await stat(canonical2);
-    if (!stats.isFile()) return { ok: false, message: "输出目标不再是文件。" };
+    if (!stats.isFile()) return { ok: false, message: "The output target is no longer a file." };
     return { ok: true, stats };
   } catch {
-    return { ok: false, message: "输出文件不存在或无法访问。" };
+    return { ok: false, message: "The output file does not exist or cannot be accessed." };
   }
 }
 function isTextMediaType(mediaType) {
@@ -188,14 +188,14 @@ class InputAttachmentRegistry {
     const attachments = [];
     for (const attachmentId of uniqueIds) {
       const record = this.records.get(attachmentId);
-      if (!record) throw new Error("附件不存在或已经失效，请重新上传。");
+      if (!record) throw new Error("The attachment does not exist or is no longer valid. Upload it again.");
       try {
         const path = await realpath(record.path);
         const fileStats = await stat(path);
         if (path !== record.path || !fileStats.isFile()) throw new Error();
         attachments.push({ ...record.descriptor, path });
       } catch {
-        throw new Error(`附件“${record.descriptor.name}”不存在或无法访问，请重新上传。`);
+        throw new Error(`The attachment “${record.descriptor.name}” does not exist or cannot be accessed. Upload it again.`);
       }
     }
     return attachments;
@@ -206,7 +206,7 @@ function composeTaskWithAttachments(task, attachments) {
   const list = attachments.map((attachment) => `- ${attachment.name}: ${JSON.stringify(attachment.path)}`).join("\n");
   return `${task}
 
-用户附加了以下本地文件。仅在与任务相关时使用可用工具读取它们：
+The user attached the following local files. Use the available tools to read them only when relevant to the task:
 ${list}`;
 }
 function mediaTypeForPath$1(path) {
@@ -290,25 +290,25 @@ async function discoverProviderModels(connection, options = {}) {
         break;
       } catch (error) {
         if (error instanceof ProviderDiscoveryError && error.kind === "authentication") throw error;
-        lastError = error instanceof ProviderDiscoveryError ? error : new ProviderDiscoveryError("network", "无法连接到服务，请检查网络和 Base URL。", { cause: error });
+        lastError = error instanceof ProviderDiscoveryError ? error : new ProviderDiscoveryError("network", "Unable to connect to the service. Check the network and Base URL.", { cause: error });
       }
     }
     if (controller.signal.aborted) {
       throw new ProviderDiscoveryError(
         timedOut ? "timeout" : "cancelled",
-        timedOut ? "连接超时，请重试。" : "已取消获取模型。",
+        timedOut ? "Connection timed out. Try again." : "Model retrieval was cancelled.",
         { cause: lastError }
       );
     }
     const normalized = normalizeDiscoveredModels(models);
     if (normalized.length === 0) {
       if (lastError) throw lastError;
-      throw new ProviderDiscoveryError("empty", "连接成功，但没有返回模型。");
+      throw new ProviderDiscoveryError("empty", "The connection succeeded, but no models were returned.");
     }
     return normalized;
   } catch (error) {
     if (error instanceof ProviderDiscoveryError) throw error;
-    throw new ProviderDiscoveryError("network", "无法连接到服务，请检查网络和 Base URL。", { cause: error });
+    throw new ProviderDiscoveryError("network", "Unable to connect to the service. Check the network and Base URL.", { cause: error });
   } finally {
     clearTimeout(timeout);
     options.signal?.removeEventListener("abort", cancel);
@@ -338,7 +338,7 @@ async function fetchModelPage(probe, apiKey, fetchImpl, signal) {
   const origin = new URL(url).origin;
   const visited = /* @__PURE__ */ new Set();
   while (true) {
-    if (visited.has(url)) throw new ProviderDiscoveryError("invalid_response", "模型列表分页游标无效。");
+    if (visited.has(url)) throw new ProviderDiscoveryError("invalid_response", "The model list pagination cursor is invalid.");
     visited.add(url);
     const response2 = await fetchImpl(url, {
       method: "GET",
@@ -367,17 +367,17 @@ function responseFailureKind(response2) {
   return "network";
 }
 function failureMessage(kind, status) {
-  if (kind === "authentication") return "API Key 无效或没有访问权限。";
-  if (kind === "unsupported") return "该服务不支持获取模型列表。";
-  return `模型列表请求失败，状态码 ${status}。`;
+  if (kind === "authentication") return "The API Key is invalid or does not have access.";
+  if (kind === "unsupported") return "This service does not support model list discovery.";
+  return `The model list request failed with status code ${status}.`;
 }
 function parseModelPage(payload) {
   if (!payload || typeof payload !== "object") {
-    throw new ProviderDiscoveryError("invalid_response", "模型列表响应格式无效。");
+    throw new ProviderDiscoveryError("invalid_response", "The model list response format is invalid.");
   }
   const list = payload.data;
   if (!Array.isArray(list)) {
-    throw new ProviderDiscoveryError("invalid_response", "模型列表响应格式无效。");
+    throw new ProviderDiscoveryError("invalid_response", "The model list response format is invalid.");
   }
   const models = [];
   for (const item of list) {
@@ -394,7 +394,7 @@ function nextPageUrl(payload, currentUrl, origin) {
   const body = payload;
   if (typeof body.next === "string" && body.next) {
     const next = new URL(body.next, currentUrl);
-    if (next.origin !== origin) throw new ProviderDiscoveryError("invalid_response", "模型列表分页地址无效。");
+    if (next.origin !== origin) throw new ProviderDiscoveryError("invalid_response", "The model list pagination URL is invalid.");
     return next.toString();
   }
   if (body.has_more === true && typeof body.last_id === "string" && body.last_id) {
@@ -408,7 +408,7 @@ async function readJson(response2) {
   try {
     return await response2.json();
   } catch (error) {
-    throw new ProviderDiscoveryError("invalid_response", "模型列表响应格式无效。", { cause: error });
+    throw new ProviderDiscoveryError("invalid_response", "The model list response format is invalid.", { cause: error });
   }
 }
 function firstString(...values) {
@@ -440,7 +440,7 @@ class ProviderStore {
       const normalized = normalizeInput(input);
       const existingIndex = normalized.providerProfileId ? this.profiles.findIndex((profile2) => profile2.providerProfileId === normalized.providerProfileId) : -1;
       const existing = existingIndex >= 0 ? this.profiles[existingIndex] : void 0;
-      if (!existing && !normalized.apiKey) throw new Error("新增提供商必须填写 API Key。");
+      if (!existing && !normalized.apiKey) throw new Error("A new provider requires an API Key.");
       const encryptedApiKey = this.resolveEncryptedSecret(normalized.apiKey, existing);
       const previousModels = new Map(existing?.models.map((model) => [model.modelId, model]) ?? []);
       const profile = {
@@ -451,14 +451,13 @@ class ProviderStore {
         encryptedApiKey,
         models: normalized.models.map((model) => {
           const previous = previousModels.get(model.id);
-          const available = model.available ?? previous?.available ?? true;
           return {
             modelOptionId: previous?.modelOptionId ?? randomUUID(),
             modelId: model.id,
             displayName: model.displayName,
-            available,
+            available: true,
             imported: true,
-            state: available ? "saved" : "unavailable"
+            state: "saved"
           };
         })
       };
@@ -474,7 +473,7 @@ class ProviderStore {
     await this.serialize(async () => {
       await this.ensureLoaded();
       const index = this.profiles.findIndex((profile) => profile.providerProfileId === providerProfileId);
-      if (index < 0) throw new Error("提供商不存在或已经删除。");
+      if (index < 0) throw new Error("The provider does not exist or has already been deleted.");
       const nextProfiles = this.profiles.filter((_, profileIndex) => profileIndex !== index);
       await this.persist(nextProfiles);
       this.profiles = nextProfiles;
@@ -483,7 +482,7 @@ class ProviderStore {
   async resolve(modelOptionId) {
     await this.ensureLoaded();
     for (const profile of this.profiles) {
-      const model = profile.models.find((candidate) => candidate.modelOptionId === modelOptionId && candidate.imported && candidate.available);
+      const model = profile.models.find((candidate) => candidate.modelOptionId === modelOptionId && candidate.available);
       if (!model) continue;
       return {
         providerProfileId: profile.providerProfileId,
@@ -494,54 +493,41 @@ class ProviderStore {
         apiKey: this.decryptSecret(profile)
       };
     }
-    throw new Error("所选模型不存在或不可用，请重新选择。");
+    throw new Error("The selected model does not exist or is unavailable. Choose another model.");
   }
   async discoveryConnection(input) {
     await this.ensureLoaded();
     const baseURL = normalizeBaseURL(input.baseURL);
     const existing = input.providerProfileId ? this.profiles.find((profile) => profile.providerProfileId === input.providerProfileId) : void 0;
-    if (input.providerProfileId && !existing) throw new Error("提供商不存在或已经删除。");
+    if (input.providerProfileId && !existing) throw new Error("The provider does not exist or has already been deleted.");
     const apiKey = input.apiKey?.trim() || (existing ? this.decryptSecret(existing) : "");
-    if (!apiKey) throw new Error("请填写 API Key。");
+    if (!apiKey) throw new Error("Enter an API Key.");
     return { provider: inferProviderFromBaseURL(), baseURL, apiKey };
   }
   async refreshConnection(providerProfileId) {
     await this.ensureLoaded();
     const profile = this.profiles.find((candidate) => candidate.providerProfileId === providerProfileId);
-    if (!profile) throw new Error("提供商不存在或已经删除。");
+    if (!profile) throw new Error("The provider does not exist or has already been deleted.");
     return { provider: profile.provider, baseURL: profile.baseURL, apiKey: this.decryptSecret(profile) };
   }
   async applyRefresh(providerProfileId, discovered) {
     return this.serialize(async () => {
       await this.ensureLoaded();
       const profileIndex = this.profiles.findIndex((profile2) => profile2.providerProfileId === providerProfileId);
-      if (profileIndex < 0) throw new Error("提供商不存在或已经删除。");
+      if (profileIndex < 0) throw new Error("The provider does not exist or has already been deleted.");
       const profile = this.profiles[profileIndex];
-      const remote = new Map(discovered.map((model) => [model.id, model]));
       const previous = new Map(profile.models.map((model) => [model.modelId, model]));
       const models = discovered.map((model) => {
         const saved = previous.get(model.id);
-        if (!saved) {
-          return {
-            modelOptionId: randomUUID(),
-            modelId: model.id,
-            displayName: model.displayName,
-            available: true,
-            imported: false,
-            state: "new"
-          };
-        }
         return {
-          ...saved,
+          modelOptionId: saved?.modelOptionId ?? randomUUID(),
+          modelId: model.id,
           displayName: model.displayName,
           available: true,
-          state: saved.imported ? "saved" : "new"
+          imported: true,
+          state: "saved"
         };
       });
-      for (const model of profile.models) {
-        if (remote.has(model.modelId) || !model.imported) continue;
-        models.push({ ...model, available: false, state: "unavailable" });
-      }
       const refreshed = { ...profile, models };
       const nextProfiles = [...this.profiles];
       nextProfiles[profileIndex] = refreshed;
@@ -552,20 +538,20 @@ class ProviderStore {
   }
   resolveEncryptedSecret(apiKey, existing) {
     if (!apiKey) {
-      if (!existing?.encryptedApiKey) throw new Error("提供商缺少可用凭据。");
+      if (!existing?.encryptedApiKey) throw new Error("The provider has no usable credentials.");
       return existing.encryptedApiKey;
     }
-    if (!this.codec.available()) throw new Error("系统凭据加密当前不可用，未保存 API Key。");
+    if (!this.codec.available()) throw new Error("System credential encryption is currently unavailable. The API Key was not saved.");
     return this.codec.encrypt(apiKey);
   }
   decryptSecret(profile) {
-    if (!this.codec.available()) throw new Error("系统凭据解密当前不可用。");
+    if (!this.codec.available()) throw new Error("System credential decryption is currently unavailable.");
     try {
       const apiKey = this.codec.decrypt(profile.encryptedApiKey);
       if (!apiKey) throw new Error("empty secret");
       return apiKey;
     } catch (error) {
-      throw new Error(`提供商 ${profile.name} 的凭据无法解密，请重新配置。`, { cause: error });
+      throw new Error(`The credentials for provider ${profile.name} could not be decrypted. Configure it again.`, { cause: error });
     }
   }
   async serialize(operation) {
@@ -591,14 +577,14 @@ class ProviderStore {
     try {
       const parsed = JSON.parse(await readFile(this.filePath, "utf8"));
       if (parsed.version === STORE_VERSION && Array.isArray(parsed.profiles)) {
-        this.profiles = parsed.profiles.filter(isStoredProfile);
+        this.profiles = parsed.profiles.filter(isStoredProfile).map(normalizeStoredProfile);
       } else if (parsed.version === 1 && Array.isArray(parsed.profiles)) {
-        this.profiles = parsed.profiles.filter(isLegacyStoredProfile).map(migrateLegacyProfile);
+        this.profiles = parsed.profiles.filter(isLegacyStoredProfile).map(migrateLegacyProfile).map(normalizeStoredProfile);
       }
       completed = true;
     } catch (error) {
       const code = error.code;
-      if (code !== "ENOENT") throw new Error("无法读取提供商配置。", { cause: error });
+      if (code !== "ENOENT") throw new Error("Unable to read the provider configuration.", { cause: error });
       completed = true;
     } finally {
       this.loaded = completed;
@@ -636,16 +622,15 @@ class ProviderStore {
 }
 function normalizeInput(input) {
   const name = input.name.trim();
-  if (!name) throw new Error("请输入提供商名称。");
+  if (!name) throw new Error("Enter a provider name.");
   const baseURL = normalizeBaseURL(input.baseURL);
   const models = input.models.map((model) => ({
     id: model.id.trim(),
-    displayName: model.displayName.trim() || model.id.trim(),
-    available: model.available
+    displayName: model.displayName.trim() || model.id.trim()
   })).filter((model) => model.id);
-  if (models.length === 0) throw new Error("请至少选择一个模型。");
+  if (models.length === 0) throw new Error("Select at least one model.");
   if (new Set(models.map((model) => model.id)).size !== models.length) {
-    throw new Error("同一提供商内不能重复保存模型。");
+    throw new Error("A provider cannot save duplicate models.");
   }
   return {
     providerProfileId: input.providerProfileId,
@@ -657,15 +642,15 @@ function normalizeInput(input) {
 }
 function normalizeBaseURL(value) {
   const input = value.trim();
-  if (!input) throw new Error("请填写 API Base URL。");
+  if (!input) throw new Error("Enter an API Base URL.");
   let url;
   try {
     url = new URL(input);
   } catch {
-    throw new Error("API Base URL 不是有效 URL。");
+    throw new Error("The API Base URL is not a valid URL.");
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("API Base URL 只支持 HTTP 或 HTTPS。");
+    throw new Error("The API Base URL must use HTTP or HTTPS.");
   }
   url.hash = "";
   return url.toString().replace(/\/$/, "");
@@ -679,6 +664,10 @@ function isStoredModel(value) {
   if (!value || typeof value !== "object") return false;
   const model = value;
   return typeof model.modelOptionId === "string" && typeof model.modelId === "string" && typeof model.displayName === "string" && typeof model.available === "boolean" && typeof model.imported === "boolean" && (model.state === "saved" || model.state === "new" || model.state === "unavailable");
+}
+function normalizeStoredProfile(profile) {
+  const models = profile.models.filter((model) => model.available && model.state !== "unavailable").map((model) => ({ ...model, imported: true, state: "saved" }));
+  return { ...profile, models };
 }
 function isLegacyStoredProfile(value) {
   if (!value || typeof value !== "object") return false;
@@ -716,7 +705,7 @@ class ModelAdapterError extends Error {
 async function* response(config, messages, system, tools, signal) {
   switch (config.provider) {
     case "openai": {
-      const { streamOpenAI } = await import("./openai-kNEQGDUq.js");
+      const { streamOpenAI } = await import("./openai-JAa46a-v.js");
       yield* streamOpenAI(messages, tools, { model: config.model, ...config.openai }, system, signal);
       return;
     }
@@ -966,9 +955,9 @@ function waitForRetryDelay(delayMs, signal) {
   });
 }
 async function executeTool(call, tools, cwd, signal) {
-  if (!call.inputComplete) return invalidResult("工具参数被模型响应截断，未执行。请重新生成完整的工具调用。", "truncated_arguments");
+  if (!call.inputComplete) return invalidResult("The tool arguments were truncated by the model response and were not executed. Please regenerate the complete tool call.", "truncated_arguments");
   const tool = tools.get(call.name);
-  if (!tool) return invalidResult(`未知工具：${call.name}`, "unknown_tool");
+  if (!tool) return invalidResult(`Unknown tool: ${call.name}`, "unknown_tool");
   return tool.execute(call.input, { cwd, signal });
 }
 function invalidResult(output, error) {
@@ -976,7 +965,7 @@ function invalidResult(output, error) {
 }
 function formatToolResult(result) {
   const note = result.truncated && result.fullOutputPath ? `
-完整输出：${result.fullOutputPath}` : "";
+Full output: ${result.fullOutputPath}` : "";
   return `<returncode>${result.returncode}</returncode>
 <output>
 ${result.output}
@@ -1024,7 +1013,7 @@ async function runWithArtifactSnapshot(cmd, cwd, opts) {
 function spawnCommand(cmd, cwd, opts) {
   return new Promise((resolve2, reject) => {
     if (opts.signal?.aborted) {
-      reject(new Error("命令已取消。"));
+      reject(new Error("The command was cancelled."));
       return;
     }
     const child = spawn("bash", ["-c", cmd], { cwd, timeout: opts.timeout ? opts.timeout * 1e3 : 3e4 });
@@ -1056,7 +1045,7 @@ function spawnCommand(cmd, cwd, opts) {
         resolve2({
           output: tail + `
 
-... 省略前 ${raw.length - TRUNCATE_KEEP} 字符，完整输出已保存到内部临时文件 ...`,
+... ${raw.length - TRUNCATE_KEEP} characters omitted; full output saved to an internal temporary file ...`,
           returncode: code ?? -1,
           truncated: true,
           fullOutputPath: fullPath
@@ -1238,7 +1227,7 @@ function createBashTool(ops) {
     definition: BASH_TOOL,
     async execute(input, context) {
       if (typeof input.command !== "string" || input.command.trim() === "") {
-        return { ok: false, output: "工具参数 command 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+        return { ok: false, output: "Tool parameter command must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
       }
       try {
         const result = await ops.exec(input.command, context.cwd, { timeout: 30, signal: context.signal });
@@ -1271,7 +1260,7 @@ function createReadTool() {
     definition: READ_TOOL,
     async execute(input, context) {
       if (typeof input.path !== "string" || input.path.trim() === "") {
-        return { ok: false, output: "工具参数 path 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+        return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
       }
       const start = typeof input.start === "number" && Number.isInteger(input.start) && input.start >= 1 ? input.start : 1;
       let maxLines = typeof input.maxLines === "number" && Number.isInteger(input.maxLines) ? input.maxLines : DEFAULT_MAX_LINES;
@@ -1281,30 +1270,30 @@ function createReadTool() {
       try {
         stats = await stat(target);
       } catch {
-        return { ok: false, output: `文件不存在：${input.path}`, returncode: -1, truncated: false, error: "not_found" };
+        return { ok: false, output: `File not found: ${input.path}`, returncode: -1, truncated: false, error: "not_found" };
       }
       if (stats.isDirectory()) {
-        return { ok: false, output: `目标是目录，Read 读取文件：${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
+        return { ok: false, output: `Target is a directory; Read expects a file: ${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
       }
       const ext = extname(target).toLowerCase();
       let buffer;
       try {
         buffer = await readFile(target);
       } catch (error) {
-        return { ok: false, output: `读取失败：${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "read_failed" };
+        return { ok: false, output: `Read failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "read_failed" };
       }
       if (IMAGE_EXTENSIONS.has(ext)) {
         const dataUrl = `data:${mimeForExtension(ext)};base64,${buffer.toString("base64")}`;
         return {
           ok: true,
-          output: `图片已作为视觉内容返回：${input.path}（${stats.size} 字节）`,
+          output: `Image returned as visual content: ${input.path} (${stats.size} bytes)`,
           returncode: 0,
           truncated: false,
           media: { mediaType: mimeForExtension(ext), dataUrl }
         };
       }
       if (buffer.includes(0)) {
-        return { ok: false, output: `文件不是文本或模型支持的图片格式：${input.path}`, returncode: -1, truncated: false, error: "binary_file" };
+        return { ok: false, output: `File is neither text nor a model-supported image format: ${input.path}`, returncode: -1, truncated: false, error: "binary_file" };
       }
       const raw = buffer.toString("utf8");
       const lines = raw.split("\n");
@@ -1315,10 +1304,10 @@ function createReadTool() {
       const nextStart = linesTruncated ? from + page.length : void 0;
       const rel = relative(context.cwd, target) || target;
       const rendered = page.map((line, i) => {
-        const display = line.length > MAX_LINE_DISPLAY$1 ? `${line.slice(0, MAX_LINE_DISPLAY$1)} …(该行过长已截断)` : line;
+        const display = line.length > MAX_LINE_DISPLAY$1 ? `${line.slice(0, MAX_LINE_DISPLAY$1)} …(Line too long; truncated)` : line;
         return `${from + i}: ${display}`;
       });
-      const rangeNote = linesTruncated ? `已读取 ${from}-${from + page.length - 1} 行，共 ${lines.length} 行；继续读取请用 start=${nextStart}` : `共 ${lines.length} 行`;
+      const rangeNote = linesTruncated ? `Read lines ${from}-${from + page.length - 1} of ${lines.length}; continue with start=${nextStart}` : `Read ${lines.length} lines`;
       return {
         ok: true,
         output: `<file>${rel}</file>
@@ -1364,17 +1353,17 @@ function createWriteTool() {
     definition: WRITE_TOOL,
     async execute(input, context) {
       if (typeof input.path !== "string" || input.path.trim() === "") {
-        return { ok: false, output: "工具参数 path 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+        return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
       }
       if (typeof input.content !== "string") {
-        return { ok: false, output: "工具参数 content 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+        return { ok: false, output: "Tool parameter content must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
       }
       const target = isAbsolute(input.path) ? input.path : resolve(context.cwd, input.path);
       let exists = false;
       try {
         const stats = await stat(target);
         if (stats.isDirectory()) {
-          return { ok: false, output: `目标是目录，Write 写入文件：${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
+          return { ok: false, output: `Target is a directory; Write expects a file: ${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
         }
         exists = true;
       } catch {
@@ -1384,14 +1373,14 @@ function createWriteTool() {
         await mkdir(dirname(target), { recursive: true });
         await writeFile(target, input.content, "utf8");
       } catch (error) {
-        return { ok: false, output: `写入失败：${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
+        return { ok: false, output: `Write failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
       }
       const bytes = Buffer.byteLength(input.content, "utf8");
       const rel = relative(context.cwd, target) || target;
       const operation = exists ? "updated" : "created";
       return {
         ok: true,
-        output: `已写入 ${rel}（${bytes} 字节，${operation === "created" ? "新建" : "覆盖"}）`,
+        output: `Wrote ${rel} (${bytes} bytes, ${operation === "created" ? "created" : "overwritten"})`,
         returncode: 0,
         truncated: false,
         artifacts: [{
@@ -1434,20 +1423,20 @@ function createEditTool() {
     definition: EDIT_TOOL,
     async execute(input, context) {
       if (typeof input.path !== "string" || input.path.trim() === "") {
-        return { ok: false, output: "工具参数 path 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+        return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
       }
       if (!Array.isArray(input.edits) || input.edits.length === 0) {
-        return { ok: false, output: "工具参数 edits 必须是非空数组。", returncode: -1, truncated: false, error: "invalid_arguments" };
+        return { ok: false, output: "Tool parameter edits must be a non-empty array.", returncode: -1, truncated: false, error: "invalid_arguments" };
       }
       const edits = [];
       for (const [i, item] of input.edits.entries()) {
         const oldText = item.oldText;
         const newText = item.newText;
         if (typeof oldText !== "string" || oldText.length === 0) {
-          return { ok: false, output: `第 ${i + 1} 项替换的 oldText 必须是非空字符串。`, returncode: -1, truncated: false, error: "invalid_arguments" };
+          return { ok: false, output: `Edit ${i + 1}: oldText must be a non-empty string.`, returncode: -1, truncated: false, error: "invalid_arguments" };
         }
         if (typeof newText !== "string") {
-          return { ok: false, output: `第 ${i + 1} 项替换的 newText 必须是字符串。`, returncode: -1, truncated: false, error: "invalid_arguments" };
+          return { ok: false, output: `Edit ${i + 1}: newText must be a string.`, returncode: -1, truncated: false, error: "invalid_arguments" };
         }
         edits.push({ oldText, newText });
       }
@@ -1456,20 +1445,20 @@ function createEditTool() {
       try {
         stats = await stat(target);
       } catch {
-        return { ok: false, output: `文件不存在：${input.path}`, returncode: -1, truncated: false, error: "not_found" };
+        return { ok: false, output: `File not found: ${input.path}`, returncode: -1, truncated: false, error: "not_found" };
       }
       if (stats.isDirectory()) {
-        return { ok: false, output: `目标是目录，Edit 修改文件：${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
+        return { ok: false, output: `Target is a directory; Edit expects a file: ${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
       }
       let original;
       try {
         const buffer = await readFile(target);
         if (buffer.includes(0)) {
-          return { ok: false, output: `文件不是可编辑文本（包含二进制内容）：${input.path}`, returncode: -1, truncated: false, error: "binary_file" };
+          return { ok: false, output: `File is not editable text (contains binary data): ${input.path}`, returncode: -1, truncated: false, error: "binary_file" };
         }
         original = buffer.toString("utf8");
       } catch (error) {
-        return { ok: false, output: `读取失败：${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "read_failed" };
+        return { ok: false, output: `Read failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "read_failed" };
       }
       const matches = [];
       for (const [order, edit] of edits.entries()) {
@@ -1478,10 +1467,10 @@ function createEditTool() {
           positions.push(at);
         }
         if (positions.length === 0) {
-          return { ok: false, output: `第 ${order + 1} 项替换的 oldText 未在文件中找到：${JSON.stringify(edit.oldText.slice(0, 200))}`, returncode: -1, truncated: false, error: "text_not_found" };
+          return { ok: false, output: `Edit ${order + 1}: oldText was not found in the file: ${JSON.stringify(edit.oldText.slice(0, 200))}`, returncode: -1, truncated: false, error: "text_not_found" };
         }
         if (positions.length > 1) {
-          return { ok: false, output: `第 ${order + 1} 项替换的 oldText 匹配到 ${positions.length} 处，需要唯一匹配：${JSON.stringify(edit.oldText.slice(0, 200))}`, returncode: -1, truncated: false, error: "text_not_unique" };
+          return { ok: false, output: `Edit ${order + 1}: oldText matched ${positions.length} locations; exactly one match is required: ${JSON.stringify(edit.oldText.slice(0, 200))}`, returncode: -1, truncated: false, error: "text_not_unique" };
         }
         matches.push({ index: positions[0], length: edit.oldText.length, edit, order });
       }
@@ -1490,7 +1479,7 @@ function createEditTool() {
         const prev = matches[i - 1];
         const curr = matches[i];
         if (curr.index < prev.index + prev.length) {
-          return { ok: false, output: `替换片段相互重叠：第 ${prev.order + 1} 项与第 ${curr.order + 1} 项`, returncode: -1, truncated: false, error: "edits_overlap" };
+          return { ok: false, output: `Overlapping edits: ${prev.order + 1} and ${curr.order + 1}`, returncode: -1, truncated: false, error: "edits_overlap" };
         }
       }
       let updated = original;
@@ -1500,16 +1489,16 @@ function createEditTool() {
       try {
         await writeFile(target, updated, "utf8");
       } catch (error) {
-        return { ok: false, output: `写入失败：${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
+        return { ok: false, output: `Write failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
       }
       const firstLine = (original.slice(0, matches[0].index).match(/\n/g) ?? []).length + 1;
       const rel = relative(context.cwd, target) || target;
-      const lines = matches.map((m) => `  #${m.order + 1} 第${(original.slice(0, m.index).match(/\n/g) ?? []).length + 1}行 ${JSON.stringify(m.edit.oldText.slice(0, 200))} → ${JSON.stringify(m.edit.newText.slice(0, 200))}`).join("\n");
+      const lines = matches.map((m) => `  #${m.order + 1} line ${(original.slice(0, m.index).match(/\n/g) ?? []).length + 1} ${JSON.stringify(m.edit.oldText.slice(0, 200))} → ${JSON.stringify(m.edit.newText.slice(0, 200))}`).join("\n");
       return {
         ok: true,
         output: `<file>${rel}</file>
-修改数量: ${matches.length}
-第一处变更: 第 ${firstLine} 行
+Edit count: ${matches.length}
+First change: line ${firstLine}
 <diff>
 ${lines}
 </diff>`,
@@ -1592,7 +1581,7 @@ async function statOrError(target, inputPath) {
     const stats = await stat(target);
     return { stats };
   } catch {
-    return { error: fail(`路径不存在：${inputPath ?? target}`, "not_found") };
+    return { error: fail(`Path not found: ${inputPath ?? target}`, "not_found") };
   }
 }
 async function* walkFiles(root, signal) {
@@ -1624,7 +1613,7 @@ async function* walkFiles(root, signal) {
 }
 async function listDir(input, context) {
   if (input.path !== void 0 && typeof input.path !== "string") {
-    return fail("工具参数 path 必须是字符串。", "invalid_arguments");
+    return fail("Tool parameter path must be a string.", "invalid_arguments");
   }
   let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : LIST_DEFAULT_LIMIT;
   limit = Math.min(Math.max(limit, 1), LIST_MAX_LIMIT);
@@ -1632,13 +1621,13 @@ async function listDir(input, context) {
   const { stats, error } = await statOrError(target, input.path);
   if (error) return error;
   if (!stats?.isDirectory()) {
-    return fail(`目标不是目录：${input.path ?? target}`, "not_a_directory");
+    return fail(`Target is not a directory: ${input.path ?? target}`, "not_a_directory");
   }
   let entries;
   try {
     entries = await readdir(target, { withFileTypes: true });
   } catch (err) {
-    return fail(`读取目录失败：${err instanceof Error ? err.message : String(err)}`, "read_failed");
+    return fail(`Failed to read directory: ${err instanceof Error ? err.message : String(err)}`, "read_failed");
   }
   const sorted = entries.sort((a, b) => a.name.localeCompare(b.name));
   const page = sorted.slice(0, limit);
@@ -1646,21 +1635,21 @@ async function listDir(input, context) {
   const label = rel === "" ? "." : rel;
   const rows = page.map((e) => `${e.isDirectory() ? "dir " : "file "}${e.name}${e.isDirectory() ? "/" : ""}`);
   const truncNote = sorted.length > page.length ? `
-已列出前 ${page.length} 项（共 ${sorted.length} 项），未继续列出。` : "";
+Listed the first ${page.length} of ${sorted.length} items; more items were not listed.` : "";
   return {
     ok: true,
     output: `<directory>${label}</directory>
-${rows.join("\n") || "（空目录）"}${truncNote}`,
+${rows.join("\n") || "(Empty directory)"}${truncNote}`,
     returncode: 0,
     truncated: sorted.length > page.length
   };
 }
 async function findFiles(input, context) {
   if (typeof input.pattern !== "string" || input.pattern.trim() === "") {
-    return fail("工具参数 pattern 必须是非空字符串。", "invalid_arguments");
+    return fail("Tool parameter pattern must be a non-empty string.", "invalid_arguments");
   }
   if (input.path !== void 0 && typeof input.path !== "string") {
-    return fail("工具参数 path 必须是字符串。", "invalid_arguments");
+    return fail("Tool parameter path must be a string.", "invalid_arguments");
   }
   let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : DEFAULT_LIMIT;
   limit = Math.min(Math.max(limit, 1), 1e3);
@@ -1669,7 +1658,7 @@ async function findFiles(input, context) {
   const { stats, error } = await statOrError(target, input.path);
   if (error) return error;
   if (!stats?.isDirectory()) {
-    return fail(`目标不是目录：${input.path ?? target}`, "not_a_directory");
+    return fail(`Target is not a directory: ${input.path ?? target}`, "not_a_directory");
   }
   const matches = [];
   for await (const file of walkFiles(target, context.signal)) {
@@ -1678,7 +1667,7 @@ async function findFiles(input, context) {
         ok: true,
         output: `<search_root>${relative(context.cwd, target) || "."}</search_root>
 ${matches.join("\n")}
-已找到 ${limit} 项，达到结果上限，可能未遍历全部文件。`,
+Found ${limit} matches; the result limit was reached, so not all files may have been searched.`,
         returncode: 0,
         truncated: true
       };
@@ -1692,17 +1681,17 @@ ${matches.join("\n")}
   return {
     ok: true,
     output: `<search_root>${relative(context.cwd, target) || "."}</search_root>
-${matches.join("\n") || "（没有匹配的文件）"}`,
+${matches.join("\n") || "(No matching files)"}`,
     returncode: 0,
     truncated: false
   };
 }
 async function searchContent(input, context) {
   if (typeof input.text !== "string" || input.text === "") {
-    return fail("工具参数 text 必须是非空字符串。", "invalid_arguments");
+    return fail("Tool parameter text must be a non-empty string.", "invalid_arguments");
   }
   if (input.path !== void 0 && typeof input.path !== "string") {
-    return fail("工具参数 path 必须是字符串。", "invalid_arguments");
+    return fail("Tool parameter path must be a string.", "invalid_arguments");
   }
   let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : DEFAULT_LIMIT;
   limit = Math.min(Math.max(limit, 1), 1e3);
@@ -1713,7 +1702,7 @@ async function searchContent(input, context) {
   const { stats, error } = await statOrError(target, input.path);
   if (error) return error;
   if (!stats?.isDirectory()) {
-    return fail(`目标不是目录：${input.path ?? target}`, "not_a_directory");
+    return fail(`Target is not a directory: ${input.path ?? target}`, "not_a_directory");
   }
   const needle = caseSensitive ? input.text : input.text.toLowerCase();
   const lines = [];
@@ -1758,18 +1747,18 @@ async function searchContent(input, context) {
     if (reachedLimit) break;
   }
   const suffix = [];
-  if (reachedLimit) suffix.push(`达到匹配上限 ${limit} 条，可能未遍历全部文件。`);
+  if (reachedLimit) suffix.push(`The match limit of ${limit} was reached; not all files may have been searched.`);
   return {
     ok: true,
     output: `<search_root>${relative(context.cwd, target) || "."}</search_root>
-${lines.join("\n") || "（没有匹配的内容）"}${suffix.length ? `
+${lines.join("\n") || "(No matching content)"}${suffix.length ? `
 ${suffix.join("\n")}` : ""}`,
     returncode: 0,
     truncated: reachedLimit || reachedScanCap
   };
 }
 function truncateLine(line) {
-  return line.length > MAX_LINE_DISPLAY ? `${line.slice(0, MAX_LINE_DISPLAY)} …(该行已截断)` : line;
+  return line.length > MAX_LINE_DISPLAY ? `${line.slice(0, MAX_LINE_DISPLAY)} …(Line truncated)` : line;
 }
 function createToolRegistry(ops) {
   const tools = [
@@ -1782,7 +1771,7 @@ function createToolRegistry(ops) {
   const registry = /* @__PURE__ */ new Map();
   for (const tool of tools) {
     if (registry.has(tool.definition.name)) {
-      throw new Error(`工具名重复注册：${tool.definition.name}`);
+      throw new Error(`Duplicate tool registration: ${tool.definition.name}`);
     }
     registry.set(tool.definition.name, tool);
   }
@@ -1807,13 +1796,13 @@ class AgentRunner {
     return new Promise((resolve2) => this.idleResolvers.add(resolve2));
   }
   start(req, emit) {
-    if (this.active) throw new Error("已有运行正在进行，请先停止当前任务。");
+    if (this.active) throw new Error("A run is already in progress. Stop the current task first.");
     this.active = true;
     this.controller = new AbortController();
     const runId = randomUUID();
     if (this.createSessionRecorder && !req.sessionId) {
       this.markIdle();
-      throw new Error("运行请求缺少会话身份。");
+      throw new Error("The run request is missing a session identity.");
     }
     let recorder;
     try {
@@ -1912,21 +1901,21 @@ class SessionHistoryError extends Error {
 }
 function normalizePageRequest(request) {
   if (!request || typeof request !== "object" || Array.isArray(request)) {
-    throw new SessionHistoryError("历史分页请求格式无效。", "invalid_request");
+    throw new SessionHistoryError("The history page request format is invalid.", "invalid_request");
   }
   const candidate = request;
   const cursor = candidate.cursor === void 0 ? null : candidate.cursor;
   if (cursor !== null && (typeof cursor !== "string" || !/^[1-9]\d*$/.test(cursor))) {
-    throw new SessionHistoryError("历史分页游标无效。", "invalid_request");
+    throw new SessionHistoryError("The history page cursor is invalid.", "invalid_request");
   }
   const beforeSeq = cursor === null ? null : Number(cursor);
   if (beforeSeq !== null && !Number.isSafeInteger(beforeSeq)) {
-    throw new SessionHistoryError("历史分页游标超出安全范围。", "invalid_request");
+    throw new SessionHistoryError("The history page cursor is outside the safe range.", "invalid_request");
   }
   const limit = candidate.limit ?? DEFAULT_SESSION_HISTORY_PAGE_LIMIT;
   if (!Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_SESSION_HISTORY_PAGE_LIMIT) {
     throw new SessionHistoryError(
-      `历史分页数量必须在 1 到 ${MAX_SESSION_HISTORY_PAGE_LIMIT} 之间。`,
+      `The history page size must be between 1 and ${MAX_SESSION_HISTORY_PAGE_LIMIT}.`,
       "invalid_request"
     );
   }
@@ -1968,7 +1957,7 @@ class SessionHistoryService {
   }
   async readPage(request) {
     const session = await this.repository.getSession(this.activeSessionId);
-    if (!session) throw new SessionHistoryError("当前会话不存在。", "not_found");
+    if (!session) throw new SessionHistoryError("The current session does not exist.", "not_found");
     const fetchLimit = request.limit + 1;
     const descendingEntries = request.beforeSeq === null ? await this.repository.listLatestEntries(this.activeSessionId, fetchLimit) : await this.repository.listEntriesBefore(this.activeSessionId, request.beforeSeq, fetchLimit);
     const hasMore = descendingEntries.length > request.limit;
@@ -1976,7 +1965,7 @@ class SessionHistoryService {
     const entries = pageDescending.slice().reverse();
     const nextCursor = hasMore && entries.length > 0 ? String(entries[0].sessionSeq) : null;
     if (nextCursor !== null && request.beforeSeq !== null && Number(nextCursor) >= request.beforeSeq) {
-      throw new SessionHistoryError("历史分页游标没有向更早记录推进。", "storage");
+      throw new SessionHistoryError("The history page cursor did not advance to older records.", "storage");
     }
     return {
       sessionId: this.activeSessionId,
@@ -2624,8 +2613,8 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId
       const task = req.task.trim();
       const cwd = req.cwd?.trim() || process.cwd();
       const modelOptionId = req.modelOptionId.trim();
-      if (!task) return { ok: false, error: "请输入任务。" };
-      if (!modelOptionId) return { ok: false, error: "请选择模型。" };
+      if (!task) return { ok: false, error: "Enter a task." };
+      if (!modelOptionId) return { ok: false, error: "Choose a model." };
       const attachments = await inputAttachments.resolve(Array.isArray(req.attachmentIds) ? req.attachmentIds : []);
       const resolved = await providers.resolve(modelOptionId);
       const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, sessionId, ...resolved }, (payload) => {
@@ -2648,7 +2637,7 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId
   });
   ipcMain.handle(IPC.discoverProviderModels, async (event, input) => {
     if (!input || typeof input.requestId !== "string" || !input.requestId) {
-      return { ok: false, error: "invalid_response", message: "模型发现请求缺少有效身份。" };
+      return { ok: false, error: "invalid_response", message: "The model discovery request is missing a valid identity." };
     }
     const requestKey = `${event.sender.id}:${input.requestId}`;
     discoveryControllers.get(requestKey)?.abort();
@@ -2672,9 +2661,9 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId
     discoveryControllers.get(`${event.sender.id}:${requestId}`)?.abort();
   });
   ipcMain.handle(IPC.refreshProviderModels, async (_event, providerProfileId) => {
-    if (runner.isActive) return { ok: false, error: "unsupported", message: "运行期间不能刷新提供商。" };
+    if (runner.isActive) return { ok: false, error: "unsupported", message: "Providers cannot be refreshed while a run is active." };
     if (typeof providerProfileId !== "string" || !providerProfileId) {
-      return { ok: false, error: "invalid_response", message: "缺少提供商身份。" };
+      return { ok: false, error: "invalid_response", message: "The provider identity is missing." };
     }
     try {
       const connection = await providers.refreshConnection(providerProfileId);
@@ -2685,7 +2674,7 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId
     }
   });
   ipcMain.handle(IPC.saveProvider, async (_event, input) => {
-    if (runner.isActive) return { ok: false, error: "运行期间不能修改提供商。" };
+    if (runner.isActive) return { ok: false, error: "Providers cannot be changed while a run is active." };
     try {
       return { ok: true, profile: await providers.save(input) };
     } catch (error) {
@@ -2693,7 +2682,7 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId
     }
   });
   ipcMain.handle(IPC.deleteProvider, async (_event, providerProfileId) => {
-    if (runner.isActive) return { ok: false, error: "运行期间不能删除提供商。" };
+    if (runner.isActive) return { ok: false, error: "Providers cannot be deleted while a run is active." };
     try {
       await providers.delete(providerProfileId);
       return { ok: true };
@@ -2709,16 +2698,16 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId
   });
   ipcMain.handle(IPC.previewOutputFile, async (_event, runId, fileId) => {
     if (typeof runId !== "string" || typeof fileId !== "string" || !runId || !fileId) {
-      return { ok: false, error: "invalid_request", message: "缺少输出文件身份。" };
+      return { ok: false, error: "invalid_request", message: "The output file identity is missing." };
     }
     return outputFiles.preview(runId, fileId);
   });
   ipcMain.handle(IPC.openOutputFile, async (_event, runId, fileId) => {
     if (typeof runId !== "string" || typeof fileId !== "string" || !runId || !fileId) {
-      return { ok: false, error: "缺少输出文件身份。" };
+      return { ok: false, error: "The output file identity is missing." };
     }
     const record = outputFiles.resolveForOpen(runId, fileId);
-    if (!record) return { ok: false, error: "输出文件不存在或已经失效。" };
+    if (!record) return { ok: false, error: "The output file does not exist or is no longer valid." };
     const validated = await validateOutputForOpen(record);
     if (!validated.ok) return { ok: false, error: validated.error };
     const error = await shell.openPath(validated.path);
@@ -2744,7 +2733,7 @@ app.whenReady().then(async () => {
   const outputFiles = new OutputFileRegistry();
   const inputAttachments = new InputAttachmentRegistry();
   const createRecorder = (sessionId) => {
-    if (sessionId !== activeSession.id) throw new Error("当前会话未加载。");
+    if (sessionId !== activeSession.id) throw new Error("The current session is not loaded.");
     return recorder;
   };
   const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts), createRecorder);
@@ -2769,7 +2758,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 }).catch((error) => {
-  dialog.showErrorBox("会话存储初始化失败", error instanceof Error ? error.message : String(error));
+  dialog.showErrorBox("Session storage initialization failed", error instanceof Error ? error.message : String(error));
   app.quit();
 });
 app.on("window-all-closed", () => {

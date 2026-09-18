@@ -73,7 +73,7 @@ async function runWithArtifactSnapshot(cmd: string, cwd: string, opts: ExecOptio
 function spawnCommand(cmd: string, cwd: string, opts: ExecOptions): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     if (opts.signal?.aborted) {
-      reject(new Error("命令已取消。"));
+      reject(new Error("The command was cancelled."));
       return;
     }
 
@@ -98,7 +98,7 @@ function spawnCommand(cmd: string, cwd: string, opts: ExecOptions): Promise<Exec
         writeFileSync(fullPath, raw);
         const tail = raw.slice(-TRUNCATE_KEEP);
         resolve({
-          output: tail + `\n\n... 省略前 ${raw.length - TRUNCATE_KEEP} 字符，完整输出已保存到内部临时文件 ...`,
+          output: tail + `\n\n... ${raw.length - TRUNCATE_KEEP} characters omitted; full output saved to an internal temporary file ...`,
           returncode: code ?? -1,
           truncated: true,
           fullOutputPath: fullPath,

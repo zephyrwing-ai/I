@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en-US">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>任务工作台 — 高保真交互原型</title>
+<title>Agent Workbench — High-Fidelity Interactive Prototype</title>
 <style>
   /* ============ 设计 Token ============ */
   :root{
@@ -304,13 +304,13 @@
 <body>
   <!-- 演示控制：切换各运行阶段（非产品 UI，仅为展示设计效果） -->
   <div class="demo-bar" id="demoBar">
-    <span class="demo-label">演示控制</span>
-    <button class="demo-btn" data-scene="idle">空闲</button>
-    <button class="demo-btn" data-scene="connecting">连接中</button>
-    <button class="demo-btn" data-scene="streaming">流式思考</button>
-    <button class="demo-btn" data-scene="running">执行命令</button>
-    <button class="demo-btn" data-scene="done">完成</button>
-    <button class="demo-btn" data-scene="error">出错</button>
+    <span class="demo-label">Demo controls</span>
+    <button class="demo-btn" data-scene="idle">Idle</button>
+    <button class="demo-btn" data-scene="connecting">Connecting</button>
+    <button class="demo-btn" data-scene="streaming">Streaming thought</button>
+    <button class="demo-btn" data-scene="running">Running command</button>
+    <button class="demo-btn" data-scene="done">Complete</button>
+    <button class="demo-btn" data-scene="error">Error</button>
   </div>
 
   <!-- 产品窗口 -->
@@ -318,7 +318,7 @@
     <!-- 标题栏 -->
     <div class="titlebar">
       <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
-      <span class="t-title">任务工作台</span>
+      <span class="t-title">Agent Workbench</span>
       <span class="t-path" id="winPath">~/project/i</span>
     </div>
 
@@ -328,15 +328,15 @@
         <span class="brand-mark">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l2.4 4.6L20 6.8l-3.3 3.4.8 5.3L12 13.4l-5.5 2.1.8-5.3L4 6.8l5.6-.2L12 2z" fill="#fff"/></svg>
         </span>
-        <span class="brand-name">任务工作台 <span class="beta">beta</span></span>
+        <span class="brand-name">Agent Workbench <span class="beta">beta</span></span>
       </div>
-      <textarea class="task-input" id="taskInput" rows="1" placeholder="描述你希望 agent 完成的任务…（Enter 运行，Shift+Enter 换行）"></textarea>
+      <textarea class="task-input" id="taskInput" rows="1" placeholder="Describe a task for agent… (Enter to run, Shift+Enter for a new line)"></textarea>
       <div class="toolbar-actions">
         <button class="btn btn-run" id="runBtn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          <span>运行</span>
+          <span>Run</span>
         </button>
-        <button class="icon-btn active" id="cfgBtn" title="设置">
+        <button class="icon-btn active" id="cfgBtn" title="Settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h.01a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h.01a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v.01a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         </button>
       </div>
@@ -350,12 +350,12 @@
       <!-- inspector -->
       <aside class="config-panel">
         <header class="config-header">
-          <h3>设置</h3>
-          <span class="connection-status"><span class="dot"></span>已连接</span>
+          <h3>Settings</h3>
+          <span class="connection-status"><span class="dot"></span>Connected</span>
         </header>
 
         <section class="config-section">
-          <div class="config-section-title">连接</div>
+          <div class="config-section-title">Connection</div>
           <label class="field">
             <span class="field-label">Provider</span>
             <select><option>OpenAI / DeepSeek</option><option>Anthropic (Claude)</option><option>Google (Gemini)</option></select>
@@ -375,25 +375,25 @@
         </section>
 
         <section class="config-section">
-          <div class="config-section-title">执行</div>
+          <div class="config-section-title">Execution</div>
           <label class="field field-inline">
             <span class="toggle"><input type="checkbox" checked id="toggleStream" /><span class="track"></span><span class="thumb"></span></span>
-            <span class="field-label">流式输出（打字机效果）</span>
+            <span class="field-label">Streaming output (typewriter effect)</span>
           </label>
           <label class="field field-inline">
             <span class="toggle"><input type="checkbox" checked /><span class="track"></span><span class="thumb"></span></span>
-            <span class="field-label">用 Docker 运行命令</span>
+            <span class="field-label">Run commands with Docker</span>
           </label>
           <label class="field">
-            <span class="field-label">Steps 上限</span>
+            <span class="field-label">Step limit</span>
             <input type="number" value="20" min="1" max="100" />
           </label>
         </section>
 
         <section class="config-section">
-          <div class="config-section-title">工作目录</div>
+          <div class="config-section-title">Workspace</div>
           <div class="workspace-row">
-            <button class="ghost-btn">选择目录</button>
+            <button class="ghost-btn">Select directory</button>
             <span class="workspace-path" title="/Users/zephyrwing/Project/I">/Users/zephyrwing/Project/I</span>
           </div>
         </section>
@@ -403,9 +403,9 @@
     <!-- 状态栏 -->
     <footer class="status-bar" id="statusBar">
       <span class="status-dot" id="statusDot"></span>
-      <div class="status-main" id="statusMain">待命</div>
+      <div class="status-main" id="statusMain">Idle</div>
       <div class="status-progress" id="statusProgress">
-        <span id="statusSteps">共 0 步</span>
+        <span id="statusSteps">0 steps</span>
       </div>
     </footer>
   </div>
@@ -426,24 +426,24 @@
   const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
   function actionRow({cmd, rc, output, err, collapsed}){
-    let rcClass = 'pending', rcLabel = '待执行', rcInner = rcLabel;
-    if(rc === 'run'){ rcClass='rc-run'; rcInner='<span class="spinner"></span>执行中'; }
+    let rcClass = 'pending', rcLabel = 'Pending', rcInner = rcLabel;
+    if(rc === 'run'){ rcClass='rc-run'; rcInner='<span class="spinner"></span>Running'; }
     else if(typeof rc === 'number'){ rcClass = rc===0 ? 'rc-ok':'rc-err'; rcLabel = 'rc '+rc; rcInner=rcLabel; }
     let out;
-    if(rc === 'run'){ out = '<div class="action-out"><div class="out-empty">正在执行命令，等待输出…</div></div>'; }
+    if(rc === 'run'){ out = '<div class="action-out"><div class="out-empty">Running command, waiting for output…</div></div>'; }
     else if(output){
       out = '<div class="action-out"><pre class="'+(err?'err':'')+'">'+esc(output)+'</pre></div>';
     } else {
-      out = '<div class="action-out"><div class="out-empty">无输出</div></div>';
+      out = '<div class="action-out"><div class="out-empty">No output</div></div>';
     }
     const meta = (rc==='run')
-      ? '<div class="action-meta"><span>… 正在输出</span></div>'
-      : '<div class="action-meta"><span>cwd: /Users/zephyrwing/Project/I</span><span>耗时 1.2s</span></div>';
+      ? '<div class="action-meta"><span>… Outputting</span></div>'
+      : '<div class="action-meta"><span>cwd: /Users/zephyrwing/Project/I</span><span>Duration 1.2s</span></div>';
     const links = (collapsed)
-      ? '<div class="out-links"><button class="text-btn">展开完整输出</button><button class="text-btn">打开完整文件</button></div>'
+      ? '<div class="out-links"><button class="text-btn">Expand full output</button><button class="text-btn">Open full file</button></div>'
       : '';
     return '<div class="action">'
-      + '<div class="action-cmd"><span class="prompt">$</span><code>'+esc(cmd)+'</code><span class="action-rc '+rcClass+'">'+rcInner+'</span><button class="copy">'+svgCopy+'<span>复制</span></button></div>'
+      + '<div class="action-cmd"><span class="prompt">$</span><code>'+esc(cmd)+'</code><span class="action-rc '+rcClass+'">'+rcInner+'</span><button class="copy">'+svgCopy+'<span>Copy</span></button></div>'
       + out + meta + links
       + '</div>';
   }
@@ -451,7 +451,7 @@
   function thoughtBlock(text, live, streamingLen){
     if(text === null){
       return '<div class="thought"><div class="thought-label">Thought</div>'
-        + '<div class="thought-ghost"><span class="spinner"></span>正在思考…</div></div>';
+        + '<div class="thought-ghost"><span class="spinner"></span>Thinking…</div></div>';
     }
     const liveTag = live ? '<span class="live">● LIVE</span>' : '';
     let shown = text;
@@ -480,82 +480,82 @@
   // ── 场景数据 ──
   const SCENES = {
     idle: {
-      status:['','idle','待命'], progress:'共 0 步',
+      status:['','idle','Idle'], progress:'0 steps',
       render(){
         return '<div class="empty">'
           + '<div class="empty-icon">'+svgOpen+'</div>'
-          + '<h3>开始一次 agent 运行</h3>'
-          + '<p>在顶栏描述任务，选择工作目录与 Provider，然后点击「运行」。<br/>Agent 会思考、执行命令并把每一步结果实时呈现给你。</p>'
-          + '<div class="empty-hint"><kbd>⌘</kbd><kbd>↵</kbd> 发送 · <kbd>⇧↵</kbd> 换行</div>'
+          + '<h3>Start an agent run</h3>'
+          + '<p>Describe a task in the top bar, choose a workspace and Provider, then click “Run”.<br/>Agent will think, execute commands, and show each result in real time.</p>'
+          + '<div class="empty-hint"><kbd>⌘</kbd><kbd>↵</kbd> Send · <kbd>⇧↵</kbd> New line</div>'
           + '</div>';
       }
     },
     connecting: {
-      status:['thinking','连接模型…'], progress:'共 0 步',
+      status:['thinking','Connecting to model…'], progress:'0 steps',
       render(){
-        return stepCard({n:1, stage:'连接中', stageColor:'active', thought:null, live:false,
-          metaText:'正在建立与 deepseek-chat 的连接'});
+        return stepCard({n:1, stage:'Connecting', stageColor:'active', thought:null, live:false,
+          metaText:'Establishing a connection to deepseek-chat'});
       }
     },
     streaming: {
-      status:['thinking','正在思考'], progress:'共 1 步',
+      status:['thinking','Thinking'], progress:'1 step',
       render(){
-        return stepCard({n:1, stage:'思考中', stageColor:'active', live:true, streaming:true,
-          thought:'我需要先确认项目结构，然后运行测试来验证当前状态。让我先看看 package.json 和 test 目录。',
+        return stepCard({n:1, stage:'Thinking', stageColor:'active', live:true, streaming:true,
+          thought:'I need to confirm the project structure, then run the tests to verify the current state. I will inspect package.json and the test directory first.',
           actions:[{cmd:'cat package.json', rc:0, output:'{\n  "name": "agent-studio",\n  "version": "0.1.0",\n  "type": "module",\n  "scripts": {" dev ": "electron-vite dev", ...}\n}', err:false, collapsed:true}],
           metaText:'3 messages'});
       }
     },
     running: {
-      status:['running','执行命令 2 / 3'], progress:'共 3 步',
+      status:['running','Running command 2 / 3'], progress:'3 steps',
       render(){
-        const s1 = stepCard({n:1, stage:'完成', stageColor:'done', live:false,
-          thought:'先检查项目配置，确认测试脚本。',
+        const s1 = stepCard({n:1, stage:'Complete', stageColor:'done', live:false,
+          thought:'First, inspect the project configuration and confirm the test scripts.',
           actions:[{cmd:'cat package.json', rc:0, output:'{\n  "name": "agent-studio",\n  "scripts": {"dev": "electron-vite dev", "test": "vitest"}\n}', err:false, collapsed:true}],
           metaText:'2 messages'});
-        const s2 = stepCard({n:2, stage:'执行命令', stageColor:'executing', live:false,
-          thought:'运行单元测试，验证 adapter 的兼容性。',
+        const s2 = stepCard({n:2, stage:'Running command', stageColor:'executing', live:false,
+          thought:'Run the unit tests to verify adapter compatibility.',
           actions:[{cmd:'npm test', rc:'run', output:null, err:false}],
           metaText:'3 messages'});
-        const s3 = stepCard({n:3, stage:'排队中', stageColor:'active', thought:null, live:false,
+        const s3 = stepCard({n:3, stage:'Queued', stageColor:'active', thought:null, live:false,
           actions:[{cmd:'git diff --stat', rc:'pending', output:null, err:false}],
           metaText:'pending'});
         return s1+s2+s3;
       }
     },
     done: {
-      status:['completed','✅ 已完成'], progress:'共 3 步',
+      status:['completed','✅ Complete'], progress:'3 steps',
       render(){
-        const s1 = stepCard({n:1, stage:'完成', stageColor:'done', live:false,
-          thought:'先检查项目配置，确认测试脚本。',
+        const s1 = stepCard({n:1, stage:'Complete', stageColor:'done', live:false,
+          thought:'First, inspect the project configuration and confirm the test scripts.',
           actions:[{cmd:'cat package.json', rc:0, output:'{\n  "name": "agent-studio",\n  "scripts": {"dev": "electron-vite dev", "test": "vitest"}\n}', err:false, collapsed:true}],
           metaText:'2 messages'});
-        const s2 = stepCard({n:2, stage:'完成', stageColor:'done', live:false,
-          thought:'运行单元测试，验证 adapter 的兼容性。',
+        const s2 = stepCard({n:2, stage:'Complete', stageColor:'done', live:false,
+          thought:'Run the unit tests to verify adapter compatibility.',
           actions:[{cmd:'npm test', rc:0, output:'✓ 24 tests passed\n✓ 3 suites passed\nTest Files  3 passed (3)\n      Tests  24 passed (24)\n   Duration  1.20s', err:false, collapsed:false}],
           metaText:'3 messages'});
-        const s3 = stepCard({n:3, stage:'完成', stageColor:'done', live:false,
-          thought:'添加 provider 流式支持并补一个回归测试。',
+        const s3 = stepCard({n:3, stage:'Complete', stageColor:'done', live:false,
+          thought:'Add Provider streaming support and a regression test.',
           actions:[{cmd:'git diff --stat', rc:0, output:' 3 files changed, 48 insertions(+), 9 deletions(-)', err:false, collapsed:false}],
           metaText:'4 messages'});
         return s1+s2+s3;
       }
     },
     error: {
-      status:['error','❌ 出错 / 已停止'], progress:'共 2 步',
+      status:['error','❌ Error / Stopped'], progress:'2 steps',
       render(){
         const banner = '<div class="error-banner">'
           + '<div class="eb-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5h.01"/></svg></div>'
-          + '<div class="eb-body"><div class="eb-title">运行中断</div>'
+          + '<div class="eb-body"><div class="eb-title">Run interrupted</div>'
           + '<div class="eb-detail">Error: 401 Invalid API Key for deepseek-chat (api.deepseek.com)</div>'
-          + '<div class="eb-action"><button class="ghost-btn">检查 API Key</button><button class="ghost-btn" style="margin-left:8px">重试</button></div></div>'
+          + '<div class="eb-action"><button class="ghost-btn">Check API Key</button><button class="ghost-btn" style="margin-left:8px">Retry</button></div></div>'
           + '</div>';
-        const s1 = stepCard({n:1, stage:'完成', stageColor:'done', live:false,
-          thought:'先检查项目配置。',
+        const s1 = stepCard({n:1, stage:'Complete', stageColor:'done', live:false,
+          thought:'First, inspect the project configuration.',
           actions:[{cmd:'cat package.json', rc:0, output:'{\n  "name": "agent-studio"\n}', err:false, collapsed:true}],
           metaText:'2 messages'});
-        const s2 = stepCard({n:2, stage:'出错', stageColor:'error', live:false,
-          thought:'调用模型返回 401，API Key 无效或已过期。',
+        const s2 = stepCard({n:2, stage:'Error', stageColor:'error', live:false,
+          thought:'The model returned 401. The API Key is invalid or expired.',
           actions:[{cmd:'npm test', rc:1, output:'Unable to connect to api.deepseek.com —\nHTTP 401 Unauthorized\n[REDACTED_SECRET]', err:true, collapsed:false}],
           metaText:'3 messages'});
         return banner + s1 + s2;
@@ -580,13 +580,13 @@
     // 运行按钮状态
     if(name==='idle'){
       runBtn.className='btn btn-run'; runBtn.classList.remove('hidden');
-      runBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>运行</span>';
+      runBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>Run</span>';
     } else if(name==='done'||name==='error'){
       runBtn.className='btn btn-run'; runBtn.classList.remove('hidden');
-      runBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>再运行</span>';
+      runBtn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>Run again</span>';
     } else {
       runBtn.className='btn btn-stop'; runBtn.classList.remove('hidden');
-      runBtn.innerHTML='<span>停止</span>';
+      runBtn.innerHTML='<span>Stop</span>';
     }
 
     stage.innerHTML = sc.render();

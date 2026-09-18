@@ -373,9 +373,9 @@ function waitForRetryDelay(delayMs: number, signal?: AbortSignal): Promise<boole
 }
 
 async function executeTool(call: ToolCall, tools: Map<string, RegisteredTool>, cwd: string, signal?: AbortSignal): Promise<ToolResult> {
-  if (!call.inputComplete) return invalidResult("工具参数被模型响应截断，未执行。请重新生成完整的工具调用。", "truncated_arguments");
+  if (!call.inputComplete) return invalidResult("The tool arguments were truncated by the model response and were not executed. Please regenerate the complete tool call.", "truncated_arguments");
   const tool = tools.get(call.name);
-  if (!tool) return invalidResult(`未知工具：${call.name}`, "unknown_tool");
+  if (!tool) return invalidResult(`Unknown tool: ${call.name}`, "unknown_tool");
   return tool.execute(call.input, { cwd, signal });
 }
 
@@ -384,6 +384,6 @@ function invalidResult(output: string, error: string): ToolResult {
 }
 
 function formatToolResult(result: ToolResult): string {
-  const note = result.truncated && result.fullOutputPath ? `\n完整输出：${result.fullOutputPath}` : "";
+  const note = result.truncated && result.fullOutputPath ? `\nFull output: ${result.fullOutputPath}` : "";
   return `<returncode>${result.returncode}</returncode>\n<output>\n${result.output}\n</output>${note}`;
 }

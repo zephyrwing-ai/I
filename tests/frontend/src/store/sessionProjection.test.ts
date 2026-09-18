@@ -29,6 +29,8 @@ test("history projection rebuilds runs, turns and tool results from persisted en
       type: "assistant_message",
       runId: "run-1",
       turnId: "turn-1",
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_001_234,
       payload: {
         role: "assistant",
         content: "我来读取。",
@@ -51,6 +53,7 @@ test("history projection rebuilds runs, turns and tool results from persisted en
   const turn = run.turns["turn-1"]!;
   assert.deepEqual(projected.runOrder, ["run-1"]);
   assert.equal(run.task, "读取文件");
+  assert.equal(turn.assistantAt, 1_700_000_001_234);
   assert.equal(turn.reasoningContent, "需要先查看文件。");
   assert.equal(turn.tools["call-1"]?.status, "completed");
   assert.equal(turn.tools["call-1"]?.result?.output, "内容");

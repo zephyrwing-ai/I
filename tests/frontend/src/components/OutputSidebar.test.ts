@@ -69,7 +69,7 @@ function renderSidebar(open: boolean, files: OutputFileDescriptor[]): string {
   }));
 }
 
-test("open OutputSidebar exposes its region and current-run count", () => {
+test("open OutputSidebar reserves the top action area and exposes current files", () => {
   const html = renderSidebar(true, [file(), file({
     fileId: "file-second",
     name: "preview.png",
@@ -81,11 +81,11 @@ test("open OutputSidebar exposes its region and current-run count", () => {
 
   assert.match(html, /<aside[^>]*id="output-sidebar"[^>]*phase-open[^>]*aria-hidden="false"/);
   assert.match(html, /role="separator"[^>]*tabindex="0"/);
-  assert.match(html, /<span class="eyebrow">当前运行<\/span>/);
-  assert.match(html, /<h2>输出文件 <small>2<\/small><\/h2>/);
+  assert.match(html, /<div class="output-sidebar-header" aria-hidden="true"><\/div>/);
+  assert.doesNotMatch(html, />Current run<|>Output files</);
   assert.equal(html.match(/role="option"/g)?.length, 2);
-  assert.ok(html.includes("已创建"), html);
-  assert.ok(html.includes("已更新"), html);
+  assert.ok(html.includes("Created"), html);
+  assert.ok(html.includes("Updated"), html);
 });
 
 test("closed OutputSidebar remains associated with the TopBar but is hidden and unfocusable", () => {
@@ -103,20 +103,20 @@ test("OutputSidebar initially selects the first current file and exposes preview
 
   assert.match(html, /role="option" aria-selected="true" class="selected"[^>]*>[\s\S]*?report\.md/);
   assert.match(html, /role="option" aria-selected="false"[^>]*>[\s\S]*?notes\.txt/);
-  assert.match(html, /<section class="output-preview" aria-label="文件预览">/);
+  assert.match(html, /<section class="output-preview" aria-label="File preview">/);
   assert.match(html, /<strong>report\.md<\/strong><span>1\.5 KB<\/span>/);
-  assert.match(html, /aria-label="刷新预览"/);
-  assert.match(html, /aria-label="在系统中打开"/);
-  assert.doesNotMatch(html, /选择文件以预览内容/);
+  assert.match(html, /aria-label="Refresh preview"/);
+  assert.match(html, /aria-label="Open in system"/);
+  assert.doesNotMatch(html, /Select a file to preview its content/);
 });
 
 test("empty OutputSidebar renders both list and preview guidance without file actions", () => {
   const html = renderSidebar(true, []);
 
-  assert.match(html, /<h2>输出文件 <small>0<\/small><\/h2>/);
-  assert.match(html, /当前任务尚未生成文件/);
-  assert.match(html, /选择文件以预览内容/);
+  assert.doesNotMatch(html, />Current run<|>Output files</);
+  assert.match(html, /No files generated for this task/);
+  assert.match(html, /Select a file to preview its content/);
   assert.doesNotMatch(html, /role="option"/);
-  assert.doesNotMatch(html, /aria-label="刷新预览"/);
-  assert.doesNotMatch(html, /aria-label="在系统中打开"/);
+  assert.doesNotMatch(html, /aria-label="Refresh preview"/);
+  assert.doesNotMatch(html, /aria-label="Open in system"/);
 });

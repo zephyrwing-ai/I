@@ -20,7 +20,7 @@ export function createBashTool(ops: BashOperations): RegisteredTool {
     definition: BASH_TOOL,
     async execute(input, context): Promise<ToolResult> {
       if (typeof input.command !== "string" || input.command.trim() === "") {
-        return { ok: false, output: "工具参数 command 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+        return { ok: false, output: "Tool parameter command must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
       }
       try {
         const result = await ops.exec(input.command, context.cwd, { timeout: 30, signal: context.signal });

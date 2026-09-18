@@ -23,10 +23,10 @@ interface ComposerProps {
   onStop: () => void;
 }
 
-/** 只有仍在导入目录中的模型才能成为 Composer 的已恢复选择；可用性由发送条件单独判断。 */
+/** 只有最近一次模型发现仍返回的模型才能成为 Composer 的已恢复选择。 */
 export function restoreStoredModelOptionId(storedId: string, modelOptions: ModelOption[]): string {
   const modelOptionId = storedId.trim();
-  return modelOptions.some((model) => model.imported && model.modelOptionId === modelOptionId) ? modelOptionId : "";
+  return modelOptions.some((model) => model.available && model.modelOptionId === modelOptionId) ? modelOptionId : "";
 }
 
 export function parseStoredModelPickerPreference(serialized: string | null, legacyModelOptionId: string | null): StoredModelPickerPreference {
@@ -68,19 +68,19 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
     storedPreference.modelOptionId === selectedModelOptionId ? storedPreference.width : null
   ));
   const [animateModelWidth, setAnimateModelWidth] = useState(false);
-  const selectedModel = modelOptions.find((option) => option.imported && option.modelOptionId === selectedModelOptionId);
-  const selectableModels = modelOptions.filter((option) => option.imported && option.available);
+  const selectedModel = modelOptions.find((option) => option.available && option.modelOptionId === selectedModelOptionId);
+  const selectableModels = modelOptions.filter((option) => option.available);
   const cachedModelDisplayName = storedPreference.modelOptionId === selectedModelOptionId
     ? storedPreference.displayName
     : "";
   const modelDisplayName = selectedModel?.displayName
-    ?? (cachedModelDisplayName || (modelLoading ? "读取模型…" : "选择模型"));
+    ?? (cachedModelDisplayName || (modelLoading ? "Loading model…" : "Choose model"));
 
   const canRun = ready && !running && task.trim() !== "" && Boolean(selectedModel?.available);
   const disabledReason = !task.trim()
-    ? "请输入任务"
+    ? "Enter a task"
     : !selectedModel?.available
-      ? "请选择可用模型"
+      ? "Choose an available model"
       : null;
 
   /**
@@ -214,12 +214,12 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
     <footer className="composer">
       <div className="composer-shell">
         {attachments.length > 0 && (
-          <div className="composer-attachments" aria-label="附件">
+          <div className="composer-attachments" aria-label="Attachments">
             {attachments.map((attachment) => (
               <div className="composer-attachment" key={attachment.attachmentId}>
                 <span className="attachment-icon"><Icon name={attachment.mediaType.startsWith("image/") ? "image" : "book-open"} width="15" height="15" /></span>
                 <span className="attachment-info"><strong>{attachment.name}</strong><small>{formatBytes(attachment.byteSize)}</small></span>
-          <button type="button" onClick={() => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId))} disabled={running || !ready} aria-label={`移除附件 ${attachment.name}`} title="移除附件"><Icon name="close" width="14" height="14" /></button>
+          <button type="button" onClick={() => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId))} disabled={running || !ready} aria-label={`Remove attachment ${attachment.name}`} title="Remove attachment"><Icon name="close" width="14" height="14" /></button>
               </div>
             ))}
           </div>
@@ -232,22 +232,22 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
           disabled={running || !ready}
           onChange={(event) => updateTask(event.currentTarget)}
           onKeyDown={onTaskKeyDown}
-          aria-label="任务"
+          aria-label="Task"
         />
 
         <div className="composer-toolbar">
           <div className="composer-left">
-            <button type="button" className="composer-icon-button" onClick={() => void pickAttachments()} disabled={running || !ready} aria-label="上传文件" title="上传文件"><Icon name="plus" width="18" height="18" /></button>
+            <button type="button" className="composer-icon-button" onClick={() => void pickAttachments()} disabled={running || !ready} aria-label="Upload files" title="Upload files"><Icon name="plus" width="18" height="18" /></button>
           </div>
 
           <div className="composer-right">
             <div className="model-picker" ref={modelRootRef}>
-              <button ref={modelTriggerRef} type="button" className={`model-picker-trigger ${animateModelWidth ? "is-width-animated" : ""}`} style={modelTriggerWidth === null ? undefined : { width: `${modelTriggerWidth}px` }} onClick={() => setModelOpen((value) => !value)} disabled={running || !ready || modelLoading} aria-haspopup="listbox" aria-expanded={modelOpen} title={ready ? "选择模型" : "正在加载历史"}>
+              <button ref={modelTriggerRef} type="button" className={`model-picker-trigger ${animateModelWidth ? "is-width-animated" : ""}`} style={modelTriggerWidth === null ? undefined : { width: `${modelTriggerWidth}px` }} onClick={() => setModelOpen((value) => !value)} disabled={running || !ready || modelLoading} aria-haspopup="listbox" aria-expanded={modelOpen} title={ready ? "Choose model" : "Loading history"}>
                 <span ref={modelLabelRef}>{modelDisplayName}</span><Icon name="chevron-right" width="15" height="15" />
               </button>
               {modelOpen && (
-                <div className="model-popover" role="listbox" aria-label="选择模型" onKeyDown={navigateModels}>
-                  {selectableModels.length === 0 && <div className="model-empty"><span>尚未添加可用模型</span></div>}
+                <div className="model-popover" role="listbox" aria-label="Choose model" onKeyDown={navigateModels}>
+                  {selectableModels.length === 0 && <div className="model-empty"><span>No available models</span></div>}
                   {selectableModels.map((model) => (
                     <button key={model.modelOptionId} type="button" role="option" aria-selected={model.modelOptionId === selectedModelOptionId} onClick={() => {
                       if (model.modelOptionId !== selectedModelOptionId) modelSelectionChangedRef.current = true;
@@ -262,7 +262,7 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
               )}
             </div>
 
-            <button type="button" className={`send-stop-button ${running ? "is-stop" : "is-send"}`} onClick={running ? onStop : submit} disabled={running ? stopping : !canRun} aria-label={running ? (stopping ? "正在停止" : "停止运行") : "发送"} title={running ? (stopping ? "正在停止" : "停止运行") : (ready ? (disabledReason ?? "发送") : "正在加载历史")} aria-busy={stopping || undefined}>
+            <button type="button" className={`send-stop-button ${running ? "is-stop" : "is-send"}`} onClick={running ? onStop : submit} disabled={running ? stopping : !canRun} aria-label={running ? (stopping ? "Stopping" : "Stop run") : "Send"} title={running ? (stopping ? "Stopping" : "Stop run") : (ready ? (disabledReason ?? "Send") : "Loading history")} aria-busy={stopping || undefined}>
               <span className="send-stop-icon" key={running ? "stop" : "send"}><Icon name={running ? "stop" : "arrow-up"} width={18} height={18} /></span>
             </button>
           </div>

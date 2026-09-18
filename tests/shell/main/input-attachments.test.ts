@@ -23,7 +23,7 @@ test("input attachments expose opaque ids and resolve only Main-registered files
     assert.match(task, /summarize/);
     assert.match(task, /brief\.md/);
     assert.match(task, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    await assert.rejects(() => registry.resolve(["unknown-id"]), /附件不存在或已经失效/);
+    await assert.rejects(() => registry.resolve(["unknown-id"]), /does not exist or is no longer valid/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

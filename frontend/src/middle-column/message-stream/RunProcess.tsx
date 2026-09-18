@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon, type IconName } from "../../components/Icon";
 import type { RunState, TurnState, ToolState } from "../../store/agentReducer";
+import { selectAnswerTurn } from "../../store/messageBlocks";
 import { MarkdownText } from "./MarkdownText";
 import { MessageMeta } from "./MessageMeta";
 
@@ -30,12 +31,14 @@ export function formatElapsed(milliseconds: number): string {
 const COLLAPSE_THRESHOLD = 2000;
 const PREVIEW_LENGTH = 600;
 
+export { selectAnswerTurn } from "../../store/messageBlocks";
+
 function formatInput(input: unknown): string {
   if (typeof input === "string") return input;
   try {
     return JSON.stringify(input, null, 2) ?? "";
   } catch {
-    return "无法显示参数";
+    return "Unable to display parameters";
   }
 }
 
@@ -103,15 +106,15 @@ function summarizeTurn(tools: ToolState[]): string {
   for (const tool of tools) {
     const kind = classifyTool(tool.name);
     const phrase =
-      kind === "command" ? "ran commands"
-      : kind === "read" ? "read files"
-      : kind === "edit" ? "edited files"
-      : kind === "list" ? "listed files"
-      : kind === "search" ? "searched"
+      kind === "command" ? "Ran commands"
+      : kind === "read" ? "Read files"
+      : kind === "edit" ? "Edited files"
+      : kind === "list" ? "Listed files"
+      : kind === "search" ? "Searched"
       : null;
     if (phrase && !phrases.includes(phrase)) phrases.push(phrase);
   }
-  return phrases.length > 0 ? phrases.join(", ") : "loaded a tool";
+  return phrases.length > 0 ? phrases.join(", ") : "Loaded a tool";
 }
 
 /** 折叠箭头：复用系统图标（同模型选择器），chevron-right 收起指右，展开旋转 90° 指下。 */
@@ -128,8 +131,7 @@ function Chevron({ expanded }: { expanded: boolean }) {
 
 /**
  * 一次 run 的过程块：`Working for 27s`（运行中扫光）/ `Worked for 2m6s` 折叠行 + 展开内容。
- * 折叠内 = 思考块 + 过程文本 + 回合动作折叠；
- * 最终答案（最后一个未调用工具的回合文本，运行中亦随流实时渲染）在折叠外，直接进入阅读流。
+ * 折叠内 = 思考块 + 过程文本 + 回合动作折叠；最终答案由 MessageStream 作为独立消息块渲染。
  */
 export function RunProcess({
   run,
@@ -154,27 +156,15 @@ export function RunProcess({
       ? now - runTiming.startedAt
       : (runTiming.completedAt ?? now) - runTiming.startedAt
     : undefined;
-  // 最终答案的时间戳行沿用 run 完成的观察时刻；运行中不显示，完成瞬间补齐。
-  const completedAt = runTiming?.completedAt;
-
   const turns = run.turnOrder
     .map((turnId) => run.turns[turnId])
     .filter((turn): turn is TurnState => Boolean(turn));
 
-  const finalTurn = [...turns].reverse().find(
-    (turn) => turn.status === "completed" && turn.toolOrder.length === 0,
-  );
-  // 流式回答：运行中的最后回合若未动用工具，即为正在生成的最终回答——
-  // 不等待 completed，随 text_delta 增量实时渲染进阅读流。
-  const runningTurn = turns[turns.length - 1];
+  const answerTurn = selectAnswerTurn(run);
   const retrying = turns.some((turn) => turn.status === "retrying");
-  const answerTurn =
-    runningTurn?.status === "running" && runningTurn.toolOrder.length === 0
-      ? runningTurn
-      : finalTurn;
 
   return (
-    <section className="run-process" data-searchable>
+    <section className="run-process">
       <button type="button" className="run-fold" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <span className={`turn-state${working ? " working" : ""}`}>
           {retrying ? "Retrying response" : working ? "Working for" : "Worked for"}
@@ -205,15 +195,29 @@ export function RunProcess({
         </div>
       </div>
 
-      {answerTurn?.assistantContent && (
-        <div className="model-message">
-          <MarkdownText className="model-text final-answer" text={answerTurn.assistantContent} searchable />
-          {completedAt !== undefined && (
-            <MessageMeta time={completedAt} text={answerTurn.assistantContent} copyLabel="复制答案" />
-          )}
-        </div>
-      )}
     </section>
+  );
+}
+
+export function FinalAnswer({
+  run,
+  runTiming,
+  active = false,
+}: {
+  run: RunState;
+  runTiming?: RunTiming;
+  active?: boolean;
+}) {
+  const answerTurn = selectAnswerTurn(run);
+  if (!answerTurn?.assistantContent) return null;
+  const messageAt = answerTurn.assistantAt ?? runTiming?.completedAt;
+  return (
+    <div className={`model-message${active ? " search-active" : ""}`}>
+      <MarkdownText className="model-text final-answer" text={answerTurn.assistantContent} />
+      {messageAt !== undefined && (
+        <MessageMeta time={messageAt} text={answerTurn.assistantContent} copyLabel="Copy answer" />
+      )}
+    </div>
   );
 }
 
@@ -244,7 +248,7 @@ function ToolRow({ tool }: { tool: ToolState }) {
   const output = result?.output ?? result?.error ?? "";
   const shouldCollapse = output.length > COLLAPSE_THRESHOLD;
   const shownOutput = shouldCollapse && !showAll
-    ? `${output.slice(0, PREVIEW_LENGTH)}\n… 已折叠（共 ${output.length} 字符）`
+    ? `${output.slice(0, PREVIEW_LENGTH)}\n… Collapsed (${output.length} characters total)`
     : output;
   const isCommand = classifyTool(tool.name) === "command";
 
@@ -263,11 +267,11 @@ function ToolRow({ tool }: { tool: ToolState }) {
       <div className="tool-detail">
         <div className="tool-detail-clip">
           {!isCommand && <pre className="tool-input-pre">{formatInput(tool.input)}</pre>}
-          {result?.ok === false && <span className="tool-error">工具执行失败</span>}
+          {result?.ok === false && <span className="tool-error">Tool execution failed</span>}
           <section className="output-card">
             <div className="output-card-head">
               <span className="output-label">{isCommand ? "Shell" : tool.name}</span>
-              <button type="button" className="output-copy" title="复制输出" aria-label="复制输出" onClick={copyOutput}>
+              <button type="button" className="output-copy" title="Copy output" aria-label="Copy output" onClick={copyOutput}>
                 <Icon name="copy" width={15} height={15} />
               </button>
             </div>
@@ -278,7 +282,7 @@ function ToolRow({ tool }: { tool: ToolState }) {
           </section>
           {shouldCollapse && (
             <button className="ghost-btn" onClick={() => setShowAll((value) => !value)}>
-              {showAll ? "收起" : "展开完整输出"}
+              {showAll ? "Collapse" : "Expand full output"}
             </button>
           )}
         </div>

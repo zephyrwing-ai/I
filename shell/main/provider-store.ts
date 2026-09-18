@@ -95,7 +95,7 @@ export class ProviderStore {
         : -1;
       const existing = existingIndex >= 0 ? this.profiles[existingIndex] : undefined;
 
-      if (!existing && !normalized.apiKey) throw new Error("新增提供商必须填写 API Key。");
+      if (!existing && !normalized.apiKey) throw new Error("A new provider requires an API Key.");
       const encryptedApiKey = this.resolveEncryptedSecret(normalized.apiKey, existing);
       const previousModels = new Map(existing?.models.map((model) => [model.modelId, model]) ?? []);
       const profile: StoredProfile = {
@@ -106,14 +106,13 @@ export class ProviderStore {
         encryptedApiKey,
         models: normalized.models.map((model) => {
           const previous = previousModels.get(model.id);
-          const available = model.available ?? previous?.available ?? true;
           return {
             modelOptionId: previous?.modelOptionId ?? randomUUID(),
             modelId: model.id,
             displayName: model.displayName,
-            available,
+            available: true,
             imported: true,
-            state: available ? "saved" : "unavailable",
+            state: "saved",
           };
         }),
       };
@@ -131,7 +130,7 @@ export class ProviderStore {
     await this.serialize(async () => {
       await this.ensureLoaded();
       const index = this.profiles.findIndex((profile) => profile.providerProfileId === providerProfileId);
-      if (index < 0) throw new Error("提供商不存在或已经删除。");
+      if (index < 0) throw new Error("The provider does not exist or has already been deleted.");
       const nextProfiles = this.profiles.filter((_, profileIndex) => profileIndex !== index);
       await this.persist(nextProfiles);
       this.profiles = nextProfiles;
@@ -143,7 +142,6 @@ export class ProviderStore {
     for (const profile of this.profiles) {
       const model = profile.models.find((candidate) => (
         candidate.modelOptionId === modelOptionId
-        && candidate.imported
         && candidate.available
       ));
       if (!model) continue;
@@ -156,7 +154,7 @@ export class ProviderStore {
         apiKey: this.decryptSecret(profile),
       };
     }
-    throw new Error("所选模型不存在或不可用，请重新选择。");
+    throw new Error("The selected model does not exist or is unavailable. Choose another model.");
   }
 
   async discoveryConnection(input: ProviderModelDiscoveryInput): Promise<ProviderDiscoveryConnection> {
@@ -165,16 +163,16 @@ export class ProviderStore {
     const existing = input.providerProfileId
       ? this.profiles.find((profile) => profile.providerProfileId === input.providerProfileId)
       : undefined;
-    if (input.providerProfileId && !existing) throw new Error("提供商不存在或已经删除。");
+    if (input.providerProfileId && !existing) throw new Error("The provider does not exist or has already been deleted.");
     const apiKey = input.apiKey?.trim() || (existing ? this.decryptSecret(existing) : "");
-    if (!apiKey) throw new Error("请填写 API Key。");
+    if (!apiKey) throw new Error("Enter an API Key.");
     return { provider: inferProviderFromBaseURL(baseURL), baseURL, apiKey };
   }
 
   async refreshConnection(providerProfileId: string): Promise<ProviderDiscoveryConnection> {
     await this.ensureLoaded();
     const profile = this.profiles.find((candidate) => candidate.providerProfileId === providerProfileId);
-    if (!profile) throw new Error("提供商不存在或已经删除。");
+    if (!profile) throw new Error("The provider does not exist or has already been deleted.");
     return { provider: profile.provider, baseURL: profile.baseURL, apiKey: this.decryptSecret(profile) };
   }
 
@@ -182,33 +180,20 @@ export class ProviderStore {
     return this.serialize(async () => {
       await this.ensureLoaded();
       const profileIndex = this.profiles.findIndex((profile) => profile.providerProfileId === providerProfileId);
-      if (profileIndex < 0) throw new Error("提供商不存在或已经删除。");
+      if (profileIndex < 0) throw new Error("The provider does not exist or has already been deleted.");
       const profile = this.profiles[profileIndex];
-      const remote = new Map(discovered.map((model) => [model.id, model]));
       const previous = new Map(profile.models.map((model) => [model.modelId, model]));
       const models: StoredModel[] = discovered.map((model) => {
         const saved = previous.get(model.id);
-        if (!saved) {
-          return {
-            modelOptionId: randomUUID(),
-            modelId: model.id,
-            displayName: model.displayName,
-            available: true,
-            imported: false,
-            state: "new",
-          };
-        }
         return {
-          ...saved,
+          modelOptionId: saved?.modelOptionId ?? randomUUID(),
+          modelId: model.id,
           displayName: model.displayName,
           available: true,
-          state: saved.imported ? "saved" : "new",
+          imported: true,
+          state: "saved",
         };
       });
-      for (const model of profile.models) {
-        if (remote.has(model.modelId) || !model.imported) continue;
-        models.push({ ...model, available: false, state: "unavailable" });
-      }
       const refreshed = { ...profile, models };
       const nextProfiles = [...this.profiles];
       nextProfiles[profileIndex] = refreshed;
@@ -220,21 +205,21 @@ export class ProviderStore {
 
   private resolveEncryptedSecret(apiKey: string | undefined, existing: StoredProfile | undefined): string {
     if (!apiKey) {
-      if (!existing?.encryptedApiKey) throw new Error("提供商缺少可用凭据。");
+      if (!existing?.encryptedApiKey) throw new Error("The provider has no usable credentials.");
       return existing.encryptedApiKey;
     }
-    if (!this.codec.available()) throw new Error("系统凭据加密当前不可用，未保存 API Key。");
+    if (!this.codec.available()) throw new Error("System credential encryption is currently unavailable. The API Key was not saved.");
     return this.codec.encrypt(apiKey);
   }
 
   private decryptSecret(profile: StoredProfile): string {
-    if (!this.codec.available()) throw new Error("系统凭据解密当前不可用。");
+    if (!this.codec.available()) throw new Error("System credential decryption is currently unavailable.");
     try {
       const apiKey = this.codec.decrypt(profile.encryptedApiKey);
       if (!apiKey) throw new Error("empty secret");
       return apiKey;
     } catch (error) {
-      throw new Error(`提供商 ${profile.name} 的凭据无法解密，请重新配置。`, { cause: error });
+      throw new Error(`The credentials for provider ${profile.name} could not be decrypted. Configure it again.`, { cause: error });
     }
   }
 
@@ -261,14 +246,14 @@ export class ProviderStore {
     try {
       const parsed = JSON.parse(await readFile(this.filePath, "utf8")) as { version?: unknown; profiles?: unknown };
       if (parsed.version === STORE_VERSION && Array.isArray(parsed.profiles)) {
-        this.profiles = parsed.profiles.filter(isStoredProfile);
+        this.profiles = parsed.profiles.filter(isStoredProfile).map(normalizeStoredProfile);
       } else if (parsed.version === 1 && Array.isArray(parsed.profiles)) {
-        this.profiles = parsed.profiles.filter(isLegacyStoredProfile).map(migrateLegacyProfile);
+        this.profiles = parsed.profiles.filter(isLegacyStoredProfile).map(migrateLegacyProfile).map(normalizeStoredProfile);
       }
       completed = true;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT") throw new Error("无法读取提供商配置。", { cause: error });
+      if (code !== "ENOENT") throw new Error("Unable to read the provider configuration.", { cause: error });
       completed = true;
     } finally {
       this.loaded = completed;
@@ -310,19 +295,18 @@ function normalizeInput(input: ProviderProfileInput): ProviderProfileInput & {
   name: string;
   baseURL: string;
   apiKey?: string;
-  models: Array<DiscoveredModel & { available?: boolean }>;
+  models: DiscoveredModel[];
 } {
   const name = input.name.trim();
-  if (!name) throw new Error("请输入提供商名称。");
+  if (!name) throw new Error("Enter a provider name.");
   const baseURL = normalizeBaseURL(input.baseURL);
   const models = input.models.map((model) => ({
     id: model.id.trim(),
     displayName: model.displayName.trim() || model.id.trim(),
-    available: model.available,
   })).filter((model) => model.id);
-  if (models.length === 0) throw new Error("请至少选择一个模型。");
+  if (models.length === 0) throw new Error("Select at least one model.");
   if (new Set(models.map((model) => model.id)).size !== models.length) {
-    throw new Error("同一提供商内不能重复保存模型。");
+    throw new Error("A provider cannot save duplicate models.");
   }
   return {
     providerProfileId: input.providerProfileId,
@@ -335,15 +319,15 @@ function normalizeInput(input: ProviderProfileInput): ProviderProfileInput & {
 
 function normalizeBaseURL(value: string): string {
   const input = value.trim();
-  if (!input) throw new Error("请填写 API Base URL。");
+  if (!input) throw new Error("Enter an API Base URL.");
   let url: URL;
   try {
     url = new URL(input);
   } catch {
-    throw new Error("API Base URL 不是有效 URL。");
+    throw new Error("The API Base URL is not a valid URL.");
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("API Base URL 只支持 HTTP 或 HTTPS。");
+    throw new Error("The API Base URL must use HTTP or HTTPS.");
   }
   url.hash = "";
   return url.toString().replace(/\/$/, "");
@@ -370,6 +354,13 @@ function isStoredModel(value: unknown): value is StoredModel {
     && typeof model.available === "boolean"
     && typeof model.imported === "boolean"
     && (model.state === "saved" || model.state === "new" || model.state === "unavailable");
+}
+
+function normalizeStoredProfile(profile: StoredProfile): StoredProfile {
+  const models: StoredModel[] = profile.models
+    .filter((model) => model.available && model.state !== "unavailable")
+    .map((model) => ({ ...model, imported: true, state: "saved" }));
+  return { ...profile, models };
 }
 
 function isLegacyStoredProfile(value: unknown): value is LegacyStoredProfile {

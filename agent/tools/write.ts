@@ -23,10 +23,10 @@ export function createWriteTool(): RegisteredTool {
     definition: WRITE_TOOL,
     async execute(input, context): Promise<ToolResult> {
       if (typeof input.path !== "string" || input.path.trim() === "") {
-        return { ok: false, output: "工具参数 path 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+        return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
       }
       if (typeof input.content !== "string") {
-        return { ok: false, output: "工具参数 content 必须是非空字符串。", returncode: -1, truncated: false, error: "invalid_arguments" };
+        return { ok: false, output: "Tool parameter content must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
       }
 
       const target = isAbsolute(input.path) ? input.path : resolve(context.cwd, input.path);
@@ -35,7 +35,7 @@ export function createWriteTool(): RegisteredTool {
       try {
         const stats = await stat(target);
         if (stats.isDirectory()) {
-          return { ok: false, output: `目标是目录，Write 写入文件：${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
+          return { ok: false, output: `Target is a directory; Write expects a file: ${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
         }
         exists = true;
       } catch {
@@ -46,7 +46,7 @@ export function createWriteTool(): RegisteredTool {
         await mkdir(dirname(target), { recursive: true });
         await writeFile(target, input.content, "utf8");
       } catch (error) {
-        return { ok: false, output: `写入失败：${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
+          return { ok: false, output: `Write failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
       }
 
       const bytes = Buffer.byteLength(input.content, "utf8");
@@ -55,7 +55,7 @@ export function createWriteTool(): RegisteredTool {
       // 与 Bash 侧 snapshot 产物同构：相同文件在同一回合内按调用顺序执行，不会并发覆盖。
       return {
         ok: true,
-        output: `已写入 ${rel}（${bytes} 字节，${operation === "created" ? "新建" : "覆盖"}）`,
+        output: `Wrote ${rel} (${bytes} bytes, ${operation === "created" ? "created" : "overwritten"})`,
         returncode: 0,
         truncated: false,
         artifacts: [{

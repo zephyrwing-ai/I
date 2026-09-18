@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RunState, TurnState } from "../../../../../frontend/src/store/agentReducer.js";
 import {
+  FinalAnswer,
   RunProcess,
   formatElapsed,
 } from "../../../../../frontend/src/middle-column/message-stream/RunProcess.js";
@@ -40,7 +41,7 @@ test("elapsed time follows the workbench display boundaries", () => {
   assert.equal(formatElapsed(3_723_000), "1h2m3s");
 });
 
-test("a running tool-free last turn streams as the visible answer without copy metadata", () => {
+test("a running tool-free last turn keeps process and answer rendering as separate blocks", () => {
   const state = run([
     turn({
       assistantContent: "正在生成，答案",
@@ -51,15 +52,20 @@ test("a running tool-free last turn streams as the visible answer without copy m
     run: state,
     runTiming: { startedAt: Date.now() },
   }));
+  const answerHtml = renderToStaticMarkup(createElement(FinalAnswer, {
+    run: state,
+    runTiming: { startedAt: Date.now() },
+  }));
 
   assert.ok(html.includes("Working for"), html);
-  assert.ok(html.includes('class="model-text final-answer markdown"'), html);
-  assert.ok(html.includes("正在生成, 答案"), html);
   assert.ok(html.includes("内部过程"), html);
-  assert.doesNotMatch(html, /aria-label="复制答案"/);
+  assert.doesNotMatch(html, /final-answer|正在生成, 答案|Copy answer/);
+  assert.ok(answerHtml.includes('class="model-text final-answer markdown"'), answerHtml);
+  assert.ok(answerHtml.includes("正在生成, 答案"), answerHtml);
+  assert.doesNotMatch(answerHtml, /aria-label="Copy answer"/);
 });
 
-test("the latest completed tool-free turn is the final answer and shows copy metadata", () => {
+test("the latest completed tool-free turn is rendered by the separate final-answer block", () => {
   const state = run([
     turn({
       turnId: "tool-turn",
@@ -88,11 +94,30 @@ test("the latest completed tool-free turn is the final answer and shows copy met
     run: state,
     runTiming: { startedAt: 1_000, completedAt: 3_000 },
   }));
+  const answerHtml = renderToStaticMarkup(createElement(FinalAnswer, {
+    run: state,
+    runTiming: { startedAt: 1_000, completedAt: 3_000 },
+  }));
 
   assert.ok(html.includes("Worked for 2.0s"), html);
-  assert.ok(html.includes("最终答案, 完成."), html);
-  assert.doesNotMatch(html, /<strong>/);
-  assert.match(html, /aria-label="复制答案"/);
+  assert.doesNotMatch(html, /最终答案|final-answer|Copy answer/);
+  assert.ok(answerHtml.includes("最终答案, 完成."), answerHtml);
+  assert.doesNotMatch(answerHtml, /<strong>/);
+  assert.match(answerHtml, /aria-label="Copy answer"/);
+});
+
+test("a persisted assistant message shows its timestamp in the final-answer block", () => {
+  const state = run([
+    turn({
+      status: "completed",
+      assistantContent: "历史答案",
+      assistantAt: new Date(2026, 8, 17, 11, 45).getTime(),
+    }),
+  ]);
+  const html = renderToStaticMarkup(createElement(FinalAnswer, { run: state }));
+
+  assert.match(html, /Thu Sep 17 11:45 AM/);
+  assert.match(html, /aria-label="Copy answer"/);
 });
 
 test("assistant text moves into process details once its turn starts a tool", () => {
@@ -136,7 +161,7 @@ test("long tool output renders a bounded preview and an expansion control", () =
   ]);
   const html = renderToStaticMarkup(createElement(RunProcess, { run: state }));
 
-  assert.ok(html.includes(`${"a".repeat(600)}\n… 已折叠（共 2100 字符）`), html);
-  assert.ok(html.includes("展开完整输出"), html);
+  assert.ok(html.includes(`${"a".repeat(600)}\n… Collapsed (2100 characters total)`), html);
+  assert.ok(html.includes("Expand full output"), html);
   assert.ok(!html.includes("b".repeat(100)), "collapsed preview should not render the hidden tail");
 });
