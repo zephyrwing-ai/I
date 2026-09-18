@@ -6,10 +6,14 @@
 export { RepositoryError } from "./types.js";
 export type {
   AppendEntryInput,
+  CreateToolInvocationInput,
   CreateSessionInput,
   EntryPatch,
   Session,
   SessionEntry,
   SessionPatch,
   SessionRepository,
+  RegisterToolInvocationInput,
+  ToolInvocationRecord,
+  ToolOutcomeInput,
 } from "./types.js";

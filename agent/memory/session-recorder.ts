@@ -10,7 +10,10 @@ import {
   type SessionEntry,
   type SessionRecorder,
   type SessionRepository,
+  type RegisterToolInvocationInput,
   type ToolCommitContext,
+  type ToolInvocationRecord,
+  type ToolOutcomeInput,
   type TurnCommitContext,
 } from "./types.js";
 
@@ -73,6 +76,7 @@ export class DefaultSessionRecorder implements SessionRecorder {
   private readonly activeDrafts = new Map<string, DraftState>();
   private readonly userEntries = new Map<string, { entryId: string; message: ModelMessage }>();
   private readonly toolEntries = new Map<string, { entryId: string; message: ModelMessage }>();
+  private readonly assistantEntries = new Map<string, string>();
   private writeChain: Promise<void> = Promise.resolve();
   private backgroundError: unknown;
   private closed = false;
@@ -83,12 +87,17 @@ export class DefaultSessionRecorder implements SessionRecorder {
     for (const entry of [...entries].sort((left, right) => left.sessionSeq - right.sessionSeq)) {
       if (entry.type === "user_message") this.userEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload) });
       if (entry.type === "tool_result" && entry.toolCallId) this.toolEntries.set(entry.toolCallId, { entryId: entry.id, message: cloneMessage(entry.payload) });
+      if (entry.type === "assistant_message" && entry.turnId) this.assistantEntries.set(entry.turnId, entry.id);
       if (entry.status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
     }
   }
 
   snapshot(): ModelMessage[] {
     return freezeSnapshot(this.completedMessages);
+  }
+
+  getAssistantEntryId(turnId: string): Promise<string | null> {
+    return Promise.resolve(this.assistantEntries.get(turnId) ?? null);
   }
 
   commitUser(message: ModelMessage, context: MessageCommitContext): Promise<void> {
@@ -209,7 +218,7 @@ export class DefaultSessionRecorder implements SessionRecorder {
       if (!isSameMessage(previous.message, message)) return Promise.reject(new RepositoryError(`Tool result already exists with different content: ${context.toolCallId}`, "conflict"));
       return this.waitForWrites();
     }
-    const entryId = randomUUID();
+    const entryId = context.entryId ?? randomUUID();
     const copy = cloneMessage(message);
     this.toolEntries.set(context.toolCallId, { entryId, message: copy });
     return this.enqueueAndCheck(async () => {
@@ -224,6 +233,38 @@ export class DefaultSessionRecorder implements SessionRecorder {
       });
       this.completedMessages.push(cloneMessage(entry.payload));
     });
+  }
+
+  registerToolInvocation(input: RegisterToolInvocationInput): Promise<ToolInvocationRecord> {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.registerToolInvocation({ ...input, sessionId: this.sessionId }));
+  }
+
+  beginToolAttempt(invocationId: string): Promise<ToolInvocationRecord> {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.beginToolAttempt(invocationId));
+  }
+
+  saveToolOutcome(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord> {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.saveToolOutcome(invocationId, outcome));
+  }
+
+  completeToolInvocation(invocationId: string, resultEntryId: string): Promise<ToolInvocationRecord> {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.completeToolInvocation(invocationId, resultEntryId));
+  }
+
+  getToolInvocation(sessionId: string, toolCallId: string): Promise<ToolInvocationRecord | null> {
+    this.ensureOpen();
+    if (sessionId !== this.sessionId) return Promise.reject(new RepositoryError(`Session recorder is bound to ${this.sessionId}.`, "invalid"));
+    return this.waitForWrites().then(() => this.repository.getToolInvocation(sessionId, toolCallId));
+  }
+
+  listOpenToolInvocations(sessionId: string): Promise<ToolInvocationRecord[]> {
+    this.ensureOpen();
+    if (sessionId !== this.sessionId) return Promise.reject(new RepositoryError(`Session recorder is bound to ${this.sessionId}.`, "invalid"));
+    return this.waitForWrites().then(() => this.repository.listOpenToolInvocations(sessionId));
   }
 
   async finishRun(result: { runId: string; status: RecordedRunStatus }): Promise<void> {
@@ -283,6 +324,7 @@ export class DefaultSessionRecorder implements SessionRecorder {
       });
     }
     draft.revision = entry.revision;
+    this.assistantEntries.set(draft.turnId, entry.id);
     draft.pendingBytes = 0;
     draft.dirty = false;
     if (status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
@@ -294,6 +336,17 @@ export class DefaultSessionRecorder implements SessionRecorder {
     this.writeChain = next.catch((error) => {
       this.backgroundError = error;
     });
+    return next;
+  }
+
+  private enqueueResult<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.writeChain.then(operation, operation);
+    this.writeChain = next.then(
+      () => undefined,
+      (error) => {
+        this.backgroundError = error;
+      },
+    );
     return next;
   }
 

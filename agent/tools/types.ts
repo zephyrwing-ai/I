@@ -5,6 +5,34 @@ import type { ToolCall, ToolDef } from "../model/types.js";
 export interface ToolExecutionContext {
   cwd: string;
   signal?: AbortSignal;
+  invocationId?: string;
+  toolCallId?: string;
+  attempt?: number;
+  checkpoint?: ToolCheckpoint;
+}
+
+export type ToolRecoveryMode = "safe" | "reconcile" | "never";
+
+export interface ToolCheckpoint {
+  version: number;
+  kind: string;
+  data: Record<string, unknown>;
+}
+
+export type ToolRecoveryResult =
+  | { kind: "succeeded"; result: ToolResult }
+  | { kind: "retry"; reason: string }
+  | { kind: "interrupted"; reason: string; result?: ToolResult };
+
+export interface ToolRecoverySpec {
+  version: string;
+  mode: ToolRecoveryMode;
+  prepare?(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolCheckpoint | undefined>;
+  reconcile?(
+    input: Record<string, unknown>,
+    checkpoint: ToolCheckpoint | undefined,
+    context: ToolExecutionContext,
+  ): Promise<ToolRecoveryResult>;
 }
 
 /** 工具结果随模型工具消息回填；图片类结果经 media 走多模态通道。 */
@@ -23,6 +51,7 @@ export interface ToolResult extends ExecResult {
 /** 注册表项：模型可见的定义 + 宿主可执行的实现。 */
 export interface RegisteredTool {
   definition: ToolDef;
+  recovery: ToolRecoverySpec;
   execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolResult>;
 }
 

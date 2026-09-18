@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { classifyTurn, run } from "../../agent/loop.js";
 import type { SessionRecorder } from "../../agent/memory/types.js";
+import { createTransientSessionRecorder } from "../../agent/memory/index.js";
+import { SqliteSessionRepository, createSessionRecorder } from "../../agent/memory/index.js";
 import type { ModelConfig } from "../../agent/model/index.js";
 import type { ModelMessage, ModelStreamEvent } from "../../agent/model/types.js";
 
@@ -144,6 +146,90 @@ test("persistence barriers complete before provider, tools, and next provider re
     "commit-assistant",
     "finish-completed",
   ]);
+});
+
+test("runtime persists a tool invocation and settles it before the next model request", async () => {
+  const recorder = await createTransientSessionRecorder();
+  let executionCount = 0;
+  let requestCount = 0;
+  const tool = {
+    definition: { name: "test", description: "test", parameters: { type: "object" as const, properties: {}, required: [] } },
+    recovery: { version: "1", mode: "safe" as const },
+    execute: async () => {
+      executionCount += 1;
+      return { ok: true, output: "ok", returncode: 0, truncated: false };
+    },
+  };
+  const result = await run("执行工具", { provider: "openai", model: "fake" }, {
+    runId: "run-ledger",
+    systemPrompt: "test",
+    cwd: process.cwd(),
+    tools: new Map([["test", tool]]),
+    recorder,
+    responseImpl: async function* (): AsyncGenerator<ModelStreamEvent> {
+      requestCount += 1;
+      if (requestCount === 1) {
+        yield { type: "completed", content: "", toolCalls: [{ id: "ledger-call", name: "test", input: {}, inputComplete: true }], stopReason: "tool_use" };
+        return;
+      }
+      yield { type: "completed", content: "done", toolCalls: [], stopReason: "stop" };
+    },
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(executionCount, 1);
+  assert.deepEqual(await recorder.listOpenToolInvocations(recorder.sessionId), []);
+  await recorder.close();
+});
+
+test("runtime recovers a safe effect_pending invocation before the next model request", async () => {
+  const repository = new SqliteSessionRepository(":memory:");
+  const session = await repository.createSession({ scopeKey: "recovery" });
+  const first = await createSessionRecorder(repository, session.id);
+  const call = { id: "recover-call", name: "test", input: {}, inputComplete: true } as const;
+  await first.commitAssistant({ role: "assistant", content: "", toolCalls: [call] }, { runId: "old-run", turnId: "old-turn", turnOrdinal: 1 });
+  const invocation = await first.registerToolInvocation({
+    runId: "old-run",
+    turnId: "old-turn",
+    cwd: process.cwd(),
+    assistantEntryId: "old-assistant",
+    toolCallId: call.id,
+    ordinal: 0,
+    toolName: call.name,
+    toolVersion: "1",
+    inputJson: "{}",
+    inputHash: "recovery-hash",
+    recoveryModeSnapshot: "safe",
+  });
+  await first.beginToolAttempt(invocation.id);
+
+  const recorder = await createSessionRecorder(repository, session.id);
+  let executionCount = 0;
+  const tool = {
+    definition: { name: "test", description: "test", parameters: { type: "object" as const, properties: {}, required: [] } },
+    recovery: { version: "1", mode: "safe" as const },
+    execute: async () => {
+      executionCount += 1;
+      return { ok: true, output: "recovered", returncode: 0, truncated: false };
+    },
+  };
+  const result = await run("继续任务", { provider: "openai", model: "fake" }, {
+    runId: "new-run",
+    systemPrompt: "test",
+    cwd: process.cwd(),
+    tools: new Map([["test", tool]]),
+    recorder,
+    responseImpl: async function* (): AsyncGenerator<ModelStreamEvent> {
+      yield { type: "completed", content: "继续完成", toolCalls: [], stopReason: "stop" };
+    },
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(executionCount, 1);
+  assert.deepEqual(await recorder.listOpenToolInvocations(session.id), []);
+  await first.close();
+  await recorder.close();
+  repository.close();
 });
 
 test("a model stream without completed fails with a model protocol error", async () => {

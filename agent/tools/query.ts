@@ -59,9 +59,9 @@ const MAX_LINE_DISPLAY = 300;
 
 export function createQueryTools(): RegisteredTool[] {
   return [
-    { definition: LIST_DIR_TOOL, execute: listDir },
-    { definition: FIND_FILES_TOOL, execute: findFiles },
-    { definition: SEARCH_CONTENT_TOOL, execute: searchContent },
+    { definition: LIST_DIR_TOOL, recovery: { version: "1", mode: "safe" }, execute: listDir },
+    { definition: FIND_FILES_TOOL, recovery: { version: "1", mode: "safe" }, execute: findFiles },
+    { definition: SEARCH_CONTENT_TOOL, recovery: { version: "1", mode: "safe" }, execute: searchContent },
   ];
 }
 

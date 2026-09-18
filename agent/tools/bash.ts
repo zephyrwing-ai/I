@@ -18,6 +18,7 @@ export const BASH_TOOL: ToolDef = {
 export function createBashTool(ops: BashOperations): RegisteredTool {
   return {
     definition: BASH_TOOL,
+    recovery: { version: "1", mode: "never" },
     async execute(input, context): Promise<ToolResult> {
       if (typeof input.command !== "string" || input.command.trim() === "") {
         return { ok: false, output: "Tool parameter command must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };

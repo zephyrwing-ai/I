@@ -1,6 +1,6 @@
 /* ===== 对话框列（原来的 composer-* 规则整体迁入，不再依赖外层 24px 内边距） ===== */
 .composer { padding: 12px 0 18px; background: transparent; }
-.composer-shell { position: relative; width: 100%; min-height: 116px; margin: 0; padding: 14px 14px 10px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: 0 16px 42px var(--shadow-soft); display: flex; flex-direction: column; gap: 8px; transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
+.composer-shell { position: relative; width: 100%; min-height: 116px; margin: 0; padding: 14px 14px 10px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: 0 16px 42px var(--shadow-soft); display: flex; flex-direction: column; gap: 8px; transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
 .composer-shell:hover { background: var(--surface-hover); }
 .composer-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
 .composer-attachment { max-width: 230px; height: 42px; padding: 5px 6px 5px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--input); display: grid; grid-template-columns: 28px minmax(0,1fr) 26px; align-items: center; gap: 7px; }

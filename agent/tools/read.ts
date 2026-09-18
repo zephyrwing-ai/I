@@ -26,6 +26,7 @@ const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 export function createReadTool(): RegisteredTool {
   return {
     definition: READ_TOOL,
+    recovery: { version: "1", mode: "safe" },
     async execute(input, context): Promise<ToolResult> {
       if (typeof input.path !== "string" || input.path.trim() === "") {
         return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };

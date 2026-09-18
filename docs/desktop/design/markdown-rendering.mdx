@@ -58,7 +58,7 @@
 - `frontend/src/utils/punctuation-md.ts` — remark 插件 `normalizeMdast`：遍历全部 text 节点做映射+补空格，边界用下一可见字符（`firstVisibleChar`）。
 - `frontend/src/utils/punctuation.ts` — 字符串级纯函数，用于用户消息气泡与复制行任务文本（引用回显场景保持纯文本段落观感）。
 - `frontend/src/middle-column/message-stream/MarkdownText.tsx` — 唯一结构出口：`Memo` 包裹；外链带 `target="_blank"` + `rel="noopener noreferrer"`，由 Main 的 `setWindowOpenHandler` 转系统浏览器；表格包 `.md-table-wrap` 横向滚动；`strong`/`em`/`del` 按纯文本渲染（只保留结构类格式化）。
-- `frontend/src/middle-column/message-stream/message-stream.css` — `.markdown` 结构样式：块间距节奏（基础相邻块8px，与思考块一致；标题、列表、表格、代码块、引用、分隔线等结构块上下边距各12px）、代码块表面填充+边框+横向滚动、表格细边框、任务列表只读复选框、链接下划线、标题与列表排版。
+- `frontend/src/middle-column/message-stream/message-stream.css` — `.markdown` 结构样式：块间距节奏（基础相邻块8px，与思考块一致；标题、列表、表格、代码块、引用、分隔线等结构块上下边距各12px）、代码块16px圆角、表面填充+边框+横向滚动、表格细边框、任务列表只读复选框、链接下划线、标题与列表排版。
 
 ## 数据链路
 

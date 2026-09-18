@@ -35,7 +35,17 @@ export interface VirtualMessageRange {
 const DEFAULT_VIEWPORT_HEIGHT = 800;
 const DEFAULT_OVERSCAN = 600;
 const LOAD_OLDER_THRESHOLD = 240;
-const STICK_TO_BOTTOM_THRESHOLD = 24;
+export const STICK_TO_BOTTOM_THRESHOLD = 24;
+
+export function shouldStickToBottom(
+  scrollTop: number,
+  clientHeight: number,
+  scrollHeight: number,
+  threshold = STICK_TO_BOTTOM_THRESHOLD,
+): boolean {
+  const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+  return maxScrollTop - scrollTop <= threshold;
+}
 
 const useBrowserLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -169,8 +179,7 @@ export function useVirtualMessageWindow({
     const element = findScrollElement(rootRef.current, scrollRef);
     if (!element) return;
     const sync = (): void => {
-      const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
-      stickToBottom.current = maxScrollTop - element.scrollTop <= STICK_TO_BOTTOM_THRESHOLD;
+      stickToBottom.current = shouldStickToBottom(element.scrollTop, element.clientHeight, element.scrollHeight);
       setViewport((current) => {
         const next = { scrollTop: element.scrollTop, height: element.clientHeight, ready: true };
         return current.scrollTop === next.scrollTop && current.height === next.height && current.ready

@@ -1,7 +1,7 @@
 import { app, safeStorage, BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { resolve, basename, relative, sep, extname, dirname, join, isAbsolute } from "node:path";
+import { resolve, basename, relative, sep, extname, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { realpath, stat, readFile, open, mkdir, writeFile, rename, opendir, lstat, readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -711,6 +711,75 @@ async function* response(config, messages, system, tools, signal) {
     }
   }
 }
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+function toolInputHash(toolName, toolVersion, input) {
+  return createHash("sha256").update(`${toolName}
+${toolVersion}
+${canonicalJson(input)}`, "utf8").digest("hex");
+}
+function resolveToolPath(value, cwd) {
+  return isAbsolute(value) ? value : resolve(cwd, value);
+}
+function hashText(value) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+function checkpointForTextFile(path, beforeContent, afterContent, operation, mediaType) {
+  const data = {
+    path,
+    beforeHash: beforeContent === null ? null : hashText(beforeContent),
+    afterHash: hashText(afterContent),
+    operation,
+    mediaType,
+    byteSize: Buffer.byteLength(afterContent, "utf8")
+  };
+  return { version: 1, kind: "text_file", data };
+}
+async function readTextFileIfPresent(path) {
+  try {
+    const file = await readFile(path);
+    return { exists: true, content: file.toString("utf8") };
+  } catch {
+    return { exists: false, content: "" };
+  }
+}
+async function reconcileTextFile(checkpoint, context, label) {
+  if (!checkpoint || checkpoint.kind !== "text_file" || checkpoint.version !== 1) {
+    return { kind: "interrupted", reason: `${label} recovery checkpoint is unavailable or unsupported.` };
+  }
+  const data = checkpoint.data;
+  let current;
+  try {
+    current = await readTextFileIfPresent(data.path);
+    if (current.exists) await stat(data.path);
+  } catch {
+    return { kind: "interrupted", reason: `${label} recovery could not inspect ${data.path}.` };
+  }
+  const currentHash = current.exists ? hashText(current.content) : null;
+  if (currentHash === data.afterHash) {
+    const result = {
+      ok: true,
+      output: `${label} was already applied and its result was recovered: ${data.path}`,
+      returncode: 0,
+      truncated: false,
+      artifacts: [{
+        path: data.path,
+        operation: data.operation,
+        mediaType: data.mediaType,
+        byteSize: data.byteSize,
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      }]
+    };
+    return { kind: "succeeded", result };
+  }
+  if (currentHash === data.beforeHash) return { kind: "retry", reason: `${label} was not published; retrying from the recorded before state.` };
+  return { kind: "interrupted", reason: `${label} target differs from both recorded before and after states: ${data.path}` };
+}
 const DEFAULT_MODEL_RETRY = {
   maxAttempts: 3,
   baseDelayMs: 1e3,
@@ -770,6 +839,12 @@ async function run(task, modelConfig, config, events = {}) {
     return result;
   };
   try {
+    await recoverOpenToolInvocations(config, messages);
+    if (config.recorder) messages.splice(0, messages.length, ...config.recorder.snapshot());
+  } catch (error) {
+    return finish("failed", toAgentError(error));
+  }
+  try {
     await config.recorder?.commitUser(userMessage, { runId: config.runId });
   } catch (error) {
     return finish("failed", toAgentError(error));
@@ -826,18 +901,44 @@ async function run(task, modelConfig, config, events = {}) {
         events.onTurnCompleted?.(ctx);
         return finish("completed");
       }
+      let invocations;
+      try {
+        invocations = await registerToolBatch(outcome.response.toolCalls, ctx, config);
+      } catch (error) {
+        return finish("failed", toAgentError(error));
+      }
       for (const call of outcome.response.toolCalls) {
         if (config.signal?.aborted) return finish("cancelled");
         events.onToolStart?.(call, ctx);
+        const invocation = invocations.get(call.id);
+        let executionInvocation = invocation;
         let toolResult;
-        try {
-          toolResult = await executeTool(call, config.tools, config.cwd, config.signal);
-        } catch (error) {
-          return finish("failed", { kind: "tool", message: error instanceof Error ? error.message : String(error) });
+        if (invocation?.phase === "completed" || invocation?.phase === "outcome_ready") {
+          toolResult = toolResultFromInvocation(invocation);
+        } else {
+          const recovered = invocation?.phase === "effect_pending" ? await recoverToolInvocation(call, invocation, config) : void 0;
+          if (recovered?.kind === "succeeded") toolResult = recovered.result;
+          else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
+          else {
+            if (invocation && config.recorder) executionInvocation = await config.recorder.beginToolAttempt(invocation.id);
+            try {
+              toolResult = await executeTool(call, config.tools, executionInvocation?.cwd ?? config.cwd, config.signal, executionInvocation);
+            } catch (error) {
+              toolResult = interruptedToolResult(error instanceof Error ? error.message : String(error));
+            }
+          }
         }
         const toolMessage = { role: "tool", content: formatToolResult(toolResult), toolCallId: call.id, toolName: call.name, isError: !toolResult.ok, media: toolResult.media };
+        const resultEntryId = executionInvocation?.resultEntryId ?? randomUUID();
         try {
-          await config.recorder?.commitToolResult(toolMessage, { ...ctx, toolCallId: call.id });
+          if (executionInvocation && config.recorder) {
+            await config.recorder.saveToolOutcome(executionInvocation.id, {
+              status: toolOutcomeStatus(toolResult),
+              outcome: toolResult
+            });
+          }
+          await config.recorder?.commitToolResult(toolMessage, { ...ctx, toolCallId: call.id, entryId: resultEntryId });
+          if (executionInvocation && config.recorder) await config.recorder.completeToolInvocation(executionInvocation.id, resultEntryId);
         } catch (error) {
           return finish("failed", toAgentError(error));
         }
@@ -954,11 +1055,145 @@ function waitForRetryDelay(delayMs, signal) {
     setTimeout(() => finish(!signal?.aborted), delayMs);
   });
 }
-async function executeTool(call, tools, cwd, signal) {
+async function recoverOpenToolInvocations(config, messages) {
+  const recorder = config.recorder;
+  if (!recorder || typeof recorder.listOpenToolInvocations !== "function") return;
+  const records = await recorder.listOpenToolInvocations(recorder.sessionId);
+  for (const invocation of records) {
+    if (invocation.phase === "completed") continue;
+    let input;
+    try {
+      const parsed = JSON.parse(invocation.inputJson);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Tool input must be an object.");
+      input = parsed;
+    } catch (error) {
+      const result = interruptedToolResult(error instanceof Error ? error.message : String(error));
+      await recorder.saveToolOutcome(invocation.id, { status: "interrupted", outcome: result });
+      continue;
+    }
+    const call = { id: invocation.toolCallId, name: invocation.toolName, input, inputComplete: true };
+    let executionInvocation = invocation;
+    let toolResult;
+    if (invocation.phase === "outcome_ready") {
+      toolResult = toolResultFromInvocation(invocation);
+    } else {
+      const recovered = invocation.phase === "effect_pending" ? await recoverToolInvocation(call, invocation, config) : void 0;
+      if (recovered?.kind === "succeeded") toolResult = recovered.result;
+      else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
+      else {
+        executionInvocation = await recorder.beginToolAttempt(invocation.id);
+        try {
+          toolResult = await executeTool(call, config.tools, executionInvocation.cwd, config.signal, executionInvocation);
+        } catch (error) {
+          toolResult = interruptedToolResult(error instanceof Error ? error.message : String(error));
+        }
+      }
+    }
+    const toolMessage = {
+      role: "tool",
+      content: formatToolResult(toolResult),
+      toolCallId: call.id,
+      toolName: call.name,
+      isError: !toolResult.ok,
+      media: toolResult.media
+    };
+    const resultEntryId = executionInvocation.resultEntryId ?? randomUUID();
+    await recorder.saveToolOutcome(executionInvocation.id, { status: toolOutcomeStatus(toolResult), outcome: toolResult });
+    await recorder.commitToolResult(toolMessage, {
+      runId: invocation.runId,
+      turnId: invocation.turnId,
+      turnOrdinal: invocation.ordinal,
+      toolCallId: call.id,
+      entryId: resultEntryId
+    });
+    await recorder.completeToolInvocation(executionInvocation.id, resultEntryId);
+    if (!messages.some((message) => message.role === "tool" && message.toolCallId === call.id)) messages.push(toolMessage);
+  }
+}
+async function registerToolBatch(calls, ctx, config) {
+  const records = /* @__PURE__ */ new Map();
+  const recorder = config.recorder;
+  if (!recorder || typeof recorder.registerToolInvocation !== "function" || typeof recorder.getToolInvocation !== "function") return records;
+  for (const [ordinal, call] of calls.entries()) {
+    const existing = await recorder.getToolInvocation(recorder.sessionId, call.id);
+    const tool = config.tools.get(call.name);
+    const toolVersion = tool?.recovery.version ?? "unknown";
+    const recoveryMode = tool?.recovery.mode ?? "never";
+    const inputJson = canonicalJson(call.input);
+    const inputHash = toolInputHash(call.name, toolVersion, call.input);
+    if (existing) {
+      if (existing.inputHash !== inputHash || existing.toolName !== call.name) throw new Error(`Tool call identity conflict: ${call.id}`);
+      records.set(call.id, existing);
+      continue;
+    }
+    const checkpoint = tool?.recovery.prepare ? await tool.recovery.prepare(call.input, { cwd: config.cwd, toolCallId: call.id }) : void 0;
+    const assistantEntryId = await recorder.getAssistantEntryId?.(ctx.turnId) ?? `${ctx.turnId}:assistant:${ctx.attempt}`;
+    const record = await recorder.registerToolInvocation({
+      runId: ctx.runId,
+      turnId: ctx.turnId,
+      cwd: config.cwd,
+      assistantEntryId,
+      toolCallId: call.id,
+      ordinal,
+      toolName: call.name,
+      toolVersion,
+      inputJson,
+      inputHash,
+      recoveryModeSnapshot: recoveryMode,
+      resultEntryId: randomUUID(),
+      checkpoint
+    });
+    records.set(call.id, record);
+  }
+  return records;
+}
+async function recoverToolInvocation(call, invocation, config) {
+  const tool = config.tools.get(call.name);
+  if (!tool || !config.recorder) return { kind: "interrupted", reason: `Tool ${call.name} is unavailable during recovery.` };
+  if (invocation.phase !== "effect_pending") return void 0;
+  if (tool.recovery.version !== invocation.toolVersion) {
+    return { kind: "interrupted", reason: `Tool ${call.name} version ${invocation.toolVersion} requires a matching recovery implementation.` };
+  }
+  if (invocation.recoveryModeSnapshot === "never") return { kind: "interrupted", reason: `Tool ${call.name} requires manual recovery after an interrupted execution.` };
+  if (invocation.recoveryModeSnapshot === "reconcile" && !tool.recovery.reconcile) {
+    return { kind: "interrupted", reason: `Tool ${call.name} has no recovery reconciler.` };
+  }
+  if (invocation.recoveryModeSnapshot === "reconcile" && tool.recovery.reconcile) {
+    const recovered = await tool.recovery.reconcile(call.input, invocation.checkpoint, {
+      cwd: invocation.cwd,
+      signal: config.signal,
+      invocationId: invocation.id,
+      toolCallId: call.id,
+      attempt: invocation.attemptCount,
+      checkpoint: invocation.checkpoint
+    });
+    if (recovered.kind !== "retry") return recovered;
+  }
+  return { kind: "retry", reason: "tool recovery permits another execution attempt" };
+}
+function toolResultFromInvocation(invocation) {
+  const outcome = invocation.outcomeJson;
+  if (outcome && typeof outcome === "object" && "ok" in outcome && "output" in outcome) return outcome;
+  return interruptedToolResult("The persisted tool outcome is missing or invalid.");
+}
+function interruptedToolResult(reason) {
+  return { ok: false, output: reason, returncode: -1, truncated: false, error: "interrupted" };
+}
+function toolOutcomeStatus(result) {
+  return result.error === "interrupted" ? "interrupted" : result.ok ? "succeeded" : "failed";
+}
+async function executeTool(call, tools, cwd, signal, invocation) {
   if (!call.inputComplete) return invalidResult("The tool arguments were truncated by the model response and were not executed. Please regenerate the complete tool call.", "truncated_arguments");
   const tool = tools.get(call.name);
   if (!tool) return invalidResult(`Unknown tool: ${call.name}`, "unknown_tool");
-  return tool.execute(call.input, { cwd, signal });
+  return tool.execute(call.input, {
+    cwd,
+    signal,
+    invocationId: invocation?.id,
+    toolCallId: call.id,
+    attempt: invocation?.attemptCount,
+    checkpoint: invocation?.checkpoint
+  });
 }
 function invalidResult(output, error) {
   return { ok: false, output, returncode: -1, truncated: false, error };
@@ -1225,6 +1460,7 @@ const BASH_TOOL = {
 function createBashTool(ops) {
   return {
     definition: BASH_TOOL,
+    recovery: { version: "1", mode: "never" },
     async execute(input, context) {
       if (typeof input.command !== "string" || input.command.trim() === "") {
         return { ok: false, output: "Tool parameter command must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
@@ -1258,6 +1494,7 @@ const IMAGE_EXTENSIONS = /* @__PURE__ */ new Set([".png", ".jpg", ".jpeg", ".gif
 function createReadTool() {
   return {
     definition: READ_TOOL,
+    recovery: { version: "1", mode: "safe" },
     async execute(input, context) {
       if (typeof input.path !== "string" || input.path.trim() === "") {
         return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
@@ -1351,6 +1588,17 @@ const WRITE_TOOL = {
 function createWriteTool() {
   return {
     definition: WRITE_TOOL,
+    recovery: {
+      version: "1",
+      mode: "reconcile",
+      async prepare(input, context) {
+        if (typeof input.path !== "string" || typeof input.content !== "string") return void 0;
+        const target = resolveToolPath(input.path, context.cwd);
+        const previous = await readTextFileIfPresent(target);
+        return checkpointForTextFile(target, previous.exists ? previous.content : null, input.content, previous.exists ? "updated" : "created", mediaTypeForPath(target));
+      },
+      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Write")
+    },
     async execute(input, context) {
       if (typeof input.path !== "string" || input.path.trim() === "") {
         return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
@@ -1421,6 +1669,12 @@ const EDIT_TOOL = {
 function createEditTool() {
   return {
     definition: EDIT_TOOL,
+    recovery: {
+      version: "1",
+      mode: "reconcile",
+      prepare: prepareEditCheckpoint,
+      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Edit")
+    },
     async execute(input, context) {
       if (typeof input.path !== "string" || input.path.trim() === "") {
         return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
@@ -1515,6 +1769,41 @@ ${lines}
     }
   };
 }
+async function prepareEditCheckpoint(input, context) {
+  if (typeof input.path !== "string" || !Array.isArray(input.edits)) return void 0;
+  const edits = [];
+  for (const item of input.edits) {
+    if (!item || typeof item !== "object") return void 0;
+    const record = item;
+    if (typeof record.oldText !== "string" || record.oldText.length === 0 || typeof record.newText !== "string") return void 0;
+    edits.push({ oldText: record.oldText, newText: record.newText });
+  }
+  const target = resolveToolPath(input.path, context.cwd);
+  let original;
+  try {
+    const buffer = await readFile(target);
+    if (buffer.includes(0)) return void 0;
+    original = buffer.toString("utf8");
+  } catch {
+    return void 0;
+  }
+  const matches = [];
+  for (const edit of edits) {
+    const positions = [];
+    for (let at = original.indexOf(edit.oldText); at !== -1; at = original.indexOf(edit.oldText, at + 1)) positions.push(at);
+    if (positions.length !== 1) return void 0;
+    matches.push({ index: positions[0], length: edit.oldText.length, edit });
+  }
+  matches.sort((left, right) => left.index - right.index);
+  for (let i = 1; i < matches.length; i += 1) {
+    if (matches[i].index < matches[i - 1].index + matches[i - 1].length) return void 0;
+  }
+  let updated = original;
+  for (const match of [...matches].sort((left, right) => right.index - left.index)) {
+    updated = updated.slice(0, match.index) + match.edit.newText + updated.slice(match.index + match.length);
+  }
+  return checkpointForTextFile(target, original, updated, "updated", mediaTypeForPath(target));
+}
 const LIST_DIR_TOOL = {
   name: "list_dir",
   description: "List entries of a directory (default workspace root), sorted by name, distinguishing files and directories",
@@ -1564,9 +1853,9 @@ const MAX_SCAN_FILES = 2e4;
 const MAX_LINE_DISPLAY = 300;
 function createQueryTools() {
   return [
-    { definition: LIST_DIR_TOOL, execute: listDir },
-    { definition: FIND_FILES_TOOL, execute: findFiles },
-    { definition: SEARCH_CONTENT_TOOL, execute: searchContent }
+    { definition: LIST_DIR_TOOL, recovery: { version: "1", mode: "safe" }, execute: listDir },
+    { definition: FIND_FILES_TOOL, recovery: { version: "1", mode: "safe" }, execute: findFiles },
+    { definition: SEARCH_CONTENT_TOOL, recovery: { version: "1", mode: "safe" }, execute: searchContent }
   ];
 }
 function fail(output, error) {
@@ -1976,7 +2265,7 @@ class SessionHistoryService {
     };
   }
 }
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 3;
 function initializeSchema(database) {
   database.exec("PRAGMA journal_mode = WAL");
   database.exec("PRAGMA foreign_keys = ON");
@@ -2015,9 +2304,42 @@ function initializeSchema(database) {
       ON entries (session_id, session_seq ASC);
     CREATE INDEX IF NOT EXISTS entries_tool_call_idx
       ON entries (session_id, tool_call_id);
+
+    CREATE TABLE IF NOT EXISTS tool_invocations (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      assistant_entry_id TEXT NOT NULL,
+      tool_call_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+      tool_name TEXT NOT NULL,
+      tool_version TEXT NOT NULL,
+      input_json TEXT NOT NULL,
+      input_hash TEXT NOT NULL,
+      phase TEXT NOT NULL CHECK (phase IN ('planned', 'effect_pending', 'outcome_ready', 'completed')),
+      outcome_status TEXT CHECK (outcome_status IS NULL OR outcome_status IN ('succeeded', 'failed', 'cancelled', 'interrupted')),
+      outcome_json TEXT,
+      recovery_mode_snapshot TEXT NOT NULL CHECK (recovery_mode_snapshot IN ('safe', 'reconcile', 'never')),
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      checkpoint_json TEXT,
+      result_entry_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (session_id, tool_call_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS tool_invocations_session_phase_idx
+      ON tool_invocations (session_id, phase, ordinal ASC);
   `);
   const current = database.prepare("PRAGMA user_version").get();
-  if (Number(current.user_version) === 0) {
+  if (Number(current.user_version) === 0 || Number(current.user_version) === 1) {
+    database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    return;
+  }
+  if (Number(current.user_version) === 2) {
+    database.exec("ALTER TABLE tool_invocations ADD COLUMN cwd TEXT NOT NULL DEFAULT ''");
     database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     return;
   }
@@ -2042,6 +2364,20 @@ function canonical$1(value) {
     return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonical$1(item)}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+function serializeJson(value, field) {
+  const serialized = JSON.stringify(value);
+  if (serialized === void 0) throw new RepositoryError(`${field} must be JSON serializable.`, "invalid");
+  return serialized;
+}
+function parseJson(value, field) {
+  if (value === null || value === void 0) return null;
+  if (typeof value !== "string") throw new RepositoryError(`Stored ${field} is not text.`, "storage");
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new RepositoryError(`Stored ${field} is invalid JSON.`, "storage");
+  }
 }
 function parsePayload(value) {
   if (typeof value !== "string") throw new RepositoryError("Stored entry payload is not text.", "storage");
@@ -2086,6 +2422,31 @@ function rowToEntry(row) {
     revision: Number(row.revision),
     payloadVersion: Number(row.payload_version),
     payload: parsePayload(row.payload_json),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at)
+  };
+}
+function rowToToolInvocation(row) {
+  return {
+    id: String(row.id),
+    sessionId: String(row.session_id),
+    runId: String(row.run_id),
+    turnId: String(row.turn_id),
+    cwd: String(row.cwd),
+    assistantEntryId: String(row.assistant_entry_id),
+    toolCallId: String(row.tool_call_id),
+    ordinal: Number(row.ordinal),
+    toolName: String(row.tool_name),
+    toolVersion: String(row.tool_version),
+    inputJson: String(row.input_json),
+    inputHash: String(row.input_hash),
+    phase: String(row.phase),
+    outcomeStatus: row.outcome_status === null || row.outcome_status === void 0 ? null : String(row.outcome_status),
+    outcomeJson: parseJson(row.outcome_json, "tool outcome"),
+    recoveryModeSnapshot: String(row.recovery_mode_snapshot),
+    attemptCount: Number(row.attempt_count),
+    checkpoint: parseJson(row.checkpoint_json, "tool checkpoint"),
+    resultEntryId: row.result_entry_id === null || row.result_entry_id === void 0 ? null : String(row.result_entry_id),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at)
   };
@@ -2257,6 +2618,139 @@ class SqliteSessionRepository {
     `).all(sessionId, beforeSeq, limit);
     return rows.map(rowToEntry);
   }
+  async registerToolInvocation(input) {
+    this.validateToolInvocationInput(input);
+    const id = input.id ?? randomUUID();
+    const resultEntryId = input.resultEntryId ?? randomUUID();
+    const timestamp = input.createdAt ?? now();
+    const updatedAt = input.updatedAt ?? timestamp;
+    const checkpointJson = input.checkpoint === void 0 ? null : serializeJson(input.checkpoint, "checkpoint");
+    return this.transaction(() => {
+      const session = this.database.prepare("SELECT id FROM sessions WHERE id = ?").get(input.sessionId);
+      if (!session) throw new RepositoryError(`Session not found: ${input.sessionId}`, "not_found");
+      try {
+        this.database.prepare(`
+          INSERT INTO tool_invocations
+            (id, session_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
+             tool_name, tool_version, input_json, input_hash, phase, outcome_status,
+             outcome_json, recovery_mode_snapshot, attempt_count, checkpoint_json,
+             result_entry_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, ?, 0, ?, ?, ?, ?)
+        `).run(
+          id,
+          input.sessionId,
+          input.runId,
+          input.turnId,
+          input.cwd,
+          input.assistantEntryId,
+          input.toolCallId,
+          input.ordinal,
+          input.toolName,
+          input.toolVersion,
+          input.inputJson,
+          input.inputHash,
+          input.recoveryModeSnapshot,
+          checkpointJson,
+          resultEntryId,
+          timestamp,
+          updatedAt
+        );
+      } catch (error) {
+        throw new RepositoryError(`Failed to register tool invocation: ${error instanceof Error ? error.message : String(error)}`, "conflict");
+      }
+      this.bumpSession(input.sessionId, updatedAt);
+      return this.getToolInvocationById(id);
+    });
+  }
+  async beginToolAttempt(invocationId) {
+    return this.transaction(() => {
+      const existing = this.getToolInvocationById(invocationId);
+      if (!existing) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
+      if (existing.phase === "effect_pending") {
+        const updatedAt2 = now();
+        this.database.prepare(`
+          UPDATE tool_invocations
+          SET attempt_count = attempt_count + 1, updated_at = ?
+          WHERE id = ? AND phase = 'effect_pending'
+        `).run(updatedAt2, invocationId);
+        this.bumpSession(existing.sessionId, updatedAt2);
+        return this.getToolInvocationById(invocationId);
+      }
+      if (existing.phase !== "planned") {
+        throw new RepositoryError(`Tool invocation cannot begin from phase ${existing.phase}: ${invocationId}`, "conflict");
+      }
+      const updatedAt = now();
+      this.database.prepare(`
+        UPDATE tool_invocations
+        SET phase = 'effect_pending', attempt_count = attempt_count + 1, updated_at = ?
+        WHERE id = ? AND phase = 'planned'
+      `).run(updatedAt, invocationId);
+      this.bumpSession(existing.sessionId, updatedAt);
+      return this.getToolInvocationById(invocationId);
+    });
+  }
+  async saveToolOutcome(invocationId, outcome) {
+    const outcomeJson = serializeJson(outcome.outcome, "tool outcome");
+    const checkpointJson = outcome.checkpoint === void 0 ? null : serializeJson(outcome.checkpoint, "checkpoint");
+    return this.transaction(() => {
+      const existing = this.getToolInvocationById(invocationId);
+      if (!existing) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
+      if (existing.phase === "outcome_ready" || existing.phase === "completed") {
+        if (existing.outcomeStatus !== outcome.status || canonical$1(existing.outcomeJson) !== canonical$1(outcome.outcome)) {
+          throw new RepositoryError(`Tool outcome already exists with different content: ${invocationId}`, "conflict");
+        }
+        return existing;
+      }
+      if (existing.phase !== "effect_pending") {
+        throw new RepositoryError(`Tool invocation cannot save outcome from phase ${existing.phase}: ${invocationId}`, "conflict");
+      }
+      const updatedAt = outcome.updatedAt ?? now();
+      this.database.prepare(`
+        UPDATE tool_invocations
+        SET phase = 'outcome_ready', outcome_status = ?, outcome_json = ?,
+            checkpoint_json = COALESCE(?, checkpoint_json), updated_at = ?
+        WHERE id = ? AND phase = 'effect_pending'
+      `).run(outcome.status, outcomeJson, checkpointJson, updatedAt, invocationId);
+      this.bumpSession(existing.sessionId, updatedAt);
+      return this.getToolInvocationById(invocationId);
+    });
+  }
+  async completeToolInvocation(invocationId, resultEntryId) {
+    if (!resultEntryId) throw new RepositoryError("resultEntryId is required.", "invalid");
+    return this.transaction(() => {
+      const existing = this.getToolInvocationById(invocationId);
+      if (!existing) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
+      if (existing.phase === "completed") {
+        if (existing.resultEntryId !== resultEntryId) throw new RepositoryError(`Tool invocation already completed with a different result: ${invocationId}`, "conflict");
+        return existing;
+      }
+      if (existing.phase !== "outcome_ready") {
+        throw new RepositoryError(`Tool invocation cannot complete from phase ${existing.phase}: ${invocationId}`, "conflict");
+      }
+      const updatedAt = now();
+      this.database.prepare(`
+        UPDATE tool_invocations
+        SET phase = 'completed', result_entry_id = ?, updated_at = ?
+        WHERE id = ? AND phase = 'outcome_ready'
+      `).run(resultEntryId, updatedAt, invocationId);
+      this.bumpSession(existing.sessionId, updatedAt);
+      return this.getToolInvocationById(invocationId);
+    });
+  }
+  async getToolInvocation(sessionId, toolCallId) {
+    const row = this.database.prepare(`
+      SELECT * FROM tool_invocations WHERE session_id = ? AND tool_call_id = ?
+    `).get(sessionId, toolCallId);
+    return row ? rowToToolInvocation(row) : null;
+  }
+  async listOpenToolInvocations(sessionId) {
+    const rows = this.database.prepare(`
+      SELECT * FROM tool_invocations
+      WHERE session_id = ? AND phase != 'completed'
+      ORDER BY ordinal ASC, created_at ASC, id ASC
+    `).all(sessionId);
+    return rows.map(rowToToolInvocation);
+  }
   async updateSession(sessionId, expectedRevision, patch) {
     const result = this.transaction(() => {
       const existingRow = this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
@@ -2301,6 +2795,26 @@ class SqliteSessionRepository {
       throw new RepositoryError("History limit must be a positive safe integer.", "invalid");
     }
   }
+  validateToolInvocationInput(input) {
+    if (!input.runId || !input.turnId || !input.cwd || !input.assistantEntryId || !input.toolCallId || !input.toolName || !input.toolVersion || !input.inputHash) {
+      throw new RepositoryError("Tool invocation identity and tool metadata are required.", "invalid");
+    }
+    if (!Number.isSafeInteger(input.ordinal) || input.ordinal < 0) {
+      throw new RepositoryError("Tool invocation ordinal must be a non-negative safe integer.", "invalid");
+    }
+    try {
+      JSON.parse(input.inputJson);
+    } catch {
+      throw new RepositoryError("Tool invocation inputJson must be valid JSON.", "invalid");
+    }
+  }
+  getToolInvocationById(invocationId) {
+    const row = this.database.prepare("SELECT * FROM tool_invocations WHERE id = ?").get(invocationId);
+    return row ? rowToToolInvocation(row) : null;
+  }
+  bumpSession(sessionId, updatedAt) {
+    this.database.prepare("UPDATE sessions SET revision = revision + 1, updated_at = ? WHERE id = ?").run(updatedAt, sessionId);
+  }
 }
 const DRAFT_FLUSH_INTERVAL_MS = 500;
 const DRAFT_FLUSH_BYTES = 4096;
@@ -2333,6 +2847,7 @@ class DefaultSessionRecorder {
   activeDrafts = /* @__PURE__ */ new Map();
   userEntries = /* @__PURE__ */ new Map();
   toolEntries = /* @__PURE__ */ new Map();
+  assistantEntries = /* @__PURE__ */ new Map();
   writeChain = Promise.resolve();
   backgroundError;
   closed = false;
@@ -2342,11 +2857,15 @@ class DefaultSessionRecorder {
     for (const entry of [...entries].sort((left, right) => left.sessionSeq - right.sessionSeq)) {
       if (entry.type === "user_message") this.userEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload) });
       if (entry.type === "tool_result" && entry.toolCallId) this.toolEntries.set(entry.toolCallId, { entryId: entry.id, message: cloneMessage(entry.payload) });
+      if (entry.type === "assistant_message" && entry.turnId) this.assistantEntries.set(entry.turnId, entry.id);
       if (entry.status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
     }
   }
   snapshot() {
     return freezeSnapshot(this.completedMessages);
+  }
+  getAssistantEntryId(turnId) {
+    return Promise.resolve(this.assistantEntries.get(turnId) ?? null);
   }
   commitUser(message, context) {
     validateMessage(message, "user");
@@ -2458,7 +2977,7 @@ class DefaultSessionRecorder {
       if (!isSameMessage(previous.message, message)) return Promise.reject(new RepositoryError(`Tool result already exists with different content: ${context.toolCallId}`, "conflict"));
       return this.waitForWrites();
     }
-    const entryId = randomUUID();
+    const entryId = context.entryId ?? randomUUID();
     const copy = cloneMessage(message);
     this.toolEntries.set(context.toolCallId, { entryId, message: copy });
     return this.enqueueAndCheck(async () => {
@@ -2473,6 +2992,32 @@ class DefaultSessionRecorder {
       });
       this.completedMessages.push(cloneMessage(entry.payload));
     });
+  }
+  registerToolInvocation(input) {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.registerToolInvocation({ ...input, sessionId: this.sessionId }));
+  }
+  beginToolAttempt(invocationId) {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.beginToolAttempt(invocationId));
+  }
+  saveToolOutcome(invocationId, outcome) {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.saveToolOutcome(invocationId, outcome));
+  }
+  completeToolInvocation(invocationId, resultEntryId) {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.completeToolInvocation(invocationId, resultEntryId));
+  }
+  getToolInvocation(sessionId, toolCallId) {
+    this.ensureOpen();
+    if (sessionId !== this.sessionId) return Promise.reject(new RepositoryError(`Session recorder is bound to ${this.sessionId}.`, "invalid"));
+    return this.waitForWrites().then(() => this.repository.getToolInvocation(sessionId, toolCallId));
+  }
+  listOpenToolInvocations(sessionId) {
+    this.ensureOpen();
+    if (sessionId !== this.sessionId) return Promise.reject(new RepositoryError(`Session recorder is bound to ${this.sessionId}.`, "invalid"));
+    return this.waitForWrites().then(() => this.repository.listOpenToolInvocations(sessionId));
   }
   async finishRun(result) {
     this.ensureOpen();
@@ -2528,6 +3073,7 @@ class DefaultSessionRecorder {
       });
     }
     draft.revision = entry.revision;
+    this.assistantEntries.set(draft.turnId, entry.id);
     draft.pendingBytes = 0;
     draft.dirty = false;
     if (status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
@@ -2538,6 +3084,16 @@ class DefaultSessionRecorder {
     this.writeChain = next.catch((error) => {
       this.backgroundError = error;
     });
+    return next;
+  }
+  enqueueResult(operation) {
+    const next = this.writeChain.then(operation, operation);
+    this.writeChain = next.then(
+      () => void 0,
+      (error) => {
+        this.backgroundError = error;
+      }
+    );
     return next;
   }
   async enqueueAndCheck(operation) {

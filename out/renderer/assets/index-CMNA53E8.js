@@ -7118,12 +7118,12 @@ const paths = {
     /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "3" })
   ] }),
   sidebar: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { width: "18", height: "18", x: "3", y: "3", rx: "2" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { width: "18", height: "18", x: "3", y: "3", rx: "4" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M15 3v18" })
   ] }),
   "sidebar-collapsed": /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { width: "18", height: "18", x: "3", y: "3", rx: "3" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M16 6v12" })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { width: "18", height: "18", x: "3", y: "3", rx: "4" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M16 6v12", strokeWidth: 3, strokeLinecap: "round" })
   ] }),
   stop: /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "7", y: "7", width: "10", height: "10", rx: "1", fill: "currentColor", stroke: "none" }),
   terminal: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
@@ -19910,7 +19910,7 @@ function MessageMeta({
         title: feedbackLabel,
         "aria-label": feedbackLabel,
         onClick: () => void copyMessage(),
-        children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: iconName, width: copyState === "success" ? 24 : 14, height: copyState === "success" ? 24 : 14, strokeWidth: copyState === "success" ? 2 : void 0 })
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: iconName, width: 14, height: 14, strokeWidth: 2 })
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "sr-only", role: "status", "aria-live": "polite", children: copyState === "success" ? "Copied" : copyState === "error" ? "Copy failed" : "" })
@@ -20115,6 +20115,10 @@ const DEFAULT_VIEWPORT_HEIGHT = 800;
 const DEFAULT_OVERSCAN = 600;
 const LOAD_OLDER_THRESHOLD = 240;
 const STICK_TO_BOTTOM_THRESHOLD = 24;
+function shouldStickToBottom(scrollTop, clientHeight, scrollHeight, threshold = STICK_TO_BOTTOM_THRESHOLD) {
+  const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+  return maxScrollTop - scrollTop <= threshold;
+}
 const useBrowserLayoutEffect = typeof window === "undefined" ? reactExports.useEffect : reactExports.useLayoutEffect;
 function waitForPaint() {
   return new Promise((resolve) => {
@@ -20215,8 +20219,7 @@ function useVirtualMessageWindow({
     const element2 = findScrollElement(rootRef.current, scrollRef);
     if (!element2) return;
     const sync = () => {
-      const maxScrollTop = Math.max(0, element2.scrollHeight - element2.clientHeight);
-      stickToBottom.current = maxScrollTop - element2.scrollTop <= STICK_TO_BOTTOM_THRESHOLD;
+      stickToBottom.current = shouldStickToBottom(element2.scrollTop, element2.clientHeight, element2.scrollHeight);
       setViewport((current) => {
         const next = { scrollTop: element2.scrollTop, height: element2.clientHeight, ready: true };
         return current.scrollTop === next.scrollTop && current.height === next.height && current.ready ? current : next;
@@ -20920,11 +20923,11 @@ function TopBar({ outputOpen, outputCount, searchOpen, settingsOpen, searchButto
     /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { className: "sr-only", children: "Agent Workbench" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-actions", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `icon-button ${outputOpen ? "active" : ""}`, onClick: onOutput, title: outputOpen ? "Hide output files" : "Show output files", "aria-label": outputOpen ? "Hide output files" : "Show output files", "aria-expanded": outputOpen, "aria-controls": "output-sidebar", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: outputOpen ? "sidebar" : "sidebar-collapsed", width: outputOpen ? "18" : "20", height: outputOpen ? "18" : "20", strokeWidth: 2 }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: outputOpen ? "sidebar" : "sidebar-collapsed", width: "18", height: "18", strokeWidth: 2 }),
         !outputOpen && outputCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "icon-badge", children: outputCount > 9 ? "9+" : outputCount })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { ref: searchButtonRef, className: `icon-button ${searchOpen ? "active" : ""}`, onClick: onSearch, title: "Search all content", "aria-label": "Search all content", "aria-expanded": searchOpen, "aria-controls": "search-popover", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "search", width: "18", height: "18" }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { ref: settingsButtonRef, className: `icon-button ${settingsOpen ? "active" : ""}`, onClick: onSettings, title: "Settings", "aria-label": "Settings", "aria-expanded": settingsOpen, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "settings", width: "18", height: "18" }) })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { ref: searchButtonRef, className: `icon-button ${searchOpen ? "active" : ""}`, onClick: onSearch, title: "Search all content", "aria-label": "Search all content", "aria-expanded": searchOpen, "aria-controls": "search-popover", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "search", width: "18", height: "18", strokeWidth: 2 }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { ref: settingsButtonRef, className: `icon-button ${settingsOpen ? "active" : ""}`, onClick: onSettings, title: "Settings", "aria-label": "Settings", "aria-expanded": settingsOpen, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "settings", width: "18", height: "18", strokeWidth: 2 }) })
     ] })
   ] });
 }
@@ -20971,7 +20974,7 @@ function SearchPopover({
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "search-layer", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "search-backdrop", "aria-hidden": "true" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { id: "search-popover", ref: panelRef, className: "search-popover", role: "dialog", "aria-label": "Search all content", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "search-glyph", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "search", width: "18", height: "18" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "search-glyph", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "search", width: "18", height: "18", strokeWidth: 2 }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "input",
         {
@@ -22200,7 +22203,6 @@ function App() {
   const historyReadyRef = reactExports.useRef(false);
   const eventFrame = reactExports.useRef(null);
   const runTimings = reactExports.useRef({});
-  const bottomRef = reactExports.useRef(null);
   const streamRef = reactExports.useRef(null);
   const composerRef = reactExports.useRef(null);
   const [composerHeight, setComposerHeight] = reactExports.useState(0);
@@ -22213,11 +22215,6 @@ function App() {
   const stopping = state.status === "stopping";
   const currentRun = state.currentRunId ? state.runs[state.currentRunId] : void 0;
   const outputFiles = currentRun?.outputFileOrder.map((id) => currentRun.outputFiles[id]).filter(Boolean) ?? [];
-  const totalTurnCount = state.runOrder.reduce((sum, runId) => sum + (state.runs[runId]?.turnOrder.length ?? 0), 0);
-  const toolActivityHash = state.runOrder.map((runId) => {
-    const run = state.runs[runId];
-    return run ? run.turnOrder.map((turnId) => run.turns[turnId]?.toolOrder.length ?? 0).join(",") : "";
-  }).join("|");
   reactExports.useEffect(() => {
     if (!window.agentAPI || typeof window.agentAPI.onEvent !== "function") return;
     const offEvent = window.agentAPI.onEvent((event) => {
@@ -22279,9 +22276,6 @@ function App() {
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [searchOpen]);
-  reactExports.useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [state.currentRunId, state.history.hydrated, totalTurnCount, toolActivityHash]);
   reactExports.useEffect(() => {
     const element2 = composerRef.current;
     if (!element2) return;
@@ -22376,7 +22370,7 @@ function App() {
             activeSearchBlockId: search2.activeBlockId
           }
         ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: bottomRef, style: { height: composerHeight } })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: composerHeight } })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: composerRef, className: "composer-inner", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
         Composer,

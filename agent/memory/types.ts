@@ -7,6 +7,9 @@ export type EntryType = "user_message" | "assistant_message" | "tool_result";
 export type EntryStatus = "streaming" | "completed" | "interrupted" | "failed";
 export type RecordedRunStatus = "completed" | "cancelled" | "failed";
 export type AssistantDeltaKind = "text" | "reasoning";
+export type ToolInvocationPhase = "planned" | "effect_pending" | "outcome_ready" | "completed";
+export type ToolOutcomeStatus = "succeeded" | "failed" | "cancelled" | "interrupted";
+export type ToolRecoveryMode = "safe" | "reconcile" | "never";
 
 export interface Session {
   id: string;
@@ -85,6 +88,61 @@ export interface TurnCommitContext extends MessageCommitContext {
 
 export interface ToolCommitContext extends TurnCommitContext {
   toolCallId: string;
+  entryId?: string;
+}
+
+export interface RegisterToolInvocationInput {
+  runId: string;
+  turnId: string;
+  cwd: string;
+  assistantEntryId: string;
+  toolCallId: string;
+  ordinal: number;
+  toolName: string;
+  toolVersion: string;
+  inputJson: string;
+  inputHash: string;
+  recoveryModeSnapshot: ToolRecoveryMode;
+  resultEntryId?: string;
+  checkpoint?: unknown;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface CreateToolInvocationInput extends RegisterToolInvocationInput {
+  sessionId: string;
+  id?: string;
+}
+
+export interface ToolInvocationRecord {
+  id: string;
+  sessionId: string;
+  runId: string;
+  turnId: string;
+  cwd: string;
+  assistantEntryId: string;
+  toolCallId: string;
+  ordinal: number;
+  toolName: string;
+  toolVersion: string;
+  inputJson: string;
+  inputHash: string;
+  phase: ToolInvocationPhase;
+  outcomeStatus: ToolOutcomeStatus | null;
+  outcomeJson: unknown | null;
+  recoveryModeSnapshot: ToolRecoveryMode;
+  attemptCount: number;
+  checkpoint: unknown | null;
+  resultEntryId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ToolOutcomeInput {
+  status: ToolOutcomeStatus;
+  outcome: unknown;
+  checkpoint?: unknown;
+  updatedAt?: number;
 }
 
 export interface SessionRepository {
@@ -100,6 +158,12 @@ export interface SessionRepository {
   listLatestEntries(sessionId: string, limit: number): Promise<SessionEntry[]>;
   /** 读取 beforeSeq 之前的一页，结果按 sessionSeq 从新到旧返回。 */
   listEntriesBefore(sessionId: string, beforeSeq: number, limit: number): Promise<SessionEntry[]>;
+  registerToolInvocation(input: CreateToolInvocationInput): Promise<ToolInvocationRecord>;
+  beginToolAttempt(invocationId: string): Promise<ToolInvocationRecord>;
+  saveToolOutcome(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord>;
+  completeToolInvocation(invocationId: string, resultEntryId: string): Promise<ToolInvocationRecord>;
+  getToolInvocation(sessionId: string, toolCallId: string): Promise<ToolInvocationRecord | null>;
+  listOpenToolInvocations(sessionId: string): Promise<ToolInvocationRecord[]>;
   updateSession(sessionId: string, expectedRevision: number, patch: SessionPatch): Promise<Session>;
   close?(): Promise<void> | void;
 }
@@ -114,6 +178,7 @@ export class RepositoryError extends Error {
 export interface SessionRecorder {
   readonly sessionId: string;
   snapshot(): ModelMessage[];
+  getAssistantEntryId?(turnId: string): Promise<string | null>;
   commitUser(message: ModelMessage, context: MessageCommitContext): Promise<void>;
   recordAssistantDelta(kind: AssistantDeltaKind, delta: string, context: TurnCommitContext): void;
   finishAssistantAttempt(
@@ -123,6 +188,12 @@ export interface SessionRecorder {
   ): Promise<void>;
   commitAssistant(message: ModelMessage, context: TurnCommitContext): Promise<void>;
   commitToolResult(message: ModelMessage, context: ToolCommitContext): Promise<void>;
+  registerToolInvocation(input: RegisterToolInvocationInput): Promise<ToolInvocationRecord>;
+  beginToolAttempt(invocationId: string): Promise<ToolInvocationRecord>;
+  saveToolOutcome(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord>;
+  completeToolInvocation(invocationId: string, resultEntryId: string): Promise<ToolInvocationRecord>;
+  getToolInvocation(sessionId: string, toolCallId: string): Promise<ToolInvocationRecord | null>;
+  listOpenToolInvocations(sessionId: string): Promise<ToolInvocationRecord[]>;
   finishRun(result: { runId: string; status: RecordedRunStatus }): Promise<void>;
   close(): Promise<void>;
 }

@@ -27,7 +27,6 @@ export default function App() {
   // 计时是 Renderer 侧对事件的观察（事件本身不带时间戳）；reducer 保持纯函数，不写入时间。
   // run 级总时长：runStarted → runCompleted（含全部回合与工具调用）；回合级时间不展示。
   const runTimings = useRef<Record<string, RunTiming>>({});
-  const bottomRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<HTMLElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = useState(0);
@@ -40,14 +39,6 @@ export default function App() {
   const stopping = state.status === "stopping";
   const currentRun = state.currentRunId ? state.runs[state.currentRunId] : undefined;
   const outputFiles = currentRun?.outputFileOrder.map((id) => currentRun.outputFiles[id]).filter(Boolean) ?? [];
-  // 消息流跨 run 累积：滚动依赖统计全部 run 的回合/工具活动，而不是只盯当前 run。
-  const totalTurnCount = state.runOrder.reduce((sum, runId) => sum + (state.runs[runId]?.turnOrder.length ?? 0), 0);
-  const toolActivityHash = state.runOrder
-    .map((runId) => {
-      const run = state.runs[runId];
-      return run ? run.turnOrder.map((turnId) => run.turns[turnId]?.toolOrder.length ?? 0).join(",") : "";
-    })
-    .join("|");
   useEffect(() => {
     if (!window.agentAPI || typeof window.agentAPI.onEvent !== "function") return;
     const offEvent = window.agentAPI.onEvent((event) => {
@@ -115,10 +106,6 @@ export default function App() {
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [searchOpen]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [state.currentRunId, state.history.hydrated, totalTurnCount, toolActivityHash]);
 
   // 底部占位高度 = Composer 实时高度（外壳 116px + 输入/附件增减同步），见设计文档「滚动条-底部占位」
   useEffect(() => {
@@ -219,7 +206,7 @@ export default function App() {
                 onLoadOlder={history.loadOlder}
                 activeSearchBlockId={search.activeBlockId}
               />
-              <div ref={bottomRef} style={{ height: composerHeight }} />
+              <div style={{ height: composerHeight }} />
             </StreamRegion>
             <div ref={composerRef} className="composer-inner">
               <Composer
