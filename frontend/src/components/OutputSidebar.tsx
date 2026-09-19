@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type TransitionEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TransitionEvent } from "react";
 import type { OutputFileDescriptor, OutputFilePreviewResult } from "../../../shell/shared/ipc";
 import {
   canKeepOutputSidebarOpen,
@@ -17,6 +17,8 @@ interface OutputSidebarProps {
   open: boolean;
   files: OutputFileDescriptor[];
   onOpenChange: (open: boolean) => void;
+  activePanel?: "outputs" | "canvas";
+  canvas?: ReactNode;
 }
 
 const WIDTH_KEY = "workbench.outputSidebarWidth";
@@ -30,7 +32,7 @@ function initialWidth(): number {
   return Number.isFinite(value) && value > 0 ? value : OUTPUT_SIDEBAR_DEFAULT_WIDTH;
 }
 
-export function OutputSidebar({ open, files, onOpenChange }: OutputSidebarProps) {
+export function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", canvas }: OutputSidebarProps) {
   const [phase, setPhase] = useState<SidebarPhase>(open ? "open" : "closed");
   const [width, setWidth] = useState(initialWidth);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -197,7 +199,7 @@ export function OutputSidebar({ open, files, onOpenChange }: OutputSidebarProps)
 
   return (
     <aside
-      id="output-sidebar"
+      id="right-sidebar"
       ref={shellRef}
       className={`output-sidebar-shell phase-${phase} ${collapseReady ? "collapse-ready" : ""}`}
       style={{ width: targetWidth }}
@@ -205,9 +207,13 @@ export function OutputSidebar({ open, files, onOpenChange }: OutputSidebarProps)
       onTransitionEnd={finishTransition}
     >
       <div className="output-resizer" role="separator" tabIndex={open ? 0 : -1} aria-orientation="vertical" aria-valuemin={OUTPUT_SIDEBAR_MIN_WIDTH} aria-valuemax={getOutputSidebarMaxWidth(viewportWidth)} aria-valuenow={Math.round(targetWidth)} onPointerDown={startDrag} onDoubleClick={resetWidth} onKeyDown={resizeWithKeyboard} />
-      <div className="output-sidebar-content">
+      <div className={`output-sidebar-content ${activePanel === "canvas" ? "is-canvas" : ""}`}>
         <div className="output-sidebar-header" aria-hidden="true" />
 
+        {activePanel === "canvas" ? (
+          <div className="right-sidebar-canvas">{phase === "closed" ? null : canvas}</div>
+        ) : (
+          <>
         <div ref={fileListRef} className="output-file-list" role="listbox" aria-label="Output files">
           <div className="output-file-layout">
             <div ref={fileContentRef} className="output-file-content">
@@ -232,6 +238,8 @@ export function OutputSidebar({ open, files, onOpenChange }: OutputSidebarProps)
           {!selected && <div className="preview-state">Select a file to preview its content</div>}
           {openError && <p className="preview-open-error" role="alert">{openError}</p>}
         </section>
+          </>
+        )}
       </div>
     </aside>
   );

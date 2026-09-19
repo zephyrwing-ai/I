@@ -36,6 +36,7 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
   const [providerName, setProviderName] = useState(profile?.name ?? "");
   const [baseURL, setBaseURL] = useState(profile?.baseURL ?? "");
   const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
   const [models, setModels] = useState<ModelDraft[]>(() => initialModels(profile));
   const [query, setQuery] = useState("");
   const [discovering, setDiscovering] = useState(false);
@@ -192,10 +193,15 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
           <input type="url" value={baseURL} disabled={locked} onChange={(event) => setBaseURL(event.target.value)} placeholder="https://api.example.com/v1" spellCheck={false} />
         </label>
 
-        <label className="field">
-          <span className="field-label">API Key</span>
-          <input type="password" value={apiKey} disabled={locked} onChange={(event) => setApiKey(event.target.value)} placeholder={profile ? "Leave blank to use saved credentials" : "Enter an API Key"} autoComplete="off" spellCheck={false} />
-        </label>
+        <div className="field">
+          <label className="field-label" htmlFor="provider-api-key">API Key</label>
+          <div className="secret-input-wrap">
+            <input id="provider-api-key" className="secret-input" type={showApiKey ? "text" : "password"} value={apiKey} disabled={locked} onChange={(event) => setApiKey(event.target.value)} placeholder={profile ? "Leave blank to use saved credentials" : "Enter an API Key"} autoComplete="off" spellCheck={false} />
+            <button type="button" className="secret-toggle" onClick={() => setShowApiKey((visible) => !visible)} disabled={locked} aria-label={showApiKey ? "Hide API Key" : "Show API Key"} title={showApiKey ? "Hide API Key" : "Show API Key"}>
+              <Icon name={showApiKey ? "eye-off" : "eye"} width="16" height="16" />
+            </button>
+          </div>
+        </div>
 
         <section className="model-import" aria-label="Model discovery and import">
           <div className="model-import-toolbar">

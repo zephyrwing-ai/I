@@ -52,6 +52,7 @@ IPC 边界。
 - `user_message` 创建 RunState 并使用 entry 的 `createdAt` 作为用户消息时间；`assistant_message` 提供正文、`updatedAt` 映射为 TurnState 的 `assistantAt`、reasoning 和 toolCalls；`tool_result` 通过 toolCallId 关联工具状态。折叠摘要和展开状态由 Renderer 生成，SessionRecorder 继续保存完整事实。
 - 用户向上滚动接近历史顶部时，Renderer 使用 `nextCursor` 请求更早的一页。返回记录插入历史缓存前面，投影层只处理新增记录，滚动锚点通过新增内容高度差保持稳定。
 - MessageStream 直接重构为虚拟渲染消息流。历史缓存保存已加载的页面，MessageStream 只挂载视口附近的可见块和 overscan 块，并使用上下占位维持完整滚动高度。
+- 消息流滚动位置属于 Renderer 的临时阅读状态，不写入 SessionRecorder 或会话数据库；应用首次打开完成 hydrate 后直接瞬时定位到当前会话底部，运行期间仅按消息流的底部跟随规则更新。
 - 历史恢复期间到达的实时 AgentEvent 进入 Renderer 缓冲队列；历史 hydrate 完成后按原顺序回放，历史数据和实时运行共同进入现有 agentReducer 与 MessageStream。
 - 历史分页、历史投影和虚拟渲染属于 Desktop/Renderer 历史交付，Agent Runtime、Provider Adapter、SessionRecorder 和工具执行契约保持原有职责。
 - 分页 DTO、hydrate 状态、投影合并与实时事件竞态以[历史投影](./history-projection.mdx)为准；虚拟窗口和动态高度以[消息流](./message-stream.mdx)为准。

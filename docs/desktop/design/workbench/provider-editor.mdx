@@ -7,7 +7,7 @@
 - 字段间距：12px。
 - 提供商名称：文本输入，Placeholder 为例如 OpenAI。
 - API Base URL：URL 输入，Placeholder 为 https://api.example.com/v1，关闭拼写检查。
-- API Key：密码输入，关闭自动补全和拼写检查。新建时 Placeholder 为输入 API Key，编辑时 Placeholder 为留空使用已保存凭据。
+- API Key：密码输入，关闭自动补全和拼写检查；右侧提供 eye/eye-off 按钮切换当前输入内容的显示状态。新建时 Placeholder 为输入 API Key，编辑时 Placeholder 为留空使用已保存凭据；已保存凭据不会回显，保存后由 Main 使用 Electron `safeStorage` 加密写入 Provider JSON。
 - 草稿：连接内容和模型选择属于编辑草稿，保存成功前保留在 Renderer 本地，与已保存数据分离。
 - 初始焦点：进入编辑视图时焦点直接落在提供商名称输入框。
 - 禁用状态：保存中或发现模型期间，字段和模型选择全部禁用。

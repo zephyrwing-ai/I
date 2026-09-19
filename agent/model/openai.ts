@@ -32,6 +32,7 @@ function toOpenAITool(t: ToolDef): OpenAI.Chat.Completions.ChatCompletionTool {
 export interface OpenAIConfig {
   baseURL?: string;   // DeepSeek: "https://api.deepseek.com"
   apiKey?: string;    // 不传则从 DEEPSEEK_API_KEY 或 OPENAI_API_KEY 环境变量读取
+  apiKeyProvider?: () => Promise<string>;
   model?: string;     // 默认 "deepseek-chat"
   /** DeepSeek 等 Provider 使用的 assistant 思考字段；未声明时不添加非标准字段。 */
   reasoningField?: "reasoning_content";
@@ -70,6 +71,13 @@ export function toOpenAIMessages(
           }));
         }
         return assistant as unknown as OpenAI.Chat.Completions.ChatCompletionMessageParam;
+      }
+      if (message.media) {
+        const content = [
+          { type: "text" as const, text: message.content },
+          { type: "image_url" as const, image_url: { url: message.media.dataUrl } },
+        ];
+        return { role: message.role, content } as unknown as OpenAI.Chat.Completions.ChatCompletionMessageParam;
       }
       return { role: message.role, content: message.content };
     }),
@@ -155,7 +163,9 @@ export async function* streamOpenAI(
   system = "",
   signal?: AbortSignal,
 ): AsyncGenerator<ModelStreamEvent> {
-  const apiKey = config.apiKey ?? process.env.DEEPSEEK_API_KEY ?? process.env.OPENAI_API_KEY;
+  const apiKey = config.apiKeyProvider
+    ? await config.apiKeyProvider()
+    : config.apiKey ?? process.env.DEEPSEEK_API_KEY ?? process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new ModelAdapterError(
       "config",

@@ -7,18 +7,20 @@ import { Composer } from "./middle-column/composer/Composer";
 import { TopBar, SearchPopover } from "./components/TopBar";
 import { ConfigPanel } from "./components/ConfigPanel";
 import { OutputSidebar } from "./components/OutputSidebar";
+import { CanvasPanel } from "./components/CanvasPanel";
 import { useFloatingPanel } from "./hooks/useFloatingPanel";
 import { useSessionHistory } from "./hooks/useSessionHistory";
 import { useGlobalSearch } from "./hooks/useGlobalSearch";
 import { agentReducer, initialAgentState } from "./store/agentReducer";
 import { useProviderCatalog } from "./store/providerCatalog";
-import type { AgentEvent, RunRequest } from "../../shell/shared/ipc";
+import type { AgentEvent, CanvasContextDescriptor, RunRequest } from "../../shell/shared/ipc";
 
 export default function App() {
   const [state, dispatch] = useReducer(agentReducer, initialAgentState);
   const catalog = useProviderCatalog();
   const [configOpen, setConfigOpen] = useState(false);
-  const [outputOpen, setOutputOpen] = useState(false);
+  const [sidebarPanel, setSidebarPanel] = useState<"outputs" | "canvas" | null>(null);
+  const [canvasContexts, setCanvasContexts] = useState<CanvasContextDescriptor[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const eventQueue = useRef<AgentEvent[]>([]);
   const hydrationEventQueue = useRef<AgentEvent[]>([]);
@@ -39,6 +41,8 @@ export default function App() {
   const stopping = state.status === "stopping";
   const currentRun = state.currentRunId ? state.runs[state.currentRunId] : undefined;
   const outputFiles = currentRun?.outputFileOrder.map((id) => currentRun.outputFiles[id]).filter(Boolean) ?? [];
+  const outputOpen = sidebarPanel === "outputs";
+  const canvasOpen = sidebarPanel === "canvas";
   useEffect(() => {
     if (!window.agentAPI || typeof window.agentAPI.onEvent !== "function") return;
     const offEvent = window.agentAPI.onEvent((event) => {
@@ -123,7 +127,7 @@ export default function App() {
     const element = streamRef.current;
     if (!element) return;
     const max = element.scrollHeight - element.clientHeight;
-    if (max - element.scrollTop < 8) element.scrollTop = element.scrollHeight;
+    if (max - element.scrollTop < 8) element.scrollTo({ top: element.scrollHeight, behavior: "instant" });
   }, [composerHeight]);
 
   useEffect(() => {
@@ -166,11 +170,13 @@ export default function App() {
       <TopBar
         outputOpen={outputOpen}
         outputCount={outputFiles.length}
+        canvasOpen={canvasOpen}
         searchOpen={searchOpen}
         settingsOpen={configOpen}
         searchButtonRef={searchButtonRef}
         settingsButtonRef={settingsButtonRef}
-        onOutput={() => setOutputOpen((value) => !value)}
+        onOutput={() => setSidebarPanel((value) => value === "outputs" ? null : "outputs")}
+        onCanvas={() => setSidebarPanel((value) => value === "canvas" ? null : "canvas")}
         onSearch={() => setSearchOpen((value) => !value)}
         onSettings={() => setConfigOpen((value) => !value)}
       />
@@ -217,12 +223,21 @@ export default function App() {
                 modelLoading={catalog.loading}
                 onRun={handleRun}
                 onStop={handleStop}
+                canvasContexts={canvasContexts}
+                onRemoveCanvasContext={(contextId) => setCanvasContexts((current) => current.filter((context) => context.contextId !== contextId))}
+                onClearCanvasContexts={() => setCanvasContexts([])}
               />
             </div>
           </Column>
         </section>
       </div>
-      <OutputSidebar open={outputOpen} files={outputFiles} onOpenChange={setOutputOpen} />
+      <OutputSidebar
+        open={sidebarPanel !== null}
+        activePanel={sidebarPanel ?? "outputs"}
+        files={outputFiles}
+        onOpenChange={(open) => { if (!open) setSidebarPanel(null); }}
+        canvas={<CanvasPanel onContextPrepared={(descriptor) => setCanvasContexts((current) => [...current, descriptor])} />}
+      />
 
       {settingsPanel.mounted && (
         <div ref={settingsPanel.panelRef} className={`config-floating phase-${settingsPanel.phase}`} onTransitionEnd={settingsPanel.onTransitionEnd}>

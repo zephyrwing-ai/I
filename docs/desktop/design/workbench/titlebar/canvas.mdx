@@ -1,0 +1,60 @@
+Canvas 按钮。
+
+- 位置：标题栏操作区第二位，位于输出文件按钮右侧、搜索按钮左侧。
+- 尺寸：热区30乘30px，圆角8px。
+- 材料：透明背景，次要文字颜色；悬停和激活状态使用悬停反馈颜色和主要文字颜色。
+- 图标：line-squiggle 语义图标18px，使用2px描边、圆角端点和 currentColor。
+- 交互：触发后将右侧工作侧栏切换到 Canvas 面板；Canvas 已显示时触发关闭侧栏。按钮使用 `aria-expanded` 表示 Canvas 面板是否打开，并以 `aria-controls` 关联右侧工作侧栏。
+- 处理位置：按钮只修改 Renderer 的侧栏目标状态，不读取或修改画布内容。
+
+Canvas 面板。
+
+- 位置：位于右侧工作侧栏的内容区域，顶部保留50px安全区给标题栏按钮组和窗口操作区域。
+- 布局：宿主工具条位于画布上方；Excalidraw 占据工具条以下的全部可用高度，Canvas 面板自身不产生外层滚动。
+- 工具条：显示 Canvas 名称和保存状态；右侧提供使用选区与使用整个画布两个引用入口。
+- 使用选区：没有选中元素时禁用；触发后只引用当前非删除选区。
+- 使用整个画布：画布没有非删除元素时禁用；触发后引用当前全部非删除元素。
+- 关闭：侧栏关闭到零宽后不初始化新的编辑器实例；再次打开时在具有确定非零尺寸的容器中恢复编辑器。
+- 滚轮：Canvas 保留 Excalidraw 的平移、缩放和选择行为，不接入消息流或输出文件列表的弹性滚动。
+- 安全：初期关闭远程 embeddable 内容和 Excalidraw 内置的 Load、Save、Export、Save image 操作；宿主未来的导入导出统一通过 Main 和受控文件对话框实现。
+
+Canvas 持久化。
+
+- 范围：Canvas 属于当前会话，不属于当前 Run 的输出文件范围。
+- 文档：场景元素、可恢复 AppState 和图片文件元数据组成一个 CanvasDocument。
+- 图片：图片二进制与场景元数据分开保存，以 fileId 关联；不写入 SessionRecorder 的会话消息 payload。
+- 保存：Renderer 只通过 Preload 暴露的受限 IPC 读写文档。Main 负责路径、输入验证、原子替换、revision 和图片资源目录；Renderer 不直接获得用户目录路径。
+- 恢复：打开 Canvas 时从当前会话文档恢复；编辑器内存不构成跨关闭或重启的持久化来源。
+- 剪贴板：普通文字、截图和本地图片按 Excalidraw 原生粘贴行为处理；富文本聊天内容中的远程图片与文字不承诺一次粘贴完整保真。
+
+Canvas 引用。
+
+- 默认：Canvas 内容不自动进入任何模型请求。
+- 创建：用户点击使用选区或使用整个画布后，Main 固化当前 revision，并返回一个不透明的 contextId、元素数量、图片数量和视觉快照标识。
+- Composer：引用以可删除 chip 显示在任务输入上方。用户删除 chip 时，下一次 Run 不携带对应 contextId。
+- 冻结：创建引用后继续编辑 Canvas 不会修改已经附加的 snapshot；需要新内容时再次创建引用。
+- 内容：snapshot 由结构层和视觉层组成。结构层提供文本节点、元素类型、元素 ID、空间排序和可识别绑定关系；视觉层为选区或完整 Canvas 的 PNG 快照。
+- 语义：结构层只记录确定性事实，不把箭头、布局或手绘图形伪装成已经完成的语义理解。
+
+Canvas 上下文链路。
+
+1. CanvasPanel 向 Main 请求准备上下文，提交当前 CanvasDocument、引用范围、选中元素 ID 和可选 PNG。
+2. Main 校验输入并持久化 CanvasDocument，使用稳定 revision 生成短生命周期 contextId。
+3. Composer 在用户发送时只提交 contextId，不提交原始场景 JSON、图片 base64 或本地文件路径。
+4. Main 在启动 Run 时消费 contextId，并将冻结的结构文本和视觉快照交给 Runner。
+5. Runtime 将上下文只放入本次 Run 的内存 messages，顺序为已提交历史、Canvas snapshot、本次真实用户消息。
+6. Adapter 将视觉快照映射为 Provider 支持的 user text 与 image 输入；Adapter 不决定引用策略，也不写入会话存储。
+
+运行边界。
+
+- Canvas snapshot 不调用 `SessionRecorder.commitUser`，不进入会话消息快照。
+- 同一 Run 的模型重试和工具续轮继续使用同一个冻结 snapshot。
+- 下一次 Run 从 Recorder 历史恢复时不自动携带上一次 Canvas 内容。
+- 没有视觉能力的模型必须被明确告知图片不可用；界面和请求层不能静默宣称模型已经理解图片。
+
+非目标。
+
+- 不做多人实时协作。
+- 不把完整 Excalidraw JSON 或图片 base64 拼进任务文本。
+- 不把 Canvas 混入输出文件注册表或当前运行产物状态。
+- 不通过普通 `read_canvas` 工具实现第一版按需读取；普通工具结果进入既有持久化链路，不能自然满足一次性 Canvas 上下文语义。

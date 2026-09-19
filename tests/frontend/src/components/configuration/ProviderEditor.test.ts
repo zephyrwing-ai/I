@@ -84,6 +84,7 @@ test("a new provider starts as an isolated empty draft that cannot be fetched or
   assert.ok(apiKey.includes('type="password"'));
   assert.ok(apiKey.includes('value=""'));
   assert.ok(apiKey.includes('autoComplete="off"'));
+  assert.match(html, /aria-label="Show API Key"/);
   assert.ok(html.includes("No models yet. Fetch the model list first."), html);
   assert.ok(html.includes("Selected 0/0 models"), html);
   assert.ok(buttonWithText(html, "Fetch model list").includes('disabled=""'));
@@ -99,6 +100,7 @@ test("editing loads saved connection and model state while keeping the credentia
   const apiKey = inputBy(html, 'placeholder="Leave blank to use saved credentials"');
   assert.ok(apiKey.includes('value=""'));
   assert.ok(!html.includes("credentialConfigured"), html);
+  assert.match(html, /aria-label="Show API Key"/);
 
   assert.ok(html.includes("Loaded saved models."), html);
   assert.ok(html.includes("Selected 3/3 models"), html);
