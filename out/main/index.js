@@ -1,7 +1,7 @@
 import { app, safeStorage, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { resolve, basename, relative, sep, extname, dirname, isAbsolute, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { randomUUID, createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { realpath, stat, readFile, open, mkdir, writeFile, rename, opendir, lstat, readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -20,6 +20,9 @@ const IPC = {
   saveProvider: "providers:save",
   deleteProvider: "providers:delete",
   selectAttachments: "attachments:select",
+  loadCanvasDocument: "canvas:load-document",
+  saveCanvasDocument: "canvas:save-document",
+  prepareCanvasContext: "canvas:prepare-context",
   previewOutputFile: "output-files:preview",
   openOutputFile: "output-files:open"
 };
@@ -417,7 +420,7 @@ function firstString(...values) {
   }
   return "";
 }
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 const PROVIDERS = /* @__PURE__ */ new Set(["openai"]);
 class ProviderStore {
   constructor(filePath, codec) {
@@ -432,7 +435,7 @@ class ProviderStore {
   mutation = Promise.resolve();
   async list() {
     await this.ensureLoaded();
-    return this.profiles.map((profile) => this.toSummary(profile));
+    return Promise.all(this.profiles.map((profile) => this.toSummary(profile)));
   }
   async save(input) {
     return this.serialize(async () => {
@@ -440,11 +443,11 @@ class ProviderStore {
       const normalized = normalizeInput(input);
       const existingIndex = normalized.providerProfileId ? this.profiles.findIndex((profile2) => profile2.providerProfileId === normalized.providerProfileId) : -1;
       const existing = existingIndex >= 0 ? this.profiles[existingIndex] : void 0;
-      if (!existing && !normalized.apiKey) throw new Error("A new provider requires an API Key.");
+      const providerProfileId = existing?.providerProfileId ?? normalized.providerProfileId ?? randomUUID();
       const encryptedApiKey = this.resolveEncryptedSecret(normalized.apiKey, existing);
       const previousModels = new Map(existing?.models.map((model) => [model.modelId, model]) ?? []);
       const profile = {
-        providerProfileId: existing?.providerProfileId ?? randomUUID(),
+        providerProfileId,
         provider: inferProviderFromBaseURL(),
         name: normalized.name,
         baseURL: normalized.baseURL,
@@ -490,7 +493,7 @@ class ProviderStore {
         provider: profile.provider,
         modelId: model.modelId,
         baseURL: profile.baseURL,
-        apiKey: this.decryptSecret(profile)
+        getApiKey: () => this.requireCredential(profile.providerProfileId)
       };
     }
     throw new Error("The selected model does not exist or is unavailable. Choose another model.");
@@ -500,7 +503,7 @@ class ProviderStore {
     const baseURL = normalizeBaseURL(input.baseURL);
     const existing = input.providerProfileId ? this.profiles.find((profile) => profile.providerProfileId === input.providerProfileId) : void 0;
     if (input.providerProfileId && !existing) throw new Error("The provider does not exist or has already been deleted.");
-    const apiKey = input.apiKey?.trim() || (existing ? this.decryptSecret(existing) : "");
+    const apiKey = input.apiKey?.trim() || (existing ? await this.requireCredential(existing.providerProfileId) : "");
     if (!apiKey) throw new Error("Enter an API Key.");
     return { provider: inferProviderFromBaseURL(), baseURL, apiKey };
   }
@@ -508,7 +511,7 @@ class ProviderStore {
     await this.ensureLoaded();
     const profile = this.profiles.find((candidate) => candidate.providerProfileId === providerProfileId);
     if (!profile) throw new Error("The provider does not exist or has already been deleted.");
-    return { provider: profile.provider, baseURL: profile.baseURL, apiKey: this.decryptSecret(profile) };
+    return { provider: profile.provider, baseURL: profile.baseURL, apiKey: await this.requireCredential(profile.providerProfileId) };
   }
   async applyRefresh(providerProfileId, discovered) {
     return this.serialize(async () => {
@@ -536,24 +539,6 @@ class ProviderStore {
       return this.toSummary(refreshed);
     });
   }
-  resolveEncryptedSecret(apiKey, existing) {
-    if (!apiKey) {
-      if (!existing?.encryptedApiKey) throw new Error("The provider has no usable credentials.");
-      return existing.encryptedApiKey;
-    }
-    if (!this.codec.available()) throw new Error("System credential encryption is currently unavailable. The API Key was not saved.");
-    return this.codec.encrypt(apiKey);
-  }
-  decryptSecret(profile) {
-    if (!this.codec.available()) throw new Error("System credential decryption is currently unavailable.");
-    try {
-      const apiKey = this.codec.decrypt(profile.encryptedApiKey);
-      if (!apiKey) throw new Error("empty secret");
-      return apiKey;
-    } catch (error) {
-      throw new Error(`The credentials for provider ${profile.name} could not be decrypted. Configure it again.`, { cause: error });
-    }
-  }
   async serialize(operation) {
     const previous = this.mutation;
     let release = () => void 0;
@@ -576,7 +561,7 @@ class ProviderStore {
     let completed = false;
     try {
       const parsed = JSON.parse(await readFile(this.filePath, "utf8"));
-      if (parsed.version === STORE_VERSION && Array.isArray(parsed.profiles)) {
+      if ((parsed.version === STORE_VERSION || parsed.version === 2) && Array.isArray(parsed.profiles)) {
         this.profiles = parsed.profiles.filter(isStoredProfile).map(normalizeStoredProfile);
       } else if (parsed.version === 1 && Array.isArray(parsed.profiles)) {
         this.profiles = parsed.profiles.filter(isLegacyStoredProfile).map(migrateLegacyProfile).map(normalizeStoredProfile);
@@ -599,7 +584,7 @@ class ProviderStore {
 `, { encoding: "utf8", mode: 384 });
     await rename(temporaryPath, this.filePath);
   }
-  toSummary(profile) {
+  async toSummary(profile) {
     const credentialConfigured = Boolean(profile.encryptedApiKey);
     const credentialAvailable = credentialConfigured && this.codec.available();
     return {
@@ -618,6 +603,30 @@ class ProviderStore {
         state: model.state
       }))
     };
+  }
+  resolveEncryptedSecret(apiKey, existing) {
+    if (!apiKey) {
+      if (!existing?.encryptedApiKey) throw new Error("A provider requires an API Key.");
+      return existing.encryptedApiKey;
+    }
+    if (!this.codec.available()) throw new Error("System credential encryption is currently unavailable. The API Key was not saved.");
+    return this.codec.encrypt(apiKey);
+  }
+  async requireCredential(providerProfileId) {
+    await this.ensureLoaded();
+    const profile = this.profiles.find((candidate) => candidate.providerProfileId === providerProfileId);
+    if (!profile?.encryptedApiKey) throw new Error("No API Key is configured for this provider. Open Settings and enter one.");
+    return this.decryptSecret(profile);
+  }
+  decryptSecret(profile) {
+    if (!this.codec.available()) throw new Error("System credential decryption is currently unavailable.");
+    try {
+      const apiKey = this.codec.decrypt(profile.encryptedApiKey ?? "");
+      if (!apiKey) throw new Error("empty secret");
+      return apiKey;
+    } catch (error) {
+      throw new Error(`The credentials for provider ${profile.name} could not be decrypted. Configure it again.`, { cause: error });
+    }
   }
 }
 function normalizeInput(input) {
@@ -658,7 +667,7 @@ function normalizeBaseURL(value) {
 function isStoredProfile(value) {
   if (!value || typeof value !== "object") return false;
   const profile = value;
-  return typeof profile.providerProfileId === "string" && PROVIDERS.has(profile.provider) && typeof profile.name === "string" && typeof profile.baseURL === "string" && typeof profile.encryptedApiKey === "string" && Array.isArray(profile.models) && profile.models.every(isStoredModel);
+  return typeof profile.providerProfileId === "string" && PROVIDERS.has(profile.provider) && typeof profile.name === "string" && typeof profile.baseURL === "string" && Array.isArray(profile.models) && profile.models.every(isStoredModel);
 }
 function isStoredModel(value) {
   if (!value || typeof value !== "object") return false;
@@ -705,7 +714,7 @@ class ModelAdapterError extends Error {
 async function* response(config, messages, system, tools, signal) {
   switch (config.provider) {
     case "openai": {
-      const { streamOpenAI } = await import("./openai-JAa46a-v.js");
+      const { streamOpenAI } = await import("./openai-CUJLlNeC.js");
       yield* streamOpenAI(messages, tools, { model: config.model, ...config.openai }, system, signal);
       return;
     }
@@ -849,7 +858,7 @@ async function run(task, modelConfig, config, events = {}) {
   } catch (error) {
     return finish("failed", toAgentError(error));
   }
-  messages.push(userMessage);
+  messages.push(...config.runScopedContext ?? [], userMessage);
   events.onRunStart?.({ runId: config.runId, startedAt });
   while (true) {
     if (config.signal?.aborted) return finish("cancelled");
@@ -2088,7 +2097,7 @@ class AgentRunner {
     if (this.active) throw new Error("A run is already in progress. Stop the current task first.");
     this.active = true;
     this.controller = new AbortController();
-    const runId = randomUUID();
+    const runId = req.runId ?? randomUUID();
     if (this.createSessionRecorder && !req.sessionId) {
       this.markIdle();
       throw new Error("The run request is missing a session identity.");
@@ -2141,7 +2150,7 @@ class AgentRunner {
       model: req.modelId,
       openai: {
         baseURL: req.baseURL,
-        apiKey: req.apiKey,
+        apiKeyProvider: req.getApiKey,
         reasoningField: req.baseURL?.toLowerCase().includes("deepseek") ? "reasoning_content" : void 0
       }
     };
@@ -2152,7 +2161,8 @@ class AgentRunner {
         cwd: req.cwd,
         tools: createToolRegistry(createLocalBashOps()),
         signal: this.controller.signal,
-        recorder
+        recorder,
+        runScopedContext: req.runScopedContext?.map(toModelMessage)
       }, events).catch((error) => {
         emitOnce({ type: "runCompleted", runId, status: "failed", turnCount: 0, error: { kind: "runtime", message: error instanceof Error ? error.message : String(error) } });
       });
@@ -2168,6 +2178,13 @@ class AgentRunner {
     for (const resolve2 of this.idleResolvers) resolve2();
     this.idleResolvers.clear();
   }
+}
+function toModelMessage(context) {
+  return {
+    role: "user",
+    content: context.text,
+    ...context.visual ? { media: { mediaType: context.visual.mediaType, dataUrl: context.visual.dataURL } } : {}
+  };
 }
 function toPublicToolResult(result) {
   return {
@@ -2264,6 +2281,199 @@ class SessionHistoryService {
       snapshotSeq: Math.max(0, session.nextEntrySeq - 1)
     };
   }
+}
+const CONTEXT_TTL_MS = 10 * 60 * 1e3;
+const MAX_CONTEXT_TEXT = 12e3;
+const MAX_CONTEXTS = 32;
+class CanvasContextRegistry {
+  constructor(documentStore) {
+    this.documentStore = documentStore;
+  }
+  documentStore;
+  contexts = /* @__PURE__ */ new Map();
+  async load() {
+    return this.documentStore.load();
+  }
+  async save(document) {
+    return this.documentStore.save(document);
+  }
+  async prepare(input) {
+    if (input.scope !== "selection" && input.scope !== "document") throw new Error("The canvas context scope is invalid.");
+    if (input.visual && (!input.visual.dataURL.startsWith("data:image/png;base64,") || input.visual.dataURL.length > 8 * 1024 * 1024)) {
+      throw new Error("The canvas visual snapshot is invalid or too large.");
+    }
+    const revision = await this.documentStore.save(input.document);
+    const allElements = input.document.elements.filter((element) => element.deleted !== true && element.isDeleted !== true);
+    const selectedIds = new Set(input.selectedElementIds);
+    const elements = input.scope === "selection" ? allElements.filter((element) => typeof element.id === "string" && selectedIds.has(element.id)) : allElements;
+    const imageCount = elements.filter((element) => element.type === "image" || typeof element.fileId === "string").length;
+    const descriptor = {
+      contextId: randomUUID(),
+      label: input.scope === "selection" ? `Canvas selection · ${elements.length} elements` : `Canvas · ${elements.length} elements`,
+      scope: input.scope,
+      elementCount: elements.length,
+      imageCount,
+      revision,
+      hasVisual: Boolean(input.visual)
+    };
+    const text = summarizeCanvas(elements, revision, input.scope);
+    this.contexts.set(descriptor.contextId, {
+      context: { descriptor, text, ...input.visual ? { visual: input.visual } : {} },
+      expiresAt: Date.now() + CONTEXT_TTL_MS
+    });
+    this.prune();
+    while (this.contexts.size > MAX_CONTEXTS) {
+      const oldest = this.contexts.keys().next().value;
+      if (!oldest) break;
+      this.contexts.delete(oldest);
+    }
+    return descriptor;
+  }
+  takeMany(ids) {
+    this.prune();
+    const unique = [...new Set(ids)];
+    const records = unique.map((id) => {
+      const record = this.contexts.get(id);
+      if (!record) throw new Error("The canvas reference expired. Add it to the message again.");
+      return { id, record };
+    });
+    const contexts = [];
+    for (const { id, record } of records) {
+      contexts.push(record.context);
+      this.contexts.delete(id);
+    }
+    return contexts;
+  }
+  prune() {
+    const now2 = Date.now();
+    for (const [id, record] of this.contexts) if (record.expiresAt <= now2) this.contexts.delete(id);
+  }
+}
+function summarizeCanvas(elements, revision, scope) {
+  const lines = [`Canvas context (revision ${revision}, ${scope}).`, "Use this as visual working context for this run only:"];
+  const sorted = [...elements].sort((a, b) => numberValue(a.y) - numberValue(b.y) || numberValue(a.x) - numberValue(b.x));
+  for (const element of sorted) {
+    const type = typeof element.type === "string" ? element.type : "element";
+    const id = typeof element.id === "string" ? element.id : "unknown";
+    const text = typeof element.text === "string" ? ` text=${JSON.stringify(element.text.slice(0, 1e3))}` : "";
+    const label = typeof element.label === "string" ? ` label=${JSON.stringify(element.label.slice(0, 300))}` : "";
+    const relation = element.startBinding || element.endBinding ? ` bindings=${JSON.stringify({ start: element.startBinding, end: element.endBinding })}` : "";
+    lines.push(`- ${type}#${id}${text}${label}${relation}`);
+    if (lines.join("\n").length >= MAX_CONTEXT_TEXT) break;
+  }
+  return lines.join("\n").slice(0, MAX_CONTEXT_TEXT);
+}
+function numberValue(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+const MAX_ELEMENTS = 2e4;
+const MAX_FILES = 1e3;
+const MAX_FILE_BYTES = 4 * 1024 * 1024;
+class CanvasDocumentStore {
+  directory;
+  documentPath;
+  revision = 0;
+  constructor(userDataPath, sessionId) {
+    const safeSessionId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    this.directory = join(userDataPath, "canvases", safeSessionId);
+    this.documentPath = join(this.directory, "scene.json");
+  }
+  async load() {
+    let serialized;
+    try {
+      serialized = await readFile(this.documentPath, "utf8");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      this.revision = 0;
+      return { document: emptyCanvasDocument(), revision: 0 };
+    }
+    const stored = JSON.parse(serialized);
+    const files = {};
+    for (const [id, file] of Object.entries(stored.files ?? {})) {
+      const assetPath = this.assetPath(id, file.mimeType);
+      const asset = await readFile(assetPath);
+      files[id] = { ...file, dataURL: toDataURL(file.mimeType, asset) };
+    }
+    this.revision = Number.isSafeInteger(stored.revision) && stored.revision >= 0 ? stored.revision : 0;
+    return {
+      document: {
+        elements: Array.isArray(stored.elements) ? stored.elements : [],
+        appState: isObject(stored.appState) ? stored.appState : {},
+        files
+      },
+      revision: this.revision
+    };
+  }
+  async save(document) {
+    validateDocument(document);
+    await mkdir(this.directory, { recursive: true });
+    const storedFiles = {};
+    for (const [id, file] of Object.entries(document.files)) {
+      const metadata = {
+        id,
+        mimeType: file.mimeType,
+        created: file.created,
+        ...file.lastRetrieved === void 0 ? {} : { lastRetrieved: file.lastRetrieved },
+        ...file.version === void 0 ? {} : { version: file.version }
+      };
+      storedFiles[id] = metadata;
+      if (file.dataURL) {
+        const bytes = decodeDataURL(file.dataURL, file.mimeType);
+        const assetPath = this.assetPath(id, file.mimeType);
+        const assetTempPath = `${assetPath}.${process.pid}.tmp`;
+        await writeFile(assetTempPath, bytes);
+        await rename(assetTempPath, assetPath);
+      } else {
+        await stat(this.assetPath(id, file.mimeType));
+      }
+    }
+    const nextRevision = this.revision + 1;
+    const stored = {
+      revision: nextRevision,
+      elements: document.elements,
+      appState: document.appState,
+      files: storedFiles
+    };
+    const tempPath = `${this.documentPath}.${process.pid}.tmp`;
+    await writeFile(tempPath, JSON.stringify(stored), "utf8");
+    await rename(tempPath, this.documentPath);
+    this.revision = nextRevision;
+    return nextRevision;
+  }
+  assetPath(id, mimeType) {
+    const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin";
+    return join(this.directory, `${id}.${extension}`);
+  }
+}
+function emptyCanvasDocument() {
+  return { elements: [], appState: {}, files: {} };
+}
+function validateDocument(document) {
+  if (!document || !Array.isArray(document.elements) || document.elements.length > MAX_ELEMENTS) {
+    throw new Error("The canvas scene is invalid or too large.");
+  }
+  if (!isObject(document.appState) || !isObject(document.files) || Object.keys(document.files).length > MAX_FILES) {
+    throw new Error("The canvas state is invalid.");
+  }
+  for (const [id, file] of Object.entries(document.files)) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(id) || !file || !file.mimeType.startsWith("image/")) {
+      throw new Error("The canvas contains an unsupported image asset.");
+    }
+    if (file.dataURL) decodeDataURL(file.dataURL, file.mimeType);
+  }
+}
+function decodeDataURL(dataURL, mimeType) {
+  const match = /^data:([^;,]+);base64,([a-z0-9+/=\r\n]+)$/i.exec(dataURL);
+  if (!match || match[1].toLowerCase() !== mimeType.toLowerCase()) throw new Error("The canvas image data is invalid.");
+  const bytes = Buffer.from(match[2].replace(/\s/g, ""), "base64");
+  if (bytes.byteLength > MAX_FILE_BYTES) throw new Error("A canvas image is larger than 4 MB.");
+  return bytes;
+}
+function toDataURL(mimeType, bytes) {
+  return `data:${mimeType};base64,${bytes.toString("base64")}`;
+}
+function isObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 const SCHEMA_VERSION = 3;
 function initializeSchema(database) {
@@ -3162,7 +3372,7 @@ function createWindow() {
   });
   return win;
 }
-function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId, sessionHistory) {
+function registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, sessionId, sessionHistory) {
   const discoveryControllers = /* @__PURE__ */ new Map();
   ipcMain.handle(IPC.run, async (event, req) => {
     try {
@@ -3173,7 +3383,10 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId
       if (!modelOptionId) return { ok: false, error: "Choose a model." };
       const attachments = await inputAttachments.resolve(Array.isArray(req.attachmentIds) ? req.attachmentIds : []);
       const resolved = await providers.resolve(modelOptionId);
-      const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, sessionId, ...resolved }, (payload) => {
+      const runId = randomUUID();
+      const canvasContextIds = Array.isArray(req.canvasContextIds) ? req.canvasContextIds.filter((id) => typeof id === "string") : [];
+      const resolvedCanvasContexts = canvasContexts.takeMany(canvasContextIds);
+      const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, sessionId, runId, runScopedContext: resolvedCanvasContexts, ...resolved }, (payload) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
@@ -3252,6 +3465,15 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, sessionId
     const result = await dialog.showOpenDialog(win, { properties: ["openFile", "multiSelections"] });
     return result.canceled ? [] : inputAttachments.register(result.filePaths);
   });
+  ipcMain.handle(IPC.loadCanvasDocument, async () => {
+    return canvasContexts.load();
+  });
+  ipcMain.handle(IPC.saveCanvasDocument, async (_event, document) => {
+    return { revision: await canvasContexts.save(document) };
+  });
+  ipcMain.handle(IPC.prepareCanvasContext, async (_event, input) => {
+    return canvasContexts.prepare(input);
+  });
   ipcMain.handle(IPC.previewOutputFile, async (_event, runId, fileId) => {
     if (typeof runId !== "string" || typeof fileId !== "string" || !runId || !fileId) {
       return { ok: false, error: "invalid_request", message: "The output file identity is missing." };
@@ -3288,12 +3510,13 @@ app.whenReady().then(async () => {
   );
   const outputFiles = new OutputFileRegistry();
   const inputAttachments = new InputAttachmentRegistry();
+  const canvasContexts = new CanvasContextRegistry(new CanvasDocumentStore(app.getPath("userData"), activeSession.id));
   const createRecorder = (sessionId) => {
     if (sessionId !== activeSession.id) throw new Error("The current session is not loaded.");
     return recorder;
   };
   const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts), createRecorder);
-  registerIpc(runner, providers, outputFiles, inputAttachments, activeSession.id, sessionHistory);
+  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, activeSession.id, sessionHistory);
   createWindow();
   app.on("before-quit", (event) => {
     if (closing) return;

@@ -20,13 +20,14 @@ function renderTopBar(patch: Partial<Parameters<typeof TopBar>[0]> = {}): string
   }));
 }
 
-test("TopBar exposes the workbench heading and three named actions", () => {
+test("TopBar exposes the workbench heading and four named actions", () => {
   const html = renderTopBar();
 
   assert.match(html, /<h1 class="sr-only">Agent Workbench<\/h1>/);
-  assert.equal(html.match(/<button/g)?.length, 3);
-  assert.match(html, /aria-label="Show output files"[^>]*aria-expanded="false"[^>]*aria-controls="output-sidebar"/);
+  assert.equal(html.match(/<button/g)?.length, 4);
+  assert.match(html, /aria-label="Show output files"[^>]*aria-expanded="false"[^>]*aria-controls="right-sidebar"/);
   assert.match(html, /d="M16 6v12"/);
+  assert.match(html, /aria-label="Show canvas"[^>]*aria-expanded="false"[^>]*aria-controls="right-sidebar"/);
   assert.match(html, /aria-label="Search all content"[^>]*aria-expanded="false"[^>]*aria-controls="search-popover"/);
   assert.match(html, /aria-label="Settings"[^>]*aria-expanded="false"/);
 });

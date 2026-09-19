@@ -11,7 +11,7 @@ const codec: SecretCodec = {
   decrypt: (payload) => Buffer.from(payload, "base64").toString("utf8").replace(/^encrypted:/, ""),
 };
 
-test("ProviderStore encrypts credentials and preserves imported model identities", async () => {
+test("ProviderStore encrypts credentials in the provider file and preserves imported model identities", async () => {
   const directory = await mkdtemp(join(tmpdir(), "agent-studio-provider-"));
   const file = join(directory, "providers.json");
   try {
@@ -27,9 +27,10 @@ test("ProviderStore encrypts credentials and preserves imported model identities
     assert.equal(created.models[0].imported, true);
     assert.equal(created.models[0].state, "saved");
     assert.equal((await readFile(file, "utf8")).includes("secret-key"), false);
+    assert.equal(typeof (JSON.parse(await readFile(file, "utf8")) as { profiles: Array<Record<string, unknown>> }).profiles[0]?.encryptedApiKey, "string");
 
     const resolved = await store.resolve(created.models[0].modelOptionId);
-    assert.equal(resolved.apiKey, "secret-key");
+    assert.equal(await resolved.getApiKey(), "secret-key");
     assert.equal(resolved.modelId, "model-a");
     assert.equal(resolved.provider, "openai");
     const discoveryConnection = await store.discoveryConnection({
@@ -113,6 +114,7 @@ test("ProviderStore migrates version one profiles without exposing credentials",
     assert.equal(profiles[0].name, "Legacy");
     assert.equal(profiles[0].models[0].imported, true);
     assert.equal(JSON.stringify(profiles).includes("legacy-secret"), false);
+    assert.equal((JSON.parse(await readFile(file, "utf8")) as { version: number }).version, 1);
     assert.equal((await store.resolve("legacy-model")).provider, "openai");
     await assert.rejects(() => store.resolve("legacy-anthropic-model"), /does not exist|unavailable/);
   } finally {

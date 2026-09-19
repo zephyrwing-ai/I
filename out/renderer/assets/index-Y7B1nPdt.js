@@ -1,3 +1,24 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./index-BNoxYV0T.css"])))=>i.map(i=>d[i]);
+function _mergeNamespaces(n, m) {
+  for (var i = 0; i < m.length; i++) {
+    const e = m[i];
+    if (typeof e !== "string" && !Array.isArray(e)) {
+      for (const k in e) {
+        if (k !== "default" && !(k in n)) {
+          const d = Object.getOwnPropertyDescriptor(e, k);
+          if (d) {
+            Object.defineProperty(n, k, d.get ? d : {
+              enumerable: true,
+              get: () => e[k]
+            });
+          }
+        }
+      }
+    }
+  }
+  return Object.freeze(Object.defineProperty(n, Symbol.toStringTag, { value: "Module" }));
+}
+var commonjsGlobal = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : {};
 function getDefaultExportFromCjs(x) {
   return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
 }
@@ -298,7 +319,11 @@ function requireJsxRuntime() {
 }
 var jsxRuntimeExports = requireJsxRuntime();
 var reactExports = requireReact();
-const React = /* @__PURE__ */ getDefaultExportFromCjs(reactExports);
+const vM = /* @__PURE__ */ getDefaultExportFromCjs(reactExports);
+const $2AODx$react = /* @__PURE__ */ _mergeNamespaces({
+  __proto__: null,
+  default: vM
+}, [reactExports]);
 var client = {};
 var reactDom = { exports: {} };
 var reactDom_production_min = {};
@@ -7090,6 +7115,15 @@ const paths = {
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M3 16v3a2 2 0 0 0 2 2" })
   ] }),
   edit: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" }),
+  eye: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "3" })
+  ] }),
+  "eye-off": /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M10.733 5.076A10.744 10.744 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "2", x2: "22", y1: "2", y2: "22" })
+  ] }),
   external: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M14 3h7v7" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M10 14 21 3" }),
@@ -7101,6 +7135,7 @@ const paths = {
     /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "8.5", cy: "9", r: "1.5" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m4 17 5-5 4 4 2-2 5 5" })
   ] }),
+  "line-squiggle": /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M7 3.5c5-2 7 2.5 3 4C1.5 10 2 15 5 16c5 2 9-10 14-7s.5 13.5-4 12c-5-2.5.5-11 6-2" }),
   plus: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 5v14" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M5 12h14" })
@@ -9631,15 +9666,15 @@ function initializeDocument(effects) {
       }
       const indexBeforeExits = self2.events.length;
       let indexBeforeFlow = indexBeforeExits;
-      let seen;
+      let seen2;
       let point2;
       while (indexBeforeFlow--) {
         if (self2.events[indexBeforeFlow][0] === "exit" && self2.events[indexBeforeFlow][1].type === "chunkFlow") {
-          if (seen) {
+          if (seen2) {
             point2 = self2.events[indexBeforeFlow][1].end;
             break;
           }
-          seen = true;
+          seen2 = true;
         }
       }
       exitContainers(continued);
@@ -10936,7 +10971,7 @@ function factoryDestination(effects, ok2, nok, type, literalType, literalMarkerT
 function factoryLabel(effects, ok2, nok, type, markerType, stringType) {
   const self2 = this;
   let size = 0;
-  let seen;
+  let seen2;
   return start;
   function start(code2) {
     effects.enter(type);
@@ -10947,7 +10982,7 @@ function factoryLabel(effects, ok2, nok, type, markerType, stringType) {
     return atBreak;
   }
   function atBreak(code2) {
-    if (size > 999 || code2 === null || code2 === 91 || code2 === 93 && !seen || // To do: remove in the future once we’ve switched from
+    if (size > 999 || code2 === null || code2 === 91 || code2 === 93 && !seen2 || // To do: remove in the future once we’ve switched from
     // `micromark-extension-footnote` to `micromark-extension-gfm-footnote`,
     // which doesn’t need this.
     // Hidden footnotes hook.
@@ -10980,7 +11015,7 @@ function factoryLabel(effects, ok2, nok, type, markerType, stringType) {
       return atBreak(code2);
     }
     effects.consume(code2);
-    if (!seen) seen = !markdownSpace(code2);
+    if (!seen2) seen2 = !markdownSpace(code2);
     return code2 === 92 ? labelEscape : labelInside;
   }
   function labelEscape(code2) {
@@ -11053,18 +11088,18 @@ function factoryTitle(effects, ok2, nok, type, markerType, stringType) {
   }
 }
 function factoryWhitespace(effects, ok2) {
-  let seen;
+  let seen2;
   return start;
   function start(code2) {
     if (markdownLineEnding(code2)) {
       effects.enter("lineEnding");
       effects.consume(code2);
       effects.exit("lineEnding");
-      seen = true;
+      seen2 = true;
       return start;
     }
     if (markdownSpace(code2)) {
-      return factorySpace(effects, start, seen ? "linePrefix" : "lineSuffix")(code2);
+      return factorySpace(effects, start, seen2 ? "linePrefix" : "lineSuffix")(code2);
     }
     return ok2(code2);
   }
@@ -18632,7 +18667,7 @@ function tokenizeWwwAutolink(effects, ok2, nok) {
 function tokenizeProtocolAutolink(effects, ok2, nok) {
   const self2 = this;
   let buffer = "";
-  let seen = false;
+  let seen2 = false;
   return protocolStart;
   function protocolStart(code2) {
     if ((code2 === 72 || code2 === 104) && previousProtocol.call(self2, self2.previous) && !previousUnbalanced(self2.events)) {
@@ -18662,10 +18697,10 @@ function tokenizeProtocolAutolink(effects, ok2, nok) {
   function protocolSlashesInside(code2) {
     if (code2 === 47) {
       effects.consume(code2);
-      if (seen) {
+      if (seen2) {
         return afterProtocol;
       }
-      seen = true;
+      seen2 = true;
       return protocolSlashesInside;
     }
     return nok(code2);
@@ -18701,7 +18736,7 @@ function tokenizeWwwPrefix(effects, ok2, nok) {
 function tokenizeDomain(effects, ok2, nok) {
   let underscoreInLastSegment;
   let underscoreInLastLastSegment;
-  let seen;
+  let seen2;
   return domainInside;
   function domainInside(code2) {
     if (code2 === 46 || code2 === 95) {
@@ -18710,7 +18745,7 @@ function tokenizeDomain(effects, ok2, nok) {
     if (code2 === null || markdownLineEndingOrSpace(code2) || unicodeWhitespace(code2) || code2 !== 45 && unicodePunctuation(code2)) {
       return domainAfter(code2);
     }
-    seen = true;
+    seen2 = true;
     effects.consume(code2);
     return domainInside;
   }
@@ -18725,7 +18760,7 @@ function tokenizeDomain(effects, ok2, nok) {
     return domainInside;
   }
   function domainAfter(code2) {
-    if (underscoreInLastLastSegment || underscoreInLastSegment || !seen) {
+    if (underscoreInLastLastSegment || underscoreInLastSegment || !seen2) {
       return nok(code2);
     }
     return ok2(code2);
@@ -19328,7 +19363,7 @@ function tokenizeTable(effects, ok2, nok) {
   const self2 = this;
   let size = 0;
   let sizeB = 0;
-  let seen;
+  let seen2;
   return start;
   function start(code2) {
     let index2 = self2.events.length - 1;
@@ -19354,7 +19389,7 @@ function tokenizeTable(effects, ok2, nok) {
     if (code2 === 124) {
       return headRowBreak(code2);
     }
-    seen = true;
+    seen2 = true;
     sizeB += 1;
     return headRowBreak(code2);
   }
@@ -19378,15 +19413,15 @@ function tokenizeTable(effects, ok2, nok) {
       return factorySpace(effects, headRowBreak, "whitespace")(code2);
     }
     sizeB += 1;
-    if (seen) {
-      seen = false;
+    if (seen2) {
+      seen2 = false;
       size += 1;
     }
     if (code2 === 124) {
       effects.enter("tableCellDivider");
       effects.consume(code2);
       effects.exit("tableCellDivider");
-      seen = true;
+      seen2 = true;
       return headRowBreak;
     }
     effects.enter("data");
@@ -19413,7 +19448,7 @@ function tokenizeTable(effects, ok2, nok) {
       return nok(code2);
     }
     effects.enter("tableDelimiterRow");
-    seen = false;
+    seen2 = false;
     if (markdownSpace(code2)) {
       return factorySpace(effects, headDelimiterBefore, "linePrefix", self2.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4)(code2);
     }
@@ -19424,7 +19459,7 @@ function tokenizeTable(effects, ok2, nok) {
       return headDelimiterValueBefore(code2);
     }
     if (code2 === 124) {
-      seen = true;
+      seen2 = true;
       effects.enter("tableCellDivider");
       effects.consume(code2);
       effects.exit("tableCellDivider");
@@ -19441,7 +19476,7 @@ function tokenizeTable(effects, ok2, nok) {
   function headDelimiterValueBefore(code2) {
     if (code2 === 58) {
       sizeB += 1;
-      seen = true;
+      seen2 = true;
       effects.enter("tableDelimiterMarker");
       effects.consume(code2);
       effects.exit("tableDelimiterMarker");
@@ -19469,7 +19504,7 @@ function tokenizeTable(effects, ok2, nok) {
       return headDelimiterFiller;
     }
     if (code2 === 58) {
-      seen = true;
+      seen2 = true;
       effects.exit("tableDelimiterFiller");
       effects.enter("tableDelimiterMarker");
       effects.consume(code2);
@@ -19490,7 +19525,7 @@ function tokenizeTable(effects, ok2, nok) {
       return headDelimiterBefore(code2);
     }
     if (code2 === null || markdownLineEnding(code2)) {
-      if (!seen || size !== sizeB) {
+      if (!seen2 || size !== sizeB) {
         return headDelimiterNok(code2);
       }
       effects.exit("tableDelimiterRow");
@@ -20119,6 +20154,9 @@ function shouldStickToBottom(scrollTop, clientHeight, scrollHeight, threshold = 
   const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
   return maxScrollTop - scrollTop <= threshold;
 }
+function scrollToBottomInstant(element2) {
+  element2.scrollTo({ top: element2.scrollHeight, behavior: "instant" });
+}
 const useBrowserLayoutEffect = typeof window === "undefined" ? reactExports.useEffect : reactExports.useLayoutEffect;
 function waitForPaint() {
   return new Promise((resolve) => {
@@ -20275,7 +20313,7 @@ function useVirtualMessageWindow({
       setMeasurementVersion((value) => value + 1);
       if (stickToBottom.current) {
         requestAnimationFrame(() => {
-          element2.scrollTop = element2.scrollHeight;
+          scrollToBottomInstant(element2);
         });
       }
     });
@@ -20287,7 +20325,7 @@ function useVirtualMessageWindow({
     if (!element2 || items.length === 0) return;
     const oldLayout = previousLayout.current;
     if (!oldLayout || oldLayout.items.length !== 0 || !stickToBottom.current) return;
-    element2.scrollTop = element2.scrollHeight;
+    scrollToBottomInstant(element2);
   }, [items.length, rootRef, scrollRef]);
   const revealBlock = reactExports.useCallback(async (blockId) => {
     const root2 = rootRef.current;
@@ -20714,7 +20752,7 @@ function parseStoredModelPickerPreference(serialized, legacyModelOptionId) {
   }
   return { modelOptionId: legacyId, displayName: "", width: null };
 }
-function Composer({ running, stopping, ready = true, modelOptions, modelLoading, onRun, onStop }) {
+function Composer({ running, stopping, ready = true, modelOptions, modelLoading, onRun, onStop, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }) {
   const [task, setTask] = reactExports.useState("");
   const [attachments, setAttachments] = reactExports.useState([]);
   const [modelOpen, setModelOpen] = reactExports.useState(false);
@@ -20805,11 +20843,13 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
     const request = {
       task: task.trim(),
       modelOptionId: selectedModelOptionId,
-      attachmentIds: attachments.map((attachment) => attachment.attachmentId)
+      attachmentIds: attachments.map((attachment) => attachment.attachmentId),
+      canvasContextIds: canvasContexts.map((context) => context.contextId)
     };
     onRun(request);
     setTask("");
     setAttachments([]);
+    onClearCanvasContexts?.();
     const input = taskInputRef.current;
     if (input) {
       input.style.height = "auto";
@@ -20837,6 +20877,14 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId)), disabled: running || !ready, "aria-label": `Remove attachment ${attachment.name}`, title: "Remove attachment", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "close", width: "14", height: "14" }) })
     ] }, attachment.attachmentId)) }),
+    canvasContexts.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-canvas-contexts", "aria-label": "Canvas references", children: canvasContexts.map((context) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-canvas-context", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "line-squiggle", width: "15", height: "15" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: context.label }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: context.hasVisual ? "Text + visual snapshot" : "Text snapshot" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => onRemoveCanvasContext?.(context.contextId), disabled: running || !ready, "aria-label": `Remove ${context.label}`, title: "Remove canvas reference", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "close", width: "14", height: "14" }) })
+    ] }, context.contextId)) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       "textarea",
       {
@@ -20918,14 +20966,15 @@ function formatBytes$1(value) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
-function TopBar({ outputOpen, outputCount, searchOpen, settingsOpen, searchButtonRef, settingsButtonRef, onOutput, onSearch, onSettings }) {
+function TopBar({ outputOpen, outputCount, canvasOpen = false, searchOpen, settingsOpen, searchButtonRef, settingsButtonRef, onOutput, onCanvas = () => void 0, onSearch, onSettings }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "topbar", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { className: "sr-only", children: "Agent Workbench" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-actions", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `icon-button ${outputOpen ? "active" : ""}`, onClick: onOutput, title: outputOpen ? "Hide output files" : "Show output files", "aria-label": outputOpen ? "Hide output files" : "Show output files", "aria-expanded": outputOpen, "aria-controls": "output-sidebar", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `icon-button ${outputOpen ? "active" : ""}`, onClick: onOutput, title: outputOpen ? "Hide output files" : "Show output files", "aria-label": outputOpen ? "Hide output files" : "Show output files", "aria-expanded": outputOpen, "aria-controls": "right-sidebar", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: outputOpen ? "sidebar" : "sidebar-collapsed", width: "18", height: "18", strokeWidth: 2 }),
-        !outputOpen && outputCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "icon-badge", children: outputCount > 9 ? "9+" : outputCount })
+        !outputOpen && !canvasOpen && outputCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "icon-badge", children: outputCount > 9 ? "9+" : outputCount })
       ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: `icon-button ${canvasOpen ? "active" : ""}`, onClick: onCanvas, title: canvasOpen ? "Hide canvas" : "Show canvas", "aria-label": canvasOpen ? "Hide canvas" : "Show canvas", "aria-expanded": canvasOpen, "aria-controls": "right-sidebar", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "line-squiggle", width: "18", height: "18", strokeWidth: 2 }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("button", { ref: searchButtonRef, className: `icon-button ${searchOpen ? "active" : ""}`, onClick: onSearch, title: "Search all content", "aria-label": "Search all content", "aria-expanded": searchOpen, "aria-controls": "search-popover", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "search", width: "18", height: "18", strokeWidth: 2 }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("button", { ref: settingsButtonRef, className: `icon-button ${settingsOpen ? "active" : ""}`, onClick: onSettings, title: "Settings", "aria-label": "Settings", "aria-expanded": settingsOpen, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "settings", width: "18", height: "18", strokeWidth: 2 }) })
     ] })
@@ -21034,6 +21083,7 @@ function ProviderEditor({ profile, disabled, onCancel, onSaved }) {
   const [providerName, setProviderName] = reactExports.useState(profile?.name ?? "");
   const [baseURL, setBaseURL] = reactExports.useState(profile?.baseURL ?? "");
   const [apiKey, setApiKey] = reactExports.useState("");
+  const [showApiKey, setShowApiKey] = reactExports.useState(false);
   const [models, setModels] = reactExports.useState(() => initialModels(profile));
   const [query, setQuery] = reactExports.useState("");
   const [discovering, setDiscovering] = reactExports.useState(false);
@@ -21172,9 +21222,12 @@ function ProviderEditor({ profile, disabled, onCancel, onSaved }) {
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "field-label", children: "API Base URL" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "url", value: baseURL, disabled: locked, onChange: (event) => setBaseURL(event.target.value), placeholder: "https://api.example.com/v1", spellCheck: false })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "field", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "field-label", children: "API Key" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "password", value: apiKey, disabled: locked, onChange: (event) => setApiKey(event.target.value), placeholder: profile ? "Leave blank to use saved credentials" : "Enter an API Key", autoComplete: "off", spellCheck: false })
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "field", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "field-label", htmlFor: "provider-api-key", children: "API Key" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "secret-input-wrap", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("input", { id: "provider-api-key", className: "secret-input", type: showApiKey ? "text" : "password", value: apiKey, disabled: locked, onChange: (event) => setApiKey(event.target.value), placeholder: profile ? "Leave blank to use saved credentials" : "Enter an API Key", autoComplete: "off", spellCheck: false }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "secret-toggle", onClick: () => setShowApiKey((visible) => !visible), disabled: locked, "aria-label": showApiKey ? "Hide API Key" : "Show API Key", title: showApiKey ? "Hide API Key" : "Show API Key", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: showApiKey ? "eye-off" : "eye", width: "16", height: "16" }) })
+        ] })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "model-import", "aria-label": "Model discovery and import", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-import-toolbar", children: [
@@ -21322,7 +21375,7 @@ function ConfigPanel({ profiles, loading, error, disabled, onClose, onRefresh })
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "provider-card-identity", children: /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: profile.name }) })
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "provider-card-actions", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: refreshState?.kind === "loading" ? "is-refreshing" : "", onClick: () => void refreshProfile(profile), disabled: disabled || refreshState?.kind === "loading", "aria-label": `Refresh ${profile.name} models`, title: "Refresh models", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "refresh", width: "16", height: "16", strokeWidth: 2 }) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: `${refreshState?.kind === "loading" ? "is-refreshing" : ""}${refreshState?.kind === "success" ? " is-refresh-success" : ""}`, onClick: () => void refreshProfile(profile), disabled: disabled || refreshState?.kind === "loading", "aria-label": refreshState?.kind === "success" ? "Models refreshed" : `Refresh ${profile.name} models`, title: refreshState?.kind === "success" ? "Models refreshed" : "Refresh models", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: refreshState?.kind === "success" ? "check" : "refresh", width: "16", height: "16", strokeWidth: 2 }) }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => {
                 resetDelete();
                 setMode({ kind: "edit", profile });
@@ -21330,7 +21383,6 @@ function ConfigPanel({ profiles, loading, error, disabled, onClose, onRefresh })
               /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: confirmDelete === profile.providerProfileId ? "danger-confirm" : "", onClick: () => void remove(profile), disabled, "aria-label": confirmDelete === profile.providerProfileId ? `Click again to delete ${profile.name}` : `Delete ${profile.name}`, title: confirmDelete === profile.providerProfileId ? "Click again to confirm deletion" : "Delete provider", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "trash", width: "16", height: "16" }) })
             ] })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `provider-feedback ${refreshState?.kind === "success" ? "is-visible" : ""}`, role: "status", children: "Refresh succeeded" }),
           refreshState?.kind === "error" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "provider-refresh-error", role: "alert", children: refreshState.message }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "provider-model-collapse", "aria-hidden": !isExpanded, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "provider-model-clip", children: /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { className: "provider-models", children: profile.models.map((model) => /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: model.modelId }) }, model.modelOptionId)) }) }) })
         ] }, profile.providerProfileId);
@@ -21373,7 +21425,7 @@ function initialWidth() {
   const value = Number(localStorage.getItem(WIDTH_KEY));
   return Number.isFinite(value) && value > 0 ? value : OUTPUT_SIDEBAR_DEFAULT_WIDTH;
 }
-function OutputSidebar({ open, files, onOpenChange }) {
+function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", canvas }) {
   const [phase, setPhase] = reactExports.useState(open ? "open" : "closed");
   const [width, setWidth] = reactExports.useState(initialWidth);
   const [viewportWidth, setViewportWidth] = reactExports.useState(() => window.innerWidth);
@@ -21519,7 +21571,7 @@ function OutputSidebar({ open, files, onOpenChange }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "aside",
     {
-      id: "output-sidebar",
+      id: "right-sidebar",
       ref: shellRef,
       className: `output-sidebar-shell phase-${phase} ${collapseReady ? "collapse-ready" : ""}`,
       style: { width: targetWidth },
@@ -21527,53 +21579,55 @@ function OutputSidebar({ open, files, onOpenChange }) {
       onTransitionEnd: finishTransition,
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-resizer", role: "separator", tabIndex: open ? 0 : -1, "aria-orientation": "vertical", "aria-valuemin": OUTPUT_SIDEBAR_MIN_WIDTH, "aria-valuemax": getOutputSidebarMaxWidth(viewportWidth), "aria-valuenow": Math.round(targetWidth), onPointerDown: startDrag, onDoubleClick: resetWidth, onKeyDown: resizeWithKeyboard }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "output-sidebar-content", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `output-sidebar-content ${activePanel === "canvas" ? "is-canvas" : ""}`, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-sidebar-header", "aria-hidden": "true" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: fileListRef, className: "output-file-list", role: "listbox", "aria-label": "Output files", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-file-layout", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: fileContentRef, className: "output-file-content", children: [
-            fileGroups.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "panel-empty", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "book-open", width: "24", height: "24" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "No files generated for this task" })
-            ] }),
-            fileGroups.map((file) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", role: "option", "aria-selected": file.fileId === selected?.fileId, className: file.fileId === selected?.fileId ? "selected" : "", onClick: () => setSelectedId(file.fileId), children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: file.mediaType.startsWith("image/") ? "image" : "book-open", width: "16", height: "16" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: file.name }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: file.displayPath })
+          activePanel === "canvas" ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "right-sidebar-canvas", children: phase === "closed" ? null : canvas }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: fileListRef, className: "output-file-list", role: "listbox", "aria-label": "Output files", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-file-layout", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: fileContentRef, className: "output-file-content", children: [
+              fileGroups.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "panel-empty", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "book-open", width: "24", height: "24" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "No files generated for this task" })
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: file.operation === "created" ? "Created" : "Updated" })
-            ] }, file.fileId))
-          ] }) }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "output-preview", "aria-label": "File preview", children: [
-            selected && /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "preview-header", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: selected.name }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatBytes(selected.byteSize) })
+              fileGroups.map((file) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", role: "option", "aria-selected": file.fileId === selected?.fileId, className: file.fileId === selected?.fileId ? "selected" : "", onClick: () => setSelectedId(file.fileId), children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: file.mediaType.startsWith("image/") ? "image" : "book-open", width: "16", height: "16" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: file.name }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: file.displayPath })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: file.operation === "created" ? "Created" : "Updated" })
+              ] }, file.fileId))
+            ] }) }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "output-preview", "aria-label": "File preview", children: [
+              selected && /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "preview-header", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: selected.name }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatBytes(selected.byteSize) })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void refreshPreview(), "aria-label": "Refresh preview", title: "Refresh preview", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "refresh", width: "15", height: "15" }) }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void openInSystem(), "aria-label": "Open in system", title: "Open in system", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "external", width: "15", height: "15" }) })
+                ] })
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void refreshPreview(), "aria-label": "Refresh preview", title: "Refresh preview", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "refresh", width: "15", height: "15" }) }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void openInSystem(), "aria-label": "Open in system", title: "Open in system", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "external", width: "15", height: "15" }) })
-              ] })
-            ] }),
-            previewLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "preview-state", children: "Loading preview…" }),
-            !previewLoading && preview?.ok && preview.kind === "text" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { children: preview.content }),
-              preview.truncated && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "preview-notice", children: [
-                "File is large. Showing only the first ",
-                formatBytes(512 * 1024)
-              ] })
-            ] }),
-            !previewLoading && preview?.ok && preview.kind === "image" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "image-preview", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: preview.dataUrl, alt: selected?.name ?? "Output image" }) }),
-            !previewLoading && preview?.ok && preview.kind === "unsupported" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preview-state", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "image", width: "28", height: "28" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Embedded preview not supported" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: preview.mediaType })
-            ] }),
-            !previewLoading && preview && !preview.ok && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preview-state preview-error", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "warning", width: "24", height: "24" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: preview.message })
-            ] }),
-            !selected && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "preview-state", children: "Select a file to preview its content" }),
-            openError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "preview-open-error", role: "alert", children: openError })
+              previewLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "preview-state", children: "Loading preview…" }),
+              !previewLoading && preview?.ok && preview.kind === "text" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { children: preview.content }),
+                preview.truncated && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "preview-notice", children: [
+                  "File is large. Showing only the first ",
+                  formatBytes(512 * 1024)
+                ] })
+              ] }),
+              !previewLoading && preview?.ok && preview.kind === "image" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "image-preview", children: /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: preview.dataUrl, alt: selected?.name ?? "Output image" }) }),
+              !previewLoading && preview?.ok && preview.kind === "unsupported" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preview-state", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "image", width: "28", height: "28" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Embedded preview not supported" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: preview.mediaType })
+              ] }),
+              !previewLoading && preview && !preview.ok && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preview-state preview-error", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "warning", width: "24", height: "24" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: preview.message })
+              ] }),
+              !selected && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "preview-state", children: "Select a file to preview its content" }),
+              openError && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "preview-open-error", role: "alert", children: openError })
+            ] })
           ] })
         ] })
       ]
@@ -21584,6 +21638,229 @@ function formatBytes(value) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+const scriptRel = /* @__PURE__ */ (function detectScriptRel() {
+  const relList = typeof document !== "undefined" && document.createElement("link").relList;
+  return relList && relList.supports && relList.supports("modulepreload") ? "modulepreload" : "preload";
+})();
+const assetsURL = function(dep, importerUrl) {
+  return new URL(dep, importerUrl).href;
+};
+const seen = {};
+const __vitePreload = function preload(baseModule, deps, importerUrl) {
+  let promise = Promise.resolve();
+  if (deps && deps.length > 0) {
+    let allSettled = function(promises$2) {
+      return Promise.all(promises$2.map((p) => Promise.resolve(p).then((value$1) => ({
+        status: "fulfilled",
+        value: value$1
+      }), (reason) => ({
+        status: "rejected",
+        reason
+      }))));
+    };
+    const links = document.getElementsByTagName("link");
+    const cspNonceMeta = document.querySelector("meta[property=csp-nonce]");
+    const cspNonce = cspNonceMeta?.nonce || cspNonceMeta?.getAttribute("nonce");
+    promise = allSettled(deps.map((dep) => {
+      dep = assetsURL(dep, importerUrl);
+      if (dep in seen) return;
+      seen[dep] = true;
+      const isCss = dep.endsWith(".css");
+      const cssSelector = isCss ? '[rel="stylesheet"]' : "";
+      if (!!importerUrl) for (let i$1 = links.length - 1; i$1 >= 0; i$1--) {
+        const link$12 = links[i$1];
+        if (link$12.href === dep && (!isCss || link$12.rel === "stylesheet")) return;
+      }
+      else if (document.querySelector(`link[href="${dep}"]${cssSelector}`)) return;
+      const link2 = document.createElement("link");
+      link2.rel = isCss ? "stylesheet" : scriptRel;
+      if (!isCss) link2.as = "script";
+      link2.crossOrigin = "";
+      link2.href = dep;
+      if (cspNonce) link2.setAttribute("nonce", cspNonce);
+      document.head.appendChild(link2);
+      if (isCss) return new Promise((res, rej) => {
+        link2.addEventListener("load", res);
+        link2.addEventListener("error", () => rej(/* @__PURE__ */ new Error(`Unable to preload CSS for ${dep}`)));
+      });
+    }));
+  }
+  function handlePreloadError(err$2) {
+    const e$1 = new Event("vite:preloadError", { cancelable: true });
+    e$1.payload = err$2;
+    window.dispatchEvent(e$1);
+    if (!e$1.defaultPrevented) throw err$2;
+  }
+  return promise.then((res) => {
+    for (const item of res || []) {
+      if (item.status !== "rejected") continue;
+      handlePreloadError(item.reason);
+    }
+    return baseModule().catch(handlePreloadError);
+  });
+};
+const Excalidraw = reactExports.lazy(async () => {
+  await __vitePreload(() => Promise.resolve({}), true ? __vite__mapDeps([0]) : void 0, import.meta.url);
+  const module = await __vitePreload(() => import("./percentages-BXMCSKIN-Lvuu5KWr.js").then((n) => n.i), true ? [] : void 0, import.meta.url);
+  return { default: module.Excalidraw };
+});
+function CanvasPanel({ onContextPrepared }) {
+  const [document2, setDocument] = reactExports.useState(null);
+  const [api, setApi] = reactExports.useState(null);
+  const [loading, setLoading] = reactExports.useState(true);
+  const [saving, setSaving] = reactExports.useState(false);
+  const [selectedCount, setSelectedCount] = reactExports.useState(0);
+  const [elementCount, setElementCount] = reactExports.useState(0);
+  const [busy, setBusy] = reactExports.useState(false);
+  const [notice, setNotice] = reactExports.useState(null);
+  const sceneRef = reactExports.useRef(null);
+  const saveTimerRef = reactExports.useRef(null);
+  const loadedRef = reactExports.useRef(false);
+  reactExports.useEffect(() => {
+    let cancelled = false;
+    void window.agentAPI.loadCanvasDocument().then((result) => {
+      if (cancelled) return;
+      setDocument(result.document);
+      sceneRef.current = result.document;
+      setElementCount(result.document.elements.filter((element2) => element2.isDeleted !== true && element2.deleted !== true).length);
+      loadedRef.current = true;
+      setLoading(false);
+    }).catch((error) => {
+      if (cancelled) return;
+      setNotice(error instanceof Error ? error.message : "Unable to load the canvas.");
+      setDocument(emptyDocument());
+      sceneRef.current = emptyDocument();
+      setElementCount(0);
+      loadedRef.current = true;
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+      if (loadedRef.current && sceneRef.current) void window.agentAPI.saveCanvasDocument(sceneRef.current);
+    };
+  }, []);
+  const initialData = reactExports.useMemo(() => {
+    if (!document2) return null;
+    return {
+      elements: document2.elements,
+      appState: document2.appState,
+      files: document2.files
+    };
+  }, [document2]);
+  const scheduleSave = (next) => {
+    sceneRef.current = next;
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      setSaving(true);
+      void window.agentAPI.saveCanvasDocument(next).then(() => setSaving(false)).catch((error) => {
+        setSaving(false);
+        setNotice(error instanceof Error ? error.message : "Unable to save the canvas.");
+      });
+    }, 450);
+  };
+  const handleChange = (elements, appState, files) => {
+    if (!loadedRef.current) return;
+    const selected = Object.keys(appState.selectedElementIds ?? {});
+    setSelectedCount(selected.length);
+    setElementCount(elements.filter((element2) => element2.isDeleted !== true).length);
+    scheduleSave({
+      elements: [...elements],
+      appState: pickPersistedAppState(appState),
+      files
+    });
+  };
+  const prepareContext = async (scope) => {
+    if (!api || !sceneRef.current || busy) return;
+    const allElements = api.getSceneElements();
+    const selectedIds = Object.keys(api.getAppState().selectedElementIds ?? {});
+    if (scope === "selection" && selectedIds.length === 0) {
+      setNotice("Select one or more canvas elements first.");
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const selected = scope === "selection" ? allElements.filter((element2) => selectedIds.includes(element2.id)) : allElements;
+      const excalidraw = await __vitePreload(() => import("./percentages-BXMCSKIN-Lvuu5KWr.js").then((n) => n.i), true ? [] : void 0, import.meta.url);
+      const blob = await excalidraw.exportToBlob({
+        elements: selected,
+        appState: api.getAppState(),
+        files: api.getFiles(),
+        mimeType: "image/png",
+        exportPadding: 24
+      });
+      const dataURL = await blobToDataURL(blob);
+      const descriptor = await window.agentAPI.prepareCanvasContext({
+        document: sceneRef.current,
+        scope,
+        selectedElementIds: selectedIds,
+        visual: { mediaType: "image/png", dataURL }
+      });
+      onContextPrepared(descriptor);
+      setNotice(`${descriptor.label} ready for the next message.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to prepare the canvas context.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "canvas-panel", "aria-label": "Canvas workspace", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "canvas-panel-toolbar", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "canvas-panel-status", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Canvas" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: saving ? "Saving…" : selectedCount > 0 ? `${selectedCount} selected` : "Select to reference" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "canvas-panel-actions", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void prepareContext("selection"), disabled: loading || !api || busy || selectedCount === 0, children: busy ? "Preparing…" : "Use selection" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "canvas-panel-secondary-action", onClick: () => void prepareContext("document"), disabled: loading || !api || busy || elementCount === 0, children: "Use canvas" })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-editor", children: loading || !initialData ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-state", children: "Loading canvas…" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(reactExports.Suspense, { fallback: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-state", children: "Loading drawing tools…" }), children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Excalidraw,
+      {
+        initialData,
+        excalidrawAPI: setApi,
+        onChange: handleChange,
+        handleKeyboardGlobally: false,
+        validateEmbeddable: false,
+        UIOptions: {
+          canvasActions: {
+            loadScene: false,
+            saveToActiveFile: false,
+            export: false,
+            saveAsImage: false
+          }
+        },
+        autoFocus: false
+      }
+    ) }) }),
+    notice && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "canvas-panel-notice", role: "status", children: notice })
+  ] });
+}
+function pickPersistedAppState(appState) {
+  return {
+    theme: appState.theme,
+    viewBackgroundColor: appState.viewBackgroundColor,
+    gridSize: appState.gridSize,
+    gridStep: appState.gridStep,
+    zoom: appState.zoom,
+    scrollX: appState.scrollX,
+    scrollY: appState.scrollY
+  };
+}
+function emptyDocument() {
+  return { elements: [], appState: {}, files: {} };
+}
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error ?? new Error("Unable to read the canvas snapshot."));
+    reader.readAsDataURL(blob);
+  });
 }
 function reducedMotionEnabled() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -22196,7 +22473,8 @@ function App() {
   const [state, dispatch] = reactExports.useReducer(agentReducer, initialAgentState);
   const catalog = useProviderCatalog();
   const [configOpen, setConfigOpen] = reactExports.useState(false);
-  const [outputOpen, setOutputOpen] = reactExports.useState(false);
+  const [sidebarPanel, setSidebarPanel] = reactExports.useState(null);
+  const [canvasContexts, setCanvasContexts] = reactExports.useState([]);
   const [searchOpen, setSearchOpen] = reactExports.useState(false);
   const eventQueue = reactExports.useRef([]);
   const hydrationEventQueue = reactExports.useRef([]);
@@ -22215,6 +22493,8 @@ function App() {
   const stopping = state.status === "stopping";
   const currentRun = state.currentRunId ? state.runs[state.currentRunId] : void 0;
   const outputFiles = currentRun?.outputFileOrder.map((id) => currentRun.outputFiles[id]).filter(Boolean) ?? [];
+  const outputOpen = sidebarPanel === "outputs";
+  const canvasOpen = sidebarPanel === "canvas";
   reactExports.useEffect(() => {
     if (!window.agentAPI || typeof window.agentAPI.onEvent !== "function") return;
     const offEvent = window.agentAPI.onEvent((event) => {
@@ -22289,7 +22569,7 @@ function App() {
     const element2 = streamRef.current;
     if (!element2) return;
     const max = element2.scrollHeight - element2.clientHeight;
-    if (max - element2.scrollTop < 8) element2.scrollTop = element2.scrollHeight;
+    if (max - element2.scrollTop < 8) element2.scrollTo({ top: element2.scrollHeight, behavior: "instant" });
   }, [composerHeight]);
   reactExports.useEffect(() => {
     if (!searchOpen || !search2.activeBlockId) return;
@@ -22327,11 +22607,13 @@ function App() {
       {
         outputOpen,
         outputCount: outputFiles.length,
+        canvasOpen,
         searchOpen,
         settingsOpen: configOpen,
         searchButtonRef,
         settingsButtonRef,
-        onOutput: () => setOutputOpen((value) => !value),
+        onOutput: () => setSidebarPanel((value) => value === "outputs" ? null : "outputs"),
+        onCanvas: () => setSidebarPanel((value) => value === "canvas" ? null : "canvas"),
         onSearch: () => setSearchOpen((value) => !value),
         onSettings: () => setConfigOpen((value) => !value)
       }
@@ -22381,16 +22663,41 @@ function App() {
           modelOptions: catalog.modelOptions,
           modelLoading: catalog.loading,
           onRun: handleRun,
-          onStop: handleStop
+          onStop: handleStop,
+          canvasContexts,
+          onRemoveCanvasContext: (contextId) => setCanvasContexts((current) => current.filter((context) => context.contextId !== contextId)),
+          onClearCanvasContexts: () => setCanvasContexts([])
         }
       ) })
     ] }) }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(OutputSidebar, { open: outputOpen, files: outputFiles, onOpenChange: setOutputOpen }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      OutputSidebar,
+      {
+        open: sidebarPanel !== null,
+        activePanel: sidebarPanel ?? "outputs",
+        files: outputFiles,
+        onOpenChange: (open) => {
+          if (!open) setSidebarPanel(null);
+        },
+        canvas: /* @__PURE__ */ jsxRuntimeExports.jsx(CanvasPanel, { onContextPrepared: (descriptor) => setCanvasContexts((current) => [...current, descriptor]) })
+      }
+    ),
     settingsPanel.mounted && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: settingsPanel.panelRef, className: `config-floating phase-${settingsPanel.phase}`, onTransitionEnd: settingsPanel.onTransitionEnd, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ConfigPanel, { profiles: catalog.profiles, loading: catalog.loading, error: catalog.error, disabled: running, onClose: () => setConfigOpen(false), onRefresh: catalog.refresh }) })
   ] });
 }
 const root = document.getElementById("root");
 if (!root) throw new Error("root element not found");
 clientExports.createRoot(root).render(
-  /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
+  /* @__PURE__ */ jsxRuntimeExports.jsx(vM.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
+export {
+  $2AODx$react as $,
+  __vitePreload as _,
+  requireReactDom as a,
+  requireReact as b,
+  commonjsGlobal as c,
+  getDefaultExportFromCjs as g,
+  jsxRuntimeExports as j,
+  reactExports as r,
+  vM as v
+};

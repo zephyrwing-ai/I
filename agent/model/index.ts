@@ -15,7 +15,12 @@ export interface ModelConfig {
   provider: Provider;
   model: string;
   /** OpenAI 兼容接口的额外配置 (baseURL、凭据和 Provider 思考字段)。 */
-  openai?: { baseURL?: string; apiKey?: string; reasoningField?: "reasoning_content" };
+  openai?: {
+    baseURL?: string;
+    apiKey?: string;
+    apiKeyProvider?: () => Promise<string>;
+    reasoningField?: "reasoning_content";
+  };
 }
 
 /**

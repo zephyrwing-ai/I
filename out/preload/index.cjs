@@ -12,6 +12,9 @@ const IPC = {
   saveProvider: "providers:save",
   deleteProvider: "providers:delete",
   selectAttachments: "attachments:select",
+  loadCanvasDocument: "canvas:load-document",
+  saveCanvasDocument: "canvas:save-document",
+  prepareCanvasContext: "canvas:prepare-context",
   previewOutputFile: "output-files:preview",
   openOutputFile: "output-files:open"
 };
@@ -28,6 +31,9 @@ const api = {
   saveProvider: (input) => electron.ipcRenderer.invoke(IPC.saveProvider, input),
   deleteProvider: (providerProfileId) => electron.ipcRenderer.invoke(IPC.deleteProvider, providerProfileId),
   selectAttachments: () => electron.ipcRenderer.invoke(IPC.selectAttachments),
+  loadCanvasDocument: () => electron.ipcRenderer.invoke(IPC.loadCanvasDocument),
+  saveCanvasDocument: (document) => electron.ipcRenderer.invoke(IPC.saveCanvasDocument, document),
+  prepareCanvasContext: (input) => electron.ipcRenderer.invoke(IPC.prepareCanvasContext, input),
   previewOutputFile: (runId, fileId) => electron.ipcRenderer.invoke(IPC.previewOutputFile, runId, fileId),
   openOutputFile: (runId, fileId) => electron.ipcRenderer.invoke(IPC.openOutputFile, runId, fileId),
   onEvent: (cb) => {

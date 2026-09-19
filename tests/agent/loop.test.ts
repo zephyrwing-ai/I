@@ -80,6 +80,36 @@ test("session transcript accumulates across runs and seeds the model context", a
   assert.deepEqual(recorder.commits, ["user", "assistant", "user", "assistant"]);
 });
 
+test("run-scoped canvas context is visible for one run but never enters the session snapshot", async () => {
+  const seen: ModelMessage[][] = [];
+  const recorder = createTestRecorder();
+  const fakeResponse = async function* (
+    _modelConfig: ModelConfig,
+    messages: ModelMessage[],
+  ): AsyncGenerator<ModelStreamEvent> {
+    seen.push(messages.map((message) => ({ ...message })));
+    yield { type: "completed", content: "done", toolCalls: [], stopReason: "stop" };
+  };
+  const base = {
+    systemPrompt: "test",
+    cwd: process.cwd(),
+    tools: new Map(),
+    recorder,
+    responseImpl: fakeResponse,
+  };
+
+  await run("使用画布", { provider: "openai", model: "fake" }, {
+    ...base,
+    runId: "canvas-run-1",
+    runScopedContext: [{ role: "user", content: "Canvas context", media: { mediaType: "image/png", dataUrl: "data:image/png;base64,AA==" } }],
+  });
+  await run("下一句", { provider: "openai", model: "fake" }, { ...base, runId: "canvas-run-2" });
+
+  assert.deepEqual(seen[0].map((message) => message.content), ["Canvas context", "使用画布"]);
+  assert.deepEqual(seen[1].map((message) => message.content), ["使用画布", "done", "下一句"]);
+  assert.equal(recorder.messages.some((message) => message.content === "Canvas context"), false);
+});
+
 test("persistence barriers complete before provider, tools, and next provider request", async () => {
   const recorder = createTestRecorder();
   const order: string[] = [];

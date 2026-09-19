@@ -32,6 +32,8 @@ export interface AgentRunConfig {
   /** 测试注入点：与 provider-model-discovery 的 fetchImpl 同理。 */
   responseImpl?: typeof response;
   modelRetry?: ModelRetryConfig;
+  /** Context supplied for this run only; it is intentionally not committed. */
+  runScopedContext?: ModelMessage[];
 }
 
 export interface TurnContext {
@@ -174,7 +176,7 @@ export async function run(
   } catch (error) {
     return finish("failed", toAgentError(error));
   }
-  messages.push(userMessage);
+  messages.push(...(config.runScopedContext ?? []), userMessage);
   events.onRunStart?.({ runId: config.runId, startedAt });
 
   while (true) {

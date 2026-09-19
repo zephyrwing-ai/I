@@ -4,6 +4,7 @@ import { mergePersistedEntries } from "../../../../frontend/src/store/sessionPro
 import {
   buildVirtualMessageLayout,
   calculateVirtualMessageRange,
+  scrollToBottomInstant,
   shouldStickToBottom,
 } from "../../../../frontend/src/middle-column/message-stream/useVirtualMessageWindow";
 import type { SessionHistoryEntry } from "../../../../shell/shared/ipc";
@@ -79,4 +80,15 @@ test("stream auto-follow stops once the user leaves the bottom threshold", () =>
   assert.equal(shouldStickToBottom(900, 1000, 1900), true);
   assert.equal(shouldStickToBottom(876, 1000, 1900), true);
   assert.equal(shouldStickToBottom(875, 1000, 1900), false);
+});
+
+test("initial latest positioning is instant rather than animated", () => {
+  const calls: Array<{ top: number; behavior: string }> = [];
+  scrollToBottomInstant({
+    scrollHeight: 1900,
+    scrollTo(options: { top: number; behavior: string }) {
+      calls.push(options);
+    },
+  });
+  assert.deepEqual(calls, [{ top: 1900, behavior: "instant" }]);
 });

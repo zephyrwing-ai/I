@@ -47,6 +47,10 @@ export function shouldStickToBottom(
   return maxScrollTop - scrollTop <= threshold;
 }
 
+export function scrollToBottomInstant(element: Pick<HTMLElement, "scrollHeight" | "scrollTo">): void {
+  element.scrollTo({ top: element.scrollHeight, behavior: "instant" });
+}
+
 const useBrowserLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function waitForPaint(): Promise<void> {
@@ -244,7 +248,7 @@ export function useVirtualMessageWindow({
       setMeasurementVersion((value) => value + 1);
       if (stickToBottom.current) {
         requestAnimationFrame(() => {
-          element.scrollTop = element.scrollHeight;
+          scrollToBottomInstant(element);
         });
       }
     });
@@ -257,7 +261,7 @@ export function useVirtualMessageWindow({
     if (!element || items.length === 0) return;
     const oldLayout = previousLayout.current;
     if (!oldLayout || oldLayout.items.length !== 0 || !stickToBottom.current) return;
-    element.scrollTop = element.scrollHeight;
+    scrollToBottomInstant(element);
   }, [items.length, rootRef, scrollRef]);
 
   const revealBlock = useCallback(async (blockId: string): Promise<boolean> => {

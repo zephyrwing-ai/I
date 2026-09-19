@@ -64,10 +64,62 @@ export interface InputAttachmentDescriptor {
   byteSize: number;
 }
 
+/** Serializable Excalidraw state kept outside the model conversation history. */
+export interface CanvasElementRecord {
+  [key: string]: unknown;
+}
+
+export interface CanvasBinaryFile {
+  id: string;
+  mimeType: string;
+  dataURL?: string;
+  created: number;
+  lastRetrieved?: number;
+  version?: number;
+}
+
+export interface CanvasDocument {
+  elements: CanvasElementRecord[];
+  appState: Record<string, unknown>;
+  files: Record<string, CanvasBinaryFile>;
+}
+
+export type CanvasContextScope = "selection" | "document";
+
+export interface CanvasContextInput {
+  document: CanvasDocument;
+  scope: CanvasContextScope;
+  selectedElementIds: string[];
+  visual?: {
+    mediaType: "image/png";
+    dataURL: string;
+  };
+}
+
+export interface CanvasContextDescriptor {
+  contextId: string;
+  label: string;
+  scope: CanvasContextScope;
+  elementCount: number;
+  imageCount: number;
+  revision: number;
+  hasVisual: boolean;
+}
+
+export interface CanvasDocumentResult {
+  document: CanvasDocument;
+  revision: number;
+}
+
+export interface CanvasSaveResult {
+  revision: number;
+}
+
 export interface RunRequest {
   task: string;
   modelOptionId: string;
   attachmentIds: string[];
+  canvasContextIds?: string[];
   /** 由宿主任务上下文注入；Composer 不展示或编辑该字段。 */
   cwd?: string;
 }
@@ -191,6 +243,9 @@ export interface AgentAPI {
   saveProvider(input: ProviderProfileInput): Promise<SaveProviderResult>;
   deleteProvider(providerProfileId: string): Promise<DeleteProviderResult>;
   selectAttachments(): Promise<InputAttachmentDescriptor[]>;
+  loadCanvasDocument(): Promise<CanvasDocumentResult>;
+  saveCanvasDocument(document: CanvasDocument): Promise<CanvasSaveResult>;
+  prepareCanvasContext(input: CanvasContextInput): Promise<CanvasContextDescriptor>;
   previewOutputFile(runId: string, fileId: string): Promise<OutputFilePreviewResult>;
   openOutputFile(runId: string, fileId: string): Promise<OpenOutputFileResult>;
   onEvent(cb: (e: AgentEvent) => void): () => void;
@@ -208,6 +263,9 @@ export const IPC = {
   saveProvider: "providers:save",
   deleteProvider: "providers:delete",
   selectAttachments: "attachments:select",
+  loadCanvasDocument: "canvas:load-document",
+  saveCanvasDocument: "canvas:save-document",
+  prepareCanvasContext: "canvas:prepare-context",
   previewOutputFile: "output-files:preview",
   openOutputFile: "output-files:open",
 } as const;

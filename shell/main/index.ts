@@ -4,10 +4,13 @@
 
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from "electron";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   IPC,
   type DeleteProviderResult,
+  type CanvasContextInput,
+  type CanvasDocument,
   type InputAttachmentDescriptor,
   type OpenOutputFileResult,
   type OutputFilePreviewResult,
@@ -28,6 +31,8 @@ import { ProviderStore } from "./provider-store.js";
 import { discoverProviderModels, discoveryErrorResult } from "./provider-model-discovery.js";
 import { AgentRunner } from "./runner.js";
 import { SessionHistoryService } from "./session-history.js";
+import { CanvasContextRegistry } from "./canvas-context.js";
+import { CanvasDocumentStore } from "./canvas-document.js";
 import {
   createSessionRecorder,
   SqliteSessionRepository,
@@ -79,6 +84,7 @@ function registerIpc(
   providers: ProviderStore,
   outputFiles: OutputFileRegistry,
   inputAttachments: InputAttachmentRegistry,
+  canvasContexts: CanvasContextRegistry,
   sessionId: string,
   sessionHistory: SessionHistoryService,
 ): void {
@@ -93,7 +99,10 @@ function registerIpc(
       if (!modelOptionId) return { ok: false, error: "Choose a model." };
       const attachments = await inputAttachments.resolve(Array.isArray(req.attachmentIds) ? req.attachmentIds : []);
       const resolved = await providers.resolve(modelOptionId);
-      const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, sessionId, ...resolved }, (payload) => {
+      const runId = randomUUID();
+      const canvasContextIds = Array.isArray(req.canvasContextIds) ? req.canvasContextIds.filter((id): id is string => typeof id === "string") : [];
+      const resolvedCanvasContexts = canvasContexts.takeMany(canvasContextIds);
+      const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, sessionId, runId, runScopedContext: resolvedCanvasContexts, ...resolved }, (payload) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
@@ -182,6 +191,18 @@ function registerIpc(
     return result.canceled ? [] : inputAttachments.register(result.filePaths);
   });
 
+  ipcMain.handle(IPC.loadCanvasDocument, async (): Promise<{ document: CanvasDocument; revision: number }> => {
+    return canvasContexts.load();
+  });
+
+  ipcMain.handle(IPC.saveCanvasDocument, async (_event, document: CanvasDocument): Promise<{ revision: number }> => {
+    return { revision: await canvasContexts.save(document) };
+  });
+
+  ipcMain.handle(IPC.prepareCanvasContext, async (_event, input: CanvasContextInput) => {
+    return canvasContexts.prepare(input);
+  });
+
   ipcMain.handle(IPC.previewOutputFile, async (_event, runId: string, fileId: string): Promise<OutputFilePreviewResult> => {
     if (typeof runId !== "string" || typeof fileId !== "string" || !runId || !fileId) {
       return { ok: false, error: "invalid_request", message: "The output file identity is missing." };
@@ -221,12 +242,13 @@ app.whenReady().then(async () => {
   );
   const outputFiles = new OutputFileRegistry();
   const inputAttachments = new InputAttachmentRegistry();
+  const canvasContexts = new CanvasContextRegistry(new CanvasDocumentStore(app.getPath("userData"), activeSession.id));
   const createRecorder = (sessionId: string): SessionRecorder => {
     if (sessionId !== activeSession.id) throw new Error("The current session is not loaded.");
     return recorder;
   };
   const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts), createRecorder);
-  registerIpc(runner, providers, outputFiles, inputAttachments, activeSession.id, sessionHistory);
+  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, activeSession.id, sessionHistory);
   createWindow();
 
   app.on("before-quit", (event) => {

@@ -12,7 +12,7 @@ import type {
 } from "../shared/ipc.js";
 import { inferProviderFromBaseURL, type ProviderDiscoveryConnection } from "./provider-model-discovery.js";
 
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 // 只保留 OpenAI 兼容协议（DeepSeek 等）：历史存量 profile（anthropic/google 等）
 // 在加载时不再通过校验，视为废弃数据；重新添加时按 openai 协议处理。
 const PROVIDERS = new Set<Provider>(["openai"]);
@@ -31,7 +31,7 @@ interface StoredProfile {
   provider: Provider;
   name: string;
   baseURL: string;
-  encryptedApiKey: string;
+  encryptedApiKey?: string;
   models: StoredModel[];
 }
 
@@ -67,7 +67,7 @@ export interface ResolvedModelOption {
   provider: Provider;
   modelId: string;
   baseURL?: string;
-  apiKey: string;
+  getApiKey: () => Promise<string>;
 }
 
 export class ProviderStore {
@@ -83,7 +83,7 @@ export class ProviderStore {
 
   async list(): Promise<ProviderProfileSummary[]> {
     await this.ensureLoaded();
-    return this.profiles.map((profile) => this.toSummary(profile));
+    return Promise.all(this.profiles.map((profile) => this.toSummary(profile)));
   }
 
   async save(input: ProviderProfileInput): Promise<ProviderProfileSummary> {
@@ -94,12 +94,11 @@ export class ProviderStore {
         ? this.profiles.findIndex((profile) => profile.providerProfileId === normalized.providerProfileId)
         : -1;
       const existing = existingIndex >= 0 ? this.profiles[existingIndex] : undefined;
-
-      if (!existing && !normalized.apiKey) throw new Error("A new provider requires an API Key.");
+      const providerProfileId = existing?.providerProfileId ?? normalized.providerProfileId ?? randomUUID();
       const encryptedApiKey = this.resolveEncryptedSecret(normalized.apiKey, existing);
       const previousModels = new Map(existing?.models.map((model) => [model.modelId, model]) ?? []);
       const profile: StoredProfile = {
-        providerProfileId: existing?.providerProfileId ?? randomUUID(),
+        providerProfileId,
         provider: inferProviderFromBaseURL(normalized.baseURL),
         name: normalized.name,
         baseURL: normalized.baseURL,
@@ -151,7 +150,7 @@ export class ProviderStore {
         provider: profile.provider,
         modelId: model.modelId,
         baseURL: profile.baseURL,
-        apiKey: this.decryptSecret(profile),
+        getApiKey: () => this.requireCredential(profile.providerProfileId),
       };
     }
     throw new Error("The selected model does not exist or is unavailable. Choose another model.");
@@ -164,7 +163,7 @@ export class ProviderStore {
       ? this.profiles.find((profile) => profile.providerProfileId === input.providerProfileId)
       : undefined;
     if (input.providerProfileId && !existing) throw new Error("The provider does not exist or has already been deleted.");
-    const apiKey = input.apiKey?.trim() || (existing ? this.decryptSecret(existing) : "");
+    const apiKey = input.apiKey?.trim() || (existing ? await this.requireCredential(existing.providerProfileId) : "");
     if (!apiKey) throw new Error("Enter an API Key.");
     return { provider: inferProviderFromBaseURL(baseURL), baseURL, apiKey };
   }
@@ -173,7 +172,7 @@ export class ProviderStore {
     await this.ensureLoaded();
     const profile = this.profiles.find((candidate) => candidate.providerProfileId === providerProfileId);
     if (!profile) throw new Error("The provider does not exist or has already been deleted.");
-    return { provider: profile.provider, baseURL: profile.baseURL, apiKey: this.decryptSecret(profile) };
+    return { provider: profile.provider, baseURL: profile.baseURL, apiKey: await this.requireCredential(profile.providerProfileId) };
   }
 
   async applyRefresh(providerProfileId: string, discovered: DiscoveredModel[]): Promise<ProviderProfileSummary> {
@@ -203,26 +202,6 @@ export class ProviderStore {
     });
   }
 
-  private resolveEncryptedSecret(apiKey: string | undefined, existing: StoredProfile | undefined): string {
-    if (!apiKey) {
-      if (!existing?.encryptedApiKey) throw new Error("The provider has no usable credentials.");
-      return existing.encryptedApiKey;
-    }
-    if (!this.codec.available()) throw new Error("System credential encryption is currently unavailable. The API Key was not saved.");
-    return this.codec.encrypt(apiKey);
-  }
-
-  private decryptSecret(profile: StoredProfile): string {
-    if (!this.codec.available()) throw new Error("System credential decryption is currently unavailable.");
-    try {
-      const apiKey = this.codec.decrypt(profile.encryptedApiKey);
-      if (!apiKey) throw new Error("empty secret");
-      return apiKey;
-    } catch (error) {
-      throw new Error(`The credentials for provider ${profile.name} could not be decrypted. Configure it again.`, { cause: error });
-    }
-  }
-
   private async serialize<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.mutation;
     let release: () => void = () => undefined;
@@ -245,7 +224,7 @@ export class ProviderStore {
     let completed = false;
     try {
       const parsed = JSON.parse(await readFile(this.filePath, "utf8")) as { version?: unknown; profiles?: unknown };
-      if (parsed.version === STORE_VERSION && Array.isArray(parsed.profiles)) {
+      if ((parsed.version === STORE_VERSION || parsed.version === 2) && Array.isArray(parsed.profiles)) {
         this.profiles = parsed.profiles.filter(isStoredProfile).map(normalizeStoredProfile);
       } else if (parsed.version === 1 && Array.isArray(parsed.profiles)) {
         this.profiles = parsed.profiles.filter(isLegacyStoredProfile).map(migrateLegacyProfile).map(normalizeStoredProfile);
@@ -269,7 +248,7 @@ export class ProviderStore {
     await rename(temporaryPath, this.filePath);
   }
 
-  private toSummary(profile: StoredProfile): ProviderProfileSummary {
+  private async toSummary(profile: StoredProfile): Promise<ProviderProfileSummary> {
     const credentialConfigured = Boolean(profile.encryptedApiKey);
     const credentialAvailable = credentialConfigured && this.codec.available();
     return {
@@ -288,6 +267,33 @@ export class ProviderStore {
         state: model.state,
       })),
     };
+  }
+
+  private resolveEncryptedSecret(apiKey: string | undefined, existing: StoredProfile | undefined): string {
+    if (!apiKey) {
+      if (!existing?.encryptedApiKey) throw new Error("A provider requires an API Key.");
+      return existing.encryptedApiKey;
+    }
+    if (!this.codec.available()) throw new Error("System credential encryption is currently unavailable. The API Key was not saved.");
+    return this.codec.encrypt(apiKey);
+  }
+
+  private async requireCredential(providerProfileId: string): Promise<string> {
+    await this.ensureLoaded();
+    const profile = this.profiles.find((candidate) => candidate.providerProfileId === providerProfileId);
+    if (!profile?.encryptedApiKey) throw new Error("No API Key is configured for this provider. Open Settings and enter one.");
+    return this.decryptSecret(profile);
+  }
+
+  private decryptSecret(profile: StoredProfile): string {
+    if (!this.codec.available()) throw new Error("System credential decryption is currently unavailable.");
+    try {
+      const apiKey = this.codec.decrypt(profile.encryptedApiKey ?? "");
+      if (!apiKey) throw new Error("empty secret");
+      return apiKey;
+    } catch (error) {
+      throw new Error(`The credentials for provider ${profile.name} could not be decrypted. Configure it again.`, { cause: error });
+    }
   }
 }
 
@@ -340,7 +346,6 @@ function isStoredProfile(value: unknown): value is StoredProfile {
     && PROVIDERS.has(profile.provider as Provider)
     && typeof profile.name === "string"
     && typeof profile.baseURL === "string"
-    && typeof profile.encryptedApiKey === "string"
     && Array.isArray(profile.models)
     && profile.models.every(isStoredModel);
 }

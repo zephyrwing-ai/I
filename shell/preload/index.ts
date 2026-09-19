@@ -9,6 +9,11 @@ import {
   type AgentAPI,
   type AgentEvent,
   type DeleteProviderResult,
+  type CanvasContextDescriptor,
+  type CanvasContextInput,
+  type CanvasDocumentResult,
+  type CanvasSaveResult,
+  type CanvasDocument,
   type InputAttachmentDescriptor,
   type OpenOutputFileResult,
   type OutputFilePreviewResult,
@@ -52,6 +57,16 @@ const api: AgentAPI = {
   deleteProvider: (providerProfileId: string): Promise<DeleteProviderResult> => ipcRenderer.invoke(IPC.deleteProvider, providerProfileId),
 
   selectAttachments: (): Promise<InputAttachmentDescriptor[]> => ipcRenderer.invoke(IPC.selectAttachments),
+
+  loadCanvasDocument: (): Promise<CanvasDocumentResult> => ipcRenderer.invoke(IPC.loadCanvasDocument),
+
+  saveCanvasDocument: (document: CanvasDocument): Promise<CanvasSaveResult> => (
+    ipcRenderer.invoke(IPC.saveCanvasDocument, document)
+  ),
+
+  prepareCanvasContext: (input: CanvasContextInput): Promise<CanvasContextDescriptor> => (
+    ipcRenderer.invoke(IPC.prepareCanvasContext, input)
+  ),
 
   previewOutputFile: (runId: string, fileId: string): Promise<OutputFilePreviewResult> => (
     ipcRenderer.invoke(IPC.previewOutputFile, runId, fileId)

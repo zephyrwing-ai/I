@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { InputAttachmentDescriptor, ModelOption, RunRequest } from "../../../../shell/shared/ipc";
+import type { CanvasContextDescriptor, InputAttachmentDescriptor, ModelOption, RunRequest } from "../../../../shell/shared/ipc";
 import { Icon } from "../../components/Icon";
 import { isSendKey } from "./sendKey";
 import "./Composer.css";
@@ -21,6 +21,9 @@ interface ComposerProps {
   modelLoading: boolean;
   onRun: (req: RunRequest) => void;
   onStop: () => void;
+  canvasContexts?: CanvasContextDescriptor[];
+  onRemoveCanvasContext?: (contextId: string) => void;
+  onClearCanvasContexts?: () => void;
 }
 
 /** 只有最近一次模型发现仍返回的模型才能成为 Composer 的已恢复选择。 */
@@ -53,7 +56,7 @@ export function parseStoredModelPickerPreference(serialized: string | null, lega
 }
 
 /** 对话框列：输入框 + 附件 + 模型选择 + 发送/停止。位于中间列（Column）的 auto 行。 */
-export function Composer({ running, stopping, ready = true, modelOptions, modelLoading, onRun, onStop }: ComposerProps) {
+export function Composer({ running, stopping, ready = true, modelOptions, modelLoading, onRun, onStop, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
   const [task, setTask] = useState("");
   const [attachments, setAttachments] = useState<InputAttachmentDescriptor[]>([]);
   const [modelOpen, setModelOpen] = useState(false);
@@ -181,12 +184,14 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
       task: task.trim(),
       modelOptionId: selectedModelOptionId,
       attachmentIds: attachments.map((attachment) => attachment.attachmentId),
+      canvasContextIds: canvasContexts.map((context) => context.contextId),
     } satisfies RunRequest;
     onRun(request);
     // 发送后清空输入与附件：消息已经在消息列，Composer 不再保留副本；
     // 文本域高度也同步重置（updateTask 曾按内容撑高）。
     setTask("");
     setAttachments([]);
+    onClearCanvasContexts?.();
     const input = taskInputRef.current;
     if (input) {
       input.style.height = "auto";
@@ -220,6 +225,17 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
                 <span className="attachment-icon"><Icon name={attachment.mediaType.startsWith("image/") ? "image" : "book-open"} width="15" height="15" /></span>
                 <span className="attachment-info"><strong>{attachment.name}</strong><small>{formatBytes(attachment.byteSize)}</small></span>
           <button type="button" onClick={() => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId))} disabled={running || !ready} aria-label={`Remove attachment ${attachment.name}`} title="Remove attachment"><Icon name="close" width="14" height="14" /></button>
+              </div>
+            ))}
+          </div>
+        )}
+        {canvasContexts.length > 0 && (
+          <div className="composer-canvas-contexts" aria-label="Canvas references">
+            {canvasContexts.map((context) => (
+              <div className="composer-canvas-context" key={context.contextId}>
+                <Icon name="line-squiggle" width="15" height="15" />
+                <span><strong>{context.label}</strong><small>{context.hasVisual ? "Text + visual snapshot" : "Text snapshot"}</small></span>
+                <button type="button" onClick={() => onRemoveCanvasContext?.(context.contextId)} disabled={running || !ready} aria-label={`Remove ${context.label}`} title="Remove canvas reference"><Icon name="close" width="14" height="14" /></button>
               </div>
             ))}
           </div>

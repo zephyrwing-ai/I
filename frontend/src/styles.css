@@ -122,8 +122,8 @@ button:disabled { cursor: not-allowed; }
 .provider-card-actions button.danger-confirm,
 .provider-card-actions button.danger-confirm:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger); }
 .provider-card-actions .is-refreshing svg { animation: spin .7s linear infinite; }
-.provider-feedback { height: 0; overflow: hidden; color: var(--success); font-size: 10px; text-align: right; opacity: 0; transform: translateY(-2px); transition: height 160ms ease, opacity 160ms ease, transform 160ms ease; }
-.provider-feedback.is-visible { height: 18px; padding-top: 5px; opacity: 1; transform: translateY(0); }
+.provider-card-actions button.is-refresh-success,
+.provider-card-actions button.is-refresh-success:hover:not(:disabled) { color: var(--text); }
 .provider-refresh-error { margin: 5px 0 0; color: var(--danger); font-size: 10px; text-align: right; }
 .provider-model-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 200ms var(--ease-standard), opacity 150ms ease; }
 .provider-card.is-expanded .provider-model-collapse { grid-template-rows: 1fr; opacity: 1; }
@@ -142,6 +142,11 @@ button:disabled { cursor: not-allowed; }
 .field { display: flex; flex-direction: column; gap: 5px; color: var(--text-secondary); font-size: 11px; }
 .field-label { font-weight: 400; }
 .field input, .model-search { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; outline: 0; background: var(--input); color: var(--text); font-size: 12px; }
+.secret-input-wrap { position: relative; }
+.secret-input-wrap .secret-input { padding-right: 42px; }
+.secret-toggle { position: absolute; top: 50%; right: 6px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted); display: grid; place-items: center; transform: translateY(-50%); }
+.secret-toggle:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.secret-toggle:disabled { opacity: .45; }
 .field input:focus, .model-search:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--focus-ring); background: var(--surface); }
 .model-import { padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 9px; }
 .model-import-toolbar { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; }
@@ -159,12 +164,14 @@ button:disabled { cursor: not-allowed; }
 .discovered-model-row input { width: 15px; height: 15px; accent-color: var(--accent); }
 .discovered-model-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 450; }
 
-.output-sidebar-shell { grid-area: 1 / 2 / -1 / -1; position: relative; min-width: 0; height: 100%; overflow: hidden; background: var(--surface-secondary); border-left: 1px solid var(--border); opacity: 1; transition: width 180ms var(--ease-standard); }
+.output-sidebar-shell { grid-area: 1 / 2 / -1 / -1; position: relative; min-width: 0; height: 100%; overflow: hidden; background: var(--surface-secondary); border-left: 1px solid var(--border); opacity: 1; transition: width 180ms var(--ease-standard); isolation: isolate; }
 .output-sidebar-shell.phase-closed { border-left-width: 0; }
 .output-sidebar-shell.phase-dragging { transition: none; }
 .output-sidebar-shell.phase-closing .output-sidebar-content, .output-sidebar-shell.phase-closed .output-sidebar-content { opacity: 0; }
 .output-sidebar-shell.phase-opening .output-sidebar-content { animation: sidebar-content-in 180ms var(--ease-standard); }
 .output-sidebar-content { width: 100%; min-width: 0; height: 100%; overflow: hidden; display: grid; grid-template-rows: 50px minmax(108px, 34%) minmax(0, 1fr); opacity: 1; transition: opacity 90ms ease-out; }
+.output-sidebar-content.is-canvas { grid-template-rows: 50px minmax(0, 1fr); }
+.right-sidebar-canvas { min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .output-resizer { position: absolute; z-index: 3; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; outline: 0; }
 .output-resizer::after { content: ""; position: absolute; left: 3px; top: 0; bottom: 0; width: 1px; background: var(--border); }
 .output-resizer:hover::after, .output-resizer:focus-visible::after, .collapse-ready .output-resizer::after { width: 2px; background: var(--accent); }

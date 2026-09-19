@@ -79,7 +79,7 @@ test("open OutputSidebar reserves the top action area and exposes current files"
     byteSize: 2_048,
   })]);
 
-  assert.match(html, /<aside[^>]*id="output-sidebar"[^>]*phase-open[^>]*aria-hidden="false"/);
+  assert.match(html, /<aside[^>]*id="right-sidebar"[^>]*phase-open[^>]*aria-hidden="false"/);
   assert.match(html, /role="separator"[^>]*tabindex="0"/);
   assert.match(html, /<div class="output-sidebar-header" aria-hidden="true"><\/div>/);
   assert.doesNotMatch(html, />Current run<|>Output files</);
@@ -91,7 +91,7 @@ test("open OutputSidebar reserves the top action area and exposes current files"
 test("closed OutputSidebar remains associated with the TopBar but is hidden and unfocusable", () => {
   const html = renderSidebar(false, [file()]);
 
-  assert.match(html, /<aside[^>]*id="output-sidebar"[^>]*phase-closed[^>]*style="width:0"[^>]*aria-hidden="true"/);
+  assert.match(html, /<aside[^>]*id="right-sidebar"[^>]*phase-closed[^>]*style="width:0"[^>]*aria-hidden="true"/);
   assert.match(html, /role="separator"[^>]*tabindex="-1"/);
 });
 
@@ -119,4 +119,19 @@ test("empty OutputSidebar renders both list and preview guidance without file ac
   assert.doesNotMatch(html, /role="option"/);
   assert.doesNotMatch(html, /aria-label="Refresh preview"/);
   assert.doesNotMatch(html, /aria-label="Open in system"/);
+});
+
+test("right sidebar switches to the canvas panel without mounting the output preview", () => {
+  const html = renderToStaticMarkup(createElement(OutputSidebar, {
+    open: true,
+    files: [file()],
+    activePanel: "canvas",
+    canvas: createElement("div", { className: "canvas-test" }, "Canvas"),
+    onOpenChange: () => undefined,
+  }));
+
+  assert.match(html, /output-sidebar-content is-canvas/);
+  assert.match(html, /class="canvas-test">Canvas/);
+  assert.doesNotMatch(html, /role="listbox"/);
+  assert.doesNotMatch(html, /File preview/);
 });

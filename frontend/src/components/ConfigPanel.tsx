@@ -131,13 +131,14 @@ export function ConfigPanel({ profiles, loading, error, disabled, onClose, onRef
                   </span>
                 </button>
                 <div className="provider-card-actions">
-                  <button type="button" className={refreshState?.kind === "loading" ? "is-refreshing" : ""} onClick={() => void refreshProfile(profile)} disabled={disabled || refreshState?.kind === "loading"} aria-label={`Refresh ${profile.name} models`} title="Refresh models"><Icon name="refresh" width="16" height="16" strokeWidth={2} /></button>
+                  <button type="button" className={`${refreshState?.kind === "loading" ? "is-refreshing" : ""}${refreshState?.kind === "success" ? " is-refresh-success" : ""}`} onClick={() => void refreshProfile(profile)} disabled={disabled || refreshState?.kind === "loading"} aria-label={refreshState?.kind === "success" ? "Models refreshed" : `Refresh ${profile.name} models`} title={refreshState?.kind === "success" ? "Models refreshed" : "Refresh models"}>
+                    <Icon name={refreshState?.kind === "success" ? "check" : "refresh"} width="16" height="16" strokeWidth={2} />
+                  </button>
                   <button type="button" onClick={() => { resetDelete(); setMode({ kind: "edit", profile }); }} disabled={disabled} aria-label={`Edit ${profile.name}`} title="Edit provider"><Icon name="edit" width="16" height="16" strokeWidth={2} /></button>
                   <button type="button" className={confirmDelete === profile.providerProfileId ? "danger-confirm" : ""} onClick={() => void remove(profile)} disabled={disabled} aria-label={confirmDelete === profile.providerProfileId ? `Click again to delete ${profile.name}` : `Delete ${profile.name}`} title={confirmDelete === profile.providerProfileId ? "Click again to confirm deletion" : "Delete provider"}><Icon name="trash" width="16" height="16" /></button>
                 </div>
               </div>
 
-              <div className={`provider-feedback ${refreshState?.kind === "success" ? "is-visible" : ""}`} role="status">Refresh succeeded</div>
               {refreshState?.kind === "error" && <p className="provider-refresh-error" role="alert">{refreshState.message}</p>}
 
               <div className="provider-model-collapse" aria-hidden={!isExpanded}>

@@ -7,9 +7,9 @@ description: 模型上下文、Provider 适配、流式消息和停止原因的�
 
 ## 输入与输出契约
 
-当前 `response` 接收 `ModelConfig`、`ModelMessage[]`、系统提示、工具定义和可选 `AbortSignal`。`runId`、`turnId` 由 Runtime 的回合上下文维护，用于关联对外事件，不直接传入适配器。
+当前 `response` 接收 `ModelConfig`、`ModelMessage[]`、系统提示、工具定义和可选 `AbortSignal`。`ModelConfig` 的 Provider 配置由 Host 注入；OpenAI-compatible 配置可以提供 Main 侧的 `apiKeyProvider`，Adapter 在每次外发模型请求前读取凭据并交给 SDK 传输层。API Key 不进入 `ModelMessage`、system prompt、Runtime 消息快照或 AgentEvent。`runId`、`turnId` 由 Runtime 的回合上下文维护，用于关联对外事件，不直接传入适配器。
 
-`ModelMessage` 使用字符串 `content`，可附带独立的 `reasoning` 和 `toolCalls` 数组；工具结果消息携带 `toolCallId`、`toolName` 和 `isError`。当前不是正文与工具调用交错的块式消息。`ToolCall` 包含 `id`、`name`、`input` 和 `inputComplete`；`LlmResponse` 包含正文、思考、工具调用、归一化停止原因、原始停止原因及可选诊断字段。
+`ModelMessage` 使用字符串 `content`，可附带独立的 `reasoning`、`toolCalls` 和可选 `media`；画布视觉快照以本次运行内的 user message media 传入，工具图片结果仍使用 tool message media。适配器将其映射为 OpenAI-compatible 的文本加 `image_url`，不会把运行级画布上下文写入 Recorder。工具结果消息携带 `toolCallId`、`toolName` 和 `isError`。当前不是正文与工具调用交错的块式消息。`ToolCall` 包含 `id`、`name`、`input` 和 `inputComplete`；`LlmResponse` 包含正文、思考、工具调用、归一化停止原因、原始停止原因及可选诊断字段。
 
 `runId` 关联整次运行，`turnId` 关联一次逻辑模型回合，`attempt` 区分该回合中的具体请求，`toolCallId` 贯穿工具调用和结果。请求中不存在 `stepLimit`、`maxSteps` 或其他按次数终止循环的字段。
 

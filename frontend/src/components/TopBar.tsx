@@ -5,23 +5,28 @@ import type { SearchResult } from "../store/search";
 interface TopBarProps {
   outputOpen: boolean;
   outputCount: number;
+  canvasOpen?: boolean;
   searchOpen: boolean;
   settingsOpen: boolean;
   searchButtonRef: RefObject<HTMLButtonElement>;
   settingsButtonRef: RefObject<HTMLButtonElement>;
   onOutput: () => void;
+  onCanvas?: () => void;
   onSearch: () => void;
   onSettings: () => void;
 }
 
-export function TopBar({ outputOpen, outputCount, searchOpen, settingsOpen, searchButtonRef, settingsButtonRef, onOutput, onSearch, onSettings }: TopBarProps) {
+export function TopBar({ outputOpen, outputCount, canvasOpen = false, searchOpen, settingsOpen, searchButtonRef, settingsButtonRef, onOutput, onCanvas = () => undefined, onSearch, onSettings }: TopBarProps) {
   return (
     <header className="topbar">
       <h1 className="sr-only">Agent Workbench</h1>
       <div className="topbar-actions">
-        <button className={`icon-button ${outputOpen ? "active" : ""}`} onClick={onOutput} title={outputOpen ? "Hide output files" : "Show output files"} aria-label={outputOpen ? "Hide output files" : "Show output files"} aria-expanded={outputOpen} aria-controls="output-sidebar">
+        <button className={`icon-button ${outputOpen ? "active" : ""}`} onClick={onOutput} title={outputOpen ? "Hide output files" : "Show output files"} aria-label={outputOpen ? "Hide output files" : "Show output files"} aria-expanded={outputOpen} aria-controls="right-sidebar">
           <Icon name={outputOpen ? "sidebar" : "sidebar-collapsed"} width="18" height="18" strokeWidth={2} />
-          {!outputOpen && outputCount > 0 && <span className="icon-badge">{outputCount > 9 ? "9+" : outputCount}</span>}
+          {!outputOpen && !canvasOpen && outputCount > 0 && <span className="icon-badge">{outputCount > 9 ? "9+" : outputCount}</span>}
+        </button>
+        <button className={`icon-button ${canvasOpen ? "active" : ""}`} onClick={onCanvas} title={canvasOpen ? "Hide canvas" : "Show canvas"} aria-label={canvasOpen ? "Hide canvas" : "Show canvas"} aria-expanded={canvasOpen} aria-controls="right-sidebar">
+          <Icon name="line-squiggle" width="18" height="18" strokeWidth={2} />
         </button>
         <button ref={searchButtonRef} className={`icon-button ${searchOpen ? "active" : ""}`} onClick={onSearch} title="Search all content" aria-label="Search all content" aria-expanded={searchOpen} aria-controls="search-popover">
           <Icon name="search" width="18" height="18" strokeWidth={2} />

@@ -72,3 +72,14 @@ test("serializes completed reasoning to the Provider reasoning field", () => {
   assert.equal((assistant as { reasoning_content?: string }).reasoning_content, "private reasoning");
   assert.equal(String((assistant as { content: string | null }).content).includes("<thinking>"), false);
 });
+
+test("serializes a run-scoped user visual context as multimodal content", () => {
+  const [, user] = toOpenAIMessages([
+    { role: "user", content: "Read this canvas", media: { mediaType: "image/png", dataUrl: "data:image/png;base64,AA==" } },
+  ], "system");
+  const content = (user as { content: Array<{ type: string; text?: string; image_url?: { url: string } }> }).content;
+  assert.deepEqual(content, [
+    { type: "text", text: "Read this canvas" },
+    { type: "image_url", image_url: { url: "data:image/png;base64,AA==" } },
+  ]);
+});

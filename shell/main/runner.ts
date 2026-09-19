@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { run, type AgentEvents } from "../../agent/loop.js";
 import type { SessionRecorder } from "../../agent/memory/types.js";
 import type { ModelConfig } from "../../agent/model/index.js";
+import type { ModelMessage } from "../../agent/model/types.js";
+import type { ResolvedCanvasContext } from "./canvas-context.js";
 import { createLocalBashOps } from "../../agent/environment.js";
 import { createToolRegistry, type ToolResult as InternalToolResult } from "../../agent/tools/index.js";
 import type { FileArtifact } from "../../agent/types.js";
@@ -14,7 +16,7 @@ export interface RunnerHandle {
   stop(): void;
 }
 
-/** Main 解析 modelOptionId 与凭据后才能构造；不得暴露给 Renderer。 */
+  /** Main 解析 modelOptionId 与凭据读取器后才能构造；不得暴露给 Renderer。 */
 export interface ResolvedRunRequest {
   task: string;
   cwd: string;
@@ -25,7 +27,11 @@ export interface ResolvedRunRequest {
   provider: Provider;
   modelId: string;
   baseURL?: string;
-  apiKey: string;
+  getApiKey: () => Promise<string>;
+  /** Main assigns this before consuming any run-scoped references. */
+  runId?: string;
+  /** Context that lives only in this model run and is never recorded. */
+  runScopedContext?: ResolvedCanvasContext[];
 }
 
 export type ArtifactRegistrar = (
@@ -59,7 +65,7 @@ export class AgentRunner {
     if (this.active) throw new Error("A run is already in progress. Stop the current task first.");
     this.active = true;
     this.controller = new AbortController();
-    const runId = randomUUID();
+    const runId = req.runId ?? randomUUID();
     if (this.createSessionRecorder && !req.sessionId) {
       this.markIdle();
       throw new Error("The run request is missing a session identity.");
@@ -116,7 +122,7 @@ export class AgentRunner {
       model: req.modelId,
       openai: {
         baseURL: req.baseURL,
-        apiKey: req.apiKey,
+        apiKeyProvider: req.getApiKey,
         reasoningField: req.baseURL?.toLowerCase().includes("deepseek") ? "reasoning_content" : undefined,
       },
     };
@@ -132,6 +138,7 @@ export class AgentRunner {
         tools: createToolRegistry(createLocalBashOps()),
         signal: this.controller.signal,
         recorder,
+        runScopedContext: req.runScopedContext?.map(toModelMessage),
       }, events).catch((error: unknown) => {
         emitOnce({ type: "runCompleted", runId, status: "failed", turnCount: 0, error: { kind: "runtime", message: error instanceof Error ? error.message : String(error) } });
       });
@@ -150,6 +157,14 @@ export class AgentRunner {
     for (const resolve of this.idleResolvers) resolve();
     this.idleResolvers.clear();
   }
+}
+
+function toModelMessage(context: ResolvedCanvasContext): ModelMessage {
+  return {
+    role: "user",
+    content: context.text,
+    ...(context.visual ? { media: { mediaType: context.visual.mediaType, dataUrl: context.visual.dataURL } } : {}),
+  };
 }
 
 function toPublicToolResult(result: InternalToolResult): ToolResult {

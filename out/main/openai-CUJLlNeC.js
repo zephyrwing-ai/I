@@ -36,6 +36,13 @@ function toOpenAIMessages(messages, system, reasoningField) {
         }
         return assistant;
       }
+      if (message.media) {
+        const content = [
+          { type: "text", text: message.content },
+          { type: "image_url", image_url: { url: message.media.dataUrl } }
+        ];
+        return { role: message.role, content };
+      }
       return { role: message.role, content: message.content };
     })
   ];
@@ -90,7 +97,7 @@ function stripStreamThinking(chunk, held, endOfStream) {
   return { text, thinking: parts.join("\n"), pending };
 }
 async function* streamOpenAI(messages, tools, config = {}, system = "", signal) {
-  const apiKey = config.apiKey ?? process.env.DEEPSEEK_API_KEY ?? process.env.OPENAI_API_KEY;
+  const apiKey = config.apiKeyProvider ? await config.apiKeyProvider() : config.apiKey ?? process.env.DEEPSEEK_API_KEY ?? process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new ModelAdapterError(
       "config",
