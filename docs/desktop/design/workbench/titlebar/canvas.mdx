@@ -5,32 +5,72 @@ Canvas 按钮。
 - 材料：透明背景，次要文字颜色；悬停和激活状态使用悬停反馈颜色和主要文字颜色。
 - 图标：line-squiggle 语义图标18px，使用2px描边、圆角端点和 currentColor。
 - 交互：触发后将右侧工作侧栏切换到 Canvas 面板；Canvas 已显示时触发关闭侧栏。按钮使用 `aria-expanded` 表示 Canvas 面板是否打开，并以 `aria-controls` 关联右侧工作侧栏。
-- 处理位置：按钮只修改 Renderer 的侧栏目标状态，不读取或修改画布内容。
+
+源码所有权。
+
+- Canvas 使用仓库内维护的 Agent Canvas engine，不依赖 npm registry 中的画布包。
+- 源码位于 `canvas/engine/`，内部保留 `editor`、`utils` 和 `math` 三个引擎模块；Renderer 通过 Vite alias 直接解析这些源码目录。
+- 本地开发使用 `npm run dev` 直接编译 Canvas 源码并在 Electron Renderer 中显示效果，不需要发布 npm 包。
+- 宿主 UI 位于 `canvas/ui/CanvasSurface.tsx`；编辑器 UI、颜色、元素渲染和交互位于 `canvas/engine/editor/`。
+- 源码保留初始上游实现所需的 MIT 许可证和第三方依赖边界；后续修改以 Agent Canvas 为所有权边界。
+
 
 Canvas 面板。
 
 - 位置：位于右侧工作侧栏的内容区域，顶部保留50px安全区给标题栏按钮组和窗口操作区域。
 - 布局：宿主工具条位于画布上方；Excalidraw 占据工具条以下的全部可用高度，Canvas 面板自身不产生外层滚动。
-- 工具条：显示 Canvas 名称和保存状态；右侧提供使用选区与使用整个画布两个引用入口。
+- 工具条：显示 Canvas 名称和保存状态；右侧提供使用选区与使用整个画布两个引用入口。编辑器主菜单只保留 Save（JSON）和 Save as image。
+- 工具：只保留选择、手型平移、矩形、圆形、菱形、线、箭头、自由绘制、文字、图片、橡皮擦、撤销和重做。
 - 使用选区：没有选中元素时禁用；触发后只引用当前非删除选区。
 - 使用整个画布：画布没有非删除元素时禁用；触发后引用当前全部非删除元素。
 - 关闭：侧栏关闭到零宽后不初始化新的编辑器实例；再次打开时在具有确定非零尺寸的容器中恢复编辑器。
 - 滚轮：Canvas 保留 Excalidraw 的平移、缩放和选择行为，不接入消息流或输出文件列表的弹性滚动。
-- 安全：初期关闭远程 embeddable 内容和 Excalidraw 内置的 Load、Save、Export、Save image 操作；宿主未来的导入导出统一通过 Main 和受控文件对话框实现。
+- 安全：关闭远程 embeddable 内容、内置 Load、通用 Export、Library、Live Collaboration、Publish、分享和 AI/diagram 入口；Save 通过受控文件对话框输出 JSON，Save as image 保留图片导出。
 
 Canvas 持久化。
 
-- 范围：Canvas 属于当前会话，不属于当前 Run 的输出文件范围。
+- 范围：Canvas 属于当前项目或无项目历史范围，不属于当前 Run 的输出文件范围。
 - 文档：场景元素、可恢复 AppState 和图片文件元数据组成一个 CanvasDocument。
-- 图片：图片二进制与场景元数据分开保存，以 fileId 关联；不写入 SessionRecorder 的会话消息 payload。
-- 保存：Renderer 只通过 Preload 暴露的受限 IPC 读写文档。Main 负责路径、输入验证、原子替换、revision 和图片资源目录；Renderer 不直接获得用户目录路径。
-- 恢复：打开 Canvas 时从当前会话文档恢复；编辑器内存不构成跨关闭或重启的持久化来源。
+- 图片：图片二进制与场景元数据分开保存，以 fileId 关联；不写入 HistoryRecorder 的项目历史 payload。
+- 保存：Renderer 只通过 Preload 暴露的受限 IPC 读写文档。Renderer 以 dirty generation 串行提交，Main 按项目范围单写者和 expected revision 校验顺序；旧 revision 的保存不得覆盖新文档。关闭或切换面板时等待最后一个 generation flush 完成后再销毁编辑器。Main 负责路径、输入验证、原子替换、revision 和图片资源目录；Renderer 不直接获得用户目录路径。
+- 恢复：打开 Canvas 时从当前项目或无项目范围文档恢复；编辑器内存不构成跨关闭或重启的持久化来源。保存失败保留 dirty 状态并提供重试，不静默回退到旧文档。
 - 剪贴板：普通文字、截图和本地图片按 Excalidraw 原生粘贴行为处理；富文本聊天内容中的远程图片与文字不承诺一次粘贴完整保真。
+
+CanvasDocument 数据结构。
+
+- `elements`：Excalidraw 场景元素数组。普通文字以 `type: "text"` 的元素保存，文字内容、坐标、尺寸、字体、颜色、容器关系和版本信息随元素一起保存；文字不会被转换成一段脱离场景的普通文本。
+- `appState`：只保存能够恢复编辑器体验的状态，例如主题、背景色、网格、缩放和滚动位置；临时选区、拖拽状态、指针状态和协作者状态不作为文档事实保存。
+- `files`：以 `fileId` 关联图片元素和图片资源元数据。场景只保留资源引用，图片二进制进入独立资源文件。
+- 文档结构必须保持可被 Excalidraw `initialData` 恢复；宿主扩展字段放在独立的存储元数据中，不污染 Provider 消息结构。
+
+普通文字保存。
+
+- 用户在 Canvas 中输入或粘贴普通文字时，Excalidraw 生成或更新 text element。
+- `onChange(elements, appState, files)` 收到完整场景后，Renderer 将 text element 原样纳入当前 CanvasDocument 草稿。
+- Renderer 使用 dirty generation 标记每次变更；防抖只合并等待中的保存请求，不合并掉最后一次文字变更。
+- Main 保存成功后才推进文档 revision；保存失败保留当前草稿和 dirty 状态，用户可以重试，不能用旧文档覆盖新编辑。
+
+图片资源保存。
+
+- 图片元素通过 `fileId` 指向 `files` 中的资源；元素删除和资源删除是两个状态，资源清理必须在新文档成功提交后执行。
+- Main 校验图片 MIME、资源 ID、data URL 格式和单文件大小；不接受 Renderer 提供的任意本地路径。
+- 新图片先写入独立资源临时文件，再原子替换为稳定资源文件；场景元数据最后提交，避免出现“场景已引用但资源尚未写入”的可见状态。
+- 不再被任何元素引用的旧资源进入可回收集合；回收失败不能阻断已经成功提交的新场景。
+- 导出给模型的视觉快照是新的 PNG，不等同于直接把 Canvas 内部图片资源逐个拼入模型消息。
+
+Canvas revision。
+
+- revision 由 Main 的 CanvasDocumentStore 生成，初始值为0；每次通过 expected revision 校验并成功完成场景与资源提交后递增一次。
+- Renderer 的 dirty generation 只表示本地编辑顺序，不直接充当 revision；同一个 revision 可以对应多次被合并的 Renderer 保存尝试。
+- `CanvasContextSnapshot` 固化 `canvasSessionId`、revision、引用范围、元素 ID、结构文本和可选 PNG；后续编辑不修改已经固化的 snapshot。
+- revision 冲突时 Main 拒绝旧写入并返回当前 revision，Renderer 保留 dirty 草稿，由用户重试或重新加载后决定如何合并。
 
 Canvas 引用。
 
 - 默认：Canvas 内容不自动进入任何模型请求。
-- 创建：用户点击使用选区或使用整个画布后，Main 固化当前 revision，并返回一个不透明的 contextId、元素数量、图片数量和视觉快照标识。
+- 创建：用户点击使用选区或使用整个画布后，Main 固化当前 revision，并返回一个不透明的 contextId、元素数量、图片数量和视觉快照标识。contextId 默认有效10分钟，Main 最多保留32条未消费引用；过期或被淘汰时，Composer chip 显示失效并要求重新创建。
+- `prepareCanvasContext` 接受当前 CanvasDocument、`scope`、`selectedElementIds` 和可选 PNG；Main 先校验文档与视觉快照，再保存文档并以保存成功后的 revision 创建 snapshot。选区范围只允许引用当前文档中存在的非删除元素。
+- context registry 保存 descriptor 与 Runtime 所需的结构文本、视觉快照和过期时间；Renderer 只拿到 descriptor，不拿到 Main 的资源路径。
 - Composer：引用以可删除 chip 显示在任务输入上方。用户删除 chip 时，下一次 Run 不携带对应 contextId。
 - 冻结：创建引用后继续编辑 Canvas 不会修改已经附加的 snapshot；需要新内容时再次创建引用。
 - 内容：snapshot 由结构层和视觉层组成。结构层提供文本节点、元素类型、元素 ID、空间排序和可识别绑定关系；视觉层为选区或完整 Canvas 的 PNG 快照。
@@ -38,19 +78,43 @@ Canvas 引用。
 
 Canvas 上下文链路。
 
-1. CanvasPanel 向 Main 请求准备上下文，提交当前 CanvasDocument、引用范围、选中元素 ID 和可选 PNG。
+```text
+Excalidraw 编辑器
+  → CanvasDocument
+  → CanvasContextSnapshot
+  → Composer 引用
+  → RunRequest.canvasContextIds
+  → Main resolve / consume
+  → Runtime runScopedContext
+  → Adapter multimodal message
+  → Provider
+```
+
+1. CanvasSurface 向 Main 请求准备上下文，提交当前 CanvasDocument、引用范围、选中元素 ID 和可选 PNG。
 2. Main 校验输入并持久化 CanvasDocument，使用稳定 revision 生成短生命周期 contextId。
 3. Composer 在用户发送时只提交 contextId，不提交原始场景 JSON、图片 base64 或本地文件路径。
 4. Main 在启动 Run 时消费 contextId，并将冻结的结构文本和视觉快照交给 Runner。
 5. Runtime 将上下文只放入本次 Run 的内存 messages，顺序为已提交历史、Canvas snapshot、本次真实用户消息。
-6. Adapter 将视觉快照映射为 Provider 支持的 user text 与 image 输入；Adapter 不决定引用策略，也不写入会话存储。
+6. Adapter 将视觉快照映射为 Provider 支持的 user text 与 image 输入；Adapter 不决定引用策略，也不写入项目历史存储。
 
 运行边界。
 
-- Canvas snapshot 不调用 `SessionRecorder.commitUser`，不进入会话消息快照。
+- Canvas snapshot 不调用 `HistoryRecorder.commitUser`，不进入项目历史消息快照。
 - 同一 Run 的模型重试和工具续轮继续使用同一个冻结 snapshot。
 - 下一次 Run 从 Recorder 历史恢复时不自动携带上一次 Canvas 内容。
 - 没有视觉能力的模型必须被明确告知图片不可用；界面和请求层不能静默宣称模型已经理解图片。
+
+失败、失效与恢复。
+
+- CanvasDocument 加载失败：Canvas 显示加载错误和重试入口，不把空文档写回磁盘覆盖原文档。
+- CanvasDocument 保存失败：保留当前 dirty generation、显示保存失败状态；后续保存必须继续使用最新草稿和 expected revision。
+- revision 冲突：Main 返回冲突和当前 revision；Renderer 停止自动覆盖，等待用户选择重试、重新加载或放弃本地草稿。
+- `prepareCanvasContext` 失败：不创建 contextId，不在 Composer 增加 chip；用户可以修复 Canvas 后重新引用。
+- contextId 过期或被淘汰：RunRequest 被拒绝并返回“引用已失效，请重新添加到消息”，不能降级为空上下文。
+- 用户删除引用：Renderer 从 pending references 移除 ID；registry 中未消费快照进入 TTL 回收，不会进入任何后续 Run。
+- Run 启动失败：已消费的 context 不重新进入项目历史；用户重新点击引用入口即可生成新的 snapshot。
+- 模型不支持图片：Provider capability 或请求错误必须转换为明确的用户提示；可以保留结构文本重试，但不能静默宣称视觉层已被模型理解。
+- Adapter/Provider 发送失败：错误只结束当前 Run；CanvasDocument 和原始 Canvas 内容保持不变，用户可以选择重新发送或调整模型。
 
 非目标。
 

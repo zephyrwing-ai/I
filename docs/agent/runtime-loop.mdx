@@ -21,13 +21,13 @@ description: Agent 的继续、自然完成、取消和失败判定。
 
 普通工具失败作为 `ModelMessage(role: "tool", isError: true)` 回填，允许模型在下一轮恢复。被截断或未注册的调用不执行，改为错误工具结果；工具级重试不属于本次模型回合重试。持久化 ToolCall 的安全重放、状态核对和批次恢复遵守[工具执行恢复](./tools/recovery.mdx)。
 
-## 会话存储接入
+## 项目历史存储接入
 
-Runtime 使用 Host 注入的 `SessionRecorder` 维护本次运行对应的持久化会话。Runtime 是用户消息、完整助手消息和工具结果提交顺序的唯一控制者；Host 负责创建 Recorder 并提供运行事件接收器。
+Runtime 使用 Host 注入的 `HistoryRecorder` 维护本次运行对应的项目或无项目历史范围。Runtime 是用户消息、完整助手消息和工具结果提交顺序的唯一控制者；Host 负责创建 Recorder 并提供运行事件接收器。
 
 用户消息提交顺序。
 
-1. Host 创建 `runId` 并把已经绑定 `sessionId` 的 Recorder 注入 Runtime。
+1. Host 创建 `runId`，捕获 `projectId: string | null`，并把绑定该范围的 Recorder 注入 Runtime。
 2. Runtime 创建一次用户 `ModelMessage`。
 3. Runtime 等待 `commitUser` 完成本地提交。
 4. Runtime 发出 `runStarted` 和 `turnStarted`，随后调用 Provider。
@@ -61,7 +61,7 @@ Runtime 使用 Host 注入的 `SessionRecorder` 维护本次运行对应的持�
 - Assistant Message 提交失败时，Runtime 直接收敛为 `failed`，工具保持待执行状态。
 - Tool Message 提交失败时，Runtime 直接收敛为 `failed`，下一次模型请求保持待调用状态。
 
-SessionRecorder 的数据结构、草稿刷新和本地事务以[会话存储](./memory.mdx)为准。AgentEvent 的身份和订阅契约以[运行事件](./events.mdx)为准。
+HistoryRecorder 的数据结构、草稿刷新和本地事务以[项目历史存储](./memory.mdx)为准。AgentEvent 的身份和订阅契约以[运行事件](./events.mdx)为准。
 
 ## 模型回合重试
 

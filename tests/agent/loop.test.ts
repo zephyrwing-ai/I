@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { classifyTurn, run } from "../../agent/loop.js";
-import type { SessionRecorder } from "../../agent/memory/types.js";
-import { createTransientSessionRecorder } from "../../agent/memory/index.js";
-import { SqliteSessionRepository, createSessionRecorder } from "../../agent/memory/index.js";
+import type { HistoryRecorder } from "../../agent/memory/types.js";
+import { createTransientHistoryRecorder } from "../../agent/memory/index.js";
+import { SqliteHistoryRepository, createHistoryRecorder } from "../../agent/memory/index.js";
 import type { ModelConfig } from "../../agent/model/index.js";
 import type { ModelMessage, ModelStreamEvent } from "../../agent/model/types.js";
 
-function createTestRecorder(initial: ModelMessage[] = []): SessionRecorder & { messages: ModelMessage[]; commits: string[] } {
+function createTestRecorder(initial: ModelMessage[] = []): HistoryRecorder & { messages: ModelMessage[]; commits: string[] } {
   const messages = initial.slice();
   const commits: string[] = [];
   return {
-    sessionId: "session-test",
+    projectId: null,
     messages,
     commits,
     snapshot: () => messages.slice(),
@@ -179,7 +179,7 @@ test("persistence barriers complete before provider, tools, and next provider re
 });
 
 test("runtime persists a tool invocation and settles it before the next model request", async () => {
-  const recorder = await createTransientSessionRecorder();
+  const recorder = await createTransientHistoryRecorder();
   let executionCount = 0;
   let requestCount = 0;
   const tool = {
@@ -208,14 +208,13 @@ test("runtime persists a tool invocation and settles it before the next model re
 
   assert.equal(result.status, "completed");
   assert.equal(executionCount, 1);
-  assert.deepEqual(await recorder.listOpenToolInvocations(recorder.sessionId), []);
+  assert.deepEqual(await recorder.listOpenToolInvocations("run-ledger"), []);
   await recorder.close();
 });
 
 test("runtime recovers a safe effect_pending invocation before the next model request", async () => {
-  const repository = new SqliteSessionRepository(":memory:");
-  const session = await repository.createSession({ scopeKey: "recovery" });
-  const first = await createSessionRecorder(repository, session.id);
+  const repository = new SqliteHistoryRepository(":memory:");
+  const first = await createHistoryRecorder(repository, null);
   const call = { id: "recover-call", name: "test", input: {}, inputComplete: true } as const;
   await first.commitAssistant({ role: "assistant", content: "", toolCalls: [call] }, { runId: "old-run", turnId: "old-turn", turnOrdinal: 1 });
   const invocation = await first.registerToolInvocation({
@@ -233,7 +232,7 @@ test("runtime recovers a safe effect_pending invocation before the next model re
   });
   await first.beginToolAttempt(invocation.id);
 
-  const recorder = await createSessionRecorder(repository, session.id);
+  const recorder = await createHistoryRecorder(repository, null);
   let executionCount = 0;
   const tool = {
     definition: { name: "test", description: "test", parameters: { type: "object" as const, properties: {}, required: [] } },
@@ -256,7 +255,7 @@ test("runtime recovers a safe effect_pending invocation before the next model re
 
   assert.equal(result.status, "completed");
   assert.equal(executionCount, 1);
-  assert.deepEqual(await recorder.listOpenToolInvocations(session.id), []);
+  assert.deepEqual(await recorder.listOpenToolInvocations("new-run"), []);
   await first.close();
   await recorder.close();
   repository.close();

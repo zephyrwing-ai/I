@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { run, type AgentEvents } from "../../agent/loop.js";
-import type { SessionRecorder } from "../../agent/memory/types.js";
+import type { HistoryRecorder, HistoryScope } from "../../agent/memory/types.js";
 import type { ModelConfig } from "../../agent/model/index.js";
 import type { ModelMessage } from "../../agent/model/types.js";
-import type { ResolvedCanvasContext } from "./canvas-context.js";
+import type { ResolvedCanvasContext } from "../../canvas/context/CanvasContextRegistry.js";
 import { createLocalBashOps } from "../../agent/environment.js";
 import { createToolRegistry, type ToolResult as InternalToolResult } from "../../agent/tools/index.js";
 import type { FileArtifact } from "../../agent/types.js";
@@ -20,8 +20,10 @@ export interface RunnerHandle {
 export interface ResolvedRunRequest {
   task: string;
   cwd: string;
-  /** 会话路由提供的稳定后台会话身份。Main 接入持久化后填充。 */
-  sessionId?: string;
+  /** 当前历史范围；null 表示无项目历史。 */
+  projectId: HistoryScope;
+  projectContextVersion: string | null;
+  historyRecorder: HistoryRecorder;
   modelOptionId: string;
   providerProfileId: string;
   provider: Provider;
@@ -30,17 +32,17 @@ export interface ResolvedRunRequest {
   getApiKey: () => Promise<string>;
   /** Main assigns this before consuming any run-scoped references. */
   runId?: string;
-  /** Context that lives only in this model run and is never recorded. */
-  runScopedContext?: ResolvedCanvasContext[];
+  /** Project and other context that lives only in this model run and is never recorded. */
+  runScopedContext?: ModelMessage[];
+  canvasContexts?: ResolvedCanvasContext[];
 }
 
 export type ArtifactRegistrar = (
   runId: string,
   cwd: string,
   artifacts: FileArtifact[],
+  projectId: HistoryScope,
 ) => OutputFileDescriptor[];
-
-export type SessionRecorderFactory = (sessionId: string, runId: string) => SessionRecorder;
 
 export class AgentRunner {
   private controller = new AbortController();
@@ -49,7 +51,6 @@ export class AgentRunner {
 
   constructor(
     private readonly registerArtifacts?: ArtifactRegistrar,
-    private readonly createSessionRecorder?: SessionRecorderFactory,
   ) {}
 
   get isActive(): boolean {
@@ -66,17 +67,11 @@ export class AgentRunner {
     this.active = true;
     this.controller = new AbortController();
     const runId = req.runId ?? randomUUID();
-    if (this.createSessionRecorder && !req.sessionId) {
+    if (req.projectId === undefined) {
       this.markIdle();
-      throw new Error("The run request is missing a session identity.");
+      throw new Error("The run request is missing a project scope.");
     }
-    let recorder: SessionRecorder | undefined;
-    try {
-      recorder = this.createSessionRecorder?.(req.sessionId!, runId);
-    } catch (error) {
-      this.markIdle();
-      throw error;
-    }
+    const recorder = req.historyRecorder;
     const emitOnce = (() => {
       let completed = false;
       return (event: AgentEvent) => {
@@ -106,7 +101,7 @@ export class AgentRunner {
           result: toPublicToolResult(result),
         });
         if (result.artifacts?.length && this.registerArtifacts) {
-          const files = this.registerArtifacts(ctx.runId, req.cwd, result.artifacts);
+          const files = this.registerArtifacts(ctx.runId, req.cwd, result.artifacts, req.projectId);
           for (const file of files) emitOnce({ type: "outputFileRegistered", runId: ctx.runId, file });
         }
       },
@@ -135,10 +130,13 @@ export class AgentRunner {
         runId,
         systemPrompt: SYSTEM_PROMPT,
         cwd: req.cwd,
-        tools: createToolRegistry(createLocalBashOps()),
+        tools: req.projectId === null ? new Map() : createToolRegistry(createLocalBashOps()),
         signal: this.controller.signal,
         recorder,
-        runScopedContext: req.runScopedContext?.map(toModelMessage),
+        runScopedContext: [
+          ...(req.runScopedContext ?? []),
+          ...(req.canvasContexts?.map(toModelMessage) ?? []),
+        ],
       }, events).catch((error: unknown) => {
         emitOnce({ type: "runCompleted", runId, status: "failed", turnCount: 0, error: { kind: "runtime", message: error instanceof Error ? error.message : String(error) } });
       });

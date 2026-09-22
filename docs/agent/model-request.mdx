@@ -32,11 +32,11 @@ Provider 返回的 `reasoning_content` 以及正文中识别出的 thinking 标�
 
 `ModelStreamEvent` 包含 `reasoning_delta`、`text_delta` 和 `completed`。适配器持续发送思考与正文增量，工具调用在流结束时随 `completed` 一次性提交。`completed` 只表示 Adapter 已完成 Provider 流的解析，不表示 Runtime 已确认 Agent 回合成功。纯工具调用响应可以发送 `completed`，其中正文和思考为空，`toolCalls` 携带完整调用。
 
-每个成功模型流必须以明确的 `finish_reason` 结束。Adapter 对流结束时缺少终止原因的情况抛出可重试的 `model_protocol` 错误，而不会合成 `stop`。模型增量的会话持久化与宿主事件分发由 Runtime 契约定义，Adapter 保持 Provider 协议归一化职责。
+每个成功模型流必须以明确的 `finish_reason` 结束。Adapter 对流结束时缺少终止原因的情况抛出可重试的 `model_protocol` 错误，而不会合成 `stop`。模型增量的项目历史持久化与宿主事件分发由 Runtime 契约定义，Adapter 保持 Provider 协议归一化职责。
 
 适配器将配置、网络、Provider 和模型协议错误归一化为 `ModelAdapterError`，并附带 `retryable`。Runtime 捕获后把它们映射为 `TurnOutcome`，由回合重试逻辑决定是否恢复；取消信号仍由 Runtime 结束为 `cancelled`。
 
-任何方案都必须保证运行收敛为唯一终止事件。Adapter 不持有会话上下文，不直接写 Recorder，也不直接调用重试；它只返回一次性流或抛出归一化错误。
+任何方案都必须保证运行收敛为唯一终止事件。Adapter 不持有项目历史上下文，不直接写 Recorder，也不直接调用重试；它只返回一次性流或抛出归一化错误。
 
 Provider chunk 只由 Adapter 解析；Runtime 只接收归一化消息并发出 AgentEvent，不把 Provider SDK 的原始流对象泄漏给宿主。宿主如何跨进程传输和批处理高频增量，由对应宿主设计定义。
 
@@ -45,7 +45,7 @@ Provider chunk 只由 Adapter 解析；Runtime 只接收归一化消息并发出
 `stopReason: "length"` 是诊断信息，不是 Step 上限：
 
 - 如果消息包含工具调用，适配器将 `inputComplete` 设为 false，即使 JSON 仍能解析也禁止执行；Runtime 生成 `ok: false` 的结果，并以 `isError: true` 的工具消息回填模型，让模型在下一轮重新发出完整调用。
-- 如果消息不包含工具调用，Runtime 将其分类为 `incomplete/length`，不把半截 Assistant Message 加入上下文，并交给回合重试逻辑判断恢复或失败。
+- Runtime 将 `length` 响应统一分类为 `incomplete/length`，不把半截 Assistant Message 或其中的工具调用加入上下文，并交给回合重试逻辑判断恢复或失败；因此截断的工具调用不会被执行，也不会先生成 Tool Message。
 
 ## 错误与重试
 
@@ -53,7 +53,7 @@ Provider chunk 只由 Adapter 解析；Runtime 只接收归一化消息并发出
 
 当前模型回合重试由 `agent/loop.ts` 的 `retryModelTurn()` 负责。只有 Runtime 将响应分类为 reasoning-only、empty、length、缺少终止原因、无效工具调用或明确可重试的网络/Provider 错误时才调用它。它检查总 attempt 次数、发送 `turnRetrying`、等待退避时间，然后让主循环重新进入同一个 `response()` 入口；它不序列化 Provider 消息、不写 Recorder，也不修改 `Runtime.messages`。重试使用最后一个稳定上下文，失败 attempt 不会作为 Assistant Message 回填模型。
 
-## 验证要求（不代表已全部实现或验证）
+## 当前边界与验证
 
 - 当前 OpenAI 兼容流正确聚合正文、独立 reasoning 和工具调用，保留调用 ID；后续新增 Provider 须验证相同调用归一化一致。
 - 成功模型流以一个带明确 `finish_reason` 的 `completed` 事件结束，纯工具调用响应直接提供完整 `toolCalls`。

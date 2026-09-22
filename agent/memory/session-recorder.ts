@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
-import { SqliteSessionRepository } from "./sqlite-repository.js";
+import { SqliteHistoryRepository } from "./sqlite-repository.js";
 import type { ModelMessage } from "../model/types.js";
 import {
   RepositoryError,
   type AssistantDeltaKind,
   type MessageCommitContext,
   type RecordedRunStatus,
-  type SessionEntry,
-  type SessionRecorder,
-  type SessionRepository,
+  type HistoryEntry,
+  type HistoryRecorder,
+  type HistoryRepository,
+  type HistoryScope,
   type RegisterToolInvocationInput,
   type ToolCommitContext,
   type ToolInvocationRecord,
@@ -69,9 +70,9 @@ function draftKey(context: TurnCommitContext): string {
   return `${context.turnId}:${context.attempt ?? 1}`;
 }
 
-export class DefaultSessionRecorder implements SessionRecorder {
-  readonly sessionId: string;
-  private readonly repository: SessionRepository;
+export class DefaultHistoryRecorder implements HistoryRecorder {
+  readonly projectId: HistoryScope;
+  private readonly repository: HistoryRepository;
   private readonly completedMessages: ModelMessage[] = [];
   private readonly activeDrafts = new Map<string, DraftState>();
   private readonly userEntries = new Map<string, { entryId: string; message: ModelMessage }>();
@@ -81,10 +82,10 @@ export class DefaultSessionRecorder implements SessionRecorder {
   private backgroundError: unknown;
   private closed = false;
 
-  constructor(sessionId: string, repository: SessionRepository, entries: SessionEntry[] = []) {
-    this.sessionId = sessionId;
+  constructor(projectId: HistoryScope, repository: HistoryRepository, entries: HistoryEntry[] = []) {
+    this.projectId = projectId;
     this.repository = repository;
-    for (const entry of [...entries].sort((left, right) => left.sessionSeq - right.sessionSeq)) {
+    for (const entry of [...entries].sort((left, right) => left.entryOrder - right.entryOrder)) {
       if (entry.type === "user_message") this.userEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload) });
       if (entry.type === "tool_result" && entry.toolCallId) this.toolEntries.set(entry.toolCallId, { entryId: entry.id, message: cloneMessage(entry.payload) });
       if (entry.type === "assistant_message" && entry.turnId) this.assistantEntries.set(entry.turnId, entry.id);
@@ -114,7 +115,7 @@ export class DefaultSessionRecorder implements SessionRecorder {
     const copy = cloneMessage(message);
     this.userEntries.set(context.runId, { entryId, message: copy });
     return this.enqueueAndCheck(async () => {
-      const entry = await this.repository.appendEntry(this.sessionId, {
+      const entry = await this.repository.appendEntry(this.projectId, {
         id: entryId,
         type: "user_message",
         status: "completed",
@@ -222,7 +223,7 @@ export class DefaultSessionRecorder implements SessionRecorder {
     const copy = cloneMessage(message);
     this.toolEntries.set(context.toolCallId, { entryId, message: copy });
     return this.enqueueAndCheck(async () => {
-      const entry = await this.repository.appendEntry(this.sessionId, {
+      const entry = await this.repository.appendEntry(this.projectId, {
         id: entryId,
         type: "tool_result",
         status: "completed",
@@ -237,7 +238,7 @@ export class DefaultSessionRecorder implements SessionRecorder {
 
   registerToolInvocation(input: RegisterToolInvocationInput): Promise<ToolInvocationRecord> {
     this.ensureOpen();
-    return this.enqueueResult(() => this.repository.registerToolInvocation({ ...input, sessionId: this.sessionId }));
+    return this.enqueueResult(() => this.repository.registerToolInvocation({ ...input, projectId: this.projectId }));
   }
 
   beginToolAttempt(invocationId: string): Promise<ToolInvocationRecord> {
@@ -255,16 +256,14 @@ export class DefaultSessionRecorder implements SessionRecorder {
     return this.enqueueResult(() => this.repository.completeToolInvocation(invocationId, resultEntryId));
   }
 
-  getToolInvocation(sessionId: string, toolCallId: string): Promise<ToolInvocationRecord | null> {
+  getToolInvocation(runId: string, toolCallId: string): Promise<ToolInvocationRecord | null> {
     this.ensureOpen();
-    if (sessionId !== this.sessionId) return Promise.reject(new RepositoryError(`Session recorder is bound to ${this.sessionId}.`, "invalid"));
-    return this.waitForWrites().then(() => this.repository.getToolInvocation(sessionId, toolCallId));
+    return this.waitForWrites().then(() => this.repository.getToolInvocation(this.projectId, runId, toolCallId));
   }
 
-  listOpenToolInvocations(sessionId: string): Promise<ToolInvocationRecord[]> {
+  listOpenToolInvocations(runId?: string): Promise<ToolInvocationRecord[]> {
     this.ensureOpen();
-    if (sessionId !== this.sessionId) return Promise.reject(new RepositoryError(`Session recorder is bound to ${this.sessionId}.`, "invalid"));
-    return this.waitForWrites().then(() => this.repository.listOpenToolInvocations(sessionId));
+    return this.waitForWrites().then(() => this.repository.listOpenToolInvocations(this.projectId, runId));
   }
 
   async finishRun(result: { runId: string; status: RecordedRunStatus }): Promise<void> {
@@ -307,20 +306,23 @@ export class DefaultSessionRecorder implements SessionRecorder {
     if (!draft.dirty && draft.revision !== null) return;
     const finalStatus = draft.finalStatus;
     const status = finalStatus ?? (draft.terminal ? "completed" : "streaming");
-    let entry: SessionEntry;
+    const completedAt = status === "completed" ? Date.now() : undefined;
+    let entry: HistoryEntry;
     if (draft.revision === null) {
-      entry = await this.repository.appendEntry(this.sessionId, {
+      entry = await this.repository.appendEntry(this.projectId, {
         id: draft.entryId,
         type: "assistant_message",
         status,
         runId: draft.runId,
         turnId: draft.turnId,
         payload: cloneMessage(draft.message),
+        completedAt,
       });
     } else {
       entry = await this.repository.updateEntry(draft.entryId, draft.revision, {
         status,
         payload: cloneMessage(draft.message),
+        completedAt,
       });
     }
     draft.revision = entry.revision;
@@ -361,38 +363,35 @@ export class DefaultSessionRecorder implements SessionRecorder {
   }
 
   private ensureOpen(): void {
-    if (this.closed) throw new RepositoryError("Session recorder is closed.", "storage");
+    if (this.closed) throw new RepositoryError("History recorder is closed.", "storage");
   }
 }
 
-async function readAllEntries(repository: SessionRepository, sessionId: string): Promise<SessionEntry[]> {
-  const entries: SessionEntry[] = [];
+async function readAllEntries(repository: HistoryRepository, projectId: HistoryScope): Promise<HistoryEntry[]> {
+  const entries: HistoryEntry[] = [];
   let cursor = 0;
   while (true) {
-    const batch = await repository.listEntries(sessionId, cursor, 500);
+    const batch = await repository.listEntries(projectId, cursor, 500);
     entries.push(...batch);
     if (batch.length < 500) return entries;
-    cursor = batch[batch.length - 1]!.sessionSeq;
+    cursor = batch[batch.length - 1]!.entryOrder;
   }
 }
 
-export async function createSessionRecorder(repository: SessionRepository, sessionId: string): Promise<DefaultSessionRecorder> {
-  const session = await repository.getSession(sessionId);
-  if (!session) throw new RepositoryError(`Session not found: ${sessionId}`, "not_found");
-  const entries = await readAllEntries(repository, sessionId);
+export async function createHistoryRecorder(repository: HistoryRepository, projectId: HistoryScope): Promise<DefaultHistoryRecorder> {
+  const entries = await readAllEntries(repository, projectId);
   for (const entry of entries) {
     if (entry.status !== "streaming") continue;
     await repository.updateEntry(entry.id, entry.revision, { status: "interrupted" });
     entry.status = "interrupted";
     entry.revision += 1;
   }
-  return new DefaultSessionRecorder(sessionId, repository, entries);
+  return new DefaultHistoryRecorder(projectId, repository, entries);
 }
 
-export async function createTransientSessionRecorder(initialMessages: ModelMessage[] = []): Promise<DefaultSessionRecorder> {
-  const repository = new SqliteSessionRepository(":memory:");
-  const session = await repository.createSession({ scopeKey: "transient" });
-  const recorder = new DefaultSessionRecorder(session.id, repository);
+export async function createTransientHistoryRecorder(initialMessages: ModelMessage[] = []): Promise<DefaultHistoryRecorder> {
+  const repository = new SqliteHistoryRepository(":memory:");
+  const recorder = new DefaultHistoryRecorder(null, repository);
   for (const [index, message] of initialMessages.entries()) {
     if (message.role === "user") await recorder.commitUser(message, { runId: `initial-${index}` });
     else if (message.role === "assistant") await recorder.commitAssistant(message, { runId: `initial-${index}`, turnId: `initial-turn-${index}`, turnOrdinal: index + 1 });

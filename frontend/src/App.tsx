@@ -7,13 +7,13 @@ import { Composer } from "./middle-column/composer/Composer";
 import { TopBar, SearchPopover } from "./components/TopBar";
 import { ConfigPanel } from "./components/ConfigPanel";
 import { OutputSidebar } from "./components/OutputSidebar";
-import { CanvasPanel } from "./components/CanvasPanel";
+import { CanvasSurface } from "../../canvas/ui/CanvasSurface";
 import { useFloatingPanel } from "./hooks/useFloatingPanel";
 import { useSessionHistory } from "./hooks/useSessionHistory";
 import { useGlobalSearch } from "./hooks/useGlobalSearch";
 import { agentReducer, initialAgentState } from "./store/agentReducer";
 import { useProviderCatalog } from "./store/providerCatalog";
-import type { AgentEvent, CanvasContextDescriptor, RunRequest } from "../../shell/shared/ipc";
+import type { AgentEvent, CanvasContextDescriptor, ProjectDescriptor, RunRequest } from "../../shell/shared/ipc";
 
 export default function App() {
   const [state, dispatch] = useReducer(agentReducer, initialAgentState);
@@ -21,6 +21,7 @@ export default function App() {
   const [configOpen, setConfigOpen] = useState(false);
   const [sidebarPanel, setSidebarPanel] = useState<"outputs" | "canvas" | null>(null);
   const [canvasContexts, setCanvasContexts] = useState<CanvasContextDescriptor[]>([]);
+  const [project, setProject] = useState<ProjectDescriptor>({ projectId: null, displayName: "Choose folder", canonicalPath: null });
   const [searchOpen, setSearchOpen] = useState(false);
   const eventQueue = useRef<AgentEvent[]>([]);
   const hydrationEventQueue = useRef<AgentEvent[]>([]);
@@ -80,6 +81,10 @@ export default function App() {
 
   const history = useSessionHistory(state, dispatch);
   const search = useGlobalSearch(state, history.loadSearch);
+
+  useEffect(() => {
+    void window.agentAPI.getActiveProject().then(setProject).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!history.hydrated || historyReadyRef.current) return;
@@ -165,6 +170,29 @@ export default function App() {
     window.agentAPI.stop();
   };
 
+  const handleSelectProject = async (): Promise<void> => {
+    if (running) return;
+    try {
+      const selected = await window.agentAPI.selectProject();
+      if (!selected) return;
+      setProject(selected);
+      await history.reload();
+    } catch (error) {
+      dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
+  const handleClearProject = async (): Promise<void> => {
+    if (running) return;
+    try {
+      const cleared = await window.agentAPI.clearProject();
+      setProject(cleared);
+      await history.reload();
+    } catch (error) {
+      dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
   return (
     <div className="app">
       <TopBar
@@ -221,6 +249,9 @@ export default function App() {
                 ready={history.hydrated}
                 modelOptions={catalog.modelOptions}
                 modelLoading={catalog.loading}
+                project={project}
+                onSelectProject={() => void handleSelectProject()}
+                onClearProject={() => void handleClearProject()}
                 onRun={handleRun}
                 onStop={handleStop}
                 canvasContexts={canvasContexts}
@@ -236,7 +267,7 @@ export default function App() {
         activePanel={sidebarPanel ?? "outputs"}
         files={outputFiles}
         onOpenChange={(open) => { if (!open) setSidebarPanel(null); }}
-        canvas={<CanvasPanel onContextPrepared={(descriptor) => setCanvasContexts((current) => [...current, descriptor])} />}
+        canvas={<CanvasSurface onContextPrepared={(descriptor) => setCanvasContexts((current) => [...current, descriptor])} />}
       />
 
       {settingsPanel.mounted && (

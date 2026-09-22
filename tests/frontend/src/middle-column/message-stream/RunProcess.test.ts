@@ -106,6 +106,19 @@ test("the latest completed tool-free turn is rendered by the separate final-answ
   assert.match(answerHtml, /aria-label="Copy answer"/);
 });
 
+test("a persisted completed timestamp restores Worked for after reload", () => {
+  const state = run([
+    turn({
+      status: "completed",
+      assistantContent: "历史答案",
+      assistantCompletedAt: 3_000,
+    }),
+  ]);
+  state.taskAt = 1_000;
+  const html = renderToStaticMarkup(createElement(RunProcess, { run: state }));
+  assert.ok(html.includes("Worked for 2.0s"), html);
+});
+
 test("a persisted assistant message shows its timestamp in the final-answer block", () => {
   const state = run([
     turn({

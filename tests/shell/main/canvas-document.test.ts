@@ -4,8 +4,8 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { CanvasDocument } from "../../../shell/shared/ipc.js";
-import { CanvasDocumentStore } from "../../../shell/main/canvas-document.js";
-import { CanvasContextRegistry } from "../../../shell/main/canvas-context.js";
+import { CanvasDocumentStore } from "../../../canvas/persistence/CanvasDocumentStore.js";
+import { CanvasContextRegistry } from "../../../canvas/context/CanvasContextRegistry.js";
 
 const image = "data:image/png;base64,AA==";
 

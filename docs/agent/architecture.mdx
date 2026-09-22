@@ -3,13 +3,13 @@ title: Agent 总览
 description: Agent 内核的模块边界、依赖方向与跨模块运行主链路。
 ---
 
-本目录描述 Agent 内核如何保存会话、请求模型、判断是否继续、执行已注册工具，以及向宿主发出运行事件。桌面窗口、Electron IPC、Renderer 状态、设置、搜索和界面偏好归入 `docs/desktop/design/`。
+本目录描述 Agent 内核如何保存项目历史、请求模型、判断是否继续、执行已注册工具，以及向宿主发出运行事件。桌面窗口、Electron IPC、Renderer 状态、设置、搜索和界面偏好归入 `docs/desktop/design/`。
 
 ## 当前实现边界
 
-当前模型层实现 OpenAI 兼容协议，工具注册表已经注册 Bash、Read、Write、Edit、List Dir、Find Files 和 Search Content。Main 装配由 `agent/memory` 提供的 SessionRecorder 与 SQLite Repository；[会话存储](./memory.mdx)定义本地持久化契约，[会话存储实现清单](./session-storage-tasks.mdx)列出跨模块落地顺序。
+当前模型层实现 OpenAI 兼容协议，工具注册表已经注册 Bash、Read、Write、Edit、List Dir、Find Files 和 Search Content。Main 装配由 `agent/memory` 提供的 HistoryRecorder 与 SQLite Repository；[项目历史存储](./memory.mdx)定义本地持久化契约，[项目历史存储实现清单](./session-storage-tasks.mdx)列出跨模块落地顺序。
 
-会话从用户输入到 SQLite 的运行链路见[会话本地存储流程](./session-storage-flow.mdx)。
+项目历史从用户输入到 SQLite 的运行链路见[项目历史存储流程](./session-storage-flow.mdx)。
 
 ## 模块划分
 
@@ -17,20 +17,20 @@ Agent 设计按稳定的运行模块组织：
 
 | 模块 | 负责回答的问题 |
 | --- | --- |
-| [会话存储](./memory.mdx) | 会话和模型消息如何落盘、更新与恢复 |
+| [项目历史存储](./memory.mdx) | 项目和无项目消息如何落盘、更新与恢复 |
 | [模型请求](./model-request.mdx) | 上下文、工具定义和 Provider 参数如何形成请求，流式结果如何归一化 |
 | [运行循环](./runtime-loop.mdx) | Agent 为什么继续、何时自然完成、何时取消或失败 |
 | [工具系统](./tools/index.mdx) | Agent 有哪些工具，模型调用如何落到真实实现并返回结果 |
 | [运行事件](./events.mdx) | Agent 如何用稳定身份向宿主报告运行、回合和工具状态 |
 
-跨模块字段由所属模块完整定义，其他文件通过链接引用。跨模块实施顺序统一记录在[会话存储实现清单](./session-storage-tasks.mdx)。
+跨模块字段由所属模块完整定义，其他文件通过链接引用。跨模块实施顺序统一记录在[项目历史存储实现清单](./session-storage-tasks.mdx)。
 
 ## 分层职责
 
 | 层 | 职责 | 协作边界 |
 | --- | --- | --- |
 | Host boundary | 提交冻结运行输入、提供取消信号、接收 Agent 事件 | Runtime 负责控制流，Tool Registry 负责工具定义 |
-| Session Memory | 保存会话消息与草稿，提供完成消息快照和本地恢复 | Execution 负责工具，Desktop 负责页面渲染 |
+| History Memory | 保存项目或无项目消息与草稿，提供完成消息快照和本地恢复 | Execution 负责工具，Desktop 负责页面渲染 |
 | Agent Runtime | 编排模型请求、工具调用、工具结果和下一轮请求 | Host 负责平台装配，Desktop 负责页面状态 |
 | Provider Adapter | 将不同模型协议归一化为统一消息、流事件和停止原因 | Execution 负责工具调用，Runtime 负责完成判断 |
 | Tool Registry | 保存模型可见的工具定义与对应执行实现 | Provider 提供结构化调用，权限策略提供运行边界 |
@@ -40,9 +40,9 @@ Agent 设计按稳定的运行模块组织：
 
 ## 跨模块主链路
 
-一次运行从不可变的运行输入开始。宿主创建 `runId`、取消信号和绑定 `sessionId` 的 SessionRecorder。Runtime 提交用户消息后创建 `turnId` 并请求模型，Adapter 只负责协议归一化，Runtime 将流结果分类为完整回答、工具调用、不完整或失败。完整 Assistant Message 提交成功后才进入工具执行或结束运行；不完整 attempt 先保存为 interrupted，再由 `retryModelTurn()` 进行有限恢复。完整 Tool Message 提交后进入下一次模型请求；模型错误进入失败或重试，中止信号进入取消。
+一次运行从不可变的运行输入开始。宿主创建 `runId`、取消信号、`projectId` 和绑定该范围的 HistoryRecorder。Runtime 提交用户消息后创建 `turnId` 并请求模型，Adapter 只负责协议归一化，Runtime 将流结果分类为完整回答、工具调用、不完整或失败。完整 Assistant Message 提交成功后才进入工具执行或结束运行；不完整 attempt 先保存为 interrupted，再由 `retryModelTurn()` 进行有限恢复。完整 Tool Message 提交后进入下一次模型请求；模型错误进入失败或重试，中止信号进入取消。
 
-Agent 通过 SessionRecorder 保存会话事实，并通过结构化运行事件报告过程和唯一终止结果。宿主负责跨进程传递事件和渲染状态。
+Agent 通过 HistoryRecorder 保存项目历史事实，并通过结构化运行事件报告过程和唯一终止结果。宿主负责跨进程传递事件和渲染状态。
 
 
 ## 权限边界

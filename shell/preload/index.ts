@@ -22,11 +22,12 @@ import {
   type ProviderProfileInput,
   type ProviderProfileSummary,
   type RefreshProviderModelsResult,
+  type ProjectDescriptor,
   type RunRequest,
   type RunStartAck,
   type SaveProviderResult,
-  type SessionPageRequest,
-  type SessionPageResult,
+  type HistoryPageRequest,
+  type HistoryPageResult,
 } from "../shared/ipc.js";
 
 const api: AgentAPI = {
@@ -34,9 +35,15 @@ const api: AgentAPI = {
 
   stop: (): void => ipcRenderer.send(IPC.stop),
 
-  loadSessionPage: (request: SessionPageRequest): Promise<SessionPageResult> => (
-    ipcRenderer.invoke(IPC.loadSessionPage, request)
+  loadHistoryPage: (request: HistoryPageRequest): Promise<HistoryPageResult> => (
+    ipcRenderer.invoke(IPC.loadHistoryPage, request)
   ),
+
+  getActiveProject: (): Promise<ProjectDescriptor> => ipcRenderer.invoke(IPC.getActiveProject),
+
+  selectProject: (): Promise<ProjectDescriptor | null> => ipcRenderer.invoke(IPC.selectProject),
+
+  clearProject: (): Promise<ProjectDescriptor> => ipcRenderer.invoke(IPC.clearProject),
 
   listProviderProfiles: (): Promise<ProviderProfileSummary[]> => ipcRenderer.invoke(IPC.listProviderProfiles),
 

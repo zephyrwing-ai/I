@@ -1,30 +1,31 @@
 export { initializeSchema, SCHEMA_VERSION } from "./schema.js";
-export { SqliteSessionRepository } from "./sqlite-repository.js";
+export { SqliteHistoryRepository } from "./sqlite-repository.js";
 export { RepositoryError } from "./types.js";
 export {
-  DefaultSessionRecorder,
+  DefaultHistoryRecorder,
   DRAFT_FLUSH_BYTES,
   DRAFT_FLUSH_INTERVAL_MS,
-  createSessionRecorder,
-  createTransientSessionRecorder,
+  createHistoryRecorder,
+  createTransientHistoryRecorder,
 } from "./session-recorder.js";
 export type {
   AppendEntryInput,
   AssistantDeltaKind,
+  CreateProjectInput,
   CreateToolInvocationInput,
-  CreateSessionInput,
   EntryPatch,
   EntryStatus,
   EntryType,
+  HistoryEntry,
+  HistoryRecorder,
+  HistoryRepository,
+  HistoryScope,
   MessageCommitContext,
   ModelMessage,
+  Project,
+  ProjectContextInput,
+  ProjectContextRecord,
   RecordedRunStatus,
-  Session,
-  SessionEntry,
-  SessionPatch,
-  SessionRecorder,
-  SessionRepository,
-  SessionStatus,
   RegisterToolInvocationInput,
   ToolInvocationPhase,
   ToolInvocationRecord,

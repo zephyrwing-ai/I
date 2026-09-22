@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { SessionRecorder, ToolInvocationRecord, ToolOutcomeStatus } from "./memory/types.js";
+import type { HistoryRecorder, ToolInvocationRecord, ToolOutcomeStatus } from "./memory/types.js";
 import { response, type ModelConfig } from "./model/index.js";
 import { ModelAdapterError, type LlmResponse, type ModelMessage, type ToolCall, type ToolDef } from "./model/types.js";
 import { canonicalJson, toolInputHash } from "./tools/recovery.js";
@@ -27,8 +27,8 @@ export interface AgentRunConfig {
   cwd: string;
   tools: Map<string, RegisteredTool>;
   signal?: AbortSignal;
-  /** 运行绑定的本地会话 Recorder；Recorder 提供初始的已提交消息快照。 */
-  recorder?: SessionRecorder;
+  /** 运行绑定的历史 Recorder；Recorder 提供初始的已提交消息快照。 */
+  recorder?: HistoryRecorder;
   /** 测试注入点：与 provider-model-discovery 的 fetchImpl 同理。 */
   responseImpl?: typeof response;
   modelRetry?: ModelRetryConfig;
@@ -101,7 +101,7 @@ async function collectTurn(
   tools: ToolDef[],
   ctx: TurnContext,
   events: AgentEvents,
-  recorder: SessionRecorder | undefined,
+  recorder: HistoryRecorder | undefined,
   signal: AbortSignal | undefined,
   responseImpl: typeof response,
 ): Promise<{ response: LlmResponse; completed: boolean }> {
@@ -413,7 +413,7 @@ function waitForRetryDelay(delayMs: number, signal?: AbortSignal): Promise<boole
 async function recoverOpenToolInvocations(config: AgentRunConfig, messages: ModelMessage[]): Promise<void> {
   const recorder = config.recorder;
   if (!recorder || typeof recorder.listOpenToolInvocations !== "function") return;
-  const records = await recorder.listOpenToolInvocations(recorder.sessionId);
+  const records = await recorder.listOpenToolInvocations();
   for (const invocation of records) {
     if (invocation.phase === "completed") continue;
     let input: Record<string, unknown>;
@@ -477,7 +477,7 @@ async function registerToolBatch(
   const recorder = config.recorder;
   if (!recorder || typeof recorder.registerToolInvocation !== "function" || typeof recorder.getToolInvocation !== "function") return records;
   for (const [ordinal, call] of calls.entries()) {
-    const existing = await recorder.getToolInvocation(recorder.sessionId, call.id);
+    const existing = await recorder.getToolInvocation(ctx.runId, call.id);
     const tool = config.tools.get(call.name);
     const toolVersion = tool?.recovery.version ?? "unknown";
     const recoveryMode = tool?.recovery.mode ?? "never";

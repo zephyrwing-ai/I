@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import type { SessionPageResult } from "../../../shell/shared/ipc";
+import type { HistoryPageResult } from "../../../shell/shared/ipc";
 import type { AgentAction, AgentState } from "../store/agentReducer";
 
 export function useSessionHistory(
@@ -13,14 +13,15 @@ export function useSessionHistory(
   error: string | null;
   loadOlder: () => Promise<void>;
   loadSearch: () => Promise<void>;
+  reload: () => Promise<void>;
 } {
   const olderPageInFlight = useRef<Promise<void> | null>(null);
 
   const loadInitial = useCallback(async (): Promise<void> => {
     dispatch({ type: "historyLoadStarted", scope: "initial" });
     try {
-      const page = await window.agentAPI.loadSessionPage({ cursor: null, limit: 100 });
-      dispatch({ type: "sessionHydrated", page });
+      const page = await window.agentAPI.loadHistoryPage({ cursor: null, limit: 100 });
+      dispatch({ type: "historyHydrated", page });
     } catch (error) {
       dispatch({ type: "historyLoadFailed", scope: "initial", error: error instanceof Error ? error.message : String(error) });
     }
@@ -34,7 +35,7 @@ export function useSessionHistory(
     const operation = (async (): Promise<void> => {
       dispatch({ type: "historyLoadStarted", scope });
       try {
-        const page: SessionPageResult = await window.agentAPI.loadSessionPage({ cursor, limit: 100 });
+        const page: HistoryPageResult = await window.agentAPI.loadHistoryPage({ cursor, limit: 100 });
         dispatch({ type: "olderHistoryLoaded", page });
       } catch (error) {
         dispatch({ type: "historyLoadFailed", scope, error: error instanceof Error ? error.message : String(error) });
@@ -71,5 +72,6 @@ export function useSessionHistory(
     error: state.history.error,
     loadOlder,
     loadSearch,
+    reload: loadInitial,
   };
 }

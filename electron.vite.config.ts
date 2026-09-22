@@ -24,6 +24,21 @@ export default defineConfig({
   renderer: {
     root: resolve(root, 'frontend'),
     plugins: [react()],
+    css: {
+      preprocessorOptions: {
+        scss: {
+          quietDeps: true,
+          silenceDeprecations: ['import']
+        }
+      }
+    },
+    resolve: {
+      alias: {
+        '@agent-studio/canvas-editor': resolve(root, 'canvas/engine/editor'),
+        '@agent-studio/canvas-utils': resolve(root, 'canvas/engine/utils'),
+        '@agent-studio/canvas-math': resolve(root, 'canvas/engine/math')
+      }
+    },
     build: {
       outDir: resolve(root, 'out/renderer'),
       rollupOptions: {
