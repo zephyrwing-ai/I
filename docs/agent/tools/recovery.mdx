@@ -9,7 +9,7 @@ description: ToolCall 的持久化执行阶段、安全重放、状态核对和�
 
 ## 职责边界
 
-`entries` 保存模型可见会话消息：`user_message`、`assistant_message` 和 `tool_result`。它是模型上下文的事实来源。
+`entries` 保存模型可见项目历史消息：`user_message`、`assistant_message` 和 `tool_result`。它是模型上下文的事实来源。
 
 `tool_invocations` 保存工具执行控制事实；`entries` 保存模型可见消息。一个模型 ToolCall 对应一条 invocation；一条 invocation 可以因安全重放产生多次物理执行。
 
@@ -22,9 +22,9 @@ description: ToolCall 的持久化执行阶段、安全重放、状态核对和�
 | 字段 | 语义 |
 | --- | --- |
 | `id` | 执行记录的内部稳定身份。 |
-| `sessionId`、`runId`、`turnId`、`cwd` | 确定会话、一次运行、工具批次和恢复执行目录。 |
+| `projectId`、`runId`、`turnId`、`cwd` | 确定项目或无项目范围、一次运行、工具批次和恢复执行目录。 |
 | `assistantEntryId`、`ordinal` | 关联产生调用的 Assistant Message，并保留同批调用的原始顺序。 |
-| `toolCallId` | 模型给出的逻辑调用身份；同一会话内必须唯一。 |
+| `toolCallId` | 模型给出的逻辑调用身份；同一运行内必须唯一。 |
 | `toolName`、`toolVersion` | 定位注册工具和登记时生效的工具版本；恢复按登记版本加载工具契约。 |
 | `inputJson` | 已完成校验与标准化的工具参数。 |
 | `inputHash` | `toolName + toolVersion + canonicalInputJson` 的校验值；同一 `toolCallId` 的 hash 变化属于协议冲突。 |
@@ -49,6 +49,8 @@ description: ToolCall 的持久化执行阶段、安全重放、状态核对和�
 | `effect_pending` | 执行意图已持久化，副作用可能已发生，结果未确定。 | 按恢复模式重放、核对或中断。 |
 | `outcome_ready` | 工具 outcome 已持久化，等待 Tool Message 物化。 | 复用 outcome，完成 `tool_result` 提交。 |
 | `completed` | Tool Message 已提交并可进入模型上下文。 | 复用已提交结果进入模型上下文。 |
+
+主动取消与崩溃恢复是两条不同路径。主动取消表示本次 run 不再继续执行：尚未进入 `effect_pending` 的 `planned` 调用必须由 Runtime 结算为取消或跳过，不能留给下一次 run 自动调度；已经进入 `effect_pending` 的调用只进入核对或人工确认，不能因为下一次用户发送而隐式重放。只有进程异常退出、且没有主动取消标记的开放 invocation，才进入自动恢复流程。
 
 ## 注册工具的恢复能力
 
@@ -198,7 +200,7 @@ Runtime 在每个原始 ToolCall 都拥有确定 Tool Message 后提交该批次
 
 ## 恢复不变量
 
-- 同一 `(sessionId, toolCallId)` 只接受一种 `inputHash`。
+- 同一 `(runId, toolCallId)` 只接受一种 `inputHash`。
 - `effect_pending` 在真实 handler 启动前完成持久化。
 - `attemptCount` 在进入 `effect_pending` 的事务中递增，并用于执行预算；工具成功由 outcomeStatus 表示。
 - `outcome_ready` 与 `completed` 的恢复路径复用已保存的 outcome。
@@ -217,6 +219,8 @@ Runtime 在每个原始 ToolCall 都拥有确定 Tool Message 后提交该批次
 | reconcile 工具确认 beforeHash | 清理 staging 后重新调度。 |
 | reconcile 返回人工确认 | 写入 interrupted，进入人工恢复流程。 |
 | never 工具 effect_pending 后崩溃 | 写入 interrupted，进入人工恢复流程。 |
+| 主动取消后仍有 planned 调用 | 结算为 cancelled/skipped，下一次 run 不自动执行。 |
+| 主动取消时存在 effect_pending | 进入核对或人工确认，不执行隐式重放。 |
 | outcome_ready 后崩溃 | 复用 outcome，补写 tool_result。 |
 | completed 后重复恢复 | 复用 resultEntryId 和已提交结果。 |
 | A 成功、B 业务失败、C 成功 | 三个 Tool Message 均提交，模型下一轮看到完整批次。 |

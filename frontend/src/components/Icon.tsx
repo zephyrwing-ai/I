@@ -13,6 +13,7 @@ export type IconName =
   | "eye-off"
   | "external"
   | "folder"
+  | "folder-closed"
   | "image"
   | "line-squiggle"
   | "plus"
@@ -40,6 +41,7 @@ const paths: Record<IconName, ReactNode> = {
   "eye-off": <><path d="M10.733 5.076A10.744 10.744 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></>,
   external: <><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></>,
   folder: <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>,
+  "folder-closed": <><path d="M20 20a3 3 0 0 0 3-3V8a3 3 0 0 0-3-3h-7.9a3 3 0 0 1-2.54-1.35l-.7-1.05A3 3 0 0 0 5.36 1H4a3 3 0 0 0-3 3v13a3 3 0 0 0 3 3Z"/><path d="M1 10h22"/></>,
   image: <><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></>,
   "line-squiggle": <path d="M7 3.5c5-2 7 2.5 3 4C1.5 10 2 15 5 16c5 2 9-10 14-7s.5 13.5-4 12c-5-2.5.5-11 6-2"/>,
   plus: <><path d="M12 5v14"/><path d="M5 12h14"/></>,

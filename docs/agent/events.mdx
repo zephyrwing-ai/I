@@ -26,9 +26,9 @@ Agent 发出以下事件：运行开始、回合开始、Assistant 正文增量�
 
 协议中不存在 `stepLimit`、`maxSteps` 或其他按次数终止字段。可选的 `turnOrdinal` 和 `turnCount` 只用于排序与诊断，Runtime 不能读取它们作为退出条件。
 
-## 事件与会话记录
+## 事件与项目历史记录
 
-AgentEvent 负责报告运行过程，SessionRecorder 负责保存会话记录。Host 分别向 Runtime 注入事件接收器和绑定 `sessionId` 的 Recorder，Runtime 在同一个语义节点分别调用两者。
+AgentEvent 负责报告运行过程，HistoryRecorder 负责保存项目或无项目历史。Host 分别向 Runtime 注入事件接收器和绑定 `projectId: string | null` 的 Recorder，Runtime 在同一个语义节点分别调用两者。
 
 - `reasoningDelta` 和 `assistantDelta` 携带 `runId`、`turnId` 与冻结的 delta 字符串。
 - Runtime 把 delta 同步交给 Recorder 更新内存草稿，并把同一 delta 发为 AgentEvent。
@@ -37,9 +37,9 @@ AgentEvent 负责报告运行过程，SessionRecorder 负责保存会话记录�
 - `toolCompleted` 在完整 Tool Message 成功提交后发出。
 - `runCompleted` 在 `finishRun` 完成终态提交后发出。
 - Recorder 和事件接收器分别维护自己的队列与状态，二者通过稳定 ID 和冻结事件值关联。
-- `onMessageFinalized` 由 SessionRecorder 的 `commitUser`、`commitAssistant` 和 `commitToolResult` 取代。
+- `onMessageFinalized` 由 HistoryRecorder 的 `commitUser`、`commitAssistant` 和 `commitToolResult` 取代。
 
-SessionRecorder 的接口与写入规则由[会话存储](./memory.mdx)定义。Runner 的注入和 IPC 转发由[会话存储装配](../desktop/design/workbench/session-storage.mdx)定义。
+HistoryRecorder 的接口与写入规则由[项目历史存储](./memory.mdx)定义。Runner 的注入和 IPC 转发由[历史存储装配](../desktop/design/workbench/session-storage.mdx)定义。
 
 ## 顺序与终止
 

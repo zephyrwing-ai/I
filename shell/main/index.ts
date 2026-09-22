@@ -19,24 +19,27 @@ import {
   type ProviderProfileInput,
   type ProviderProfileSummary,
   type RefreshProviderModelsResult,
+  type ProjectDescriptor,
   type RunRequest,
   type RunStartAck,
   type SaveProviderResult,
-  type SessionPageRequest,
-  type SessionPageResult,
+  type HistoryPageRequest,
+  type HistoryPageResult,
 } from "../shared/ipc.js";
 import { OutputFileRegistry, validateOutputForOpen } from "./output-files.js";
 import { composeTaskWithAttachments, InputAttachmentRegistry } from "./input-attachments.js";
 import { ProviderStore } from "./provider-store.js";
 import { discoverProviderModels, discoveryErrorResult } from "./provider-model-discovery.js";
 import { AgentRunner } from "./runner.js";
-import { SessionHistoryService } from "./session-history.js";
-import { CanvasContextRegistry } from "./canvas-context.js";
-import { CanvasDocumentStore } from "./canvas-document.js";
+import { HistoryService } from "./session-history.js";
+import { ProjectRegistry } from "./project-registry.js";
+import { CanvasContextRegistry } from "../../canvas/context/CanvasContextRegistry.js";
+import { CanvasDocumentStore } from "../../canvas/persistence/CanvasDocumentStore.js";
 import {
-  createSessionRecorder,
-  SqliteSessionRepository,
-  type SessionRecorder,
+  createHistoryRecorder,
+  SqliteHistoryRepository,
+  type HistoryRecorder,
+  type HistoryScope,
 } from "../../agent/memory/index.js";
 
 const mainProcessDirectory = fileURLToPath(new URL(".", import.meta.url));
@@ -85,15 +88,19 @@ function registerIpc(
   outputFiles: OutputFileRegistry,
   inputAttachments: InputAttachmentRegistry,
   canvasContexts: CanvasContextRegistry,
-  sessionId: string,
-  sessionHistory: SessionHistoryService,
+  projects: ProjectRegistry,
+  historyService: HistoryService,
+  getHistoryRecorder: (projectId: HistoryScope) => Promise<HistoryRecorder>,
 ): void {
   const discoveryControllers = new Map<string, AbortController>();
 
   ipcMain.handle(IPC.run, async (event, req: RunRequest): Promise<RunStartAck> => {
     try {
       const task = req.task.trim();
-      const cwd = req.cwd?.trim() || process.cwd();
+      const active = await projects.getActiveContext();
+      const projectId = projects.activeScope;
+      if (req.projectId !== undefined && req.projectId !== projectId) return { ok: false, error: "The selected project changed. Choose the project again." };
+      const cwd = active.cwd;
       const modelOptionId = req.modelOptionId.trim();
       if (!task) return { ok: false, error: "Enter a task." };
       if (!modelOptionId) return { ok: false, error: "Choose a model." };
@@ -102,7 +109,18 @@ function registerIpc(
       const runId = randomUUID();
       const canvasContextIds = Array.isArray(req.canvasContextIds) ? req.canvasContextIds.filter((id): id is string => typeof id === "string") : [];
       const resolvedCanvasContexts = canvasContexts.takeMany(canvasContextIds);
-      const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, sessionId, runId, runScopedContext: resolvedCanvasContexts, ...resolved }, (payload) => {
+      const historyRecorder = await getHistoryRecorder(projectId);
+      const handle = runner.start({
+        task: composeTaskWithAttachments(task, attachments),
+        cwd,
+        projectId,
+        projectContextVersion: active.contextVersion,
+        historyRecorder,
+        runId,
+        runScopedContext: active.projectContext,
+        canvasContexts: resolvedCanvasContexts,
+        ...resolved,
+      }, (payload) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
@@ -116,8 +134,32 @@ function registerIpc(
     runner.stop();
   });
 
-  ipcMain.handle(IPC.loadSessionPage, async (_event, request: SessionPageRequest): Promise<SessionPageResult> => {
-    return sessionHistory.loadPage(request);
+  ipcMain.handle(IPC.loadHistoryPage, async (_event, request: HistoryPageRequest): Promise<HistoryPageResult> => {
+    return historyService.loadPage(request);
+  });
+
+  ipcMain.handle(IPC.getActiveProject, async (): Promise<ProjectDescriptor> => {
+    return (await projects.getActiveContext()).descriptor;
+  });
+
+  ipcMain.handle(IPC.selectProject, async (event): Promise<ProjectDescriptor | null> => {
+    if (runner.isActive) throw new Error("Choose a project after the current run finishes.");
+    const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    if (!win) return null;
+    const result = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const active = await projects.selectPath(result.filePaths[0]!);
+    canvasContexts.setScope(active.descriptor.projectId ?? "__unprojected__");
+    await getHistoryRecorder(active.descriptor.projectId);
+    return active.descriptor;
+  });
+
+  ipcMain.handle(IPC.clearProject, async (): Promise<ProjectDescriptor> => {
+    if (runner.isActive) throw new Error("Clear the project after the current run finishes.");
+    const active = projects.clear();
+    canvasContexts.setScope("__unprojected__");
+    await getHistoryRecorder(null);
+    return active.descriptor;
   });
 
   ipcMain.handle(IPC.listProviderProfiles, async (): Promise<ProviderProfileSummary[]> => {
@@ -224,12 +266,20 @@ function registerIpc(
 }
 
 app.whenReady().then(async () => {
-  const sessionRepository = new SqliteSessionRepository(join(app.getPath("userData"), "agent-sessions.sqlite"));
-  const sessionScopeKey = "desktop:local";
-  const reusableSession = await sessionRepository.getLatestOpenSession(sessionScopeKey);
-  const activeSession = reusableSession ?? await sessionRepository.createSession({ scopeKey: sessionScopeKey });
-  const recorder = await createSessionRecorder(sessionRepository, activeSession.id);
-  const sessionHistory = new SessionHistoryService(activeSession.id, sessionRepository);
+  const historyRepository = new SqliteHistoryRepository(join(app.getPath("userData"), "agent-sessions.sqlite"));
+  const projects = new ProjectRegistry(historyRepository);
+  const historyService = new HistoryService(() => projects.activeScope, historyRepository);
+  const recorders = new Map<string, HistoryRecorder>();
+  const recorderKey = (projectId: HistoryScope): string => projectId ?? "__unprojected__";
+  const getHistoryRecorder = async (projectId: HistoryScope): Promise<HistoryRecorder> => {
+    const key = recorderKey(projectId);
+    const existing = recorders.get(key);
+    if (existing) return existing;
+    const recorder = await createHistoryRecorder(historyRepository, projectId);
+    recorders.set(key, recorder);
+    return recorder;
+  };
+  await getHistoryRecorder(null);
   let closing = false;
 
   const providers = new ProviderStore(
@@ -242,13 +292,12 @@ app.whenReady().then(async () => {
   );
   const outputFiles = new OutputFileRegistry();
   const inputAttachments = new InputAttachmentRegistry();
-  const canvasContexts = new CanvasContextRegistry(new CanvasDocumentStore(app.getPath("userData"), activeSession.id));
-  const createRecorder = (sessionId: string): SessionRecorder => {
-    if (sessionId !== activeSession.id) throw new Error("The current session is not loaded.");
-    return recorder;
-  };
-  const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts), createRecorder);
-  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, activeSession.id, sessionHistory);
+  const canvasContexts = new CanvasContextRegistry(new CanvasDocumentStore(app.getPath("userData"), "__unprojected__"));
+  const runner = new AgentRunner((runId, cwd, artifacts, projectId) => {
+    void projects.markContextDirty(projectId);
+    return outputFiles.register(runId, cwd, artifacts);
+  });
+  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, projects, historyService, getHistoryRecorder);
   createWindow();
 
   app.on("before-quit", (event) => {
@@ -259,9 +308,9 @@ app.whenReady().then(async () => {
     void (async () => {
       try {
         await runner.waitForIdle();
-        await recorder.close();
+        await Promise.all([...recorders.values()].map((recorder) => recorder.close()));
       } finally {
-        sessionRepository.close();
+        historyRepository.close();
         app.quit();
       }
     })();
@@ -271,7 +320,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 }).catch((error: unknown) => {
-  dialog.showErrorBox("Session storage initialization failed", error instanceof Error ? error.message : String(error));
+  dialog.showErrorBox("History storage initialization failed", error instanceof Error ? error.message : String(error));
   app.quit();
 });
 

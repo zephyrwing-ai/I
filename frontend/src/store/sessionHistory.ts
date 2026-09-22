@@ -1,12 +1,12 @@
-import type { SessionHistoryEntry } from "../../../shell/shared/ipc";
+import type { HistoryPageEntry, HistoryPageResult } from "../../../shell/shared/ipc";
 
-export interface SessionHistoryState {
-  sessionId: string | null;
-  entriesById: Record<string, SessionHistoryEntry>;
+export interface HistoryState {
+  projectId: string | null;
+  entriesById: Record<string, HistoryPageEntry>;
   entryOrder: string[];
   nextCursor: string | null;
   hasMore: boolean;
-  snapshotSeq: number;
+  snapshotOrder: number;
   loadingInitial: boolean;
   loadingOlder: boolean;
   loadingSearch: boolean;
@@ -14,13 +14,13 @@ export interface SessionHistoryState {
   error: string | null;
 }
 
-export const initialSessionHistoryState: SessionHistoryState = {
-  sessionId: null,
+export const initialHistoryState: HistoryState = {
+  projectId: null,
   entriesById: {},
   entryOrder: [],
   nextCursor: null,
   hasMore: false,
-  snapshotSeq: 0,
+  snapshotOrder: 0,
   loadingInitial: true,
   loadingOlder: false,
   loadingSearch: false,
@@ -29,26 +29,27 @@ export const initialSessionHistoryState: SessionHistoryState = {
 };
 
 export function mergeHistoryEntries(
-  state: SessionHistoryState,
-  entries: SessionHistoryEntry[],
-  page: { sessionId: string; nextCursor: string | null; hasMore: boolean; snapshotSeq: number },
-): SessionHistoryState {
-  const entriesById = { ...state.entriesById };
+  state: HistoryState,
+  entries: HistoryPageEntry[],
+  page: HistoryPageResult,
+): HistoryState {
+  const sameScope = state.projectId === page.projectId;
+  const entriesById = sameScope ? { ...state.entriesById } : {};
   for (const entry of entries) {
     const previous = entriesById[entry.entryId];
     if (!previous || entry.revision >= previous.revision) entriesById[entry.entryId] = entry;
   }
   const entryOrder = Object.values(entriesById)
-    .sort((left, right) => left.sessionSeq - right.sessionSeq)
+    .sort((left, right) => left.entryOrder - right.entryOrder)
     .map((entry) => entry.entryId);
   return {
     ...state,
-    sessionId: page.sessionId,
+    projectId: page.projectId,
     entriesById,
     entryOrder,
     nextCursor: page.nextCursor,
     hasMore: page.hasMore,
-    snapshotSeq: Math.max(state.snapshotSeq, page.snapshotSeq),
+    snapshotOrder: sameScope ? Math.max(state.snapshotOrder, page.snapshotOrder) : page.snapshotOrder,
     loadingInitial: false,
     loadingOlder: false,
     loadingSearch: false,

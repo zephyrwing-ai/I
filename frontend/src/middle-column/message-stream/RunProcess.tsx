@@ -143,6 +143,7 @@ export function RunProcess({
   const [open, setOpen] = useState(false);
   const working = runTiming !== undefined && runTiming.completedAt === undefined;
   const [now, setNow] = useState<number>(() => (working && runTiming ? Date.now() : 0));
+  const answerTurn = selectAnswerTurn(run);
 
   useEffect(() => {
     if (!working || !runTiming) return;
@@ -151,16 +152,18 @@ export function RunProcess({
     return () => clearInterval(timer);
   }, [working, runTiming]);
 
+  const persistedElapsed = run.taskAt !== undefined && answerTurn?.assistantCompletedAt !== undefined
+    ? answerTurn.assistantCompletedAt - run.taskAt
+    : undefined;
   const totalElapsed = runTiming
     ? working
       ? now - runTiming.startedAt
       : (runTiming.completedAt ?? now) - runTiming.startedAt
-    : undefined;
+    : persistedElapsed;
   const turns = run.turnOrder
     .map((turnId) => run.turns[turnId])
     .filter((turn): turn is TurnState => Boolean(turn));
 
-  const answerTurn = selectAnswerTurn(run);
   const retrying = turns.some((turn) => turn.status === "retrying");
 
   return (

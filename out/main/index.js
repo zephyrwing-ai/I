@@ -12,7 +12,10 @@ const IPC = {
   run: "agent:run",
   stop: "agent:stop",
   event: "agent:event",
-  loadSessionPage: "session:load-page",
+  loadHistoryPage: "history:load-page",
+  getActiveProject: "projects:active",
+  selectProject: "projects:select",
+  clearProject: "projects:clear",
   listProviderProfiles: "providers:list",
   discoverProviderModels: "providers:discover-models",
   cancelProviderModelDiscovery: "providers:cancel-discovery",
@@ -1067,7 +1070,7 @@ function waitForRetryDelay(delayMs, signal) {
 async function recoverOpenToolInvocations(config, messages) {
   const recorder = config.recorder;
   if (!recorder || typeof recorder.listOpenToolInvocations !== "function") return;
-  const records = await recorder.listOpenToolInvocations(recorder.sessionId);
+  const records = await recorder.listOpenToolInvocations();
   for (const invocation of records) {
     if (invocation.phase === "completed") continue;
     let input;
@@ -1124,7 +1127,7 @@ async function registerToolBatch(calls, ctx, config) {
   const recorder = config.recorder;
   if (!recorder || typeof recorder.registerToolInvocation !== "function" || typeof recorder.getToolInvocation !== "function") return records;
   for (const [ordinal, call] of calls.entries()) {
-    const existing = await recorder.getToolInvocation(recorder.sessionId, call.id);
+    const existing = await recorder.getToolInvocation(ctx.runId, call.id);
     const tool = config.tools.get(call.name);
     const toolVersion = tool?.recovery.version ?? "unknown";
     const recoveryMode = tool?.recovery.mode ?? "never";
@@ -2077,12 +2080,10 @@ function createToolRegistry(ops) {
 }
 const SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
 class AgentRunner {
-  constructor(registerArtifacts, createSessionRecorder2) {
+  constructor(registerArtifacts) {
     this.registerArtifacts = registerArtifacts;
-    this.createSessionRecorder = createSessionRecorder2;
   }
   registerArtifacts;
-  createSessionRecorder;
   controller = new AbortController();
   active = false;
   idleResolvers = /* @__PURE__ */ new Set();
@@ -2098,17 +2099,11 @@ class AgentRunner {
     this.active = true;
     this.controller = new AbortController();
     const runId = req.runId ?? randomUUID();
-    if (this.createSessionRecorder && !req.sessionId) {
+    if (req.projectId === void 0) {
       this.markIdle();
-      throw new Error("The run request is missing a session identity.");
+      throw new Error("The run request is missing a project scope.");
     }
-    let recorder;
-    try {
-      recorder = this.createSessionRecorder?.(req.sessionId, runId);
-    } catch (error) {
-      this.markIdle();
-      throw error;
-    }
+    const recorder = req.historyRecorder;
     const emitOnce = /* @__PURE__ */ (() => {
       let completed = false;
       return (event) => {
@@ -2137,7 +2132,7 @@ class AgentRunner {
           result: toPublicToolResult(result)
         });
         if (result.artifacts?.length && this.registerArtifacts) {
-          const files = this.registerArtifacts(ctx.runId, req.cwd, result.artifacts);
+          const files = this.registerArtifacts(ctx.runId, req.cwd, result.artifacts, req.projectId);
           for (const file of files) emitOnce({ type: "outputFileRegistered", runId: ctx.runId, file });
         }
       },
@@ -2159,10 +2154,13 @@ class AgentRunner {
         runId,
         systemPrompt: SYSTEM_PROMPT,
         cwd: req.cwd,
-        tools: createToolRegistry(createLocalBashOps()),
+        tools: req.projectId === null ? /* @__PURE__ */ new Map() : createToolRegistry(createLocalBashOps()),
         signal: this.controller.signal,
         recorder,
-        runScopedContext: req.runScopedContext?.map(toModelMessage)
+        runScopedContext: [
+          ...req.runScopedContext ?? [],
+          ...req.canvasContexts?.map(toModelMessage) ?? []
+        ]
       }, events).catch((error) => {
         emitOnce({ type: "runCompleted", runId, status: "failed", turnCount: 0, error: { kind: "runtime", message: error instanceof Error ? error.message : String(error) } });
       });
@@ -2195,42 +2193,40 @@ function toPublicToolResult(result) {
     error: result.error
   };
 }
-const DEFAULT_SESSION_HISTORY_PAGE_LIMIT = 100;
-const MAX_SESSION_HISTORY_PAGE_LIMIT = 200;
-class SessionHistoryError extends Error {
+const DEFAULT_HISTORY_PAGE_LIMIT = 100;
+const MAX_HISTORY_PAGE_LIMIT = 200;
+class HistoryError extends Error {
   constructor(message, code) {
     super(message);
     this.code = code;
-    this.name = "SessionHistoryError";
+    this.name = "HistoryError";
   }
   code;
 }
 function normalizePageRequest(request) {
   if (!request || typeof request !== "object" || Array.isArray(request)) {
-    throw new SessionHistoryError("The history page request format is invalid.", "invalid_request");
+    throw new HistoryError("The history page request format is invalid.", "invalid_request");
   }
   const candidate = request;
   const cursor = candidate.cursor === void 0 ? null : candidate.cursor;
   if (cursor !== null && (typeof cursor !== "string" || !/^[1-9]\d*$/.test(cursor))) {
-    throw new SessionHistoryError("The history page cursor is invalid.", "invalid_request");
+    throw new HistoryError("The history page cursor is invalid.", "invalid_request");
   }
-  const beforeSeq = cursor === null ? null : Number(cursor);
-  if (beforeSeq !== null && !Number.isSafeInteger(beforeSeq)) {
-    throw new SessionHistoryError("The history page cursor is outside the safe range.", "invalid_request");
+  const beforeOrder = cursor === null ? null : Number(cursor);
+  if (beforeOrder !== null && !Number.isSafeInteger(beforeOrder)) {
+    throw new HistoryError("The history page cursor is outside the safe range.", "invalid_request");
   }
-  const limit = candidate.limit ?? DEFAULT_SESSION_HISTORY_PAGE_LIMIT;
-  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_SESSION_HISTORY_PAGE_LIMIT) {
-    throw new SessionHistoryError(
-      `The history page size must be between 1 and ${MAX_SESSION_HISTORY_PAGE_LIMIT}.`,
-      "invalid_request"
-    );
+  const limit = candidate.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
+  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_HISTORY_PAGE_LIMIT) {
+    throw new HistoryError(`The history page size must be between 1 and ${MAX_HISTORY_PAGE_LIMIT}.`, "invalid_request");
   }
-  return { cursor, beforeSeq, limit };
+  return { beforeOrder, limit };
 }
 function toHistoryEntry(entry) {
   return {
     entryId: entry.id,
-    sessionSeq: entry.sessionSeq,
+    entryOrder: entry.entryOrder,
+    projectId: entry.projectId,
     type: entry.type,
     status: entry.status,
     runId: entry.runId,
@@ -2239,48 +2235,144 @@ function toHistoryEntry(entry) {
     revision: entry.revision,
     payload: entry.payload,
     createdAt: entry.createdAt,
-    updatedAt: entry.updatedAt
+    updatedAt: entry.updatedAt,
+    completedAt: entry.completedAt
   };
 }
-class SessionHistoryService {
-  constructor(activeSessionId, repository) {
-    this.activeSessionId = activeSessionId;
+class HistoryService {
+  constructor(getActiveScope, repository) {
+    this.getActiveScope = getActiveScope;
     this.repository = repository;
   }
-  activeSessionId;
+  getActiveScope;
   repository;
   inFlight = /* @__PURE__ */ new Map();
   async loadPage(request) {
     const normalized = normalizePageRequest(request);
-    const requestKey = `${normalized.cursor ?? "latest"}:${normalized.limit}`;
+    const scope = this.getActiveScope();
+    const scopeKey = scope ?? "unprojected";
+    const requestKey = `${scopeKey}:${normalized.beforeOrder ?? "latest"}:${normalized.limit}`;
     const existing = this.inFlight.get(requestKey);
     if (existing) return existing;
-    const operation = this.readPage(normalized).finally(() => {
+    const operation = this.readPage(scope, normalized).finally(() => {
       if (this.inFlight.get(requestKey) === operation) this.inFlight.delete(requestKey);
     });
     this.inFlight.set(requestKey, operation);
     return operation;
   }
-  async readPage(request) {
-    const session = await this.repository.getSession(this.activeSessionId);
-    if (!session) throw new SessionHistoryError("The current session does not exist.", "not_found");
+  async readPage(scope, request) {
     const fetchLimit = request.limit + 1;
-    const descendingEntries = request.beforeSeq === null ? await this.repository.listLatestEntries(this.activeSessionId, fetchLimit) : await this.repository.listEntriesBefore(this.activeSessionId, request.beforeSeq, fetchLimit);
+    const descendingEntries = request.beforeOrder === null ? await this.repository.listLatestEntries(scope, fetchLimit) : await this.repository.listEntriesBefore(scope, request.beforeOrder, fetchLimit);
     const hasMore = descendingEntries.length > request.limit;
     const pageDescending = hasMore ? descendingEntries.slice(0, request.limit) : descendingEntries;
     const entries = pageDescending.slice().reverse();
-    const nextCursor = hasMore && entries.length > 0 ? String(entries[0].sessionSeq) : null;
-    if (nextCursor !== null && request.beforeSeq !== null && Number(nextCursor) >= request.beforeSeq) {
-      throw new SessionHistoryError("The history page cursor did not advance to older records.", "storage");
+    const nextCursor = hasMore && entries.length > 0 ? String(entries[0].entryOrder) : null;
+    if (nextCursor !== null && request.beforeOrder !== null && Number(nextCursor) >= request.beforeOrder) {
+      throw new HistoryError("The history page cursor did not advance to older records.", "storage");
     }
+    const latest = await this.repository.listLatestEntries(scope, 1);
     return {
-      sessionId: this.activeSessionId,
+      projectId: scope,
       entries: entries.map(toHistoryEntry),
       nextCursor,
       hasMore,
-      snapshotSeq: Math.max(0, session.nextEntrySeq - 1)
+      snapshotOrder: latest[0]?.entryOrder ?? 0
     };
   }
+}
+const SCAN_POLICY_VERSION = "tree-v1-depth2-entries20";
+const MAX_CACHE_AGE_MS = 3e4;
+const MAX_DEPTH = 2;
+const MAX_ENTRIES_PER_DIRECTORY = 20;
+const IGNORED_NAMES = /* @__PURE__ */ new Set([".git", ".hg", ".svn", ".next", ".pytest_cache", "__pycache__", "build", "coverage", "dist", "node_modules", "out", "target", "venv", ".venv"]);
+class ProjectRegistry {
+  constructor(repository) {
+    this.repository = repository;
+  }
+  repository;
+  activeProjectId = null;
+  get activeScope() {
+    return this.activeProjectId;
+  }
+  async selectPath(path) {
+    const canonicalPath = await realpath(path);
+    const info = await stat(canonicalPath);
+    if (!info.isDirectory()) throw new Error("The selected path is not a directory.");
+    let project = await this.repository.getProjectByPath(canonicalPath);
+    if (!project) {
+      project = await this.repository.createProject({ canonicalPath, displayName: basename(canonicalPath) || canonicalPath });
+    }
+    await this.repository.touchProject(project.id);
+    const context = await this.ensureContext(project);
+    this.activeProjectId = project.id;
+    return this.toActiveContext(project, context);
+  }
+  clear() {
+    this.activeProjectId = null;
+    return { descriptor: { projectId: null, displayName: "Choose folder", canonicalPath: null }, cwd: process.cwd(), contextVersion: null, projectContext: [] };
+  }
+  async getActiveContext() {
+    if (!this.activeProjectId) return this.clear();
+    const project = await this.repository.getProject(this.activeProjectId);
+    if (!project) return this.clear();
+    const context = await this.ensureContext(project);
+    return this.toActiveContext(project, context);
+  }
+  async markContextDirty(projectId) {
+    if (projectId) await this.repository.markProjectContextDirty(projectId);
+  }
+  toActiveContext(project, context) {
+    return {
+      descriptor: { projectId: project.id, displayName: project.displayName, canonicalPath: project.canonicalPath },
+      cwd: project.canonicalPath,
+      contextVersion: context.treeHash,
+      projectContext: [{ role: "user", content: formatProjectContext(project, context) }]
+    };
+  }
+  async ensureContext(project) {
+    const cached = await this.repository.getProjectContext(project.id);
+    if (cached && !cached.dirty && cached.scanPolicyVersion === SCAN_POLICY_VERSION && Date.now() - cached.capturedAt < MAX_CACHE_AGE_MS) return cached;
+    const tree = await scanTree(project.canonicalPath, 0);
+    const treeJson = JSON.stringify({ root: project.canonicalPath, tree });
+    const treeHash = createHash("sha256").update(treeJson).digest("hex");
+    return this.repository.saveProjectContext(project.id, {
+      treeJson,
+      treeHash,
+      scanPolicyVersion: SCAN_POLICY_VERSION,
+      complete: true,
+      dirty: false
+    });
+  }
+}
+async function scanTree(directory, depth) {
+  if (depth > MAX_DEPTH) return [];
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const visible = entries.filter((entry) => !IGNORED_NAMES.has(entry.name)).sort((left, right) => left.name.localeCompare(right.name));
+  const nodes = [];
+  for (const entry of visible.slice(0, MAX_ENTRIES_PER_DIRECTORY)) {
+    if (entry.isDirectory()) {
+      nodes.push({ name: entry.name, kind: "directory", children: depth < MAX_DEPTH ? await scanTree(join(directory, entry.name), depth + 1) : void 0 });
+    } else if (entry.isFile()) {
+      nodes.push({ name: entry.name, kind: "file" });
+    }
+  }
+  if (visible.length > MAX_ENTRIES_PER_DIRECTORY) nodes.push({ name: `… ${visible.length - MAX_ENTRIES_PER_DIRECTORY} more entries`, kind: "file", truncated: visible.length - MAX_ENTRIES_PER_DIRECTORY });
+  return nodes;
+}
+function formatProjectContext(project, context) {
+  return [
+    "<project_context>",
+    `Project: ${project.displayName}`,
+    `Working directory: ${project.canonicalPath}`,
+    "The following bounded directory tree is a navigation map. Read file contents with tools when needed.",
+    context.treeJson,
+    "</project_context>"
+  ].join("\n");
 }
 const CONTEXT_TTL_MS = 10 * 60 * 1e3;
 const MAX_CONTEXT_TEXT = 12e3;
@@ -2288,9 +2380,12 @@ const MAX_CONTEXTS = 32;
 class CanvasContextRegistry {
   constructor(documentStore) {
     this.documentStore = documentStore;
+    this.contexts = /* @__PURE__ */ new Map();
   }
-  documentStore;
-  contexts = /* @__PURE__ */ new Map();
+  setScope(scopeKey) {
+    this.contexts.clear();
+    this.documentStore.setScope(scopeKey);
+  }
   async load() {
     return this.documentStore.load();
   }
@@ -2370,13 +2465,16 @@ const MAX_ELEMENTS = 2e4;
 const MAX_FILES = 1e3;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 class CanvasDocumentStore {
-  directory;
-  documentPath;
-  revision = 0;
-  constructor(userDataPath, sessionId) {
-    const safeSessionId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
-    this.directory = join(userDataPath, "canvases", safeSessionId);
+  constructor(userDataPath, scopeKey) {
+    this.revision = 0;
+    this.userDataPath = userDataPath;
+    this.setScope(scopeKey);
+  }
+  setScope(scopeKey) {
+    const safeScopeKey = scopeKey.replace(/[^a-zA-Z0-9_-]/g, "_");
+    this.directory = join(this.userDataPath, "canvases", safeScopeKey);
     this.documentPath = join(this.directory, "scene.json");
+    this.revision = 0;
   }
   async load() {
     let serialized;
@@ -2475,28 +2573,39 @@ function toDataURL(mimeType, bytes) {
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
-const SCHEMA_VERSION = 3;
-function initializeSchema(database) {
-  database.exec("PRAGMA journal_mode = WAL");
-  database.exec("PRAGMA foreign_keys = ON");
-  database.exec("PRAGMA synchronous = FULL");
-  database.exec("PRAGMA busy_timeout = 5000");
+const SCHEMA_VERSION = 6;
+function hasTable(database, name) {
+  const row = database.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+  return row?.present === 1;
+}
+function hasColumn(database, table, column) {
+  const rows = database.prepare(`PRAGMA table_info(${table})`).all();
+  return rows.some((row) => row.name === column);
+}
+function createProjectSchema(database) {
   database.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
+    CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
-      scope_key TEXT NOT NULL,
-      objective TEXT,
-      status TEXT NOT NULL CHECK (status IN ('active', 'waiting', 'closed')),
-      next_entry_seq INTEGER NOT NULL DEFAULT 1,
-      revision INTEGER NOT NULL DEFAULT 0,
+      canonical_path TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      last_opened_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS project_context (
+      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      tree_json TEXT NOT NULL,
+      tree_hash TEXT NOT NULL,
+      captured_at INTEGER NOT NULL,
+      scan_policy_version TEXT NOT NULL,
+      complete INTEGER NOT NULL CHECK (complete IN (0, 1)),
+      dirty INTEGER NOT NULL DEFAULT 0 CHECK (dirty IN (0, 1))
     );
 
     CREATE TABLE IF NOT EXISTS entries (
       id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      session_seq INTEGER NOT NULL,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      entry_order INTEGER NOT NULL UNIQUE,
       type TEXT NOT NULL CHECK (type IN ('user_message', 'assistant_message', 'tool_result')),
       status TEXT NOT NULL CHECK (status IN ('streaming', 'completed', 'interrupted', 'failed')),
       run_id TEXT NOT NULL,
@@ -2507,17 +2616,17 @@ function initializeSchema(database) {
       payload_json TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      UNIQUE (session_id, session_seq)
+      completed_at INTEGER
     );
 
-    CREATE INDEX IF NOT EXISTS entries_session_order_idx
-      ON entries (session_id, session_seq ASC);
+    CREATE INDEX IF NOT EXISTS entries_project_order_idx
+      ON entries (project_id, entry_order ASC);
     CREATE INDEX IF NOT EXISTS entries_tool_call_idx
-      ON entries (session_id, tool_call_id);
+      ON entries (project_id, tool_call_id);
 
     CREATE TABLE IF NOT EXISTS tool_invocations (
       id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
       run_id TEXT NOT NULL,
       turn_id TEXT NOT NULL,
       cwd TEXT NOT NULL,
@@ -2537,25 +2646,136 @@ function initializeSchema(database) {
       result_entry_id TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      UNIQUE (session_id, tool_call_id)
+      UNIQUE (run_id, tool_call_id)
     );
 
-    CREATE INDEX IF NOT EXISTS tool_invocations_session_phase_idx
-      ON tool_invocations (session_id, phase, ordinal ASC);
+    CREATE INDEX IF NOT EXISTS tool_invocations_project_phase_idx
+      ON tool_invocations (project_id, phase, ordinal ASC);
   `);
+}
+function migrateLegacySessionSchema(database) {
+  const legacyCompletedAt = hasColumn(database, "entries", "completed_at") ? "completed_at" : "NULL";
+  const legacyCwd = hasColumn(database, "tool_invocations", "cwd") ? "cwd" : "''";
+  database.exec("PRAGMA foreign_keys = OFF");
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database.exec(`
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY,
+        canonical_path TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_opened_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE project_context (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        tree_json TEXT NOT NULL,
+        tree_hash TEXT NOT NULL,
+        captured_at INTEGER NOT NULL,
+        scan_policy_version TEXT NOT NULL,
+        complete INTEGER NOT NULL CHECK (complete IN (0, 1)),
+        dirty INTEGER NOT NULL DEFAULT 0 CHECK (dirty IN (0, 1))
+      );
+
+      CREATE TABLE entries_project_new (
+        id TEXT PRIMARY KEY,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        entry_order INTEGER NOT NULL UNIQUE,
+        type TEXT NOT NULL CHECK (type IN ('user_message', 'assistant_message', 'tool_result')),
+        status TEXT NOT NULL CHECK (status IN ('streaming', 'completed', 'interrupted', 'failed')),
+        run_id TEXT NOT NULL,
+        turn_id TEXT,
+        tool_call_id TEXT,
+        revision INTEGER NOT NULL DEFAULT 0,
+        payload_version INTEGER NOT NULL DEFAULT 1,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+
+      INSERT INTO entries_project_new
+        (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
+         revision, payload_version, payload_json, created_at, updated_at, completed_at)
+      SELECT id, NULL,
+        ROW_NUMBER() OVER (ORDER BY created_at ASC, session_id ASC, session_seq ASC, id ASC),
+        type, status, run_id, turn_id, tool_call_id, revision, payload_version,
+        payload_json, created_at, updated_at, ${legacyCompletedAt}
+      FROM entries;
+
+      DROP TABLE entries;
+      ALTER TABLE entries_project_new RENAME TO entries;
+
+      CREATE TABLE tool_invocations_project_new (
+        id TEXT PRIMARY KEY,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        run_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        cwd TEXT NOT NULL,
+        assistant_entry_id TEXT NOT NULL,
+        tool_call_id TEXT NOT NULL,
+        ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+        tool_name TEXT NOT NULL,
+        tool_version TEXT NOT NULL,
+        input_json TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        phase TEXT NOT NULL CHECK (phase IN ('planned', 'effect_pending', 'outcome_ready', 'completed')),
+        outcome_status TEXT CHECK (outcome_status IS NULL OR outcome_status IN ('succeeded', 'failed', 'cancelled', 'interrupted')),
+        outcome_json TEXT,
+        recovery_mode_snapshot TEXT NOT NULL CHECK (recovery_mode_snapshot IN ('safe', 'reconcile', 'never')),
+        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        checkpoint_json TEXT,
+        result_entry_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE (run_id, tool_call_id)
+      );
+
+      INSERT INTO tool_invocations_project_new
+        (id, project_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
+         tool_name, tool_version, input_json, input_hash, phase, outcome_status, outcome_json,
+         recovery_mode_snapshot, attempt_count, checkpoint_json, result_entry_id, created_at, updated_at)
+      SELECT id, NULL, run_id, turn_id, ${legacyCwd}, assistant_entry_id, tool_call_id, ordinal,
+        tool_name, tool_version, input_json, input_hash, phase, outcome_status, outcome_json,
+        recovery_mode_snapshot, attempt_count, checkpoint_json, result_entry_id, created_at, updated_at
+      FROM tool_invocations;
+
+      DROP TABLE tool_invocations;
+      ALTER TABLE tool_invocations_project_new RENAME TO tool_invocations;
+      DROP TABLE sessions;
+
+      CREATE INDEX entries_project_order_idx ON entries (project_id, entry_order ASC);
+      CREATE INDEX entries_tool_call_idx ON entries (project_id, tool_call_id);
+      CREATE INDEX tool_invocations_project_phase_idx
+        ON tool_invocations (project_id, phase, ordinal ASC);
+    `);
+    database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    database.exec("COMMIT");
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } finally {
+      database.exec("PRAGMA foreign_keys = ON");
+    }
+    throw error;
+  }
+  database.exec("PRAGMA foreign_keys = ON");
+}
+function initializeSchema(database) {
+  database.exec("PRAGMA journal_mode = WAL");
+  database.exec("PRAGMA foreign_keys = ON");
+  database.exec("PRAGMA synchronous = FULL");
+  database.exec("PRAGMA busy_timeout = 5000");
   const current = database.prepare("PRAGMA user_version").get();
-  if (Number(current.user_version) === 0 || Number(current.user_version) === 1) {
-    database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  const version = Number(current.user_version);
+  if (version > SCHEMA_VERSION) throw new Error(`Unsupported future history storage schema version: ${version}`);
+  if (hasTable(database, "sessions")) {
+    if (version < SCHEMA_VERSION) migrateLegacySessionSchema(database);
     return;
   }
-  if (Number(current.user_version) === 2) {
-    database.exec("ALTER TABLE tool_invocations ADD COLUMN cwd TEXT NOT NULL DEFAULT ''");
-    database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-    return;
-  }
-  if (Number(current.user_version) !== SCHEMA_VERSION) {
-    throw new Error(`Unsupported session storage schema version: ${current.user_version}`);
-  }
+  createProjectSchema(database);
+  database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
 class RepositoryError extends Error {
   constructor(message, code) {
@@ -2607,23 +2827,31 @@ function validatePayloadForType(type, payload, toolCallId) {
   if (payload.role !== expectedRole) throw new RepositoryError(`${type} payload must use role ${expectedRole}.`, "invalid");
   if (type === "tool_result" && !toolCallId) throw new RepositoryError("tool_result requires toolCallId.", "invalid");
 }
-function rowToSession(row) {
+function rowToProject(row) {
   return {
     id: String(row.id),
-    scopeKey: String(row.scope_key),
-    objective: row.objective === null || row.objective === void 0 ? null : String(row.objective),
-    status: String(row.status),
-    nextEntrySeq: Number(row.next_entry_seq),
-    revision: Number(row.revision),
+    canonicalPath: String(row.canonical_path),
+    displayName: String(row.display_name),
     createdAt: Number(row.created_at),
-    updatedAt: Number(row.updated_at)
+    lastOpenedAt: Number(row.last_opened_at)
+  };
+}
+function rowToProjectContext(row) {
+  return {
+    projectId: String(row.project_id),
+    treeJson: String(row.tree_json),
+    treeHash: String(row.tree_hash),
+    capturedAt: Number(row.captured_at),
+    scanPolicyVersion: String(row.scan_policy_version),
+    complete: Number(row.complete) === 1,
+    dirty: Number(row.dirty) === 1
   };
 }
 function rowToEntry(row) {
   return {
     id: String(row.id),
-    sessionId: String(row.session_id),
-    sessionSeq: Number(row.session_seq),
+    projectId: row.project_id === null || row.project_id === void 0 ? null : String(row.project_id),
+    entryOrder: Number(row.entry_order),
     type: String(row.type),
     status: String(row.status),
     runId: String(row.run_id),
@@ -2633,13 +2861,14 @@ function rowToEntry(row) {
     payloadVersion: Number(row.payload_version),
     payload: parsePayload(row.payload_json),
     createdAt: Number(row.created_at),
-    updatedAt: Number(row.updated_at)
+    updatedAt: Number(row.updated_at),
+    completedAt: row.completed_at === null || row.completed_at === void 0 ? null : Number(row.completed_at)
   };
 }
 function rowToToolInvocation(row) {
   return {
     id: String(row.id),
-    sessionId: String(row.session_id),
+    projectId: row.project_id === null || row.project_id === void 0 ? null : String(row.project_id),
     runId: String(row.run_id),
     turnId: String(row.turn_id),
     cwd: String(row.cwd),
@@ -2661,74 +2890,93 @@ function rowToToolInvocation(row) {
     updatedAt: Number(row.updated_at)
   };
 }
-class SqliteSessionRepository {
+class SqliteHistoryRepository {
   database;
   constructor(path) {
     this.database = new DatabaseSync(path);
     initializeSchema(this.database);
   }
-  async createSession(input) {
+  async createProject(input) {
     const id = input.id ?? randomUUID();
     const createdAt = input.createdAt ?? now();
-    const status = input.status ?? "active";
-    const session = {
-      id,
-      scopeKey: input.scopeKey,
-      objective: input.objective ?? null,
-      status,
-      nextEntrySeq: 1,
-      revision: 0,
-      createdAt,
-      updatedAt: createdAt
-    };
+    const lastOpenedAt = input.lastOpenedAt ?? createdAt;
+    const project = { id, canonicalPath: input.canonicalPath, displayName: input.displayName, createdAt, lastOpenedAt };
     try {
       this.database.prepare(`
-        INSERT INTO sessions
-          (id, scope_key, objective, status, next_entry_seq, revision, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 1, 0, ?, ?)
-      `).run(session.id, session.scopeKey, session.objective, session.status, session.createdAt, session.updatedAt);
+        INSERT INTO projects (id, canonical_path, display_name, created_at, last_opened_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(project.id, project.canonicalPath, project.displayName, project.createdAt, project.lastOpenedAt);
     } catch (error) {
-      throw new RepositoryError(`Failed to create session: ${error instanceof Error ? error.message : String(error)}`, "storage");
+      throw new RepositoryError(`Failed to create project: ${error instanceof Error ? error.message : String(error)}`, "conflict");
     }
-    return session;
+    return project;
   }
-  async getSession(sessionId) {
-    const row = this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
-    return row ? rowToSession(row) : null;
+  async getProject(projectId) {
+    const row = this.database.prepare("SELECT * FROM projects WHERE id = ?").get(projectId);
+    return row ? rowToProject(row) : null;
   }
-  async getLatestOpenSession(scopeKey) {
-    const row = this.database.prepare(`
-      SELECT * FROM sessions
-      WHERE scope_key = ? AND status != 'closed'
-      ORDER BY updated_at DESC, created_at DESC, id DESC
-      LIMIT 1
-    `).get(scopeKey);
-    return row ? rowToSession(row) : null;
+  async getProjectByPath(canonicalPath) {
+    const row = this.database.prepare("SELECT * FROM projects WHERE canonical_path = ?").get(canonicalPath);
+    return row ? rowToProject(row) : null;
   }
-  async appendEntry(sessionId, entry) {
+  async listProjects() {
+    const rows = this.database.prepare("SELECT * FROM projects ORDER BY last_opened_at DESC, display_name ASC, id ASC").all();
+    return rows.map(rowToProject);
+  }
+  async touchProject(projectId, lastOpenedAt = now()) {
+    const result = this.database.prepare("UPDATE projects SET last_opened_at = ? WHERE id = ?").run(lastOpenedAt, projectId);
+    if (Number(result.changes) !== 1) throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
+    return await this.getProject(projectId);
+  }
+  async getProjectContext(projectId) {
+    const row = this.database.prepare("SELECT * FROM project_context WHERE project_id = ?").get(projectId);
+    return row ? rowToProjectContext(row) : null;
+  }
+  async saveProjectContext(projectId, input) {
+    if (!await this.getProject(projectId)) throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
+    const capturedAt = input.capturedAt ?? now();
+    this.database.prepare(`
+      INSERT INTO project_context
+        (project_id, tree_json, tree_hash, captured_at, scan_policy_version, complete, dirty)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id) DO UPDATE SET
+        tree_json = excluded.tree_json,
+        tree_hash = excluded.tree_hash,
+        captured_at = excluded.captured_at,
+        scan_policy_version = excluded.scan_policy_version,
+        complete = excluded.complete,
+        dirty = excluded.dirty
+    `).run(projectId, input.treeJson, input.treeHash, capturedAt, input.scanPolicyVersion, input.complete ? 1 : 0, input.dirty ? 1 : 0);
+    return await this.getProjectContext(projectId);
+  }
+  async markProjectContextDirty(projectId) {
+    this.database.prepare("UPDATE project_context SET dirty = 1 WHERE project_id = ?").run(projectId);
+  }
+  async appendEntry(projectId, entry) {
     validatePayloadForType(entry.type, entry.payload, entry.toolCallId);
-    const result = this.transaction(() => {
-      const sessionRow = this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
-      if (!sessionRow) throw new RepositoryError(`Session not found: ${sessionId}`, "not_found");
+    return this.transaction(() => {
+      if (projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)) {
+        throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
+      }
       const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id);
       if (existingRow) {
         const existing = rowToEntry(existingRow);
-        const same = existing.sessionId === sessionId && existing.type === entry.type && existing.status === entry.status && existing.runId === entry.runId && existing.turnId === (entry.turnId ?? null) && existing.toolCallId === (entry.toolCallId ?? null) && existing.payloadVersion === (entry.payloadVersion ?? 1) && canonical$1(existing.payload) === canonical$1(entry.payload);
+        const same = existing.projectId === projectId && existing.type === entry.type && existing.status === entry.status && existing.runId === entry.runId && existing.turnId === (entry.turnId ?? null) && existing.toolCallId === (entry.toolCallId ?? null) && existing.payloadVersion === (entry.payloadVersion ?? 1) && canonical$1(existing.payload) === canonical$1(entry.payload);
         if (same) return existing;
         throw new RepositoryError(`Entry already exists with different content: ${entry.id}`, "conflict");
       }
       const timestamp = entry.createdAt ?? now();
       const updatedAt = entry.updatedAt ?? timestamp;
-      const sessionSeq = Number(sessionRow.next_entry_seq);
+      const nextOrder = Number(this.database.prepare("SELECT COALESCE(MAX(entry_order), 0) + 1 AS next_order FROM entries").get().next_order);
       this.database.prepare(`
         INSERT INTO entries
-          (id, session_id, session_seq, type, status, run_id, turn_id, tool_call_id,
-           revision, payload_version, payload_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
+           revision, payload_version, payload_json, created_at, updated_at, completed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         entry.id,
-        sessionId,
-        sessionSeq,
+        projectId,
+        nextOrder,
         entry.type,
         entry.status,
         entry.runId,
@@ -2738,94 +2986,69 @@ class SqliteSessionRepository {
         entry.payloadVersion ?? 1,
         JSON.stringify(entry.payload),
         timestamp,
-        updatedAt
+        updatedAt,
+        entry.completedAt ?? null
       );
-      this.database.prepare(`
-        UPDATE sessions
-        SET next_entry_seq = ?, revision = revision + 1, updated_at = ?
-        WHERE id = ?
-      `).run(sessionSeq + 1, updatedAt, sessionId);
-      const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id);
-      return rowToEntry(row);
+      return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id));
     });
-    return result;
   }
   async updateEntry(entryId, expectedRevision, patch) {
-    const result = this.transaction(() => {
+    return this.transaction(() => {
       const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId);
       if (!existingRow) throw new RepositoryError(`Entry not found: ${entryId}`, "not_found");
       const existing = rowToEntry(existingRow);
-      if (existing.revision !== expectedRevision) {
-        throw new RepositoryError(`Entry revision conflict: ${entryId}`, "conflict");
-      }
+      if (existing.revision !== expectedRevision) throw new RepositoryError(`Entry revision conflict: ${entryId}`, "conflict");
       const updatedAt = patch.updatedAt ?? now();
       const nextStatus = patch.status ?? existing.status;
       const nextPayload = patch.payload ?? existing.payload;
       const nextPayloadVersion = patch.payloadVersion ?? existing.payloadVersion;
       const nextTurnId = patch.turnId === void 0 ? existing.turnId : patch.turnId;
       const nextToolCallId = patch.toolCallId === void 0 ? existing.toolCallId : patch.toolCallId;
+      const nextCompletedAt = patch.completedAt === void 0 ? existing.completedAt : patch.completedAt;
       validatePayloadForType(existing.type, nextPayload, nextToolCallId);
       this.database.prepare(`
         UPDATE entries
         SET status = ?, turn_id = ?, tool_call_id = ?, revision = revision + 1,
-            payload_version = ?, payload_json = ?, updated_at = ?
+            payload_version = ?, payload_json = ?, updated_at = ?, completed_at = ?
         WHERE id = ? AND revision = ?
-      `).run(
-        nextStatus,
-        nextTurnId,
-        nextToolCallId,
-        nextPayloadVersion,
-        JSON.stringify(nextPayload),
-        updatedAt,
-        entryId,
-        expectedRevision
-      );
-      this.database.prepare(`
-        UPDATE sessions
-        SET revision = revision + 1, updated_at = ?
-        WHERE id = ?
-      `).run(updatedAt, existing.sessionId);
-      const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId);
-      return rowToEntry(row);
+      `).run(nextStatus, nextTurnId, nextToolCallId, nextPayloadVersion, JSON.stringify(nextPayload), updatedAt, nextCompletedAt, entryId, expectedRevision);
+      return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId));
     });
-    return result;
   }
   async getEntry(entryId) {
     const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId);
     return row ? rowToEntry(row) : null;
   }
-  async listEntries(sessionId, cursor = 0, limit = 100) {
+  async listEntries(projectId, cursor = 0, limit = 100) {
     if (!Number.isInteger(cursor) || cursor < 0) throw new RepositoryError("Entry cursor must be a non-negative integer.", "invalid");
-    if (!Number.isInteger(limit) || limit <= 0) throw new RepositoryError("Entry limit must be a positive integer.", "invalid");
-    const rows = this.database.prepare(`
-      SELECT * FROM entries
-      WHERE session_id = ? AND session_seq > ?
-      ORDER BY session_seq ASC
-      LIMIT ?
-    `).all(sessionId, cursor, limit);
-    return rows.map(rowToEntry);
-  }
-  async listLatestEntries(sessionId, limit) {
     this.validateHistoryLimit(limit);
     const rows = this.database.prepare(`
       SELECT * FROM entries
-      WHERE session_id = ?
-      ORDER BY session_seq DESC
+      WHERE project_id IS ? AND entry_order > ?
+      ORDER BY entry_order ASC
       LIMIT ?
-    `).all(sessionId, limit);
+    `).all(projectId, cursor, limit);
     return rows.map(rowToEntry);
   }
-  async listEntriesBefore(sessionId, beforeSeq, limit) {
-    if (!Number.isSafeInteger(beforeSeq) || beforeSeq <= 0) {
-      throw new RepositoryError("History cursor must be a positive safe integer.", "invalid");
-    }
+  async listLatestEntries(projectId, limit) {
     this.validateHistoryLimit(limit);
     const rows = this.database.prepare(`
       SELECT * FROM entries
-      WHERE session_id = ? AND session_seq < ?
-      ORDER BY session_seq DESC
+      WHERE project_id IS ?
+      ORDER BY entry_order DESC
       LIMIT ?
-    `).all(sessionId, beforeSeq, limit);
+    `).all(projectId, limit);
+    return rows.map(rowToEntry);
+  }
+  async listEntriesBefore(projectId, beforeOrder, limit) {
+    if (!Number.isSafeInteger(beforeOrder) || beforeOrder <= 0) throw new RepositoryError("History cursor must be a positive safe integer.", "invalid");
+    this.validateHistoryLimit(limit);
+    const rows = this.database.prepare(`
+      SELECT * FROM entries
+      WHERE project_id IS ? AND entry_order < ?
+      ORDER BY entry_order DESC
+      LIMIT ?
+    `).all(projectId, beforeOrder, limit);
     return rows.map(rowToEntry);
   }
   async registerToolInvocation(input) {
@@ -2836,19 +3059,20 @@ class SqliteSessionRepository {
     const updatedAt = input.updatedAt ?? timestamp;
     const checkpointJson = input.checkpoint === void 0 ? null : serializeJson(input.checkpoint, "checkpoint");
     return this.transaction(() => {
-      const session = this.database.prepare("SELECT id FROM sessions WHERE id = ?").get(input.sessionId);
-      if (!session) throw new RepositoryError(`Session not found: ${input.sessionId}`, "not_found");
+      if (input.projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(input.projectId)) {
+        throw new RepositoryError(`Project not found: ${input.projectId}`, "not_found");
+      }
       try {
         this.database.prepare(`
           INSERT INTO tool_invocations
-            (id, session_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
+            (id, project_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
              tool_name, tool_version, input_json, input_hash, phase, outcome_status,
              outcome_json, recovery_mode_snapshot, attempt_count, checkpoint_json,
              result_entry_id, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, ?, 0, ?, ?, ?, ?)
         `).run(
           id,
-          input.sessionId,
+          input.projectId,
           input.runId,
           input.turnId,
           input.cwd,
@@ -2868,7 +3092,6 @@ class SqliteSessionRepository {
       } catch (error) {
         throw new RepositoryError(`Failed to register tool invocation: ${error instanceof Error ? error.message : String(error)}`, "conflict");
       }
-      this.bumpSession(input.sessionId, updatedAt);
       return this.getToolInvocationById(id);
     });
   }
@@ -2877,25 +3100,11 @@ class SqliteSessionRepository {
       const existing = this.getToolInvocationById(invocationId);
       if (!existing) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
       if (existing.phase === "effect_pending") {
-        const updatedAt2 = now();
-        this.database.prepare(`
-          UPDATE tool_invocations
-          SET attempt_count = attempt_count + 1, updated_at = ?
-          WHERE id = ? AND phase = 'effect_pending'
-        `).run(updatedAt2, invocationId);
-        this.bumpSession(existing.sessionId, updatedAt2);
+        this.database.prepare("UPDATE tool_invocations SET attempt_count = attempt_count + 1, updated_at = ? WHERE id = ? AND phase = 'effect_pending'").run(now(), invocationId);
         return this.getToolInvocationById(invocationId);
       }
-      if (existing.phase !== "planned") {
-        throw new RepositoryError(`Tool invocation cannot begin from phase ${existing.phase}: ${invocationId}`, "conflict");
-      }
-      const updatedAt = now();
-      this.database.prepare(`
-        UPDATE tool_invocations
-        SET phase = 'effect_pending', attempt_count = attempt_count + 1, updated_at = ?
-        WHERE id = ? AND phase = 'planned'
-      `).run(updatedAt, invocationId);
-      this.bumpSession(existing.sessionId, updatedAt);
+      if (existing.phase !== "planned") throw new RepositoryError(`Tool invocation cannot begin from phase ${existing.phase}: ${invocationId}`, "conflict");
+      this.database.prepare("UPDATE tool_invocations SET phase = 'effect_pending', attempt_count = attempt_count + 1, updated_at = ? WHERE id = ? AND phase = 'planned'").run(now(), invocationId);
       return this.getToolInvocationById(invocationId);
     });
   }
@@ -2906,22 +3115,16 @@ class SqliteSessionRepository {
       const existing = this.getToolInvocationById(invocationId);
       if (!existing) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
       if (existing.phase === "outcome_ready" || existing.phase === "completed") {
-        if (existing.outcomeStatus !== outcome.status || canonical$1(existing.outcomeJson) !== canonical$1(outcome.outcome)) {
-          throw new RepositoryError(`Tool outcome already exists with different content: ${invocationId}`, "conflict");
-        }
+        if (existing.outcomeStatus !== outcome.status || canonical$1(existing.outcomeJson) !== canonical$1(outcome.outcome)) throw new RepositoryError(`Tool outcome already exists with different content: ${invocationId}`, "conflict");
         return existing;
       }
-      if (existing.phase !== "effect_pending") {
-        throw new RepositoryError(`Tool invocation cannot save outcome from phase ${existing.phase}: ${invocationId}`, "conflict");
-      }
-      const updatedAt = outcome.updatedAt ?? now();
+      if (existing.phase !== "effect_pending") throw new RepositoryError(`Tool invocation cannot save outcome from phase ${existing.phase}: ${invocationId}`, "conflict");
       this.database.prepare(`
         UPDATE tool_invocations
         SET phase = 'outcome_ready', outcome_status = ?, outcome_json = ?,
             checkpoint_json = COALESCE(?, checkpoint_json), updated_at = ?
         WHERE id = ? AND phase = 'effect_pending'
-      `).run(outcome.status, outcomeJson, checkpointJson, updatedAt, invocationId);
-      this.bumpSession(existing.sessionId, updatedAt);
+      `).run(outcome.status, outcomeJson, checkpointJson, outcome.updatedAt ?? now(), invocationId);
       return this.getToolInvocationById(invocationId);
     });
   }
@@ -2934,54 +3137,18 @@ class SqliteSessionRepository {
         if (existing.resultEntryId !== resultEntryId) throw new RepositoryError(`Tool invocation already completed with a different result: ${invocationId}`, "conflict");
         return existing;
       }
-      if (existing.phase !== "outcome_ready") {
-        throw new RepositoryError(`Tool invocation cannot complete from phase ${existing.phase}: ${invocationId}`, "conflict");
-      }
-      const updatedAt = now();
-      this.database.prepare(`
-        UPDATE tool_invocations
-        SET phase = 'completed', result_entry_id = ?, updated_at = ?
-        WHERE id = ? AND phase = 'outcome_ready'
-      `).run(resultEntryId, updatedAt, invocationId);
-      this.bumpSession(existing.sessionId, updatedAt);
+      if (existing.phase !== "outcome_ready") throw new RepositoryError(`Tool invocation cannot complete from phase ${existing.phase}: ${invocationId}`, "conflict");
+      this.database.prepare("UPDATE tool_invocations SET phase = 'completed', result_entry_id = ?, updated_at = ? WHERE id = ? AND phase = 'outcome_ready'").run(resultEntryId, now(), invocationId);
       return this.getToolInvocationById(invocationId);
     });
   }
-  async getToolInvocation(sessionId, toolCallId) {
-    const row = this.database.prepare(`
-      SELECT * FROM tool_invocations WHERE session_id = ? AND tool_call_id = ?
-    `).get(sessionId, toolCallId);
+  async getToolInvocation(projectId, runId, toolCallId) {
+    const row = this.database.prepare("SELECT * FROM tool_invocations WHERE project_id IS ? AND run_id = ? AND tool_call_id = ?").get(projectId, runId, toolCallId);
     return row ? rowToToolInvocation(row) : null;
   }
-  async listOpenToolInvocations(sessionId) {
-    const rows = this.database.prepare(`
-      SELECT * FROM tool_invocations
-      WHERE session_id = ? AND phase != 'completed'
-      ORDER BY ordinal ASC, created_at ASC, id ASC
-    `).all(sessionId);
+  async listOpenToolInvocations(projectId, runId) {
+    const rows = runId ? this.database.prepare("SELECT * FROM tool_invocations WHERE project_id IS ? AND run_id = ? AND phase != 'completed' ORDER BY ordinal ASC, created_at ASC, id ASC").all(projectId, runId) : this.database.prepare("SELECT * FROM tool_invocations WHERE project_id IS ? AND phase != 'completed' ORDER BY ordinal ASC, created_at ASC, id ASC").all(projectId);
     return rows.map(rowToToolInvocation);
-  }
-  async updateSession(sessionId, expectedRevision, patch) {
-    const result = this.transaction(() => {
-      const existingRow = this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
-      if (!existingRow) throw new RepositoryError(`Session not found: ${sessionId}`, "not_found");
-      const existing = rowToSession(existingRow);
-      if (existing.revision !== expectedRevision) throw new RepositoryError(`Session revision conflict: ${sessionId}`, "conflict");
-      const updatedAt = patch.updatedAt ?? now();
-      this.database.prepare(`
-        UPDATE sessions
-        SET objective = ?, status = ?, revision = revision + 1, updated_at = ?
-        WHERE id = ? AND revision = ?
-      `).run(
-        patch.objective === void 0 ? existing.objective : patch.objective,
-        patch.status ?? existing.status,
-        updatedAt,
-        sessionId,
-        expectedRevision
-      );
-      return rowToSession(this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId));
-    });
-    return result;
   }
   close() {
     this.database.close();
@@ -3001,17 +3168,13 @@ class SqliteSessionRepository {
     }
   }
   validateHistoryLimit(limit) {
-    if (!Number.isSafeInteger(limit) || limit <= 0) {
-      throw new RepositoryError("History limit must be a positive safe integer.", "invalid");
-    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new RepositoryError("History limit must be a positive safe integer.", "invalid");
   }
   validateToolInvocationInput(input) {
     if (!input.runId || !input.turnId || !input.cwd || !input.assistantEntryId || !input.toolCallId || !input.toolName || !input.toolVersion || !input.inputHash) {
       throw new RepositoryError("Tool invocation identity and tool metadata are required.", "invalid");
     }
-    if (!Number.isSafeInteger(input.ordinal) || input.ordinal < 0) {
-      throw new RepositoryError("Tool invocation ordinal must be a non-negative safe integer.", "invalid");
-    }
+    if (!Number.isSafeInteger(input.ordinal) || input.ordinal < 0) throw new RepositoryError("Tool invocation ordinal must be a non-negative safe integer.", "invalid");
     try {
       JSON.parse(input.inputJson);
     } catch {
@@ -3021,9 +3184,6 @@ class SqliteSessionRepository {
   getToolInvocationById(invocationId) {
     const row = this.database.prepare("SELECT * FROM tool_invocations WHERE id = ?").get(invocationId);
     return row ? rowToToolInvocation(row) : null;
-  }
-  bumpSession(sessionId, updatedAt) {
-    this.database.prepare("UPDATE sessions SET revision = revision + 1, updated_at = ? WHERE id = ?").run(updatedAt, sessionId);
   }
 }
 const DRAFT_FLUSH_INTERVAL_MS = 500;
@@ -3050,8 +3210,8 @@ function validateMessage(message, role) {
 function draftKey(context) {
   return `${context.turnId}:${context.attempt ?? 1}`;
 }
-class DefaultSessionRecorder {
-  sessionId;
+class DefaultHistoryRecorder {
+  projectId;
   repository;
   completedMessages = [];
   activeDrafts = /* @__PURE__ */ new Map();
@@ -3061,10 +3221,10 @@ class DefaultSessionRecorder {
   writeChain = Promise.resolve();
   backgroundError;
   closed = false;
-  constructor(sessionId, repository, entries = []) {
-    this.sessionId = sessionId;
+  constructor(projectId, repository, entries = []) {
+    this.projectId = projectId;
     this.repository = repository;
-    for (const entry of [...entries].sort((left, right) => left.sessionSeq - right.sessionSeq)) {
+    for (const entry of [...entries].sort((left, right) => left.entryOrder - right.entryOrder)) {
       if (entry.type === "user_message") this.userEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload) });
       if (entry.type === "tool_result" && entry.toolCallId) this.toolEntries.set(entry.toolCallId, { entryId: entry.id, message: cloneMessage(entry.payload) });
       if (entry.type === "assistant_message" && entry.turnId) this.assistantEntries.set(entry.turnId, entry.id);
@@ -3091,7 +3251,7 @@ class DefaultSessionRecorder {
     const copy = cloneMessage(message);
     this.userEntries.set(context.runId, { entryId, message: copy });
     return this.enqueueAndCheck(async () => {
-      const entry = await this.repository.appendEntry(this.sessionId, {
+      const entry = await this.repository.appendEntry(this.projectId, {
         id: entryId,
         type: "user_message",
         status: "completed",
@@ -3191,7 +3351,7 @@ class DefaultSessionRecorder {
     const copy = cloneMessage(message);
     this.toolEntries.set(context.toolCallId, { entryId, message: copy });
     return this.enqueueAndCheck(async () => {
-      const entry = await this.repository.appendEntry(this.sessionId, {
+      const entry = await this.repository.appendEntry(this.projectId, {
         id: entryId,
         type: "tool_result",
         status: "completed",
@@ -3205,7 +3365,7 @@ class DefaultSessionRecorder {
   }
   registerToolInvocation(input) {
     this.ensureOpen();
-    return this.enqueueResult(() => this.repository.registerToolInvocation({ ...input, sessionId: this.sessionId }));
+    return this.enqueueResult(() => this.repository.registerToolInvocation({ ...input, projectId: this.projectId }));
   }
   beginToolAttempt(invocationId) {
     this.ensureOpen();
@@ -3219,15 +3379,13 @@ class DefaultSessionRecorder {
     this.ensureOpen();
     return this.enqueueResult(() => this.repository.completeToolInvocation(invocationId, resultEntryId));
   }
-  getToolInvocation(sessionId, toolCallId) {
+  getToolInvocation(runId, toolCallId) {
     this.ensureOpen();
-    if (sessionId !== this.sessionId) return Promise.reject(new RepositoryError(`Session recorder is bound to ${this.sessionId}.`, "invalid"));
-    return this.waitForWrites().then(() => this.repository.getToolInvocation(sessionId, toolCallId));
+    return this.waitForWrites().then(() => this.repository.getToolInvocation(this.projectId, runId, toolCallId));
   }
-  listOpenToolInvocations(sessionId) {
+  listOpenToolInvocations(runId) {
     this.ensureOpen();
-    if (sessionId !== this.sessionId) return Promise.reject(new RepositoryError(`Session recorder is bound to ${this.sessionId}.`, "invalid"));
-    return this.waitForWrites().then(() => this.repository.listOpenToolInvocations(sessionId));
+    return this.waitForWrites().then(() => this.repository.listOpenToolInvocations(this.projectId, runId));
   }
   async finishRun(result) {
     this.ensureOpen();
@@ -3266,20 +3424,23 @@ class DefaultSessionRecorder {
     if (!draft.dirty && draft.revision !== null) return;
     const finalStatus = draft.finalStatus;
     const status = finalStatus ?? (draft.terminal ? "completed" : "streaming");
+    const completedAt = status === "completed" ? Date.now() : void 0;
     let entry;
     if (draft.revision === null) {
-      entry = await this.repository.appendEntry(this.sessionId, {
+      entry = await this.repository.appendEntry(this.projectId, {
         id: draft.entryId,
         type: "assistant_message",
         status,
         runId: draft.runId,
         turnId: draft.turnId,
-        payload: cloneMessage(draft.message)
+        payload: cloneMessage(draft.message),
+        completedAt
       });
     } else {
       entry = await this.repository.updateEntry(draft.entryId, draft.revision, {
         status,
-        payload: cloneMessage(draft.message)
+        payload: cloneMessage(draft.message),
+        completedAt
       });
     }
     draft.revision = entry.revision;
@@ -3315,30 +3476,28 @@ class DefaultSessionRecorder {
     if (this.backgroundError) throw this.backgroundError;
   }
   ensureOpen() {
-    if (this.closed) throw new RepositoryError("Session recorder is closed.", "storage");
+    if (this.closed) throw new RepositoryError("History recorder is closed.", "storage");
   }
 }
-async function readAllEntries(repository, sessionId) {
+async function readAllEntries(repository, projectId) {
   const entries = [];
   let cursor = 0;
   while (true) {
-    const batch = await repository.listEntries(sessionId, cursor, 500);
+    const batch = await repository.listEntries(projectId, cursor, 500);
     entries.push(...batch);
     if (batch.length < 500) return entries;
-    cursor = batch[batch.length - 1].sessionSeq;
+    cursor = batch[batch.length - 1].entryOrder;
   }
 }
-async function createSessionRecorder(repository, sessionId) {
-  const session = await repository.getSession(sessionId);
-  if (!session) throw new RepositoryError(`Session not found: ${sessionId}`, "not_found");
-  const entries = await readAllEntries(repository, sessionId);
+async function createHistoryRecorder(repository, projectId) {
+  const entries = await readAllEntries(repository, projectId);
   for (const entry of entries) {
     if (entry.status !== "streaming") continue;
     await repository.updateEntry(entry.id, entry.revision, { status: "interrupted" });
     entry.status = "interrupted";
     entry.revision += 1;
   }
-  return new DefaultSessionRecorder(sessionId, repository, entries);
+  return new DefaultHistoryRecorder(projectId, repository, entries);
 }
 const mainProcessDirectory = fileURLToPath(new URL(".", import.meta.url));
 function createWindow() {
@@ -3372,12 +3531,15 @@ function createWindow() {
   });
   return win;
 }
-function registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, sessionId, sessionHistory) {
+function registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, projects, historyService, getHistoryRecorder) {
   const discoveryControllers = /* @__PURE__ */ new Map();
   ipcMain.handle(IPC.run, async (event, req) => {
     try {
       const task = req.task.trim();
-      const cwd = req.cwd?.trim() || process.cwd();
+      const active = await projects.getActiveContext();
+      const projectId = projects.activeScope;
+      if (req.projectId !== void 0 && req.projectId !== projectId) return { ok: false, error: "The selected project changed. Choose the project again." };
+      const cwd = active.cwd;
       const modelOptionId = req.modelOptionId.trim();
       if (!task) return { ok: false, error: "Enter a task." };
       if (!modelOptionId) return { ok: false, error: "Choose a model." };
@@ -3386,7 +3548,18 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
       const runId = randomUUID();
       const canvasContextIds = Array.isArray(req.canvasContextIds) ? req.canvasContextIds.filter((id) => typeof id === "string") : [];
       const resolvedCanvasContexts = canvasContexts.takeMany(canvasContextIds);
-      const handle = runner.start({ task: composeTaskWithAttachments(task, attachments), cwd, sessionId, runId, runScopedContext: resolvedCanvasContexts, ...resolved }, (payload) => {
+      const historyRecorder = await getHistoryRecorder(projectId);
+      const handle = runner.start({
+        task: composeTaskWithAttachments(task, attachments),
+        cwd,
+        projectId,
+        projectContextVersion: active.contextVersion,
+        historyRecorder,
+        runId,
+        runScopedContext: active.projectContext,
+        canvasContexts: resolvedCanvasContexts,
+        ...resolved
+      }, (payload) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
@@ -3398,8 +3571,29 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
   ipcMain.on(IPC.stop, () => {
     runner.stop();
   });
-  ipcMain.handle(IPC.loadSessionPage, async (_event, request) => {
-    return sessionHistory.loadPage(request);
+  ipcMain.handle(IPC.loadHistoryPage, async (_event, request) => {
+    return historyService.loadPage(request);
+  });
+  ipcMain.handle(IPC.getActiveProject, async () => {
+    return (await projects.getActiveContext()).descriptor;
+  });
+  ipcMain.handle(IPC.selectProject, async (event) => {
+    if (runner.isActive) throw new Error("Choose a project after the current run finishes.");
+    const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    if (!win) return null;
+    const result = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const active = await projects.selectPath(result.filePaths[0]);
+    canvasContexts.setScope(active.descriptor.projectId ?? "__unprojected__");
+    await getHistoryRecorder(active.descriptor.projectId);
+    return active.descriptor;
+  });
+  ipcMain.handle(IPC.clearProject, async () => {
+    if (runner.isActive) throw new Error("Clear the project after the current run finishes.");
+    const active = projects.clear();
+    canvasContexts.setScope("__unprojected__");
+    await getHistoryRecorder(null);
+    return active.descriptor;
   });
   ipcMain.handle(IPC.listProviderProfiles, async () => {
     return providers.list();
@@ -3493,12 +3687,20 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
   });
 }
 app.whenReady().then(async () => {
-  const sessionRepository = new SqliteSessionRepository(join(app.getPath("userData"), "agent-sessions.sqlite"));
-  const sessionScopeKey = "desktop:local";
-  const reusableSession = await sessionRepository.getLatestOpenSession(sessionScopeKey);
-  const activeSession = reusableSession ?? await sessionRepository.createSession({ scopeKey: sessionScopeKey });
-  const recorder = await createSessionRecorder(sessionRepository, activeSession.id);
-  const sessionHistory = new SessionHistoryService(activeSession.id, sessionRepository);
+  const historyRepository = new SqliteHistoryRepository(join(app.getPath("userData"), "agent-sessions.sqlite"));
+  const projects = new ProjectRegistry(historyRepository);
+  const historyService = new HistoryService(() => projects.activeScope, historyRepository);
+  const recorders = /* @__PURE__ */ new Map();
+  const recorderKey = (projectId) => projectId ?? "__unprojected__";
+  const getHistoryRecorder = async (projectId) => {
+    const key = recorderKey(projectId);
+    const existing = recorders.get(key);
+    if (existing) return existing;
+    const recorder = await createHistoryRecorder(historyRepository, projectId);
+    recorders.set(key, recorder);
+    return recorder;
+  };
+  await getHistoryRecorder(null);
   let closing = false;
   const providers = new ProviderStore(
     join(app.getPath("userData"), "provider-profiles.json"),
@@ -3510,13 +3712,12 @@ app.whenReady().then(async () => {
   );
   const outputFiles = new OutputFileRegistry();
   const inputAttachments = new InputAttachmentRegistry();
-  const canvasContexts = new CanvasContextRegistry(new CanvasDocumentStore(app.getPath("userData"), activeSession.id));
-  const createRecorder = (sessionId) => {
-    if (sessionId !== activeSession.id) throw new Error("The current session is not loaded.");
-    return recorder;
-  };
-  const runner = new AgentRunner((runId, cwd, artifacts) => outputFiles.register(runId, cwd, artifacts), createRecorder);
-  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, activeSession.id, sessionHistory);
+  const canvasContexts = new CanvasContextRegistry(new CanvasDocumentStore(app.getPath("userData"), "__unprojected__"));
+  const runner = new AgentRunner((runId, cwd, artifacts, projectId) => {
+    void projects.markContextDirty(projectId);
+    return outputFiles.register(runId, cwd, artifacts);
+  });
+  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, projects, historyService, getHistoryRecorder);
   createWindow();
   app.on("before-quit", (event) => {
     if (closing) return;
@@ -3526,9 +3727,9 @@ app.whenReady().then(async () => {
     void (async () => {
       try {
         await runner.waitForIdle();
-        await recorder.close();
+        await Promise.all([...recorders.values()].map((recorder) => recorder.close()));
       } finally {
-        sessionRepository.close();
+        historyRepository.close();
         app.quit();
       }
     })();
@@ -3537,7 +3738,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 }).catch((error) => {
-  dialog.showErrorBox("Session storage initialization failed", error instanceof Error ? error.message : String(error));
+  dialog.showErrorBox("History storage initialization failed", error instanceof Error ? error.message : String(error));
   app.quit();
 });
 app.on("window-all-closed", () => {

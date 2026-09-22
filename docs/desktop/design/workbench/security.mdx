@@ -1,15 +1,17 @@
 安全边界。
 
-当前实现中，明文 API Key 短期存在于 Renderer 的编辑草稿和发往 Main 的保存、模型发现请求中；保存成功后输入框清空。Main 将 Provider 元数据和 `encryptedApiKey` 一起保存在 `provider-profiles.json`，API Key 使用 Electron `safeStorage` 加密，不保存明文。模型解析、模型发现和刷新时由 Main 即时解密并读取凭据；Renderer 不回显已保存凭据。该实现依赖 Electron 在各平台提供的系统加密能力，不要求 macOS Keychain。
+明文 API Key 只短期存在于 Renderer 的编辑草稿和发往 Main 的当前请求中。Main 只在内存中按 `providerProfileId + canonical origin` 保存当前进程凭据；`provider-profiles.json` 只保存 Provider 元数据和模型目录，不保存密文、明文或可恢复凭据。应用重启后凭据状态失效，用户必须重新输入；eye/eye-off 只改变当前草稿的输入显示。
 
-提供商列表只向 Renderer 返回凭据是否已配置，不返回密文或明文。运行和模型发现时，Main 在每次 Provider 请求边界即时解密凭据，交给内部请求配置和网络客户端；AgentRunner 通过 `apiKeyProvider` 将读取能力传给模型适配器，而不是把 API Key 写入 Runtime 消息。AgentRunner 和模型适配器当前同在 Main 进程执行。运行请求、公共事件与工具结果类型不包含专门的凭据字段。
+提供商列表只向 Renderer 返回当前进程是否有可用凭据，不返回密文或明文。运行和模型发现时，Main 在每次 Provider 请求边界读取同 origin 的内存凭据，交给内部请求配置和网络客户端；AgentRunner 通过 `apiKeyProvider` 将读取能力传给模型适配器，而不是把 API Key 写入 Runtime 消息。AgentRunner 和模型适配器当前同在 Main 进程执行。运行请求、公共事件与工具结果类型不包含专门的凭据字段。Base URL 的协议、主机或端口发生变化时，旧凭据立即失效并要求重新输入。
 
-敏感信息不得进入消息、事件和普通日志是设计约束，当前没有统一脱敏层：模型请求异常会使用 `error.message` 生成运行错误，Bash 输出会原样进入工具结果，过长的完整输出还会写入内部临时文件。因此不能将“不含凭据字段”等同于已经保证所有错误与输出都不含敏感内容。
+敏感信息不得进入消息、事件和普通日志是设计约束。模型请求只向 UI 暴露稳定错误码与安全文案；完整诊断进入受限、可清理的日志并以 `diagnosticId` 关联。Bash/tool 输出使用有界内存、脱敏策略和 TTL 临时文件，项目历史只保存经过边界处理的模型可见事实。
 
 输出文件访问使用 Main 维护的 runId 和 fileId 注册表。可读路径只用于界面识别，不构成读取和打开授权。
 
-预览和打开前，Main 重新检查真实路径是否仍与登记路径一致、目标是否仍为普通文件。注册范围与生命周期见[输出文件侧边栏](./titlebar/sidebar.mdx)。输入附件也由 Main 的原生文件选择器登记，Renderer 提交 attachmentId；Main 在运行前解析并复查文件，再把本地路径加入模型任务文本。
+预览和打开前，Main 重新检查真实路径是否仍与登记路径一致、目标是否仍为普通文件。注册范围与生命周期见[输出文件侧边栏](./titlebar/sidebar/index.mdx)。输入附件也由 Main 的原生文件选择器登记，Renderer 提交 attachmentId；Main 在运行前解析并复查文件，再把本地路径加入模型任务文本。
 
 Renderer 负责呈现状态和发起用户意图。Preload 负责暴露受限的类型化接口。Main 负责凭据，文件系统，系统能力和 Provider 网络请求。Agent Runtime 负责模型调用，工具执行和运行生命周期。
 
-窗口已启用 `contextIsolation`、关闭 `nodeIntegration` 并启用 Renderer sandbox。它们隔离 Renderer 的直接 Node 能力；本地 Bash 仍以应用用户权限执行，cwd 仅表示初始工作目录，不是文件访问隔离边界。当前没有独立 Runner 进程、命令审批层或 Bash 文件系统沙箱。Preload 的 TypeScript 类型也不替代 Main 的运行时输入校验。
+窗口已启用 `contextIsolation`、关闭 `nodeIntegration` 并启用 Renderer sandbox。Main 必须拒绝非工作台来源的顶层导航，并对每个 IPC handler 校验 trusted sender/frame、运行时输入 schema、大小和 origin；生产 Renderer 还必须提供 CSP。模型 Markdown 的图片只允许受控的本地/内联资源，远程或相对图片默认不加载；外链只允许明确的 `https:` 等协议并交给系统浏览器。它们隔离 Renderer 的直接 Node 能力；本地 Bash 仍以应用用户权限执行，cwd 仅表示初始工作目录，不是文件访问隔离边界。当前没有独立 Runner 进程、命令审批层或 Bash 文件系统沙箱。Preload 的 TypeScript 类型也不替代 Main 的运行时输入校验。
+
+实现状态：当前 `shell/main/provider-store.ts` 仍将 `encryptedApiKey` 写入 Provider JSON，且 `safeStorage` 仍在 Main 装配；导航、IPC sender 校验和 CSP 也尚未完整落地。上述差异记录在[实现状态与工程审计](../../../IMPLEMENTATION_STATUS.md)，不能把当前实现描述成已满足本节安全契约。

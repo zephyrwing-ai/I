@@ -4,7 +4,10 @@ const IPC = {
   run: "agent:run",
   stop: "agent:stop",
   event: "agent:event",
-  loadSessionPage: "session:load-page",
+  loadHistoryPage: "history:load-page",
+  getActiveProject: "projects:active",
+  selectProject: "projects:select",
+  clearProject: "projects:clear",
   listProviderProfiles: "providers:list",
   discoverProviderModels: "providers:discover-models",
   cancelProviderModelDiscovery: "providers:cancel-discovery",
@@ -21,7 +24,10 @@ const IPC = {
 const api = {
   run: (req) => electron.ipcRenderer.invoke(IPC.run, req),
   stop: () => electron.ipcRenderer.send(IPC.stop),
-  loadSessionPage: (request) => electron.ipcRenderer.invoke(IPC.loadSessionPage, request),
+  loadHistoryPage: (request) => electron.ipcRenderer.invoke(IPC.loadHistoryPage, request),
+  getActiveProject: () => electron.ipcRenderer.invoke(IPC.getActiveProject),
+  selectProject: () => electron.ipcRenderer.invoke(IPC.selectProject),
+  clearProject: () => electron.ipcRenderer.invoke(IPC.clearProject),
   listProviderProfiles: () => electron.ipcRenderer.invoke(IPC.listProviderProfiles),
   discoverProviderModels: (input) => electron.ipcRenderer.invoke(IPC.discoverProviderModels, input),
   cancelProviderModelDiscovery: (requestId) => {

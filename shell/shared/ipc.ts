@@ -120,8 +120,14 @@ export interface RunRequest {
   modelOptionId: string;
   attachmentIds: string[];
   canvasContextIds?: string[];
-  /** 由宿主任务上下文注入；Composer 不展示或编辑该字段。 */
-  cwd?: string;
+  /** 当前项目范围；null 表示无项目历史。 */
+  projectId?: string | null;
+}
+
+export interface ProjectDescriptor {
+  projectId: string | null;
+  displayName: string;
+  canonicalPath: string | null;
 }
 
 export interface OutputFileDescriptor {
@@ -152,14 +158,15 @@ export type RunError = {
 
 export type RunStartAck = { ok: true; runId: string } | { ok: false; error: string };
 
-export interface SessionPageRequest {
+export interface HistoryPageRequest {
   cursor: string | null;
   limit: number;
 }
 
-export interface SessionHistoryEntry {
+export interface HistoryPageEntry {
   entryId: string;
-  sessionSeq: number;
+  entryOrder: number;
+  projectId: string | null;
   type: "user_message" | "assistant_message" | "tool_result";
   status: "streaming" | "completed" | "interrupted" | "failed";
   runId: string;
@@ -169,14 +176,15 @@ export interface SessionHistoryEntry {
   payload: ModelMessage;
   createdAt: number;
   updatedAt: number;
+  completedAt: number | null;
 }
 
-export interface SessionPageResult {
-  sessionId: string;
-  entries: SessionHistoryEntry[];
+export interface HistoryPageResult {
+  projectId: string | null;
+  entries: HistoryPageEntry[];
   nextCursor: string | null;
   hasMore: boolean;
-  snapshotSeq: number;
+  snapshotOrder: number;
 }
 
 export type SaveProviderResult = { ok: true; profile: ProviderProfileSummary } | { ok: false; error: string };
@@ -235,7 +243,10 @@ export type AgentEvent =
 export interface AgentAPI {
   run(req: RunRequest): Promise<RunStartAck>;
   stop(): void;
-  loadSessionPage(request: SessionPageRequest): Promise<SessionPageResult>;
+  loadHistoryPage(request: HistoryPageRequest): Promise<HistoryPageResult>;
+  getActiveProject(): Promise<ProjectDescriptor>;
+  selectProject(): Promise<ProjectDescriptor | null>;
+  clearProject(): Promise<ProjectDescriptor>;
   listProviderProfiles(): Promise<ProviderProfileSummary[]>;
   discoverProviderModels(input: ProviderModelDiscoveryInput): Promise<ProviderModelDiscoveryResult>;
   cancelProviderModelDiscovery(requestId: string): void;
@@ -255,7 +266,10 @@ export const IPC = {
   run: "agent:run",
   stop: "agent:stop",
   event: "agent:event",
-  loadSessionPage: "session:load-page",
+  loadHistoryPage: "history:load-page",
+  getActiveProject: "projects:active",
+  selectProject: "projects:select",
+  clearProject: "projects:clear",
   listProviderProfiles: "providers:list",
   discoverProviderModels: "providers:discover-models",
   cancelProviderModelDiscovery: "providers:cancel-discovery",

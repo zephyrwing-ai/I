@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { CanvasContextDescriptor, InputAttachmentDescriptor, ModelOption, RunRequest } from "../../../../shell/shared/ipc";
+import type { CanvasContextDescriptor, InputAttachmentDescriptor, ModelOption, ProjectDescriptor, RunRequest } from "../../../../shell/shared/ipc";
 import { Icon } from "../../components/Icon";
 import { isSendKey } from "./sendKey";
 import "./Composer.css";
@@ -21,6 +21,9 @@ interface ComposerProps {
   modelLoading: boolean;
   onRun: (req: RunRequest) => void;
   onStop: () => void;
+  project?: ProjectDescriptor;
+  onSelectProject?: () => void;
+  onClearProject?: () => void;
   canvasContexts?: CanvasContextDescriptor[];
   onRemoveCanvasContext?: (contextId: string) => void;
   onClearCanvasContexts?: () => void;
@@ -56,7 +59,7 @@ export function parseStoredModelPickerPreference(serialized: string | null, lega
 }
 
 /** 对话框列：输入框 + 附件 + 模型选择 + 发送/停止。位于中间列（Column）的 auto 行。 */
-export function Composer({ running, stopping, ready = true, modelOptions, modelLoading, onRun, onStop, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
+export function Composer({ running, stopping, ready = true, modelOptions, modelLoading, onRun, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, onSelectProject = () => undefined, onClearProject = () => undefined, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
   const [task, setTask] = useState("");
   const [attachments, setAttachments] = useState<InputAttachmentDescriptor[]>([]);
   const [modelOpen, setModelOpen] = useState(false);
@@ -185,6 +188,7 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
       modelOptionId: selectedModelOptionId,
       attachmentIds: attachments.map((attachment) => attachment.attachmentId),
       canvasContextIds: canvasContexts.map((context) => context.contextId),
+      projectId: project.projectId,
     } satisfies RunRequest;
     onRun(request);
     // 发送后清空输入与附件：消息已经在消息列，Composer 不再保留副本；
@@ -217,6 +221,24 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
 
   return (
     <footer className="composer">
+      <div className="composer-project-row">
+          <button
+            type="button"
+            className="composer-project-picker"
+            onClick={onSelectProject}
+            disabled={running || !ready}
+            title={project.canonicalPath ?? "Choose folder"}
+            aria-label={project.projectId ? `Project ${project.displayName}` : "Choose folder"}
+          >
+            <Icon name="folder-closed" width="18" height="18" />
+            <span>{project.projectId ? project.displayName : "Choose folder"}</span>
+          </button>
+          {project.projectId && (
+            <button type="button" className="composer-project-clear" onClick={onClearProject} disabled={running || !ready} aria-label="Clear project" title="Clear project">
+              <Icon name="close" width="14" height="14" />
+            </button>
+          )}
+      </div>
       <div className="composer-shell">
         {attachments.length > 0 && (
           <div className="composer-attachments" aria-label="Attachments">

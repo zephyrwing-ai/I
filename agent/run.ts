@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { run } from "./loop.js";
-import { createTransientSessionRecorder } from "./memory/index.js";
+import { createTransientHistoryRecorder } from "./memory/index.js";
 import { createLocalBashOps } from "./environment.js";
 import { createToolRegistry } from "./tools/index.js";
 
@@ -13,7 +13,7 @@ if (!task) {
 }
 
 const runId = randomUUID();
-const recorder = await createTransientSessionRecorder();
+const recorder = await createTransientHistoryRecorder();
 let result;
 try {
   result = await run(task, {

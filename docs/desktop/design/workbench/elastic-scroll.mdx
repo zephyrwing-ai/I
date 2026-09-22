@@ -42,9 +42,9 @@
 历史分页与虚拟高度。
 
 - MessageStream 的上下 spacer 进入正常 scrollHeight，滚动条按虚拟总高度计算滑块位置和长度。
-- hasMore=true 且滚动位置进入顶部加载阈值时，StreamScrollbar 触发 `onLoadOlder`；在途请求由历史状态去重。
+- hasMore=true 且滚动位置进入顶部加载阈值时，`useVirtualMessageWindow` 触发 `onLoadOlder`；在途请求由历史状态和 hook 双重去重。
 - 旧历史插入前结束顶部弹性位移并记录锚点，插入后按锚点恢复 scrollTop，随后重新计算滚动条几何。
-- hasMore=false 后顶部边界恢复完整的弹性跟手语义；加载失败保留已有内容，并允许用户在同一 cursor 上重试。
+- hasMore=false 后顶部边界恢复完整的弹性跟手语义；加载失败保留已有内容，并允许用户在同一 cursor 上重试。历史请求期间由 hook 负责保持边界状态，弹性位移不会被当作数据库游标。
 - 虚拟块高度变化通过 ResizeObserver 更新总高度，滑块几何在下一动画帧同步，不参与消息投影和分页查询。
 
 状态机。

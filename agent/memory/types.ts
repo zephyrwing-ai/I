@@ -2,7 +2,7 @@ import type { ModelMessage } from "../model/types.js";
 
 export type { ModelMessage } from "../model/types.js";
 
-export type SessionStatus = "active" | "waiting" | "closed";
+export type HistoryScope = string | null;
 export type EntryType = "user_message" | "assistant_message" | "tool_result";
 export type EntryStatus = "streaming" | "completed" | "interrupted" | "failed";
 export type RecordedRunStatus = "completed" | "cancelled" | "failed";
@@ -11,21 +11,45 @@ export type ToolInvocationPhase = "planned" | "effect_pending" | "outcome_ready"
 export type ToolOutcomeStatus = "succeeded" | "failed" | "cancelled" | "interrupted";
 export type ToolRecoveryMode = "safe" | "reconcile" | "never";
 
-export interface Session {
+export interface Project {
   id: string;
-  scopeKey: string;
-  objective: string | null;
-  status: SessionStatus;
-  nextEntrySeq: number;
-  revision: number;
+  canonicalPath: string;
+  displayName: string;
   createdAt: number;
-  updatedAt: number;
+  lastOpenedAt: number;
 }
 
-export interface SessionEntry {
+export interface CreateProjectInput {
+  id?: string;
+  canonicalPath: string;
+  displayName: string;
+  createdAt?: number;
+  lastOpenedAt?: number;
+}
+
+export interface ProjectContextRecord {
+  projectId: string;
+  treeJson: string;
+  treeHash: string;
+  capturedAt: number;
+  scanPolicyVersion: string;
+  complete: boolean;
+  dirty: boolean;
+}
+
+export interface ProjectContextInput {
+  treeJson: string;
+  treeHash: string;
+  capturedAt?: number;
+  scanPolicyVersion: string;
+  complete: boolean;
+  dirty?: boolean;
+}
+
+export interface HistoryEntry {
   id: string;
-  sessionId: string;
-  sessionSeq: number;
+  projectId: HistoryScope;
+  entryOrder: number;
   type: EntryType;
   status: EntryStatus;
   runId: string;
@@ -36,14 +60,7 @@ export interface SessionEntry {
   payload: ModelMessage;
   createdAt: number;
   updatedAt: number;
-}
-
-export interface CreateSessionInput {
-  id?: string;
-  scopeKey: string;
-  objective?: string | null;
-  status?: SessionStatus;
-  createdAt?: number;
+  completedAt: number | null;
 }
 
 export interface AppendEntryInput {
@@ -58,6 +75,7 @@ export interface AppendEntryInput {
   payload: ModelMessage;
   createdAt?: number;
   updatedAt?: number;
+  completedAt?: number | null;
 }
 
 export interface EntryPatch {
@@ -67,12 +85,7 @@ export interface EntryPatch {
   turnId?: string | null;
   toolCallId?: string | null;
   updatedAt?: number;
-}
-
-export interface SessionPatch {
-  objective?: string | null;
-  status?: SessionStatus;
-  updatedAt?: number;
+  completedAt?: number | null;
 }
 
 export interface MessageCommitContext {
@@ -82,7 +95,6 @@ export interface MessageCommitContext {
 export interface TurnCommitContext extends MessageCommitContext {
   turnId: string;
   turnOrdinal: number;
-  /** 同一逻辑 turn 的第几次模型尝试；旧调用默认使用 1。 */
   attempt?: number;
 }
 
@@ -110,13 +122,13 @@ export interface RegisterToolInvocationInput {
 }
 
 export interface CreateToolInvocationInput extends RegisterToolInvocationInput {
-  sessionId: string;
+  projectId: HistoryScope;
   id?: string;
 }
 
 export interface ToolInvocationRecord {
   id: string;
-  sessionId: string;
+  projectId: HistoryScope;
   runId: string;
   turnId: string;
   cwd: string;
@@ -145,26 +157,27 @@ export interface ToolOutcomeInput {
   updatedAt?: number;
 }
 
-export interface SessionRepository {
-  createSession(input: CreateSessionInput): Promise<Session>;
-  getSession(sessionId: string): Promise<Session | null>;
-  getLatestOpenSession(scopeKey: string): Promise<Session | null>;
-  appendEntry(sessionId: string, entry: AppendEntryInput): Promise<SessionEntry>;
-  updateEntry(entryId: string, expectedRevision: number, patch: EntryPatch): Promise<SessionEntry>;
-  getEntry(entryId: string): Promise<SessionEntry | null>;
-  /** 正向扫描，供 Recorder 从已知 sessionSeq 之后恢复完整模型上下文。 */
-  listEntries(sessionId: string, cursor?: number, limit?: number): Promise<SessionEntry[]>;
-  /** 读取会话尾部最新的一页，结果按 sessionSeq 从新到旧返回。 */
-  listLatestEntries(sessionId: string, limit: number): Promise<SessionEntry[]>;
-  /** 读取 beforeSeq 之前的一页，结果按 sessionSeq 从新到旧返回。 */
-  listEntriesBefore(sessionId: string, beforeSeq: number, limit: number): Promise<SessionEntry[]>;
+export interface HistoryRepository {
+  createProject(input: CreateProjectInput): Promise<Project>;
+  getProject(projectId: string): Promise<Project | null>;
+  getProjectByPath(canonicalPath: string): Promise<Project | null>;
+  listProjects(): Promise<Project[]>;
+  touchProject(projectId: string, lastOpenedAt?: number): Promise<Project>;
+  getProjectContext(projectId: string): Promise<ProjectContextRecord | null>;
+  saveProjectContext(projectId: string, input: ProjectContextInput): Promise<ProjectContextRecord>;
+  markProjectContextDirty(projectId: string): Promise<void>;
+  appendEntry(projectId: HistoryScope, entry: AppendEntryInput): Promise<HistoryEntry>;
+  updateEntry(entryId: string, expectedRevision: number, patch: EntryPatch): Promise<HistoryEntry>;
+  getEntry(entryId: string): Promise<HistoryEntry | null>;
+  listEntries(projectId: HistoryScope, cursor?: number, limit?: number): Promise<HistoryEntry[]>;
+  listLatestEntries(projectId: HistoryScope, limit: number): Promise<HistoryEntry[]>;
+  listEntriesBefore(projectId: HistoryScope, beforeOrder: number, limit: number): Promise<HistoryEntry[]>;
   registerToolInvocation(input: CreateToolInvocationInput): Promise<ToolInvocationRecord>;
   beginToolAttempt(invocationId: string): Promise<ToolInvocationRecord>;
   saveToolOutcome(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord>;
   completeToolInvocation(invocationId: string, resultEntryId: string): Promise<ToolInvocationRecord>;
-  getToolInvocation(sessionId: string, toolCallId: string): Promise<ToolInvocationRecord | null>;
-  listOpenToolInvocations(sessionId: string): Promise<ToolInvocationRecord[]>;
-  updateSession(sessionId: string, expectedRevision: number, patch: SessionPatch): Promise<Session>;
+  getToolInvocation(projectId: HistoryScope, runId: string, toolCallId: string): Promise<ToolInvocationRecord | null>;
+  listOpenToolInvocations(projectId: HistoryScope, runId?: string): Promise<ToolInvocationRecord[]>;
   close?(): Promise<void> | void;
 }
 
@@ -175,8 +188,8 @@ export class RepositoryError extends Error {
   }
 }
 
-export interface SessionRecorder {
-  readonly sessionId: string;
+export interface HistoryRecorder {
+  readonly projectId: HistoryScope;
   snapshot(): ModelMessage[];
   getAssistantEntryId?(turnId: string): Promise<string | null>;
   commitUser(message: ModelMessage, context: MessageCommitContext): Promise<void>;
@@ -192,8 +205,8 @@ export interface SessionRecorder {
   beginToolAttempt(invocationId: string): Promise<ToolInvocationRecord>;
   saveToolOutcome(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord>;
   completeToolInvocation(invocationId: string, resultEntryId: string): Promise<ToolInvocationRecord>;
-  getToolInvocation(sessionId: string, toolCallId: string): Promise<ToolInvocationRecord | null>;
-  listOpenToolInvocations(sessionId: string): Promise<ToolInvocationRecord[]>;
+  getToolInvocation(runId: string, toolCallId: string): Promise<ToolInvocationRecord | null>;
+  listOpenToolInvocations(runId?: string): Promise<ToolInvocationRecord[]>;
   finishRun(result: { runId: string; status: RecordedRunStatus }): Promise<void>;
   close(): Promise<void>;
 }

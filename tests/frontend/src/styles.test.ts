@@ -39,7 +39,8 @@ test("dialog and preview surfaces follow the shared warm surface tokens", () => 
   assert.equal(ruleContains(styles, ".output-preview", "background: var(--surface);"), true);
   assert.equal(ruleContains(styles, ".search-popover", "background: var(--surface);"), true);
   assert.equal(ruleContains(composerStyles, ".composer-shell", "background: var(--surface);"), true);
-  assert.equal(ruleContains(composerStyles, ".composer-shell", "border-radius: 16px;"), true);
+  assert.equal(ruleContains(composerStyles, ".composer-shell", "border-radius: 22px;"), true);
+  assert.equal(ruleContains(composerStyles, ".composer-project-row", "position: absolute;"), true);
   assert.equal(ruleContains(messageStyles, ".markdown pre", "border-radius: 16px;"), true);
   assert.equal(ruleContains(composerStyles, ".model-popover", "background: var(--surface);"), true);
   assert.doesNotMatch(styles, /background:\s*(?:white|#fff(?:fff)?);/i);

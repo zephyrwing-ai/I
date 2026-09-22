@@ -2,10 +2,10 @@ import type {
   AgentEvent,
   OutputFileDescriptor,
   RunStatus,
-  SessionPageResult,
+  HistoryPageResult,
   ToolResult,
 } from "../../../shell/shared/ipc";
-import { initialSessionHistoryState, mergeHistoryEntries, type SessionHistoryState } from "./sessionHistory";
+import { initialHistoryState, mergeHistoryEntries, type HistoryState } from "./sessionHistory";
 import { mergePersistedEntries } from "./sessionProjection";
 
 export type AppStatus = "idle" | "starting" | "running" | "stopping" | RunStatus;
@@ -27,6 +27,8 @@ export interface TurnState {
   assistantContent: string;
   /** 模型消息时间；历史记录使用 assistant entry 的最终更新时间。 */
   assistantAt?: number;
+  /** 助手消息完成持久化的时间；历史记录用于恢复 Worked for。 */
+  assistantCompletedAt?: number;
   /** 思考内容（reasoningDelta 增量累加）；展示在 worked for 折叠内。 */
   reasoningContent: string;
   finalContent?: string;
@@ -57,7 +59,7 @@ export interface AgentState {
   runs: Record<string, RunState>;
   runOrder: string[];
   error: string | null;
-  history: SessionHistoryState;
+  history: HistoryState;
 }
 
 export type AgentAction =
@@ -66,8 +68,8 @@ export type AgentAction =
   | { type: "runRejected"; error: string }
   | { type: "stopRequested" }
   | { type: "historyLoadStarted"; scope: "initial" | "older" | "search" }
-  | { type: "sessionHydrated"; page: SessionPageResult }
-  | { type: "olderHistoryLoaded"; page: SessionPageResult }
+  | { type: "historyHydrated"; page: HistoryPageResult }
+  | { type: "olderHistoryLoaded"; page: HistoryPageResult }
   | { type: "historyLoadFailed"; scope: "initial" | "older" | "search"; error: string }
   | { type: "event"; event: AgentEvent };
 
@@ -77,7 +79,7 @@ export const initialAgentState: AgentState = {
   runs: {},
   runOrder: [],
   error: null,
-  history: initialSessionHistoryState,
+  history: initialHistoryState,
 };
 
 function createRun(runId: string, task: string, taskAt: number): RunState {
@@ -185,7 +187,7 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
         },
       };
 
-    case "sessionHydrated": {
+    case "historyHydrated": {
       const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
       const projected = mergePersistedEntries({ runs: {}, runOrder: [] }, action.page.entries);
       return {

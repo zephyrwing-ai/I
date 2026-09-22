@@ -1,7 +1,15 @@
 /* ===== 对话框列（原来的 composer-* 规则整体迁入，不再依赖外层 24px 内边距） ===== */
-.composer { padding: 12px 0 18px; background: transparent; }
-.composer-shell { position: relative; width: 100%; min-height: 116px; margin: 0; padding: 14px 14px 10px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: 0 16px 42px var(--shadow-soft); display: flex; flex-direction: column; gap: 8px; transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
+.composer { position: relative; padding: 54px 0 18px; background: transparent; }
+.composer-shell { position: relative; z-index: 1; width: 100%; min-height: 116px; margin: 0; padding: 20px 14px 10px; border: 1px solid var(--border); border-radius: 22px; background: var(--surface); box-shadow: 0 16px 42px var(--shadow-soft); display: flex; flex-direction: column; gap: 8px; transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
 .composer-shell:hover { background: var(--surface-hover); }
+.composer-project-row { position: absolute; z-index: 0; top: 12px; left: 18px; right: 18px; min-height: 64px; border: 1px solid var(--border); border-radius: 22px; background: var(--surface-hover); box-shadow: 0 8px 22px var(--shadow-soft); display: flex; align-items: center; }
+.composer-project-picker { min-width: 0; flex: 1; min-height: 62px; padding: 0 20px; border: 0; border-radius: 21px; background: transparent; color: var(--text-secondary); display: flex; align-items: center; gap: 10px; text-align: left; font-size: 16px; font-weight: 400; }
+.composer-project-picker:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+.composer-project-picker:disabled { opacity: .72; }
+.composer-project-picker > svg { flex: 0 0 18px; }
+.composer-project-picker > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-project-clear { width: 32px; height: 32px; margin-right: 8px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); display: grid; place-items: center; }
+.composer-project-clear:hover:not(:disabled) { background: var(--hover); color: var(--text); }
 .composer-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
 .composer-attachment { max-width: 230px; height: 42px; padding: 5px 6px 5px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--input); display: grid; grid-template-columns: 28px minmax(0,1fr) 26px; align-items: center; gap: 7px; }
 .attachment-icon { width: 28px; height: 28px; border-radius: 7px; background: var(--selection); color: var(--accent); display: grid; place-items: center; }

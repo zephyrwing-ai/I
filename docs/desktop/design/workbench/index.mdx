@@ -1,24 +1,24 @@
 主工作台页面。
 
-主工作台采用浅色主题，消息主列与右侧工作侧栏并列；右上角固定悬浮一组由输出文件、Canvas、搜索、设置组成的操作按钮，始终位于窗口右上角且不绘制独立背景条。消息主列与右侧工作侧栏都从窗口顶部开始、纵向贯穿全高，悬浮按钮组叠在内容之上，因此两侧上方都不会出现标题条。消息内容与 Composer 共用最大760px的居中列；Composer 绝对定位在列底，消息滚动区域贯穿整列，通过实测 Composer 高度的底部占位保证末条内容可以滚出遮挡区。具体视觉与交互分别见[标题栏（悬浮按钮组）](./titlebar/index.mdx)、[消息流](./message-stream.mdx)、[弹性回弹滚动](./elastic-scroll.mdx)、[Composer](./composer.mdx)和[右侧工作侧栏](./titlebar/sidebar.mdx)。
+主工作台采用浅色主题，消息主列与右侧工作侧栏并列；右上角固定悬浮一组由输出文件、Canvas、搜索、设置组成的操作按钮，始终位于窗口右上角且不绘制独立背景条。消息主列与右侧工作侧栏都从窗口顶部开始、纵向贯穿全高，悬浮按钮组叠在内容之上，因此两侧上方都不会出现标题条。消息内容与 Composer 共用最大760px的居中列；Composer 绝对定位在列底，消息滚动区域贯穿整列，通过实测 Composer 高度的底部占位保证末条内容可以滚出遮挡区。具体视觉与交互分别见[标题栏（悬浮按钮组）](./titlebar/index.mdx)、[消息流](./message-stream.mdx)、[弹性回弹滚动](./elastic-scroll.mdx)、[Composer](./composer.mdx)和[右侧工作侧栏](./titlebar/sidebar/index.mdx)。
 
 工作区域。
 
 两列使用并列布局。输出栏开合和拖拽改变自身宽度，消息主列占据剩余空间并重排；输出栏不覆盖消息主列。两列都从窗口顶部开始纵向贯穿全高，顶部52px为透明悬浮拖拽层，叠在内容之上、不为主列保留起始高度；右上角悬浮按钮组位于输出栏之上，随输出栏开合保持窗口右上角位置不变。输出栏默认关闭，仅宽度保存在本机偏好。
 
-运行与会话边界。
+运行与项目历史边界。
 
-- 工作台向用户呈现一条连续消息流，同一时间运行一个任务；每次发送创建新的 `runId`，后台会话由 Main 管理。
+- 工作台向用户呈现当前项目或无项目范围的一条连续消息流，同一时间运行一个任务；每次发送创建新的 `runId`，历史范围由 Main 管理。
 - Renderer 的 `agentReducer` 按 `runId → turnId → toolCallId` 维护展示投影并消费当前运行的 AgentEvent。输出栏取当前运行文件；搜索范围见[全局搜索](./titlebar/search.mdx)。
-- Main 的会话路由为每次运行提供一个确定的 `sessionId`，Runner 使用该身份取得 SessionRecorder。
-- SessionRecorder 保存会话消息、草稿和本地写入队列，Renderer 保存页面事件队列和展示状态。两者的装配与事件链路见[会话存储装配](./session-storage.mdx)。
+- Main 的项目路由为每次运行提供一个确定的 `projectId` 或 `NULL`，Runner 使用该范围取得 HistoryRecorder。
+- HistoryRecorder 保存当前范围的消息、草稿和本地写入队列，Renderer 保存页面事件队列和展示状态。两者的装配与事件链路见[历史存储装配](./session-storage.mdx)。
 - 持久化 entries 通过[历史投影](./history-projection.mdx)恢复成统一 AgentState，消息主列按[消息流](./message-stream.mdx)定义的虚拟窗口渲染。
 
 宿主运行链路。
 
-1. Renderer 提交任务文字、`modelOptionId` 和附件 ID。Composer 不提供工作目录编辑；Main 使用请求中的可选 `cwd`，缺省时使用进程工作目录。
-2. Preload 通过受限 `agentAPI` 转发 IPC；Main 校验并解析模型与附件，取得 `sessionId` 并构造运行输入，Runner 创建运行身份和取消信号。
-3. Runner 注入 SessionRecorder 和 AgentEvent 接收器，Runtime 完成用户消息本地提交后开始模型请求。
+1. Renderer 提交任务文字、`modelOptionId`、附件 ID、Canvas 引用和当前 `projectId`。Composer 的项目选择行通过 Main 选择目录，Main 保存规范化路径和项目元数据。
+2. Preload 通过受限 `agentAPI` 转发 IPC；Main 校验并解析模型、附件和项目范围，取得 HistoryRecorder 并构造运行输入，Runner 创建运行身份和取消信号。
+3. Runner 注入 HistoryRecorder、项目上下文和 AgentEvent 接收器，Runtime 完成用户消息本地提交后开始模型请求。
 4. Runtime 将模型增量交给 Recorder 并发出 AgentEvent，Runner 经 IPC 转发事件，Renderer 按动画帧收集并依序交给 Reducer。
 5. 停止操作使用当前单运行的 `stop()`，由 Main 转发取消信号；Recorder 刷新活动草稿，界面根据 `runCompleted` 进入取消、失败或完成状态。
 

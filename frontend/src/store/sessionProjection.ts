@@ -1,5 +1,5 @@
 import type { ModelMessage } from "../../../agent/model/types";
-import type { SessionHistoryEntry } from "../../../shell/shared/ipc";
+import type { HistoryPageEntry } from "../../../shell/shared/ipc";
 import type { AgentState, RunState, ToolState, TurnState } from "./agentReducer";
 
 function newRun(runId: string, task?: string, taskAt?: number): RunState {
@@ -24,7 +24,7 @@ function toolResult(message: ModelMessage): ToolState["result"] {
   };
 }
 
-function ensureTurn(run: RunState, entry: SessionHistoryEntry): TurnState {
+function ensureTurn(run: RunState, entry: HistoryPageEntry): TurnState {
   const turnId = entry.turnId ?? `${entry.entryId}:turn`;
   const existing = run.turns[turnId];
   if (existing) return existing;
@@ -44,11 +44,11 @@ function ensureTurn(run: RunState, entry: SessionHistoryEntry): TurnState {
 
 export function mergePersistedEntries(
   state: Pick<AgentState, "runs" | "runOrder">,
-  entries: SessionHistoryEntry[],
+  entries: HistoryPageEntry[],
 ): Pick<AgentState, "runs" | "runOrder"> {
   const runs = { ...state.runs };
   const runOrder = [...state.runOrder];
-  const sorted = [...entries].sort((left, right) => left.sessionSeq - right.sessionSeq);
+  const sorted = [...entries].sort((left, right) => left.entryOrder - right.entryOrder);
 
   for (const entry of sorted) {
     let run = runs[entry.runId];
@@ -67,6 +67,7 @@ export function mergePersistedEntries(
     if (entry.type === "assistant_message") {
       turn.assistantContent = entry.payload.content;
       turn.assistantAt = entry.updatedAt;
+      turn.assistantCompletedAt = entry.completedAt ?? undefined;
       turn.finalContent = entry.status === "completed" ? entry.payload.content : undefined;
       turn.reasoningContent = entry.payload.reasoning ?? "";
       turn.stopReason = entry.payload.toolCalls?.length ? "tool_use" : "stop";

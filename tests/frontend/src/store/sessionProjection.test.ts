@@ -7,12 +7,13 @@ import {
   scrollToBottomInstant,
   shouldStickToBottom,
 } from "../../../../frontend/src/middle-column/message-stream/useVirtualMessageWindow";
-import type { SessionHistoryEntry } from "../../../../shell/shared/ipc";
+import type { HistoryPageEntry } from "../../../../shell/shared/ipc";
 
-function entry(partial: Partial<SessionHistoryEntry> & Pick<SessionHistoryEntry, "entryId" | "sessionSeq" | "type" | "runId" | "payload">): SessionHistoryEntry {
+function entry(partial: Partial<HistoryPageEntry> & Pick<HistoryPageEntry, "entryId" | "entryOrder" | "type" | "runId" | "payload">): HistoryPageEntry {
   return {
     entryId: partial.entryId,
-    sessionSeq: partial.sessionSeq,
+    entryOrder: partial.entryOrder,
+    projectId: partial.projectId ?? null,
     type: partial.type,
     status: partial.status ?? "completed",
     runId: partial.runId,
@@ -20,17 +21,18 @@ function entry(partial: Partial<SessionHistoryEntry> & Pick<SessionHistoryEntry,
     toolCallId: partial.toolCallId ?? null,
     revision: partial.revision ?? 0,
     payload: partial.payload,
-    createdAt: partial.createdAt ?? partial.sessionSeq,
-    updatedAt: partial.updatedAt ?? partial.sessionSeq,
+    createdAt: partial.createdAt ?? partial.entryOrder,
+    updatedAt: partial.updatedAt ?? partial.entryOrder,
+    completedAt: partial.completedAt ?? null,
   };
 }
 
 test("history projection rebuilds runs, turns and tool results from persisted entries", () => {
   const projected = mergePersistedEntries({ runs: {}, runOrder: [] }, [
-    entry({ entryId: "u1", sessionSeq: 1, type: "user_message", runId: "run-1", payload: { role: "user", content: "读取文件" } }),
+    entry({ entryId: "u1", entryOrder: 1, type: "user_message", runId: "run-1", payload: { role: "user", content: "读取文件" } }),
     entry({
       entryId: "a1",
-      sessionSeq: 2,
+      entryOrder: 2,
       type: "assistant_message",
       runId: "run-1",
       turnId: "turn-1",
@@ -45,7 +47,7 @@ test("history projection rebuilds runs, turns and tool results from persisted en
     }),
     entry({
       entryId: "t1",
-      sessionSeq: 3,
+      entryOrder: 3,
       type: "tool_result",
       runId: "run-1",
       turnId: "turn-1",

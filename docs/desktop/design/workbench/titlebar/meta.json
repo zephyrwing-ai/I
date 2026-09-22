@@ -1,4 +1,4 @@
 {
   "title": "标题栏",
-  "pages": ["index", "sidebar", "canvas", "search", "settings"]
+  "pages": ["index", "sidebar/index", "sidebar/settings", "canvas", "search"]
 }
