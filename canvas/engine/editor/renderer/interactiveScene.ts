@@ -370,6 +370,18 @@ const strokeSelectionOutline = (
   context.restore();
 };
 
+const SELECTION_OUTLINE_CORNER_RADIUS = 6;
+
+const getSelectionOutlineRadius = (
+  width: number,
+  height: number,
+  zoom: number,
+): number =>
+  Math.max(
+    0,
+    Math.min(SELECTION_OUTLINE_CORNER_RADIUS / zoom, width / 2, height / 2),
+  );
+
 const renderSelectionBorder = (
   context: CanvasRenderingContext2D,
   appState: InteractiveCanvasAppState,
@@ -396,6 +408,13 @@ const renderSelectionBorder = (
   const linePadding = padding / appState.zoom.value;
   const lineWidth = 8 / appState.zoom.value;
   const spaceWidth = 4 / appState.zoom.value;
+  const outlineWidth = elementWidth + linePadding * 2;
+  const outlineHeight = elementHeight + linePadding * 2;
+  const outlineRadius = getSelectionOutlineRadius(
+    outlineWidth,
+    outlineHeight,
+    appState.zoom.value,
+  );
 
   context.save();
   context.translate(appState.scrollX, appState.scrollY);
@@ -416,11 +435,13 @@ const renderSelectionBorder = (
         context,
         x1 - linePadding,
         y1 - linePadding,
-        elementWidth + linePadding * 2,
-        elementHeight + linePadding * 2,
+        outlineWidth,
+        outlineHeight,
         cx,
         cy,
         angle,
+        false,
+        outlineRadius,
       );
 
     if (activeEmbeddable) {
@@ -621,7 +642,6 @@ const renderTransformHandles = (
   context: CanvasRenderingContext2D,
   appState: InteractiveCanvasAppState,
   transformHandles: TransformHandles,
-  angle: number,
 ): void => {
   Object.keys(transformHandles).forEach((key) => {
     const transformHandle = transformHandles[key as TransformHandleType];
@@ -633,27 +653,12 @@ const renderTransformHandles = (
       context.strokeStyle =
         appState.theme === THEME.DARK ? "#ffffff" : "#25282d";
       context.fillStyle = oc.white;
-      if (key === "rotation") {
-        fillCircle(context, x + width / 2, y + height / 2, width / 2);
-        // prefer round corners if roundRect API is available
-      } else if (context.roundRect) {
-        context.beginPath();
-        context.roundRect(x, y, width, height, 2 / appState.zoom.value);
-        context.fill();
-        context.stroke();
-      } else {
-        strokeRectWithRotation(
-          context,
-          x,
-          y,
-          width,
-          height,
-          x + width / 2,
-          y + height / 2,
-          angle,
-          true, // fill before stroke
-        );
-      }
+      fillCircle(
+        context,
+        x + width / 2,
+        y + height / 2,
+        Math.min(width, height) / 2,
+      );
       context.restore();
     }
   });
@@ -1081,7 +1086,6 @@ const _renderInteractiveScene = ({
           context,
           appState,
           transformHandles,
-          selectedElements[0].angle,
         );
       }
 
@@ -1103,6 +1107,8 @@ const _renderInteractiveScene = ({
         (DEFAULT_TRANSFORM_HANDLE_SPACING * 2) / appState.zoom.value;
       context.fillStyle = oc.white;
       const [x1, y1, x2, y2] = getCommonBounds(selectedElements);
+      const outlineWidth = x2 - x1 + dashedLinePadding * 2;
+      const outlineHeight = y2 - y1 + dashedLinePadding * 2;
       const initialLineDash = context.getLineDash();
       context.setLineDash([2 / appState.zoom.value]);
       const lineWidth = context.lineWidth;
@@ -1112,11 +1118,17 @@ const _renderInteractiveScene = ({
           context,
           x1 - dashedLinePadding,
           y1 - dashedLinePadding,
-          x2 - x1 + dashedLinePadding * 2,
-          y2 - y1 + dashedLinePadding * 2,
+          outlineWidth,
+          outlineHeight,
           (x1 + x2) / 2,
           (y1 + y2) / 2,
           0,
+          false,
+          getSelectionOutlineRadius(
+            outlineWidth,
+            outlineHeight,
+            appState.zoom.value,
+          ),
         );
       strokeSelectionOutline(context, appState, selectionColor, stroke);
       context.lineWidth = lineWidth;
@@ -1135,7 +1147,6 @@ const _renderInteractiveScene = ({
           context,
           appState,
           transformHandles,
-          0,
         );
       }
     }

@@ -9,13 +9,9 @@ import {
 import { Pointer, Keyboard } from "./helpers/ui";
 import { Excalidraw } from "../index";
 import { KEYS } from "../keys";
-import { getLineHeightInPx } from "../element/textMeasurements";
-import { getElementBounds } from "../element";
 import type { NormalizedZoomValue } from "../types";
 import { API } from "./helpers/api";
 import { createPasteEvent, serializeAsClipboardJSON } from "../clipboard";
-import { arrayToMap } from "../utils";
-import { getLineHeight } from "../fonts";
 
 const { h } = window;
 
@@ -115,20 +111,25 @@ describe("general paste behavior", () => {
   });
 });
 
-describe("paste text as single lines", () => {
-  it("should create an element for each line when copying with Ctrl/Cmd+V", async () => {
+describe("paste text as a single element", () => {
+  it("keeps a multiline Ctrl/Cmd+V paste in one text element", async () => {
     const text = "sajgfakfn\naaksfnknas\nakefnkasf";
     pasteWithCtrlCmdV(text);
     await waitFor(() => {
-      expect(h.elements.length).toEqual(text.split("\n").length);
+      expect(h.elements).toHaveLength(1);
+      expect(h.elements[0]).toMatchObject({ type: "text", originalText: text });
     });
   });
 
-  it("should ignore empty lines when creating an element for each line", async () => {
-    const text = "\n\nsajgfakfn\n\n\naaksfnknas\n\nakefnkasf\n\n\n";
+  it("preserves blank lines inside the pasted text block", async () => {
+    const text = "\n\nsajgfakfn\n\naaksfnknas\n\n";
     pasteWithCtrlCmdV(text);
     await waitFor(() => {
-      expect(h.elements.length).toEqual(3);
+      expect(h.elements).toHaveLength(1);
+      expect(h.elements[0]).toMatchObject({
+        type: "text",
+        originalText: "sajgfakfn\n\naaksfnknas",
+      });
     });
   });
 
@@ -141,52 +142,6 @@ describe("paste text as single lines", () => {
     });
   });
 
-  it("should space items correctly", async () => {
-    const elementsMap = arrayToMap(h.elements);
-
-    const text = "hkhkjhki\njgkjhffjh\njgkjhffjh";
-    const lineHeightPx =
-      getLineHeightInPx(
-        h.app.state.currentItemFontSize,
-        getLineHeight(h.state.currentItemFontFamily),
-      ) +
-      10 / h.app.state.zoom.value;
-    mouse.moveTo(100, 100);
-    pasteWithCtrlCmdV(text);
-    await waitFor(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const [fx, firstElY] = getElementBounds(h.elements[0], elementsMap);
-      for (let i = 1; i < h.elements.length; i++) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const [fx, elY] = getElementBounds(h.elements[i], elementsMap);
-        expect(elY).toEqual(firstElY + lineHeightPx * i);
-      }
-    });
-  });
-
-  it("should leave a space for blank new lines", async () => {
-    const elementsMap = arrayToMap(h.elements);
-    const text = "hkhkjhki\n\njgkjhffjh";
-    const lineHeightPx =
-      getLineHeightInPx(
-        h.app.state.currentItemFontSize,
-        getLineHeight(h.state.currentItemFontFamily),
-      ) +
-      10 / h.app.state.zoom.value;
-    mouse.moveTo(100, 100);
-    pasteWithCtrlCmdV(text);
-
-    await waitFor(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const [fx, firstElY] = getElementBounds(h.elements[0], elementsMap);
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const [lx, lastElY] = getElementBounds(h.elements[1], elementsMap);
-      expect(lastElY).toEqual(firstElY + lineHeightPx * 2);
-    });
-  });
-});
-
-describe("paste text as a single element", () => {
   it("should create single text element when copying text with Ctrl/Cmd+Shift+V", async () => {
     const text = "sajgfakfn\naaksfnknas\nakefnkasf";
     pasteWithCtrlCmdShiftV(text);

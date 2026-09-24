@@ -3,6 +3,12 @@ declare module "@agent-studio/canvas-editor" {
 
   export const Excalidraw: React.ComponentType<Record<string, unknown>>;
   export function exportToBlob(options: Record<string, unknown>): Promise<Blob>;
+  export function serializeAsJSON(
+    elements: readonly import("@agent-studio/canvas-editor/element/types").ExcalidrawElement[],
+    appState: import("@agent-studio/canvas-editor/types").AppState,
+    files: import("@agent-studio/canvas-editor/types").BinaryFiles,
+    type: "local" | "database",
+  ): string;
   export function saveAsJSON(
     elements: readonly import("@agent-studio/canvas-editor/element/types").ExcalidrawElement[],
     appState: import("@agent-studio/canvas-editor/types").AppState,
@@ -10,6 +16,7 @@ declare module "@agent-studio/canvas-editor" {
     name?: string,
   ): Promise<{ fileHandle: unknown }>;
   export function getCommonBounds(elements: readonly import("@agent-studio/canvas-editor/element/types").ExcalidrawElement[]): [number, number, number, number];
+  export function getRotationHandleTopOffset(pointerType: "mouse" | "pen" | "touch", margin?: number, spacing?: number): number;
   export function sceneCoordsToViewportCoords(
     point: { sceneX: number; sceneY: number },
     state: { zoom: { value: number }; offsetLeft: number; offsetTop: number; scrollX: number; scrollY: number },
@@ -35,7 +42,9 @@ declare module "@agent-studio/canvas-editor/types" {
 
   export interface ExcalidrawImperativeAPI {
     updateScene(options: { appState?: Partial<AppState> }): void;
+    replaceScene(scene: { elements: readonly Record<string, unknown>[]; appState: Partial<AppState>; files: BinaryFiles }): void;
     getSceneElements(): readonly Record<string, unknown>[];
+    getSceneVersion(): number | undefined;
     getAppState(): AppState;
     getFiles(): BinaryFiles;
     getName(): string;

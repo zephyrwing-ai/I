@@ -13,6 +13,14 @@ description: 模型上下文、Provider 适配、流式消息和停止原因的�
 
 `runId` 关联整次运行，`turnId` 关联一次逻辑模型回合，`attempt` 区分该回合中的具体请求，`toolCallId` 贯穿工具调用和结果。请求中不存在 `stepLimit`、`maxSteps` 或其他按次数终止循环的字段。
 
+## 用户显式引用的目标装配
+
+- Composer 将上传文件与 Canvas Use selection 作为同一次用户发送中的两类引用，分别以 attachmentId 和 canvasContextId 提交给 Main。
+- Main 在启动 Run 前校验文件可读性与 Canvas 项目归属：文件引用生成供文件工具按需读取的路径提示；Canvas 引用提供从当前选区冻结的 JSON 文本，沿用 Save JSON 的元素结构。
+- Runner 将 Canvas JSON 映射为 `ModelMessage(role: "user", content: ...)`，并通过 `runScopedContext` 交给 Runtime；Runtime 将运行期上下文放在历史与本次用户消息之间。
+- 原生形状与文字的元素类型、坐标和 `text` 字段直接进入 JSON。图片元素的资源内容按照模型 media 能力作为独立输入传输。
+- `HistoryRecorder.commitUser` 记录用户提交的任务文字；同一 Run 的模型重试和工具续轮共享已经冻结的 Canvas 引用。
+
 ## Provider 归一化
 
 当前适配器负责以下归一化：

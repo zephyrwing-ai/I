@@ -10,7 +10,9 @@ import {
   IPC,
   type DeleteProviderResult,
   type CanvasContextInput,
-  type CanvasDocument,
+  type CanvasDocumentResult,
+  type CanvasSaveRequest,
+  type CanvasSaveResult,
   type InputAttachmentDescriptor,
   type OpenOutputFileResult,
   type OutputFilePreviewResult,
@@ -88,11 +90,13 @@ function registerIpc(
   outputFiles: OutputFileRegistry,
   inputAttachments: InputAttachmentRegistry,
   canvasContexts: CanvasContextRegistry,
+  canvasDocuments: CanvasDocumentStore,
   projects: ProjectRegistry,
   historyService: HistoryService,
   getHistoryRecorder: (projectId: HistoryScope) => Promise<HistoryRecorder>,
 ): void {
   const discoveryControllers = new Map<string, AbortController>();
+  const activatedCanvasProjects = new Set<string | null>([projects.activeScope]);
 
   ipcMain.handle(IPC.run, async (event, req: RunRequest): Promise<RunStartAck> => {
     try {
@@ -108,8 +112,11 @@ function registerIpc(
       const resolved = await providers.resolve(modelOptionId);
       const runId = randomUUID();
       const canvasContextIds = Array.isArray(req.canvasContextIds) ? req.canvasContextIds.filter((id): id is string => typeof id === "string") : [];
-      const resolvedCanvasContexts = canvasContexts.takeMany(canvasContextIds);
+      const resolvedCanvasContexts = canvasContexts.peekMany(canvasContextIds, projectId);
       const historyRecorder = await getHistoryRecorder(projectId);
+      if (projects.activeScope !== projectId) {
+        return { ok: false, error: "The selected project changed. Send the task again." };
+      }
       const handle = runner.start({
         task: composeTaskWithAttachments(task, attachments),
         cwd,
@@ -124,6 +131,7 @@ function registerIpc(
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
+      canvasContexts.consumeMany(canvasContextIds);
       return { ok: true, runId: handle.runId };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -149,7 +157,8 @@ function registerIpc(
     const result = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
     if (result.canceled || result.filePaths.length === 0) return null;
     const active = await projects.selectPath(result.filePaths[0]!);
-    canvasContexts.setScope(active.descriptor.projectId ?? "__unprojected__");
+    activatedCanvasProjects.add(active.descriptor.projectId);
+    canvasContexts.clearAll();
     await getHistoryRecorder(active.descriptor.projectId);
     return active.descriptor;
   });
@@ -157,7 +166,7 @@ function registerIpc(
   ipcMain.handle(IPC.clearProject, async (): Promise<ProjectDescriptor> => {
     if (runner.isActive) throw new Error("Clear the project after the current run finishes.");
     const active = projects.clear();
-    canvasContexts.setScope("__unprojected__");
+    canvasContexts.clearAll();
     await getHistoryRecorder(null);
     return active.descriptor;
   });
@@ -233,15 +242,22 @@ function registerIpc(
     return result.canceled ? [] : inputAttachments.register(result.filePaths);
   });
 
-  ipcMain.handle(IPC.loadCanvasDocument, async (): Promise<{ document: CanvasDocument; revision: number }> => {
-    return canvasContexts.load();
+  ipcMain.handle(IPC.loadCanvasDocument, async (_event, projectId: string | null): Promise<CanvasDocumentResult> => {
+    if (projectId !== projects.activeScope) throw new Error("The selected project changed. Open the canvas again.");
+    return canvasDocuments.load(projectId);
   });
 
-  ipcMain.handle(IPC.saveCanvasDocument, async (_event, document: CanvasDocument): Promise<{ revision: number }> => {
-    return { revision: await canvasContexts.save(document) };
+  ipcMain.handle(IPC.saveCanvasDocument, async (_event, request: CanvasSaveRequest): Promise<CanvasSaveResult> => {
+    if (!request || !activatedCanvasProjects.has(request.projectId)) {
+      throw new Error("The canvas project identity is invalid.");
+    }
+    return { revision: await canvasDocuments.save(request.projectId, request.document) };
   });
 
   ipcMain.handle(IPC.prepareCanvasContext, async (_event, input: CanvasContextInput) => {
+    if (!input || input.projectId !== projects.activeScope) {
+      throw new Error("The selected project changed. Select the canvas content again.");
+    }
     return canvasContexts.prepare(input);
   });
 
@@ -292,12 +308,13 @@ app.whenReady().then(async () => {
   );
   const outputFiles = new OutputFileRegistry();
   const inputAttachments = new InputAttachmentRegistry();
-  const canvasContexts = new CanvasContextRegistry(new CanvasDocumentStore(app.getPath("userData"), "__unprojected__"));
+  const canvasDocuments = new CanvasDocumentStore(app.getPath("userData"));
+  const canvasContexts = new CanvasContextRegistry();
   const runner = new AgentRunner((runId, cwd, artifacts, projectId) => {
     void projects.markContextDirty(projectId);
     return outputFiles.register(runId, cwd, artifacts);
   });
-  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, projects, historyService, getHistoryRecorder);
+  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, canvasDocuments, projects, historyService, getHistoryRecorder);
   createWindow();
 
   app.on("before-quit", (event) => {
@@ -308,6 +325,7 @@ app.whenReady().then(async () => {
     void (async () => {
       try {
         await runner.waitForIdle();
+        await canvasDocuments.waitForIdle();
         await Promise.all([...recorders.values()].map((recorder) => recorder.close()));
       } finally {
         historyRepository.close();

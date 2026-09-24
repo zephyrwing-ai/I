@@ -48,6 +48,16 @@ const transformHandleSizes: { [k in PointerType]: number } = {
 
 const ROTATION_RESIZE_HANDLE_GAP = 16;
 
+export const getRotationHandleTopOffset = (
+  pointerType: PointerType,
+  margin = 4,
+  spacing = DEFAULT_TRANSFORM_HANDLE_SPACING,
+): number => {
+  const size = transformHandleSizes[pointerType];
+  const centeringOffset = (size - spacing * 2) / 2;
+  return margin + size - centeringOffset + ROTATION_RESIZE_HANDLE_GAP;
+};
+
 export const DEFAULT_OMIT_SIDES = {
   e: true,
   s: true,
@@ -194,10 +204,7 @@ export const getTransformHandlesFromCoords = (
       : generateTransformHandle(
           x1 + width / 2 - handleWidth / 2,
           y1 -
-            dashedLineMargin -
-            handleMarginY +
-            centeringOffset -
-            ROTATION_RESIZE_HANDLE_GAP / zoom.value,
+            getRotationHandleTopOffset(pointerType, margin, spacing) / zoom.value,
           handleWidth,
           handleHeight,
           cx,

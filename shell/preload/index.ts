@@ -13,7 +13,7 @@ import {
   type CanvasContextInput,
   type CanvasDocumentResult,
   type CanvasSaveResult,
-  type CanvasDocument,
+  type CanvasSaveRequest,
   type InputAttachmentDescriptor,
   type OpenOutputFileResult,
   type OutputFilePreviewResult,
@@ -65,10 +65,10 @@ const api: AgentAPI = {
 
   selectAttachments: (): Promise<InputAttachmentDescriptor[]> => ipcRenderer.invoke(IPC.selectAttachments),
 
-  loadCanvasDocument: (): Promise<CanvasDocumentResult> => ipcRenderer.invoke(IPC.loadCanvasDocument),
+  loadCanvasDocument: (projectId: string | null): Promise<CanvasDocumentResult> => ipcRenderer.invoke(IPC.loadCanvasDocument, projectId),
 
-  saveCanvasDocument: (document: CanvasDocument): Promise<CanvasSaveResult> => (
-    ipcRenderer.invoke(IPC.saveCanvasDocument, document)
+  saveCanvasDocument: (request: CanvasSaveRequest): Promise<CanvasSaveResult> => (
+    ipcRenderer.invoke(IPC.saveCanvasDocument, request)
   ),
 
   prepareCanvasContext: (input: CanvasContextInput): Promise<CanvasContextDescriptor> => (

@@ -2,7 +2,7 @@ import { app, safeStorage, BrowserWindow, dialog, ipcMain, shell } from "electro
 import { resolve, basename, relative, sep, extname, dirname, isAbsolute, join } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { realpath, stat, readFile, open, mkdir, writeFile, rename, opendir, lstat, readdir } from "node:fs/promises";
+import { realpath, stat, readFile, open, mkdir, writeFile, rename, opendir, lstat, readdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2087,6 +2087,9 @@ class AgentRunner {
   controller = new AbortController();
   active = false;
   idleResolvers = /* @__PURE__ */ new Set();
+  // Filesystem capabilities belong to the runtime, while cwd and projectId
+  // identify the current run's execution and history scopes independently.
+  tools = createToolRegistry(createLocalBashOps());
   get isActive() {
     return this.active;
   }
@@ -2154,7 +2157,7 @@ class AgentRunner {
         runId,
         systemPrompt: SYSTEM_PROMPT,
         cwd: req.cwd,
-        tools: req.projectId === null ? /* @__PURE__ */ new Map() : createToolRegistry(createLocalBashOps()),
+        tools: this.tools,
         signal: this.controller.signal,
         recorder,
         runScopedContext: [
@@ -2359,7 +2362,13 @@ class ProjectRegistry {
   }
   clear() {
     this.activeProjectId = null;
-    return { descriptor: { projectId: null, displayName: "Choose folder", canonicalPath: null }, cwd: process.cwd(), contextVersion: null, projectContext: [] };
+    const cwd = process.cwd();
+    return {
+      descriptor: { projectId: null, displayName: "Choose folder", canonicalPath: null },
+      cwd,
+      contextVersion: null,
+      projectContext: [{ role: "user", content: formatUnprojectedContext(cwd) }]
+    };
   }
   async getActiveContext() {
     if (!this.activeProjectId) return this.clear();
@@ -2528,6 +2537,16 @@ function formatProjectContext(project, context) {
   }
   return [...header, ...visibleTreeLines, ...clipped ? [clippingNotice] : [], closing].join("\n");
 }
+function formatUnprojectedContext(cwd) {
+  return [
+    "<workspace_context>",
+    "No project is selected.",
+    `Current working directory: ${JSON.stringify(cwd)}`,
+    "Filesystem tools are available. Relative paths use this working directory.",
+    "No project directory map is attached.",
+    "</workspace_context>"
+  ].join("\n");
+}
 function parseTreeSnapshot(treeJson) {
   try {
     const value = JSON.parse(treeJson);
@@ -2558,51 +2577,68 @@ function formatEntryName(name) {
   return JSON.stringify(name).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
 }
 const CONTEXT_TTL_MS = 10 * 60 * 1e3;
-const MAX_CONTEXT_TEXT = 12e3;
 const MAX_CONTEXTS = 32;
+const MAX_SELECTION_ELEMENTS = 1e3;
+const MAX_INPUT_JSON_LENGTH = 20 * 1024 * 1024;
+const MAX_MODEL_JSON_LENGTH = 512 * 1024;
+const MAX_VISUAL_DATA_URL_LENGTH = 8 * 1024 * 1024;
 class CanvasContextRegistry {
-  constructor(documentStore) {
-    this.documentStore = documentStore;
+  constructor() {
     this.contexts = /* @__PURE__ */ new Map();
-  }
-  setScope(scopeKey) {
-    this.contexts.clear();
-    this.documentStore.setScope(scopeKey);
-  }
-  async load() {
-    return this.documentStore.load();
-  }
-  async save(document) {
-    return this.documentStore.save(document);
   }
   async prepare(input) {
     if (input.scope !== "selection") throw new Error("The canvas context scope is invalid.");
-    if (input.visual && (!input.visual.dataURL.startsWith("data:image/png;base64,") || input.visual.dataURL.length > 8 * 1024 * 1024)) {
-      throw new Error("The canvas visual snapshot is invalid or too large.");
+    if (input.projectId !== null && (typeof input.projectId !== "string" || input.projectId.length === 0)) {
+      throw new Error("The canvas project is invalid.");
     }
-    const allElements = input.document.elements.filter((element) => element.deleted !== true && element.isDeleted !== true);
-    const selectedIds = new Set(input.selectedElementIds);
-    const elements = allElements.filter((element) => typeof element.id === "string" && selectedIds.has(element.id));
-    if (elements.length === 0) {
-      throw new Error("Canvas selection context must include at least one existing element.");
+    const selection = parseSelection(input.serializedJSON);
+    const selectedIds = validateSelectedIds(input.selectedElementIds);
+    if (selection.elements.length !== selectedIds.size) {
+      throw new Error("The canvas selection does not match the selected elements.");
     }
-    const revision = await this.documentStore.save(input.document);
-    const imageCount = elements.filter((element) => element.type === "image" || typeof element.fileId === "string").length;
-    const descriptor = {
+    const imageFileIds = /* @__PURE__ */ new Set();
+    let imageCount = 0;
+    for (const element of selection.elements) {
+      const id = element.id;
+      if (typeof id !== "string" || !selectedIds.delete(id) || element.isDeleted === true || element.deleted === true) {
+        throw new Error("The canvas selection does not match the selected elements.");
+      }
+      if (typeof element.type !== "string" || element.type.length === 0) {
+        throw new Error("The canvas selection contains an invalid element.");
+      }
+      if (element.type === "image") {
+        imageCount += 1;
+        if (typeof element.fileId === "string") imageFileIds.add(element.fileId);
+      }
+    }
+    if (selectedIds.size > 0) throw new Error("The canvas selection does not match the selected elements.");
+    const files = stripImageData(selection.files, imageFileIds);
+    const visual = validateVisual(input.visual, imageCount);
+    const text = JSON.stringify({
+      type: selection.type,
+      version: selection.version,
+      source: selection.source,
+      elements: selection.elements,
+      appState: selection.appState,
+      files
+    }, null, 2);
+    if (text.length > MAX_MODEL_JSON_LENGTH) throw new Error("The canvas selection is too large for one model reference.");
+    const descriptor = Object.freeze({
       contextId: randomUUID(),
-      label: `Canvas selection · ${elements.length} elements`,
-      scope: input.scope,
-      elementCount: elements.length,
+      projectId: input.projectId,
+      label: `Canvas selection · ${selection.elements.length} elements`,
+      scope: "selection",
+      elementCount: selection.elements.length,
       imageCount,
-      revision,
-      hasVisual: Boolean(input.visual)
-    };
-    const text = summarizeCanvas(elements, revision);
-    this.contexts.set(descriptor.contextId, {
-      context: { descriptor, text, ...input.visual ? { visual: input.visual } : {} },
-      expiresAt: Date.now() + CONTEXT_TTL_MS
+      hasVisual: Boolean(visual)
+    });
+    const context = Object.freeze({
+      descriptor,
+      text,
+      ...visual ? { visual } : {}
     });
     this.prune();
+    this.contexts.set(descriptor.contextId, { context, expiresAt: Date.now() + CONTEXT_TTL_MS });
     while (this.contexts.size > MAX_CONTEXTS) {
       const oldest = this.contexts.keys().next().value;
       if (!oldest) break;
@@ -2610,87 +2646,118 @@ class CanvasContextRegistry {
     }
     return descriptor;
   }
-  takeMany(ids) {
+  peekMany(ids, projectId) {
     this.prune();
-    const unique = [...new Set(ids)];
-    const records = unique.map((id) => {
-      const record = this.contexts.get(id);
-      if (!record) throw new Error("The canvas reference expired. Add it to the message again.");
-      return { id, record };
+    return [...new Set(ids)].map((id) => {
+      const context = this.contexts.get(id)?.context;
+      if (!context) throw new Error("The canvas reference expired. Add it to the message again.");
+      if (context.descriptor.projectId !== projectId) {
+        throw new Error("The canvas reference belongs to another project. Add it to the message again.");
+      }
+      return context;
     });
-    const contexts = [];
-    for (const { id, record } of records) {
-      contexts.push(record.context);
-      this.contexts.delete(id);
-    }
-    return contexts;
+  }
+  consumeMany(ids) {
+    for (const id of ids) this.contexts.delete(id);
+  }
+  clearAll() {
+    this.contexts.clear();
   }
   prune() {
     const now2 = Date.now();
     for (const [id, record] of this.contexts) if (record.expiresAt <= now2) this.contexts.delete(id);
   }
 }
-function summarizeCanvas(elements, revision) {
-  const lines = [`Canvas selection context (revision ${revision}).`, "Use this as visual working context for this run only:"];
-  const sorted = [...elements].sort((a, b) => numberValue(a.y) - numberValue(b.y) || numberValue(a.x) - numberValue(b.x));
-  for (const element of sorted) {
-    const type = typeof element.type === "string" ? element.type : "element";
-    const id = typeof element.id === "string" ? element.id : "unknown";
-    const text = typeof element.text === "string" ? ` text=${JSON.stringify(element.text.slice(0, 1e3))}` : "";
-    const label = typeof element.label === "string" ? ` label=${JSON.stringify(element.label.slice(0, 300))}` : "";
-    const relation = element.startBinding || element.endBinding ? ` bindings=${JSON.stringify({ start: element.startBinding, end: element.endBinding })}` : "";
-    lines.push(`- ${type}#${id}${text}${label}${relation}`);
-    if (lines.join("\n").length >= MAX_CONTEXT_TEXT) break;
+function parseSelection(serializedJSON) {
+  if (typeof serializedJSON !== "string" || serializedJSON.length > MAX_INPUT_JSON_LENGTH) {
+    throw new Error("The canvas selection JSON is invalid or too large.");
   }
-  return lines.join("\n").slice(0, MAX_CONTEXT_TEXT);
+  let parsed;
+  try {
+    parsed = JSON.parse(serializedJSON);
+  } catch {
+    throw new Error("The canvas selection JSON is invalid.");
+  }
+  if (!isRecord(parsed) || parsed.type !== "excalidraw" || parsed.version !== 2 || typeof parsed.source !== "string" || !Array.isArray(parsed.elements) || parsed.elements.length === 0 || parsed.elements.length > MAX_SELECTION_ELEMENTS || !parsed.elements.every(isRecord) || !isRecord(parsed.appState) || !isRecord(parsed.files)) {
+    throw new Error("The canvas selection JSON is invalid.");
+  }
+  return parsed;
 }
-function numberValue(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+function validateSelectedIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_SELECTION_ELEMENTS || !ids.every((id) => typeof id === "string" && id.length > 0 && id.length <= 256)) {
+    throw new Error("Canvas selection context must include at least one existing element.");
+  }
+  const unique = new Set(ids);
+  if (unique.size !== ids.length) throw new Error("The canvas selection contains duplicate element IDs.");
+  return unique;
+}
+function stripImageData(files, imageFileIds) {
+  const result = {};
+  for (const [id, file] of Object.entries(files)) {
+    if (!imageFileIds.has(id) || !isRecord(file)) {
+      throw new Error("The canvas selection contains an unrelated image asset.");
+    }
+    const { dataURL: _dataURL, ...metadata } = file;
+    result[id] = metadata;
+  }
+  return result;
+}
+function validateVisual(visual, imageCount) {
+  if (!visual) return void 0;
+  if (imageCount === 0 || visual.mediaType !== "image/png" || typeof visual.dataURL !== "string" || visual.dataURL.length > MAX_VISUAL_DATA_URL_LENGTH || !/^data:image\/png;base64,[a-z0-9+/]+={0,2}$/i.test(visual.dataURL)) {
+    throw new Error("The canvas visual snapshot is invalid or too large.");
+  }
+  return Object.freeze({ mediaType: "image/png", dataURL: visual.dataURL });
+}
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 const MAX_ELEMENTS = 2e4;
 const MAX_FILES = 1e3;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
+const UNPROJECTED_SCOPE = "__unprojected__";
 class CanvasDocumentStore {
-  constructor(userDataPath, scopeKey) {
-    this.revision = 0;
+  constructor(userDataPath) {
     this.userDataPath = userDataPath;
-    this.setScope(scopeKey);
+    this.pendingSaves = /* @__PURE__ */ new Map();
   }
-  setScope(scopeKey) {
-    const safeScopeKey = scopeKey.replace(/[^a-zA-Z0-9_-]/g, "_");
-    this.directory = join(this.userDataPath, "canvases", safeScopeKey);
-    this.documentPath = join(this.directory, "scene.json");
-    this.revision = 0;
-  }
-  async load() {
-    let serialized;
-    try {
-      serialized = await readFile(this.documentPath, "utf8");
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-      this.revision = 0;
-      return { document: emptyCanvasDocument(), revision: 0 };
-    }
-    const stored = JSON.parse(serialized);
+  async load(projectId) {
+    const scope = canvasScopeKey(projectId);
+    await this.pendingSaves.get(scope);
+    const paths = this.paths(scope);
+    const stored = await readStoredDocument(paths.documentPath);
+    if (!stored) return { document: emptyCanvasDocument(), revision: 0 };
     const files = {};
     for (const [id, file] of Object.entries(stored.files ?? {})) {
-      const assetPath = this.assetPath(id, file.mimeType);
-      const asset = await readFile(assetPath);
-      files[id] = { ...file, dataURL: toDataURL(file.mimeType, asset) };
+      validateFileId(id);
+      const asset = await readFile(this.assetPath(paths.directory, id, file));
+      const { assetName: _assetName, ...metadata } = file;
+      files[id] = { ...metadata, dataURL: toDataURL(file.mimeType, asset) };
     }
-    this.revision = Number.isSafeInteger(stored.revision) && stored.revision >= 0 ? stored.revision : 0;
     return {
       document: {
         elements: Array.isArray(stored.elements) ? stored.elements : [],
         appState: isObject(stored.appState) ? stored.appState : {},
         files
       },
-      revision: this.revision
+      revision: stored.revision
     };
   }
-  async save(document) {
+  save(projectId, document) {
+    const scope = canvasScopeKey(projectId);
     validateDocument(document);
-    await mkdir(this.directory, { recursive: true });
+    const previous = this.pendingSaves.get(scope) ?? Promise.resolve();
+    const result = previous.then(() => this.write(this.paths(scope), document));
+    const settled = result.then(() => void 0, () => void 0);
+    this.pendingSaves.set(scope, settled);
+    void settled.then(() => {
+      if (this.pendingSaves.get(scope) === settled) this.pendingSaves.delete(scope);
+    });
+    return result;
+  }
+  async write(paths, document) {
+    await mkdir(paths.directory, { recursive: true });
+    const previous = await readStoredDocument(paths.documentPath);
     const storedFiles = {};
     for (const [id, file] of Object.entries(document.files)) {
       const metadata = {
@@ -2700,37 +2767,70 @@ class CanvasDocumentStore {
         ...file.lastRetrieved === void 0 ? {} : { lastRetrieved: file.lastRetrieved },
         ...file.version === void 0 ? {} : { version: file.version }
       };
-      storedFiles[id] = metadata;
       if (file.dataURL) {
         const bytes = decodeDataURL(file.dataURL, file.mimeType);
-        const assetPath = this.assetPath(id, file.mimeType);
-        const assetTempPath = `${assetPath}.${process.pid}.tmp`;
-        await writeFile(assetTempPath, bytes);
-        await rename(assetTempPath, assetPath);
+        const digest = createHash("sha256").update(bytes).digest("hex");
+        metadata.assetName = `${id}.${digest}.${fileExtension(file.mimeType)}`;
+        await writeAtomic(join(paths.directory, metadata.assetName), bytes);
       } else {
-        await stat(this.assetPath(id, file.mimeType));
+        const oldFile = previous?.files?.[id];
+        if (oldFile?.mimeType === file.mimeType && oldFile.assetName) metadata.assetName = oldFile.assetName;
+        await stat(this.assetPath(paths.directory, id, metadata));
       }
+      storedFiles[id] = metadata;
     }
-    const nextRevision = this.revision + 1;
+    const nextRevision = (previous?.revision ?? 0) + 1;
     const stored = {
       revision: nextRevision,
       elements: document.elements,
       appState: document.appState,
       files: storedFiles
     };
-    const tempPath = `${this.documentPath}.${process.pid}.tmp`;
-    await writeFile(tempPath, JSON.stringify(stored), "utf8");
-    await rename(tempPath, this.documentPath);
-    this.revision = nextRevision;
+    await writeAtomic(paths.documentPath, JSON.stringify(stored));
     return nextRevision;
   }
-  assetPath(id, mimeType) {
-    const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin";
-    return join(this.directory, `${id}.${extension}`);
+  paths(scope) {
+    const directory = join(this.userDataPath, "canvases", scope);
+    return { directory, documentPath: join(directory, "scene.json") };
   }
+  assetPath(directory, id, file) {
+    if (file.assetName !== void 0) {
+      if (!isAssetName(id, file.assetName)) throw new Error("The canvas image asset path is invalid.");
+      return join(directory, file.assetName);
+    }
+    return join(directory, `${id}.${fileExtension(file.mimeType)}`);
+  }
+}
+function canvasScopeKey(projectId) {
+  if (projectId === null) return UNPROJECTED_SCOPE;
+  if (typeof projectId !== "string" || projectId === UNPROJECTED_SCOPE || !/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+    throw new Error("The canvas project identity is invalid.");
+  }
+  return projectId;
 }
 function emptyCanvasDocument() {
   return { elements: [], appState: {}, files: {} };
+}
+async function readStoredDocument(path) {
+  let serialized;
+  try {
+    serialized = await readFile(path, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  const stored = JSON.parse(serialized);
+  stored.revision = Number.isSafeInteger(stored.revision) && stored.revision >= 0 ? stored.revision : 0;
+  return stored;
+}
+async function writeAtomic(path, contents) {
+  const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, contents, { flag: "wx" });
+    await rename(temporaryPath, path);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
 }
 function validateDocument(document) {
   if (!document || !Array.isArray(document.elements) || document.elements.length > MAX_ELEMENTS) {
@@ -2740,11 +2840,21 @@ function validateDocument(document) {
     throw new Error("The canvas state is invalid.");
   }
   for (const [id, file] of Object.entries(document.files)) {
-    if (!/^[a-zA-Z0-9_-]+$/.test(id) || !file || !file.mimeType.startsWith("image/")) {
+    validateFileId(id);
+    if (!file || typeof file.mimeType !== "string" || !/^image\/[a-z0-9.+-]{1,64}$/i.test(file.mimeType)) {
       throw new Error("The canvas contains an unsupported image asset.");
     }
     if (file.dataURL) decodeDataURL(file.dataURL, file.mimeType);
   }
+}
+function validateFileId(id) {
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new Error("The canvas contains an unsupported image asset.");
+}
+function isAssetName(id, name) {
+  return name.startsWith(`${id}.`) && /^[a-zA-Z0-9_-]+\.[a-f0-9]{64}\.[a-zA-Z0-9]+$/.test(name);
+}
+function fileExtension(mimeType) {
+  return mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin";
 }
 function decodeDataURL(dataURL, mimeType) {
   const match = /^data:([^;,]+);base64,([a-z0-9+/=\r\n]+)$/i.exec(dataURL);
@@ -3758,8 +3868,9 @@ function createWindow() {
   });
   return win;
 }
-function registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, projects, historyService, getHistoryRecorder) {
+function registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, canvasDocuments, projects, historyService, getHistoryRecorder) {
   const discoveryControllers = /* @__PURE__ */ new Map();
+  const activatedCanvasProjects = /* @__PURE__ */ new Set([projects.activeScope]);
   ipcMain.handle(IPC.run, async (event, req) => {
     try {
       const task = req.task.trim();
@@ -3774,7 +3885,7 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
       const resolved = await providers.resolve(modelOptionId);
       const runId = randomUUID();
       const canvasContextIds = Array.isArray(req.canvasContextIds) ? req.canvasContextIds.filter((id) => typeof id === "string") : [];
-      const resolvedCanvasContexts = canvasContexts.takeMany(canvasContextIds);
+      const resolvedCanvasContexts = canvasContexts.peekMany(canvasContextIds, projectId);
       const historyRecorder = await getHistoryRecorder(projectId);
       const handle = runner.start({
         task: composeTaskWithAttachments(task, attachments),
@@ -3790,6 +3901,7 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
+      canvasContexts.consumeMany(canvasContextIds);
       return { ok: true, runId: handle.runId };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -3811,14 +3923,15 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
     const result = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
     if (result.canceled || result.filePaths.length === 0) return null;
     const active = await projects.selectPath(result.filePaths[0]);
-    canvasContexts.setScope(active.descriptor.projectId ?? "__unprojected__");
+    activatedCanvasProjects.add(active.descriptor.projectId);
+    canvasContexts.clearAll();
     await getHistoryRecorder(active.descriptor.projectId);
     return active.descriptor;
   });
   ipcMain.handle(IPC.clearProject, async () => {
     if (runner.isActive) throw new Error("Clear the project after the current run finishes.");
     const active = projects.clear();
-    canvasContexts.setScope("__unprojected__");
+    canvasContexts.clearAll();
     await getHistoryRecorder(null);
     return active.descriptor;
   });
@@ -3886,13 +3999,20 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
     const result = await dialog.showOpenDialog(win, { properties: ["openFile", "multiSelections"] });
     return result.canceled ? [] : inputAttachments.register(result.filePaths);
   });
-  ipcMain.handle(IPC.loadCanvasDocument, async () => {
-    return canvasContexts.load();
+  ipcMain.handle(IPC.loadCanvasDocument, async (_event, projectId) => {
+    if (projectId !== projects.activeScope) throw new Error("The selected project changed. Open the canvas again.");
+    return canvasDocuments.load(projectId);
   });
-  ipcMain.handle(IPC.saveCanvasDocument, async (_event, document) => {
-    return { revision: await canvasContexts.save(document) };
+  ipcMain.handle(IPC.saveCanvasDocument, async (_event, request) => {
+    if (!request || !activatedCanvasProjects.has(request.projectId)) {
+      throw new Error("The canvas project identity is invalid.");
+    }
+    return { revision: await canvasDocuments.save(request.projectId, request.document) };
   });
   ipcMain.handle(IPC.prepareCanvasContext, async (_event, input) => {
+    if (!input || input.projectId !== projects.activeScope) {
+      throw new Error("The selected project changed. Select the canvas content again.");
+    }
     return canvasContexts.prepare(input);
   });
   ipcMain.handle(IPC.previewOutputFile, async (_event, runId, fileId) => {
@@ -3939,12 +4059,13 @@ app.whenReady().then(async () => {
   );
   const outputFiles = new OutputFileRegistry();
   const inputAttachments = new InputAttachmentRegistry();
-  const canvasContexts = new CanvasContextRegistry(new CanvasDocumentStore(app.getPath("userData"), "__unprojected__"));
+  const canvasDocuments = new CanvasDocumentStore(app.getPath("userData"));
+  const canvasContexts = new CanvasContextRegistry();
   const runner = new AgentRunner((runId, cwd, artifacts, projectId) => {
     void projects.markContextDirty(projectId);
     return outputFiles.register(runId, cwd, artifacts);
   });
-  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, projects, historyService, getHistoryRecorder);
+  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, canvasDocuments, projects, historyService, getHistoryRecorder);
   createWindow();
   app.on("before-quit", (event) => {
     if (closing) return;

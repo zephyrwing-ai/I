@@ -25,6 +25,8 @@ description: Agent 的继续、自然完成、取消和失败判定。
 
 Runtime 使用 Host 注入的 `HistoryRecorder` 维护本次运行对应的项目或无项目历史范围。Runtime 是用户消息、完整助手消息和工具结果提交顺序的唯一控制者；Host 负责创建 Recorder 并提供运行事件接收器。
 
+文件工具注册属于 Runtime Host 的固定能力集合，与 `projectId` 历史范围相互独立。Host 为每次运行单独绑定 `cwd`：项目运行使用规范化项目目录，无项目运行使用 `process.cwd()`；无项目上下文只说明当前工作目录，不附加项目目录地图。工具调用、恢复账本和历史提交分别使用同一次运行捕获的 `cwd` 与 `projectId`。
+
 用户消息提交顺序。
 
 1. Host 创建 `runId`，捕获 `projectId: string | null`，并把绑定该范围的 Recorder 注入 Runtime。

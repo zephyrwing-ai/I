@@ -20,18 +20,19 @@ active project descriptor
 active HistoryRecorder(projectId)
 active HistoryService(projectId)
 active project_context
-active Canvas document scope
+Canvas document route(projectId)
 ```
 
 项目切换发生在运行空闲时。运行开始时，Runner 固定 `projectId`、`cwd`、HistoryRecorder 和项目上下文版本。
+CanvasSurface 以项目 ID 加载对应场景，Main 以每次画布请求携带的项目 ID 派生文档路径；每个项目的写入队列按顺序提交其最新场景。
 
 ## 运行链路
 
-1. Composer 提交任务、模型 ID、附件 ID、Canvas 引用和当前 `projectId`。
-2. Main 校验项目范围、解析附件和模型，并从 `project_context` 取得有界目录上下文。
+1. Composer 提交任务、模型 ID、attachmentIds、canvasContextIds 和当前 `projectId`。
+2. Main 校验项目范围，解析文件附件与 Canvas 选区引用，并从 `project_context` 取得有界目录上下文。
 3. Main 创建或取得绑定当前 `projectId` 的 `HistoryRecorder`。
-4. Runner 将 `HistoryRecorder`、项目上下文、Canvas 上下文和取消信号注入 Runtime。
-5. Runtime 读取 `HistoryRecorder.snapshot()`，追加瞬时项目上下文、Canvas 上下文和当前用户消息。
+4. Runner 将文件路径提示并入当前任务，同时把选区 JSON 与项目上下文作为运行期消息交给 Runtime。
+5. Runtime 读取 `HistoryRecorder.snapshot()`，追加运行期项目上下文、Canvas 选区 JSON 和当前用户消息。
 6. Runtime 按提交屏障调用模型、工具和 Recorder。
 7. Renderer 通过 AgentEvent 渲染实时过程，通过 `history:load-page` 读取当前范围的持久化历史。
 
@@ -61,4 +62,4 @@ Main 以以下条件决定目录扫描：
 
 每次项目范围的模型请求都取得缓存中的有界导航地图，以可读的工作目录说明和结构化目录行加入 transient `project_context`。地图标注深度、目录条目和总节点上限，并明确指出省略位置；文件正文由同一工作目录下的文件工具按需读取。目录地图不会进入 `entries`；Runtime 按本次运行固定的 `cwd` 提供文件操作上下文。
 
-无项目范围拥有稳定的历史记录和模型上下文。它使用 `projectId = NULL`，并且模型请求只包含历史、Canvas 上下文和当前任务。
+无项目范围拥有稳定的历史记录和模型上下文。它使用 `projectId = NULL`，以应用当前工作目录 `process.cwd()` 执行文件工具，并向模型提供该目录的简短说明；项目目录地图保持为空。文件工具注册独立于项目历史范围，因此无项目运行与项目运行使用相同的文件工具集。

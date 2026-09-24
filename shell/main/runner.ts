@@ -48,6 +48,9 @@ export class AgentRunner {
   private controller = new AbortController();
   private active = false;
   private readonly idleResolvers = new Set<() => void>();
+  // Filesystem capabilities belong to the runtime, while cwd and projectId
+  // identify the current run's execution and history scopes independently.
+  private readonly tools = createToolRegistry(createLocalBashOps());
 
   constructor(
     private readonly registerArtifacts?: ArtifactRegistrar,
@@ -130,7 +133,7 @@ export class AgentRunner {
         runId,
         systemPrompt: SYSTEM_PROMPT,
         cwd: req.cwd,
-        tools: req.projectId === null ? new Map() : createToolRegistry(createLocalBashOps()),
+        tools: this.tools,
         signal: this.controller.signal,
         recorder,
         runScopedContext: [
@@ -160,7 +163,7 @@ export class AgentRunner {
 function toModelMessage(context: ResolvedCanvasContext): ModelMessage {
   return {
     role: "user",
-    content: context.text,
+    content: `Canvas selection JSON for this run:\n${context.text}`,
     ...(context.visual ? { media: { mediaType: context.visual.mediaType, dataUrl: context.visual.dataURL } } : {}),
   };
 }

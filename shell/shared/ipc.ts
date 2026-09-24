@@ -87,9 +87,10 @@ export interface CanvasDocument {
 export type CanvasContextScope = "selection";
 
 export interface CanvasContextInput {
-  document: CanvasDocument;
+  projectId: string | null;
   scope: CanvasContextScope;
   selectedElementIds: string[];
+  serializedJSON: string;
   visual?: {
     mediaType: "image/png";
     dataURL: string;
@@ -98,11 +99,11 @@ export interface CanvasContextInput {
 
 export interface CanvasContextDescriptor {
   contextId: string;
+  projectId: string | null;
   label: string;
   scope: CanvasContextScope;
   elementCount: number;
   imageCount: number;
-  revision: number;
   hasVisual: boolean;
 }
 
@@ -113,6 +114,11 @@ export interface CanvasDocumentResult {
 
 export interface CanvasSaveResult {
   revision: number;
+}
+
+export interface CanvasSaveRequest {
+  projectId: string | null;
+  document: CanvasDocument;
 }
 
 export interface RunRequest {
@@ -254,8 +260,8 @@ export interface AgentAPI {
   saveProvider(input: ProviderProfileInput): Promise<SaveProviderResult>;
   deleteProvider(providerProfileId: string): Promise<DeleteProviderResult>;
   selectAttachments(): Promise<InputAttachmentDescriptor[]>;
-  loadCanvasDocument(): Promise<CanvasDocumentResult>;
-  saveCanvasDocument(document: CanvasDocument): Promise<CanvasSaveResult>;
+  loadCanvasDocument(projectId: string | null): Promise<CanvasDocumentResult>;
+  saveCanvasDocument(request: CanvasSaveRequest): Promise<CanvasSaveResult>;
   prepareCanvasContext(input: CanvasContextInput): Promise<CanvasContextDescriptor>;
   previewOutputFile(runId: string, fileId: string): Promise<OutputFilePreviewResult>;
   openOutputFile(runId: string, fileId: string): Promise<OpenOutputFileResult>;

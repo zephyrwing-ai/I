@@ -105,7 +105,13 @@ export class ProjectRegistry {
 
   clear(): ActiveProjectContext {
     this.activeProjectId = null;
-    return { descriptor: { projectId: null, displayName: "Choose folder", canonicalPath: null }, cwd: process.cwd(), contextVersion: null, projectContext: [] };
+    const cwd = process.cwd();
+    return {
+      descriptor: { projectId: null, displayName: "Choose folder", canonicalPath: null },
+      cwd,
+      contextVersion: null,
+      projectContext: [{ role: "user", content: formatUnprojectedContext(cwd) }],
+    };
   }
 
   async getActiveContext(): Promise<ActiveProjectContext> {
@@ -296,6 +302,17 @@ function formatProjectContext(project: Project, context: ProjectContextRecord): 
     usedChars += cost;
   }
   return [...header, ...visibleTreeLines, ...(clipped ? [clippingNotice] : []), closing].join("\n");
+}
+
+function formatUnprojectedContext(cwd: string): string {
+  return [
+    "<workspace_context>",
+    "No project is selected.",
+    `Current working directory: ${JSON.stringify(cwd)}`,
+    "Filesystem tools are available. Relative paths use this working directory.",
+    "No project directory map is attached.",
+    "</workspace_context>",
+  ].join("\n");
 }
 
 function parseTreeSnapshot(treeJson: string): ProjectTreeSnapshot | null {

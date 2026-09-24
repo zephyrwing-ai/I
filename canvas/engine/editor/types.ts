@@ -751,11 +751,13 @@ export type UnsubscribeCallback = () => void;
 
 export interface ExcalidrawImperativeAPI {
   updateScene: InstanceType<typeof App>["updateScene"];
+  replaceScene: InstanceType<typeof App>["replaceScene"];
   updateLibrary: InstanceType<typeof Library>["updateLibrary"];
   resetScene: InstanceType<typeof App>["resetScene"];
   getSceneElementsIncludingDeleted: InstanceType<
     typeof App
   >["getSceneElementsIncludingDeleted"];
+  getSceneVersion: () => number | undefined;
   history: {
     clear: InstanceType<typeof App>["resetHistory"];
   };

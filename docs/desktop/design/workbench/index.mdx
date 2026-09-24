@@ -17,7 +17,7 @@
 宿主运行链路。
 
 1. Renderer 提交任务文字、`modelOptionId`、附件 ID、Canvas 引用和当前 `projectId`。Composer 的项目选择行通过 Main 选择目录，Main 保存规范化路径和项目元数据。
-2. Preload 通过受限 `agentAPI` 转发 IPC；Main 校验并解析模型、附件和项目范围，取得 HistoryRecorder 并构造运行输入，Runner 创建运行身份和取消信号。
+2. Preload 通过受限 `agentAPI` 转发 IPC；Main 校验项目范围、解析模型、文件附件和 Canvas 引用，取得 HistoryRecorder 并构造运行输入，Runner 创建运行身份和取消信号。
 3. Runner 注入 HistoryRecorder、项目上下文和 AgentEvent 接收器，Runtime 完成用户消息本地提交后开始模型请求。
 4. Runtime 将模型增量交给 Recorder 并发出 AgentEvent，Runner 经 IPC 转发事件，Renderer 按动画帧收集并依序交给 Reducer。
 5. 停止操作使用当前单运行的 `stop()`，由 Main 转发取消信号；Recorder 刷新活动草稿，界面根据 `runCompleted` 进入取消、失败或完成状态。
