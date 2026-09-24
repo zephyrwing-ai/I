@@ -15,7 +15,7 @@
 | 工具执行账本与恢复 | 部分实现 | 四阶段账本存在，但取消结算、整批原子登记、恢复预算和人工确认没有闭环。 |
 | Provider 凭据 | 未满足契约 | API Key 仍写入 Provider JSON；旧 Key 还能与 Renderer 提交的新 Base URL 组合。 |
 | Electron 安全边界 | 部分实现 | 已启用 context isolation、sandbox 并关闭 node integration；缺少导航、IPC sender、CSP 和外链协议约束。 |
-| Canvas | 部分实现 | 不透明引用和单次 Run 上下文已接入；保存顺序、revision 冲突和关闭 flush 没有一致性保障。 |
+| Canvas | 本轮链路已实现，交互回归待完成 | 画布请求携带项目 ID；Main 按项目串行写入；Use selection 从选区 JSON 创建运行期引用。窗口关闭时的末次防抖保存仍需交互验证。 |
 | 测试与发布工程 | 部分实现 | 类型检查、155 个测试和生产构建通过；测试未进入 TypeScript 检查，且缺少 CI、交互回归和正式打包链路。 |
 
 ## 本次项目历史迁移
@@ -59,7 +59,7 @@
 1. **工具批次不是原子登记。** Assistant Message 已 completed 后，invocation 逐条独立写入；崩溃可留下零条或半批账本。增加 Repository 级 `commitAssistantAndPlanToolBatch()`，在一个事务中提交 Assistant 与整批 planned records；checkpoint 在每次真实 attempt 开始时生成。
 2. **`never`、人工确认和恢复预算没有闭环。** 当前 interrupted 后仍会继续后续调用，`attemptCount` 只递增不限制。增加 `requires_confirmation`/blocked 状态、默认 skip 后续依赖调用和明确的 `maxRecoveryAttempts`。
 3. **Write/Edit 不是原子发布。** 两者直接覆盖目标文件，却声明 reconcile。改为同目录临时文件、flush/fsync、原子 rename，并把 staging/backup 身份与 hash 写入 checkpoint。
-4. **Canvas 保存存在旧写覆盖新写风险。** Renderer debounce、卸载保存和 Main 写入可以并发，临时路径还可能相同。Renderer 使用 generation + 单飞队列，Main 串行化并以 expected revision 条件提交，关闭时等待最后 revision flush。
+4. **Canvas 关闭与跨项目交互回归。** 本轮 Main 已按项目 ID 串行写入并使用唯一临时路径；Renderer 在项目切换前等待最新草稿保存，保存失败时保留画布与重试入口。后续真实 Electron 回归覆盖快速切换、连续拖动、窗口关闭期间的末次防抖保存和图片恢复。
 5. **Composer 失败会丢草稿。** 当前在 Main ack 前清空文本、附件和 Canvas；IPC reject 还会让页面停在 starting。`onRun` 应返回判别结果，仅在 ack 成功后清理；异常统一进入 `runRejected` 并保留草稿。
 6. **Bash 输出和进程生命周期无界。** stdout/stderr 先全部积存在 Main 内存，结束后才截断；取消只杀直接 Bash，目录快照每次前后全量扫描且不响应取消。改为有界 ring buffer + 流式 spool、进程组/Job Object、可取消的增量产物跟踪和退出 deadline。
 7. **长会话没有上下文预算。** Recorder 冷启动读取全部 entries，每次模型请求复制全部 completed messages；搜索和 MessageBlock 派生也随完整历史增长。增加 token-aware Context Builder、成对保留 tool call/result 的压缩摘要、增量搜索索引和按需派生。

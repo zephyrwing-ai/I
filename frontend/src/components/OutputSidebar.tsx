@@ -19,6 +19,7 @@ interface OutputSidebarProps {
   onOpenChange: (open: boolean) => void;
   activePanel?: "outputs" | "canvas";
   canvas?: ReactNode;
+  canvasCanRelease?: boolean;
 }
 
 const WIDTH_KEY = "workbench.outputSidebarWidth";
@@ -33,7 +34,7 @@ function initialWidth(): number {
   return Number.isFinite(value) && value > 0 ? value : OUTPUT_SIDEBAR_DEFAULT_WIDTH;
 }
 
-export function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", canvas }: OutputSidebarProps) {
+export function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", canvas, canvasCanRelease = true }: OutputSidebarProps) {
   const [phase, setPhase] = useState<SidebarPhase>(open ? "open" : "closed");
   const [canvasMounted, setCanvasMounted] = useState(
     () => open && activePanel === "canvas",
@@ -85,6 +86,11 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
   }, [open]);
 
   useEffect(() => {
+    if (!canvasCanRelease) {
+      if (canvasReleaseTimerRef.current !== null) window.clearTimeout(canvasReleaseTimerRef.current);
+      canvasReleaseTimerRef.current = null;
+      return;
+    }
     if (open && activePanel === "canvas") {
       if (canvasReleaseTimerRef.current !== null) {
         window.clearTimeout(canvasReleaseTimerRef.current);
@@ -102,7 +108,7 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
       canvasReleaseTimerRef.current = null;
       setCanvasMounted(false);
     }, CANVAS_KEEP_ALIVE_MS);
-  }, [activePanel, canvasMounted, open]);
+  }, [activePanel, canvasCanRelease, canvasMounted, open]);
 
   useEffect(() => {
     if (shellRef.current) shellRef.current.inert = phase === "closed";

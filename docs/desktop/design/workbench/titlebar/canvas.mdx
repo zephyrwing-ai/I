@@ -34,96 +34,84 @@ Canvas 面板。
 
 Canvas 持久化。
 
-- 范围：Canvas 属于当前项目或无项目历史范围，不属于当前 Run 的输出文件范围。
-- 文档：场景元素、可恢复 AppState 和图片文件元数据组成一个 CanvasDocument。
-- 图片：图片二进制与场景元数据分开保存，以 fileId 关联；不写入 HistoryRecorder 的项目历史 payload。
-- 保存：Renderer 只通过 Preload 暴露的受限 IPC 读写文档。Renderer 以 dirty generation 串行提交，Main 按项目范围单写者和 expected revision 校验顺序；旧 revision 的保存不得覆盖新文档。Canvas 卸载前等待最后一个 generation flush 完成；普通侧栏关闭或面板切换不销毁编辑器。Main 负责路径、输入验证、原子替换、revision 和图片资源目录；Renderer 不直接获得用户目录路径。
-- 恢复：打开 Canvas 时从当前项目或无项目范围文档恢复；编辑器内存不构成跨关闭或重启的持久化来源。保存失败保留 dirty 状态并提供重试，不静默回退到旧文档。
-- 剪贴板：普通文字、截图和本地图片按 Excalidraw 原生粘贴行为处理；富文本聊天内容中的远程图片与文字不承诺一次粘贴完整保真。
+- 范围：每份 CanvasDocument 归属一个项目 ID；`projectId = null` 对应无项目范围。Main 根据每次请求携带的 `projectId` 定位该范围的 `scene.json` 和图片资源目录。
+- 文档：`scene.json` 保存最新的 `revision`、场景元素、可恢复 AppState 和图片资源元数据；图片字节按 `fileId` 保存在同一项目范围的资源文件中。
+- 项目切换：Canvas 组件保持挂载。Renderer 观察 `projectId` 变化并加载对应场景，替换元素、图片文件和项目视图状态，同时清理旧项目的选区与撤销记录。加载请求带项目 ID 和请求代数，Renderer 只应用当前项目的最新结果；待保存快照始终携带创建时的项目 ID。
+- 编辑写入：Renderer 通过 Preload 的受限 IPC 提交最新场景，并用 dirty generation 关联保存应答。Renderer 防抖合并连续编辑产生的快照；Main 为每个项目安排一条串行写入队列，按请求中的项目 ID 完成路径解析、输入校验、资源提交、场景原子替换和保存应答。
+- 恢复：应用从所属项目的场景文件恢复 Canvas；保存成功应答推进已持久化 generation，保存失败保留最新草稿并提供重试。侧栏切换延续当前编辑器实例的生命周期策略。
+- 剪贴板：普通文字、截图和本地图片沿用画布编辑器的粘贴行为；富文本聊天内容中的远程资源由独立的导入流程处理。
 
-CanvasDocument 数据结构。
+`scene.json` 数据结构。
 
-- `elements`：Excalidraw 场景元素数组。普通文字以 `type: "text"` 的元素保存，文字内容、坐标、尺寸、字体、颜色、容器关系和版本信息随元素一起保存；文字不会被转换成一段脱离场景的普通文本。
-- `appState`：只保存能够恢复编辑器体验的状态，例如主题、背景色、网格、缩放和滚动位置；临时选区、拖拽状态、指针状态和协作者状态不作为文档事实保存。
-- `files`：以 `fileId` 关联图片元素和图片资源元数据。场景只保留资源引用，图片二进制进入独立资源文件。
-- 文档结构必须保持可被 Excalidraw `initialData` 恢复；宿主扩展字段放在独立的存储元数据中，不污染 Provider 消息结构。
+- `revision`：记录该项目最后一次成功提交的场景序号，用于保存应答和恢复诊断。
+- `elements`：保存完整的画布元素数组。普通文字以 `type: "text"` 的元素保留文字、坐标、尺寸、字体、颜色和容器关系。
+- `appState`：保存主题、背景色、网格、缩放和滚动位置等可恢复的项目视图状态。
+- `files`：以 `fileId` 关联图片元素和资源元数据；图片字节保存在独立的资源文件中。
+- 格式：项目内的 `scene.json` 使用 `revision/elements/appState/files`；用户触发 Save JSON 时，现有导出序列化器生成 `type/version/source/elements/appState/files` 结构的 `.json` 文件。两条链路共享画布元素数据。
 
 普通文字保存。
 
-- 用户在 Canvas 中输入或粘贴普通文字时，Excalidraw 生成或更新 text element。
-- `onChange(elements, appState, files)` 收到完整场景后，Renderer 将 text element 原样纳入当前 CanvasDocument 草稿。
-- Renderer 使用 dirty generation 标记每次变更；防抖只合并等待中的保存请求，不合并掉最后一次文字变更。
-- Main 保存成功后才推进文档 revision；保存失败保留当前草稿和 dirty 状态，用户可以重试，不能用旧文档覆盖新编辑。
+- 用户输入或粘贴普通文字时，编辑器生成或更新 text element。
+- `onChange(elements, appState, files)` 交付完整场景，Renderer 将 text element 原样纳入当前 CanvasDocument 草稿。
+- Renderer 用 dirty generation 标记草稿变化；防抖与串行写入队列合并等待中的快照，并提交最新文字内容。
+- Main 完成场景提交后推进文档 revision；Renderer 按 generation 处理保存应答，保存失败时保留最新草稿并提供重试。
 
 图片资源保存。
 
-- 图片元素通过 `fileId` 指向 `files` 中的资源；元素删除和资源删除是两个状态，资源清理必须在新文档成功提交后执行。
-- Main 校验图片 MIME、资源 ID、data URL 格式和单文件大小；不接受 Renderer 提供的任意本地路径。
-- 新图片先写入独立资源临时文件，再原子替换为稳定资源文件；场景元数据最后提交，避免出现“场景已引用但资源尚未写入”的可见状态。
-- 不再被任何元素引用的旧资源进入可回收集合；回收失败不能阻断已经成功提交的新场景。
-- 导出给模型的视觉快照是新的 PNG，不等同于直接把 Canvas 内部图片资源逐个拼入模型消息。
+- 图片元素通过 `fileId` 指向 `files` 中的资源。Main 校验 MIME、资源 ID、data URL 格式和单文件大小。
+- 新图片先进入独立资源临时文件，资源就绪后提交场景元数据；场景提交成功后，资源回收流程处理失去引用的旧文件。
+- 选区引用中的图片元素保留 `fileId` 与元素结构；模型需要视觉内容时，Host 将对应图片作为独立 media 输入交给 Adapter。
 
 Canvas revision。
 
-- revision 由 Main 的 CanvasDocumentStore 生成，初始值为0；每次通过 expected revision 校验并成功完成场景与资源提交后递增一次。
-- Renderer 的 dirty generation 只表示本地编辑顺序，不直接充当 revision；同一个 revision 可以对应多次被合并的 Renderer 保存尝试。
-- `CanvasContextSnapshot` 固化 `canvasSessionId`、revision、所选元素 ID、结构文本和可选 PNG；后续编辑不修改已经固化的 snapshot。
-- revision 冲突时 Main 拒绝旧写入并返回当前 revision，Renderer 保留 dirty 草稿，由用户重试或重新加载后决定如何合并。
+- revision 由 Main 为每个项目的最新持久场景生成，初始值为 0；每次成功提交最新场景后递增一次。
+- Renderer 的 dirty generation 表示本地草稿顺序，Main 的项目写入队列表示持久化顺序；保存应答关联提交时的 generation。
+- `CanvasContextSnapshot` 固化项目 ID、所选元素 ID 和选区 JSON；引用生成流程直接读取内存场景，文档 revision 保持由编辑保存链路管理。
 
 Canvas 引用。
 
-- 默认：Canvas 内容不自动进入任何模型请求。
-- 创建：用户点击 Use selection 后，Main 固化当前 revision 与当前非删除选区，并返回一个不透明的 contextId、元素数量、图片数量和视觉快照标识。需要完整画布上下文时先全选画布元素，再点击 Use selection。contextId 默认有效10分钟，Main 最多保留32条未消费引用；过期或被淘汰时，Composer chip 显示失效并要求重新创建。
-- `prepareCanvasContext` 接受当前 CanvasDocument、`selectedElementIds` 和可选 PNG；Main 先校验文档与视觉快照，再保存文档并以保存成功后的 revision 创建 snapshot。只允许引用当前文档中存在的非删除选中元素。
-- context registry 保存 descriptor 与 Runtime 所需的结构文本、视觉快照和过期时间；Renderer 只拿到 descriptor，不拿到 Main 的资源路径。
-- Composer：引用以可删除 chip 显示在任务输入上方。用户删除 chip 时，下一次 Run 不携带对应 contextId。
-- 冻结：创建引用后继续编辑 Canvas 不会修改已经附加的 snapshot；需要新内容时再次创建引用。
-- 内容：snapshot 由结构层和视觉层组成。结构层提供文本节点、元素类型、元素 ID、空间排序和可识别绑定关系；视觉层为选区或完整 Canvas 的 PNG 快照。
-- 语义：结构层只记录确定性事实，不把箭头、布局或手绘图形伪装成已经完成的语义理解。
+- 触发：用户点击 Use selection 后，CanvasSurface 为当前项目的已选元素生成一次性上下文。用户全选后使用同一入口创建全画布引用。
+- 内容：选区复用 Save JSON 的元素序列化规则与 `type/version/source/elements/appState/files` 外层结构；`elements` 包含当前选中的有效元素，普通文字直接使用 text element 的 `text` 字段。图片元素通过 `fileId` 关联资源，Host 按模型能力添加独立 media 输入。
+- 准备：CanvasSurface 从内存场景冻结选区 JSON，并向 Main 提交项目 ID、选中元素 ID 与快照。Main 校验项目归属、选区 ID 与 JSON 元素的对应关系、数据结构和大小，随后在有界内存 registry 中登记快照并返回 contextId、元素数量与图片数量。画布持久化由独立的编辑保存链路负责。
+- 生命周期：contextId 默认有效 10 分钟，Main 最多保留 32 条待使用引用。快照创建后保持固定内容，后续编辑通过再次点击 Use selection 创建新的引用。
+- Composer：Canvas 引用与上传文件共享附件区的 chip 布局、移除交互和发送时机。Renderer 以 contextId 持有画布引用，以 attachmentId 持有文件引用，并在 RunRequest 中提交两类 ID。
+- 项目范围：contextId 绑定创建时的项目 ID；项目切换刷新画布场景和 Composer 的画布引用。Main 在运行开始时校验引用归属。
 
 Canvas 上下文链路。
 
 ```text
-Excalidraw 编辑器
-  → CanvasDocument
-  → CanvasContextSnapshot
-  → Composer 引用
-  → RunRequest.canvasContextIds
-  → Main resolve / consume
-  → Runtime runScopedContext
-  → Adapter multimodal message
-  → Provider
+CanvasSurface 的 Use selection → 选区 JSON → Main Canvas context registry ┐
+Main 文件选择器              → 文件引用 → Main attachment registry    ├→ Composer chips
+                                                                      → RunRequest 两类 ID
+                                                                      → Main 按项目校验并解析
+                                                                      → Runner 组装本次运行输入
+                                                                      → Runtime messages
+                                                                      → Adapter → Provider
 ```
 
-1. CanvasSurface 向 Main 请求准备上下文，提交当前 CanvasDocument、选中元素 ID 和可选 PNG。
-2. Main 校验输入并持久化 CanvasDocument，使用稳定 revision 生成短生命周期 contextId。
-3. Composer 在用户发送时只提交 contextId，不提交原始场景 JSON、图片 base64 或本地文件路径。
-4. Main 在启动 Run 时消费 contextId，并将冻结的结构文本和视觉快照交给 Runner。
-5. Runtime 将上下文只放入本次 Run 的内存 messages，顺序为已提交历史、Canvas snapshot、本次真实用户消息。
-6. Adapter 将视觉快照映射为 Provider 支持的 user text 与 image 输入；Adapter 不决定引用策略，也不写入项目历史存储。
+1. CanvasSurface 准备选区 JSON；Main 的 Canvas registry 登记短生命周期引用。文件选择器经 Main 登记本地文件引用。
+2. Composer 将两类引用作为同一份待发送草稿展示，用户发送时在 RunRequest 中提交 attachmentIds、canvasContextIds 和 projectId。
+3. Main 在启动 Run 前验证文件可读性与 Canvas 项目归属，并解析两类 ID。文件引用提供路径与文件工具提示；Canvas 引用提供已冻结的选区 JSON 和按需附带的图片 media。
+4. Runner 将文件提示并入当前任务，将 Canvas JSON 映射为本次运行的 `ModelMessage`；Runtime 依次装入历史、运行期上下文和本次用户消息。
+5. Main 在 Run 启动成功后标记 Canvas contextId 已使用；Composer 在成功 ack 后清理两类引用。Adapter 将 Runtime 消息转换为 Provider 请求。
 
 运行边界。
 
-- Canvas snapshot 不调用 `HistoryRecorder.commitUser`，不进入项目历史消息快照。
-- 同一 Run 的模型重试和工具续轮继续使用同一个冻结 snapshot。
-- 下一次 Run 从 Recorder 历史恢复时不自动携带上一次 Canvas 内容。
-- 没有视觉能力的模型必须被明确告知图片不可用；界面和请求层不能静默宣称模型已经理解图片。
+- `HistoryRecorder.commitUser` 保存用户输入的任务文字；Canvas 选区 JSON 在本次 Run 的内存 messages 中提供上下文。
+- 同一 Run 的模型重试和工具续轮使用同一个冻结快照；新的 Run 通过新的用户引用取得画布内容。
+- 图片元素的视觉内容遵循模型 media 能力；界面展示实际加入模型请求的内容类型。
 
 失败、失效与恢复。
 
-- CanvasDocument 加载失败：Canvas 显示加载错误和重试入口，不把空文档写回磁盘覆盖原文档。
-- CanvasDocument 保存失败：保留当前 dirty generation、显示保存失败状态；后续保存必须继续使用最新草稿和 expected revision。
-- revision 冲突：Main 返回冲突和当前 revision；Renderer 停止自动覆盖，等待用户选择重试、重新加载或放弃本地草稿。
-- `prepareCanvasContext` 失败：不创建 contextId，不在 Composer 增加 chip；用户可以修复 Canvas 后重新引用。
-- contextId 过期或被淘汰：RunRequest 被拒绝并返回“引用已失效，请重新添加到消息”，不能降级为空上下文。
-- 用户删除引用：Renderer 从 pending references 移除 ID；registry 中未消费快照进入 TTL 回收，不会进入任何后续 Run。
-- Run 启动失败：已消费的 context 不重新进入项目历史；用户重新点击引用入口即可生成新的 snapshot。
-- 模型不支持图片：Provider capability 或请求错误必须转换为明确的用户提示；可以保留结构文本重试，但不能静默宣称视觉层已被模型理解。
-- Adapter/Provider 发送失败：错误只结束当前 Run；CanvasDocument 和原始 Canvas 内容保持不变，用户可以选择重新发送或调整模型。
+- 场景加载失败时，Canvas 显示错误和重试入口，原项目场景文件保持原状。
+- 场景保存失败时，Renderer 保留最新 dirty generation、显示保存失败状态，并继续使用最新草稿重试。
+- 选区准备失败时，Composer 保持原有草稿，Canvas 显示可重试错误。
+- contextId 过期或超出容量时，Main 返回引用失效错误，Composer 保留任务草稿并提示用户重新建立引用。
+- 用户移除 chip 时，Composer 更新待发送 ID 列表，registry 按 TTL 回收对应快照。
+- Run 启动失败时，Composer 保留任务、文件附件与 Canvas 引用；Main 保留仍有效的 contextId 供再次提交。
+- Provider 返回图片能力错误时，界面展示对应资源类型与重试入口；Canvas 场景继续保持当前编辑状态。
 
-非目标。
+后续能力。
 
-- 不做多人实时协作。
-- 不把完整 Excalidraw JSON 或图片 base64 拼进任务文本。
-- 不把 Canvas 混入输出文件注册表或当前运行产物状态。
-- 不通过普通 `read_canvas` 工具实现第一版按需读取；普通工具结果进入既有持久化链路，不能自然满足一次性 Canvas 上下文语义。
+- 模型主动修改画布使用独立的受控操作工具与用户确认流程。
+- 多人实时协作、画布版本历史和完整图片语义处理进入后续专项设计。

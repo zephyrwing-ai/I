@@ -19,7 +19,7 @@ interface ComposerProps {
   ready?: boolean;
   modelOptions: ModelOption[];
   modelLoading: boolean;
-  onRun: (req: RunRequest) => void;
+  onRun: (req: RunRequest) => Promise<boolean>;
   onStop: () => void;
   project?: ProjectDescriptor;
   onSelectProject?: () => void;
@@ -62,6 +62,7 @@ export function parseStoredModelPickerPreference(serialized: string | null, lega
 export function Composer({ running, stopping, ready = true, modelOptions, modelLoading, onRun, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, onSelectProject = () => undefined, onClearProject = () => undefined, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
   const [task, setTask] = useState("");
   const [attachments, setAttachments] = useState<InputAttachmentDescriptor[]>([]);
+  const [submitting, setSubmitting] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const { selectedModelOptionId, selectModel, storedPreference } = useSelectedModelOption(modelOptions, modelLoading);
   const modelRootRef = useRef<HTMLDivElement>(null);
@@ -82,7 +83,7 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
   const modelDisplayName = selectedModel?.displayName
     ?? (cachedModelDisplayName || (modelLoading ? "Loading model…" : "Choose model"));
 
-  const canRun = ready && !running && task.trim() !== "" && Boolean(selectedModel?.available);
+  const canRun = ready && !running && !submitting && task.trim() !== "" && Boolean(selectedModel?.available);
   const disabledReason = !task.trim()
     ? "Enter a task"
     : !selectedModel?.available
@@ -181,7 +182,7 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
     });
   };
 
-  const submit = (): void => {
+  const submit = async (): Promise<void> => {
     if (!canRun) return;
     const request = {
       task: task.trim(),
@@ -190,16 +191,20 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
       canvasContextIds: canvasContexts.map((context) => context.contextId),
       projectId: project.projectId,
     } satisfies RunRequest;
-    onRun(request);
-    // 发送后清空输入与附件：消息已经在消息列，Composer 不再保留副本；
-    // 文本域高度也同步重置（updateTask 曾按内容撑高）。
-    setTask("");
-    setAttachments([]);
-    onClearCanvasContexts?.();
-    const input = taskInputRef.current;
-    if (input) {
-      input.style.height = "auto";
-      input.style.overflowY = "hidden";
+    setSubmitting(true);
+    try {
+      const accepted = await onRun(request);
+      if (!accepted) return;
+      setTask("");
+      setAttachments([]);
+      onClearCanvasContexts?.();
+      const input = taskInputRef.current;
+      if (input) {
+        input.style.height = "auto";
+        input.style.overflowY = "hidden";
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -208,7 +213,7 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
     // 原生事件携带 isComposing，合成事件类型未声明该字段。
     if (isSendKey(e.key, e.shiftKey, e.nativeEvent.isComposing)) {
       e.preventDefault();
-      submit();
+      void submit();
     }
   };
 
@@ -303,7 +308,7 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
               )}
             </div>
 
-            <button type="button" className={`send-stop-button ${running ? "is-stop" : "is-send"}`} onClick={running ? onStop : submit} disabled={running ? stopping : !canRun} aria-label={running ? (stopping ? "Stopping" : "Stop run") : "Send"} title={running ? (stopping ? "Stopping" : "Stop run") : (ready ? (disabledReason ?? "Send") : "Loading history")} aria-busy={stopping || undefined}>
+            <button type="button" className={`send-stop-button ${running ? "is-stop" : "is-send"}`} onClick={running ? onStop : () => void submit()} disabled={running ? stopping : !canRun} aria-label={running ? (stopping ? "Stopping" : "Stop run") : "Send"} title={running ? (stopping ? "Stopping" : "Stop run") : (ready ? (disabledReason ?? "Send") : "Loading history")} aria-busy={stopping || submitting || undefined}>
               <span className="send-stop-icon" key={running ? "stop" : "send"}><Icon name={running ? "stop" : "arrow-up"} width={18} height={18} /></span>
             </button>
           </div>

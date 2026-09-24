@@ -9,6 +9,7 @@ import { ConfigPanel } from "./components/ConfigPanel";
 import { OutputSidebar } from "./components/OutputSidebar";
 import {
   CanvasSurface,
+  type CanvasSurfaceHandle,
   preloadCanvasDocument,
   preloadCanvasEditor,
   resetPreloadedCanvasDocument,
@@ -26,7 +27,10 @@ export default function App() {
   const [configOpen, setConfigOpen] = useState(false);
   const [sidebarPanel, setSidebarPanel] = useState<"outputs" | "canvas" | null>(null);
   const [canvasContexts, setCanvasContexts] = useState<CanvasContextDescriptor[]>([]);
+  const [canvasCanRelease, setCanvasCanRelease] = useState(true);
   const [project, setProject] = useState<ProjectDescriptor>({ projectId: null, displayName: "Choose folder", canonicalPath: null });
+  const canvasSurfaceRef = useRef<CanvasSurfaceHandle>(null);
+  const projectRequestEpochRef = useRef(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const eventQueue = useRef<AgentEvent[]>([]);
   const hydrationEventQueue = useRef<AgentEvent[]>([]);
@@ -90,9 +94,11 @@ export default function App() {
 
   useEffect(() => {
     void preloadCanvasEditor().catch(() => undefined);
+    const requestEpoch = projectRequestEpochRef.current;
     void window.agentAPI.getActiveProject().then((activeProject) => {
+      if (requestEpoch !== projectRequestEpochRef.current) return;
       setProject(activeProject);
-      void preloadCanvasDocument().catch(() => undefined);
+      void preloadCanvasDocument(activeProject.projectId).catch(() => undefined);
     }).catch(() => undefined);
   }, []);
 
@@ -164,15 +170,21 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [search.clear, searchOpen]);
 
-  const handleRun = async (req: RunRequest): Promise<void> => {
+  const handleRun = async (req: RunRequest): Promise<boolean> => {
     dispatch({ type: "runRequested" });
-    const ack = await window.agentAPI.run(req);
-    if (!ack.ok) {
-      dispatch({ type: "runRejected", error: ack.error });
-      return;
+    try {
+      const ack = await window.agentAPI.run(req);
+      if (!ack.ok) {
+        dispatch({ type: "runRejected", error: ack.error });
+        return false;
+      }
+      // 任务发送时间由 Renderer 侧观察（事件不带时间戳），仅供用户消息时间戳行展示。
+      dispatch({ type: "runAccepted", runId: ack.runId, task: req.task, taskAt: Date.now() });
+      return true;
+    } catch (error) {
+      dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
+      return false;
     }
-    // 任务发送时间由 Renderer 侧观察（事件不带时间戳），仅供用户消息时间戳行展示。
-    dispatch({ type: "runAccepted", runId: ack.runId, task: req.task, taskAt: Date.now() });
   };
 
   const handleStop = (): void => {
@@ -183,11 +195,14 @@ export default function App() {
   const handleSelectProject = async (): Promise<void> => {
     if (running) return;
     try {
+      projectRequestEpochRef.current += 1;
+      await canvasSurfaceRef.current?.flush();
       resetPreloadedCanvasDocument();
       const selected = await window.agentAPI.selectProject();
       if (!selected) return;
       setProject(selected);
-      void preloadCanvasDocument().catch(() => undefined);
+      setCanvasContexts([]);
+      void preloadCanvasDocument(selected.projectId).catch(() => undefined);
       await history.reload(selected.projectId);
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
@@ -197,10 +212,13 @@ export default function App() {
   const handleClearProject = async (): Promise<void> => {
     if (running) return;
     try {
+      projectRequestEpochRef.current += 1;
+      await canvasSurfaceRef.current?.flush();
       resetPreloadedCanvasDocument();
       const cleared = await window.agentAPI.clearProject();
       setProject(cleared);
-      void preloadCanvasDocument().catch(() => undefined);
+      setCanvasContexts([]);
+      void preloadCanvasDocument(cleared.projectId).catch(() => undefined);
       await history.reload(cleared.projectId);
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
@@ -289,8 +307,11 @@ export default function App() {
         open={sidebarPanel !== null}
         activePanel={sidebarPanel ?? "outputs"}
         files={outputFiles}
+        canvasCanRelease={canvasCanRelease}
         onOpenChange={(open) => { if (!open) setSidebarPanel(null); }}
-        canvas={<CanvasSurface onContextPrepared={(descriptor) => setCanvasContexts((current) => [...current, descriptor])} />}
+        canvas={<CanvasSurface ref={canvasSurfaceRef} projectId={project.projectId} onContextPrepared={(descriptor) => {
+          if (descriptor.projectId === project.projectId) setCanvasContexts((current) => [...current, descriptor]);
+        }} onCanReleaseChange={setCanvasCanRelease} />}
       />
 
       {settingsPanel.mounted && (

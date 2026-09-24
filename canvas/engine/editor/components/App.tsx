@@ -78,7 +78,6 @@ import {
   TOUCH_CTX_MENU_TIMEOUT,
   VERTICAL_ALIGN,
   YOUTUBE_STATES,
-  ZOOM_STEP,
   POINTER_EVENTS,
   TOOL_TYPE,
   isIOS,
@@ -278,7 +277,6 @@ import {
   wrapEvent,
   updateObject,
   updateActiveTool,
-  getShortcutKey,
   isTransparent,
   easeToValuesRAF,
   muteFSAbortError,
@@ -456,7 +454,6 @@ import {
   isMeasureTextSupported,
   normalizeText,
   measureText,
-  getLineHeightInPx,
   getApproxMinLineWidth,
   getApproxMinLineHeight,
   getMinTextElementWidth,
@@ -544,7 +541,6 @@ const YOUTUBE_VIDEO_STATES = new Map<
 
 let IS_PLAIN_PASTE = false;
 let IS_PLAIN_PASTE_TIMER = 0;
-let PLAIN_PASTE_TOAST_SHOWN = false;
 
 let lastPointerUp: (() => void) | null = null;
 const gesture: Gesture = {
@@ -555,6 +551,7 @@ const gesture: Gesture = {
 };
 
 class App extends React.Component<AppProps, AppState> {
+  private documentEpoch = 0;
   canvas: AppClassProperties["canvas"];
   interactiveCanvas: AppClassProperties["interactiveCanvas"] = null;
   rc: RoughCanvas;
@@ -714,10 +711,12 @@ class App extends React.Component<AppProps, AppState> {
     if (excalidrawAPI) {
       const api: ExcalidrawImperativeAPI = {
         updateScene: this.updateScene,
+        replaceScene: this.replaceScene,
         updateLibrary: this.library.updateLibrary,
         addFiles: this.addFiles,
         resetScene: this.resetScene,
         getSceneElementsIncludingDeleted: this.getSceneElementsIncludingDeleted,
+        getSceneVersion: () => this.scene.getSceneNonce(),
         history: {
           clear: this.resetHistory,
         },
@@ -2207,7 +2206,35 @@ class App extends React.Component<AppProps, AppState> {
     },
   );
 
+  /** Switches the active document while retaining the mounted editor. */
+  public replaceScene = withBatchedUpdates(
+    (sceneData: {
+      elements: SceneData["elements"];
+      appState: Partial<AppState>;
+      files: BinaryFiles;
+    }) => {
+      this.documentEpoch += 1;
+      this.resetStore();
+      this.resetHistory();
+      this.clearImageShapeCache();
+      this.imageCache.clear();
+      this.addMissingFiles(sceneData.files, true);
+      this.updateScene({
+        elements: sceneData.elements,
+        appState: {
+          ...getDefaultAppState(),
+          ...sceneData.appState,
+          selectedElementIds: {},
+          selectedGroupIds: {},
+        },
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+      this.addNewImagesToImageCache();
+    },
+  );
+
   private initializeScene = async () => {
+    const initialDocumentEpoch = this.documentEpoch;
     if ("launchQueue" in window && "LaunchParams" in window) {
       (window as any).launchQueue.setConsumer(
         async (launchParams: { files: any[] }) => {
@@ -2257,6 +2284,7 @@ class App extends React.Component<AppProps, AppState> {
         },
       };
     }
+    if (initialDocumentEpoch !== this.documentEpoch) return;
     const scene = restore(initialData, null, null, { repairBindings: true });
     scene.appState = {
       ...scene.appState,
@@ -3143,7 +3171,7 @@ class App extends React.Component<AppProps, AppState> {
           }
           return;
         }
-        this.addTextFromPaste(data.text, isPlainPaste);
+        this.addTextFromPaste(data.text);
       }
       this.setActiveTool({ type: "selection" });
       event?.preventDefault();
@@ -3383,15 +3411,17 @@ class App extends React.Component<AppProps, AppState> {
     } else {
       const textNodes = mixedContent.filter((node) => node.type === "text");
       if (textNodes.length) {
-        this.addTextFromPaste(
-          textNodes.map((node) => node.value).join("\n\n"),
-          isPlainPaste,
-        );
+        this.addTextFromPaste(textNodes.map((node) => node.value).join("\n\n"));
       }
     }
   }
 
-  private addTextFromPaste(text: string, isPlainPaste = false) {
+  private addTextFromPaste(text: string) {
+    const originalText = normalizeText(text).trim();
+    if (!originalText) {
+      return;
+    }
+
     const { x, y } = viewportCoordsToSceneCoords(
       {
         clientX: this.lastViewportPosition.x,
@@ -3426,88 +3456,36 @@ class App extends React.Component<AppProps, AppState> {
     const [x1, , x2] = getVisibleSceneBounds(this.state);
     // long texts should not go beyond 800 pixels in width nor should it go below 200 px
     const maxTextWidth = Math.max(Math.min((x2 - x1) * 0.5, 800), 200);
-    const LINE_GAP = 10;
-    let currentY = y;
+    const topLayerFrame = this.getTopLayerFrameAtSceneCoords({ x, y });
+    let metrics = measureText(originalText, fontString, lineHeight);
+    const isTextUnwrapped = metrics.width > maxTextWidth;
+    const wrappedText = isTextUnwrapped
+      ? wrapText(originalText, fontString, maxTextWidth)
+      : originalText;
 
-    const lines = isPlainPaste ? [text] : text.split("\n");
-    const textElements = lines.reduce(
-      (acc: ExcalidrawTextElement[], line, idx) => {
-        const originalText = normalizeText(line).trim();
-        if (originalText.length) {
-          const topLayerFrame = this.getTopLayerFrameAtSceneCoords({
-            x,
-            y: currentY,
-          });
-
-          let metrics = measureText(originalText, fontString, lineHeight);
-          const isTextUnwrapped = metrics.width > maxTextWidth;
-
-          const text = isTextUnwrapped
-            ? wrapText(originalText, fontString, maxTextWidth)
-            : originalText;
-
-          metrics = isTextUnwrapped
-            ? measureText(text, fontString, lineHeight)
-            : metrics;
-
-          const startX = x - metrics.width / 2;
-          const startY = currentY - metrics.height / 2;
-
-          const element = newTextElement({
-            ...textElementProps,
-            x: startX,
-            y: startY,
-            text,
-            originalText,
-            lineHeight,
-            autoResize: !isTextUnwrapped,
-            frameId: topLayerFrame ? topLayerFrame.id : null,
-          });
-          acc.push(element);
-          currentY += element.height + LINE_GAP;
-        } else {
-          const prevLine = lines[idx - 1]?.trim();
-          // add paragraph only if previous line was not empty, IOW don't add
-          // more than one empty line
-          if (prevLine) {
-            currentY +=
-              getLineHeightInPx(textElementProps.fontSize, lineHeight) +
-              LINE_GAP;
-          }
-        }
-
-        return acc;
-      },
-      [],
-    );
-
-    if (textElements.length === 0) {
-      return;
+    if (isTextUnwrapped) {
+      metrics = measureText(wrappedText, fontString, lineHeight);
     }
 
-    this.scene.insertElements(textElements);
+    const element = newTextElement({
+      ...textElementProps,
+      x: x - metrics.width / 2,
+      y: y - metrics.height / 2,
+      text: wrappedText,
+      originalText,
+      lineHeight,
+      autoResize: !isTextUnwrapped,
+      frameId: topLayerFrame ? topLayerFrame.id : null,
+    });
+
+    this.scene.insertElements([element]);
 
     this.setState({
       selectedElementIds: makeNextSelectedElementIds(
-        Object.fromEntries(textElements.map((el) => [el.id, true])),
+        { [element.id]: true },
         this.state,
       ),
     });
-
-    if (
-      !isPlainPaste &&
-      textElements.length > 1 &&
-      PLAIN_PASTE_TOAST_SHOWN === false &&
-      !this.device.editor.isMobile
-    ) {
-      this.setToast({
-        message: t("toast.pasteAsSingleElement", {
-          shortcut: getShortcutKey("CtrlOrCmd+Shift+V"),
-        }),
-        duration: 5000,
-      });
-      PLAIN_PASTE_TOAST_SHOWN = true;
-    }
 
     this.store.shouldCaptureIncrement();
   }
@@ -6652,6 +6630,9 @@ class App extends React.Component<AppProps, AppState> {
         gesture.pointers.size <= 1 &&
         (event.button === POINTER_BUTTON.WHEEL ||
           (event.button === POINTER_BUTTON.MAIN && isHoldingSpace) ||
+          (event.button === POINTER_BUTTON.MAIN &&
+            this.state.activeTool.type === TOOL_TYPE.selection &&
+            event[KEYS.CTRL_OR_CMD]) ||
           isHandToolActive(this.state) ||
           this.state.viewModeEnabled)
       )
@@ -10814,53 +10795,27 @@ class App extends React.Component<AppProps, AppState> {
         return;
       }
 
-      const { deltaX, deltaY } = event;
-      // note that event.ctrlKey is necessary to handle pinch zooming
-      if (event.metaKey || event.ctrlKey) {
-        const sign = Math.sign(deltaY);
-        const MAX_STEP = ZOOM_STEP * 100;
-        const absDelta = Math.abs(deltaY);
-        let delta = deltaY;
-        if (absDelta > MAX_STEP) {
-          delta = MAX_STEP * sign;
-        }
+      const wheelDelta = event.deltaY || event.deltaX;
+      const pixelDelta = wheelDelta * (
+        event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? this.state.height : 1
+      );
+      const zoomDelta = Math.max(-120, Math.min(120, pixelDelta));
+      if (zoomDelta === 0) return;
 
-        let newZoom = this.state.zoom.value - delta / 100;
-        // increase zoom steps the more zoomed-in we are (applies to >100% only)
-        newZoom +=
-          Math.log10(Math.max(1, this.state.zoom.value)) *
-          -sign *
-          // reduced amplification for small deltas (small movements on a trackpad)
-          Math.min(1, absDelta / 20);
-
-        this.translateCanvas((state) => ({
-          ...getStateForZoom(
-            {
-              viewportX: this.lastViewportPosition.x,
-              viewportY: this.lastViewportPosition.y,
-              nextZoom: getNormalizedZoom(newZoom),
-            },
-            state,
-          ),
-          shouldCacheIgnoreZoom: true,
-        }));
-        this.resetShouldCacheIgnoreZoomDebounced();
-        return;
-      }
-
-      // scroll horizontally when shift pressed
-      if (event.shiftKey) {
-        this.translateCanvas(({ zoom, scrollX }) => ({
-          // on Mac, shift+wheel tends to result in deltaX
-          scrollX: scrollX - (deltaY || deltaX) / zoom.value,
-        }));
-        return;
-      }
-
-      this.translateCanvas(({ zoom, scrollX, scrollY }) => ({
-        scrollX: scrollX - deltaX / zoom.value,
-        scrollY: scrollY - deltaY / zoom.value,
+      this.translateCanvas((state) => ({
+        ...getStateForZoom(
+          {
+            viewportX: event.clientX,
+            viewportY: event.clientY,
+            nextZoom: getNormalizedZoom(
+              state.zoom.value * Math.exp(-zoomDelta / 600),
+            ),
+          },
+          state,
+        ),
+        shouldCacheIgnoreZoom: true,
       }));
+      this.resetShouldCacheIgnoreZoomDebounced();
     },
   );
 
