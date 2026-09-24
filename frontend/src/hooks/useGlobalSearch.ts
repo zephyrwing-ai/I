@@ -57,6 +57,10 @@ export function useGlobalSearch(
   }, [activeBlockId, results]);
 
   useEffect(() => {
+    setActiveBlockId(null);
+  }, [state.history.requestGeneration]);
+
+  useEffect(() => {
     if (!query.trim() || !state.history.hydrated || !state.history.hasMore || state.history.loadingSearch) return;
     const timer = window.setTimeout(() => {
       void loadSearchPage();

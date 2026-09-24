@@ -12,8 +12,6 @@ export type ShortcutName =
       | "cut"
       | "copy"
       | "paste"
-      | "copyStyles"
-      | "pasteStyles"
       | "selectAll"
       | "deleteSelectedElements"
       | "duplicateSelection"
@@ -34,9 +32,6 @@ export type ShortcutName =
       | "flipVertical"
       | "hyperlink"
       | "toggleElementLock"
-      | "resetZoom"
-      | "zoomOut"
-      | "zoomIn"
       | "zoomToFit"
       | "zoomToFitSelectionInViewport"
       | "zoomToFitSelection"
@@ -45,7 +40,6 @@ export type ShortcutName =
       | "setFrameAsActiveTool"
       | "saveFileToDisk"
       | "saveToActiveFile"
-      | "toggleShortcuts"
       | "wrapSelectionInFrame"
     >
   | "saveScene"
@@ -64,8 +58,6 @@ const shortcutMap: Record<ShortcutName, string[]> = {
   cut: [getShortcutKey("CtrlOrCmd+X")],
   copy: [getShortcutKey("CtrlOrCmd+C")],
   paste: [getShortcutKey("CtrlOrCmd+V")],
-  copyStyles: [getShortcutKey("CtrlOrCmd+Alt+C")],
-  pasteStyles: [getShortcutKey("CtrlOrCmd+Alt+V")],
   selectAll: [getShortcutKey("CtrlOrCmd+A")],
   deleteSelectedElements: [getShortcutKey("Delete")],
   duplicateSelection: [
@@ -97,9 +89,6 @@ const shortcutMap: Record<ShortcutName, string[]> = {
   viewMode: [getShortcutKey("Alt+R")],
   hyperlink: [getShortcutKey("CtrlOrCmd+K")],
   toggleElementLock: [getShortcutKey("CtrlOrCmd+Shift+L")],
-  resetZoom: [getShortcutKey("CtrlOrCmd+0")],
-  zoomOut: [getShortcutKey("CtrlOrCmd+-")],
-  zoomIn: [getShortcutKey("CtrlOrCmd++")],
   zoomToFitSelection: [getShortcutKey("Shift+3")],
   zoomToFit: [getShortcutKey("Shift+1")],
   zoomToFitSelectionInViewport: [getShortcutKey("Shift+2")],
@@ -108,7 +97,6 @@ const shortcutMap: Record<ShortcutName, string[]> = {
   setFrameAsActiveTool: [getShortcutKey("F")],
   saveFileToDisk: [getShortcutKey("CtrlOrCmd+S")],
   saveToActiveFile: [getShortcutKey("CtrlOrCmd+S")],
-  toggleShortcuts: [getShortcutKey("?")],
   wrapSelectionInFrame: [],
 };
 

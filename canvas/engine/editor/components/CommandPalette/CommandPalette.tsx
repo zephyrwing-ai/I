@@ -22,8 +22,6 @@ import {
   clockIcon,
   searchIcon,
   boltIcon,
-  bucketFillIcon,
-  ExportImageIcon,
 } from "../icons";
 import fuzzy from "fuzzy";
 import { useUIAppState } from "../../context/ui-appState";
@@ -38,7 +36,6 @@ import { deburr } from "../../deburr";
 import type { MarkRequired } from "../../utility-types";
 import { InlineIcon } from "../InlineIcon";
 import { SHAPES } from "../../shapes";
-import { canChangeBackgroundColor, canChangeStrokeColor } from "../Actions";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import {
   actionClearCanvas,
@@ -60,7 +57,6 @@ const lastUsedPaletteItem = atom<CommandPaletteItem | null>(null);
 
 export const DEFAULT_CATEGORIES = {
   app: "App",
-  export: "Export",
   tools: "Tools",
   editor: "Editor",
   elements: "Elements",
@@ -71,16 +67,14 @@ const getCategoryOrder = (category: string) => {
   switch (category) {
     case DEFAULT_CATEGORIES.app:
       return 1;
-    case DEFAULT_CATEGORIES.export:
-      return 2;
     case DEFAULT_CATEGORIES.editor:
-      return 3;
+      return 2;
     case DEFAULT_CATEGORIES.tools:
-      return 4;
+      return 3;
     case DEFAULT_CATEGORIES.elements:
-      return 5;
+      return 4;
     case DEFAULT_CATEGORIES.links:
-      return 6;
+      return 5;
     default:
       return 10;
   }
@@ -259,8 +253,6 @@ function CommandPaletteInner({
         actionManager.actions.copy,
         actionManager.actions.deleteSelectedElements,
         actionManager.actions.wrapSelectionInFrame,
-        actionManager.actions.copyStyles,
-        actionManager.actions.pasteStyles,
         actionManager.actions.bringToFront,
         actionManager.actions.bringForward,
         actionManager.actions.sendBackward,
@@ -276,8 +268,6 @@ function CommandPaletteInner({
         actionManager.actions.flipVertical,
         actionManager.actions.zoomToFitSelection,
         actionManager.actions.zoomToFitSelectionInViewport,
-        actionManager.actions.increaseFontSize,
-        actionManager.actions.decreaseFontSize,
         actionManager.actions.toggleLinearEditor,
         actionManager.actions.cropEditor,
         actionLink,
@@ -309,27 +299,16 @@ function CommandPaletteInner({
       const editorCommands: CommandPaletteItem[] = [
         actionManager.actions.undo,
         actionManager.actions.redo,
-        actionManager.actions.zoomIn,
-        actionManager.actions.zoomOut,
-        actionManager.actions.resetZoom,
         actionManager.actions.zoomToFit,
         actionManager.actions.zenMode,
         actionManager.actions.viewMode,
         actionManager.actions.gridMode,
         actionManager.actions.objectsSnapMode,
-        actionManager.actions.toggleShortcuts,
         actionManager.actions.selectAll,
         actionManager.actions.toggleElementLock,
         actionManager.actions.unlockAllElements,
         actionManager.actions.stats,
       ].map((action) => actionToCommand(action, DEFAULT_CATEGORIES.editor));
-
-      const exportCommands: CommandPaletteItem[] = [
-        actionManager.actions.saveToActiveFile,
-        actionManager.actions.saveFileToDisk,
-        actionManager.actions.copyAsPng,
-        actionManager.actions.copyAsSvg,
-      ].map((action) => actionToCommand(action, DEFAULT_CATEGORIES.export));
 
       commandsFromActions = [
         ...elementsCommands,
@@ -347,81 +326,9 @@ function CommandPaletteInner({
             editorJotaiStore.set(activeConfirmDialogAtom, "clearCanvas");
           },
         },
-        {
-          label: t("buttons.exportImage"),
-          category: DEFAULT_CATEGORIES.export,
-          icon: ExportImageIcon,
-          shortcut: getShortcutFromShortcutName("imageExport"),
-          keywords: [
-            "export",
-            "image",
-            "png",
-            "jpeg",
-            "svg",
-            "clipboard",
-            "picture",
-          ],
-          perform: () => {
-            setAppState({ openDialog: { name: "imageExport" } });
-          },
-        },
-        ...exportCommands,
       ];
 
       const additionalCommands: CommandPaletteItem[] = [
-        {
-          label: t("labels.changeStroke"),
-          keywords: ["color", "outline"],
-          category: DEFAULT_CATEGORIES.elements,
-          icon: bucketFillIcon,
-          viewMode: false,
-          predicate: (elements, appState) => {
-            const selectedElements = getSelectedElements(elements, appState);
-            return (
-              selectedElements.length > 0 &&
-              canChangeStrokeColor(appState, selectedElements)
-            );
-          },
-          perform: () => {
-            setAppState((prevState) => ({
-              openMenu: prevState.openMenu === "shape" ? null : "shape",
-              openPopup: "elementStroke",
-            }));
-          },
-        },
-        {
-          label: t("labels.changeBackground"),
-          keywords: ["color", "fill"],
-          icon: bucketFillIcon,
-          category: DEFAULT_CATEGORIES.elements,
-          viewMode: false,
-          predicate: (elements, appState) => {
-            const selectedElements = getSelectedElements(elements, appState);
-            return (
-              selectedElements.length > 0 &&
-              canChangeBackgroundColor(appState, selectedElements)
-            );
-          },
-          perform: () => {
-            setAppState((prevState) => ({
-              openMenu: prevState.openMenu === "shape" ? null : "shape",
-              openPopup: "elementBackground",
-            }));
-          },
-        },
-        {
-          label: t("labels.canvasBackground"),
-          keywords: ["color"],
-          icon: bucketFillIcon,
-          category: DEFAULT_CATEGORIES.editor,
-          viewMode: false,
-          perform: () => {
-            setAppState((prevState) => ({
-              openMenu: prevState.openMenu === "canvas" ? null : "canvas",
-              openPopup: "canvasBackground",
-            }));
-          },
-        },
         ...SHAPES.reduce((acc: CommandPaletteItem[], shape) => {
           const { value, icon, key, numericKey } = shape;
 

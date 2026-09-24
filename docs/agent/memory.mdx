@@ -51,27 +51,27 @@ projects 1 ──────── 1 project_context
 | payload_json | TEXT | 非空 | 完整 ModelMessage |
 | created_at | INTEGER | 非空 | 记录创建时间 |
 | updated_at | INTEGER | 非空 | 最近更新时间 |
-| completed_at | INTEGER | 可空 | 助手消息完成时间 |
+| duration_ms | INTEGER | 可空 | 助手消息完成时从对应用户消息起算的持久化运行时长（毫秒） |
 
 `project_id IS NULL` 的记录构成无项目历史；`project_id = ?` 的记录构成对应项目历史。两个范围共享全局 `entry_order`，历史读取先按范围过滤，再按 `entry_order` 排序。
 
 ## 项目上下文缓存
 
-`project_context` 保存一个项目的有限目录树。
+`project_context` 保存一个项目的优先排序、有界目录导航地图。快照包含扫描深度、每目录条目上限、总节点预算、目录省略数量和无法读取标记。模型收到可读的工作目录说明和有限路径地图，并通过文件工具按需读取项目内容。
 
 | 字段 | SQLite 类型 | 约束 | 语义 |
 | --- | --- | --- | --- |
 | project_id | TEXT | 主键、外键 | 对应项目 |
-| tree_json | TEXT | 非空 | 有界目录结构 |
+| tree_json | TEXT | 非空 | 有界路径地图及其省略元数据 |
 | tree_hash | TEXT | 非空 | 目录结构摘要 |
 | captured_at | INTEGER | 非空 | 扫描时间 |
 | scan_policy_version | TEXT | 非空 | 扫描策略版本 |
-| complete | INTEGER | 非空 | 扫描完整性 |
+| complete | INTEGER | 非空 | 有界快照是否成功生成 |
 | dirty | INTEGER | 非空 | 下一次运行的更新标记 |
 
-Main 在项目首次激活、缓存缺失、策略版本变化或缓存 dirty 时扫描目录。工具创建或更新项目文件后，Main 将对应缓存标记为 dirty。下一次模型请求使用最新缓存。
+Main 在项目首次激活、缓存缺失、策略版本变化或缓存 dirty 时生成目录地图。生成过程过滤隐藏目录及常见构建/缓存目录，优先展示项目入口文件和源码目录，并按深度、目录数量、总节点数和提示字符数控制地图规模。工具创建或更新项目文件后，Main 将对应缓存标记为 dirty。下一次模型请求使用最新缓存。
 
-目录树作为临时模型上下文进入请求。目录树不会写入 `entries`，文件内容继续由 `list_dir`、`find_files`、`search_content` 和 `read` 工具按需提供。
+目录地图作为临时模型上下文进入请求。地图标识当前工作目录并说明自身的范围；文件内容继续由 `list_dir`、`find_files`、`search_content` 和 `read` 工具按需提供。目录地图不会写入 `entries`。
 
 ## HistoryRecorder
 

@@ -353,6 +353,23 @@ type ElementSelectionBorder = {
   padding?: number;
 };
 
+const strokeSelectionOutline = (
+  context: CanvasRenderingContext2D,
+  appState: InteractiveCanvasAppState,
+  selectionColor: string,
+  stroke: () => void,
+) => {
+  // Selection is a UI affordance, not a restyle of the selected element. A
+  // single theme-aware contour avoids the stacked parallel edges produced by
+  // multiple halo strokes, while the selection handles remain separately
+  // rendered for interaction.
+  context.save();
+  context.strokeStyle = selectionColor;
+  context.lineWidth = 1.5 / appState.zoom.value;
+  stroke();
+  context.restore();
+};
+
 const renderSelectionBorder = (
   context: CanvasRenderingContext2D,
   appState: InteractiveCanvasAppState,
@@ -394,16 +411,28 @@ const renderSelectionBorder = (
       ]);
     }
     context.lineDashOffset = (lineWidth + spaceWidth) * index;
-    strokeRectWithRotation(
-      context,
-      x1 - linePadding,
-      y1 - linePadding,
-      elementWidth + linePadding * 2,
-      elementHeight + linePadding * 2,
-      cx,
-      cy,
-      angle,
-    );
+    const stroke = () =>
+      strokeRectWithRotation(
+        context,
+        x1 - linePadding,
+        y1 - linePadding,
+        elementWidth + linePadding * 2,
+        elementHeight + linePadding * 2,
+        cx,
+        cy,
+        angle,
+      );
+
+    if (activeEmbeddable) {
+      stroke();
+    } else {
+      strokeSelectionOutline(
+        context,
+        appState,
+        selectionColors[index],
+        stroke,
+      );
+    }
   }
   context.restore();
 };
@@ -590,7 +619,6 @@ const renderLinearPointHandles = (
 
 const renderTransformHandles = (
   context: CanvasRenderingContext2D,
-  renderConfig: InteractiveCanvasRenderConfig,
   appState: InteractiveCanvasAppState,
   transformHandles: TransformHandles,
   angle: number,
@@ -601,10 +629,10 @@ const renderTransformHandles = (
       const [x, y, width, height] = transformHandle;
 
       context.save();
-      context.lineWidth = 1 / appState.zoom.value;
-      if (renderConfig.selectionColor) {
-        context.strokeStyle = renderConfig.selectionColor;
-      }
+      context.lineWidth = 1.5 / appState.zoom.value;
+      context.strokeStyle =
+        appState.theme === THEME.DARK ? "#ffffff" : "#25282d";
+      context.fillStyle = oc.white;
       if (key === "rotation") {
         fillCircle(context, x + width / 2, y + height / 2, width / 2);
         // prefer round corners if roundRect API is available
@@ -1051,7 +1079,6 @@ const _renderInteractiveScene = ({
       ) {
         renderTransformHandles(
           context,
-          renderConfig,
           appState,
           transformHandles,
           selectedElements[0].angle,
@@ -1080,17 +1107,18 @@ const _renderInteractiveScene = ({
       context.setLineDash([2 / appState.zoom.value]);
       const lineWidth = context.lineWidth;
       context.lineWidth = 1 / appState.zoom.value;
-      context.strokeStyle = selectionColor;
-      strokeRectWithRotation(
-        context,
-        x1 - dashedLinePadding,
-        y1 - dashedLinePadding,
-        x2 - x1 + dashedLinePadding * 2,
-        y2 - y1 + dashedLinePadding * 2,
-        (x1 + x2) / 2,
-        (y1 + y2) / 2,
-        0,
-      );
+      const stroke = () =>
+        strokeRectWithRotation(
+          context,
+          x1 - dashedLinePadding,
+          y1 - dashedLinePadding,
+          x2 - x1 + dashedLinePadding * 2,
+          y2 - y1 + dashedLinePadding * 2,
+          (x1 + x2) / 2,
+          (y1 + y2) / 2,
+          0,
+        );
+      strokeSelectionOutline(context, appState, selectionColor, stroke);
       context.lineWidth = lineWidth;
       context.setLineDash(initialLineDash);
       const transformHandles = getTransformHandlesFromCoords(
@@ -1105,7 +1133,6 @@ const _renderInteractiveScene = ({
       if (selectedElements.some((element) => !element.locked)) {
         renderTransformHandles(
           context,
-          renderConfig,
           appState,
           transformHandles,
           0,

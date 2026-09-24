@@ -324,17 +324,10 @@ export interface AppState {
   isResizing: boolean;
   isRotating: boolean;
   zoom: Zoom;
-  openMenu: "canvas" | "shape" | null;
-  openPopup:
-    | "canvasBackground"
-    | "elementBackground"
-    | "elementStroke"
-    | "fontFamily"
-    | null;
   openSidebar: { name: SidebarName; tab?: SidebarTabName } | null;
   openDialog:
     | null
-    | { name: "imageExport" | "help" }
+    | { name: "imageExport" }
     | { name: "commandPalette" }
     | { name: "elementLinkSelector"; sourceElementId: ExcalidrawElement["id"] };
 
@@ -611,7 +604,6 @@ export type ExportOpts = {
 // (see manager renderAction). We also override canvasAction values in
 // Excalidraw package index.tsx.
 export type CanvasActions = Partial<{
-  changeViewBackgroundColor: boolean;
   clearCanvas: boolean;
   export: false | ExportOpts;
   saveToActiveFile: boolean;

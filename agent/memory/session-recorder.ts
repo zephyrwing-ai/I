@@ -75,7 +75,7 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
   private readonly repository: HistoryRepository;
   private readonly completedMessages: ModelMessage[] = [];
   private readonly activeDrafts = new Map<string, DraftState>();
-  private readonly userEntries = new Map<string, { entryId: string; message: ModelMessage }>();
+  private readonly userEntries = new Map<string, { entryId: string; message: ModelMessage; createdAt?: number }>();
   private readonly toolEntries = new Map<string, { entryId: string; message: ModelMessage }>();
   private readonly assistantEntries = new Map<string, string>();
   private writeChain: Promise<void> = Promise.resolve();
@@ -86,7 +86,9 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
     this.projectId = projectId;
     this.repository = repository;
     for (const entry of [...entries].sort((left, right) => left.entryOrder - right.entryOrder)) {
-      if (entry.type === "user_message") this.userEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload) });
+      if (entry.type === "user_message") {
+        this.userEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload), createdAt: entry.createdAt });
+      }
       if (entry.type === "tool_result" && entry.toolCallId) this.toolEntries.set(entry.toolCallId, { entryId: entry.id, message: cloneMessage(entry.payload) });
       if (entry.type === "assistant_message" && entry.turnId) this.assistantEntries.set(entry.turnId, entry.id);
       if (entry.status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
@@ -122,6 +124,7 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
         runId: context.runId,
         payload: copy,
       });
+      this.userEntries.set(context.runId, { entryId, message: copy, createdAt: entry.createdAt });
       this.completedMessages.push(cloneMessage(entry.payload));
     });
   }
@@ -307,6 +310,10 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
     const finalStatus = draft.finalStatus;
     const status = finalStatus ?? (draft.terminal ? "completed" : "streaming");
     const completedAt = status === "completed" ? Date.now() : undefined;
+    const userCreatedAt = this.userEntries.get(draft.runId)?.createdAt;
+    const durationMs = completedAt !== undefined && userCreatedAt !== undefined
+      ? Math.max(0, completedAt - userCreatedAt)
+      : undefined;
     let entry: HistoryEntry;
     if (draft.revision === null) {
       entry = await this.repository.appendEntry(this.projectId, {
@@ -316,13 +323,15 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
         runId: draft.runId,
         turnId: draft.turnId,
         payload: cloneMessage(draft.message),
-        completedAt,
+        updatedAt: completedAt,
+        durationMs,
       });
     } else {
       entry = await this.repository.updateEntry(draft.entryId, draft.revision, {
         status,
         payload: cloneMessage(draft.message),
-        completedAt,
+        updatedAt: completedAt,
+        durationMs,
       });
     }
     draft.revision = entry.revision;

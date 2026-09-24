@@ -140,65 +140,6 @@ body.excalidraw-cursor-resize * {
     justify-content: space-between;
   }
 
-  .panelColumn {
-    display: flex;
-    flex-direction: column;
-    row-gap: 0.75rem;
-
-    h3,
-    legend,
-    .control-label {
-      margin: 0;
-      margin-bottom: 0.25rem;
-      font-size: 0.75rem;
-      color: var(--text-primary-color);
-      font-weight: 400;
-      display: block;
-    }
-
-    .control-label input {
-      display: block;
-      width: 100%;
-    }
-
-    legend {
-      padding: 0;
-    }
-
-    .iconSelectList {
-      flex-wrap: wrap;
-      position: relative;
-    }
-
-    .buttonList {
-      flex-wrap: wrap;
-      display: flex;
-      column-gap: 0.5rem;
-      row-gap: 0.5rem;
-
-      label {
-        font-size: 0.75rem;
-      }
-
-      input[type="radio"],
-      input[type="button"] {
-        opacity: 0;
-        position: absolute;
-        pointer-events: none;
-      }
-
-      .iconRow {
-        margin-top: 8px;
-      }
-    }
-
-    fieldset {
-      margin: 0;
-      padding: 0;
-      border: none;
-    }
-  }
-
   .divider {
     width: 1px;
     background-color: $oc-gray-2;
@@ -264,9 +205,6 @@ body.excalidraw-cursor-resize * {
       flex-direction: column;
       pointer-events: var(--ui-pointerEvents);
 
-      .panelColumn {
-        padding: 8px 8px 0 8px;
-      }
     }
   }
 
@@ -296,14 +234,6 @@ body.excalidraw-cursor-resize * {
     }
   }
 
-  .App-mobile-menu {
-    width: 100%;
-    overflow-x: visible;
-    overflow-y: auto;
-    box-sizing: border-box;
-    margin-bottom: var(--bar-padding);
-  }
-
   .App-menu {
     display: grid;
     color: var(--icon-fill-color);
@@ -316,6 +246,36 @@ body.excalidraw-cursor-resize * {
 
     & > * {
       pointer-events: var(--ui-pointerEvents);
+    }
+  }
+
+  .layer-ui__wrapper > .shapes-section--bottom {
+    position: absolute;
+    z-index: 8;
+    left: 50%;
+    bottom: calc(1rem + var(--sab, 0px));
+    width: max-content;
+    max-width: calc(100% - 2rem);
+    overflow: visible;
+    transform: translateX(-50%);
+    pointer-events: auto !important;
+
+    & > * {
+      max-width: 100%;
+    }
+
+    .App-toolbar {
+      display: flex;
+      width: max-content;
+      max-width: 100%;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
     }
   }
 
@@ -384,14 +344,6 @@ body.excalidraw-cursor-resize * {
     height: 100%;
   }
 
-  .App-menu__left {
-    overflow-y: auto;
-    padding: 0.75rem;
-    width: 12.5rem;
-    box-sizing: border-box;
-    position: absolute;
-  }
-
   .dropdown-select {
     height: 1.5rem;
     padding: 0;
@@ -439,46 +391,6 @@ body.excalidraw-cursor-resize * {
     }
   }
 
-  .scroll-back-to-content {
-    border-radius: var(--border-radius-lg);
-    background-color: var(--island-bg-color);
-    color: var(--icon-fill-color);
-
-    border: 1px solid var(--default-border-color);
-    padding: 10px 20px;
-    position: absolute;
-    left: 50%;
-    bottom: 30px;
-    transform: translateX(-50%);
-    pointer-events: var(--ui-pointerEvents);
-    font-family: inherit;
-
-    &:hover {
-      background-color: var(--button-hover-bg);
-    }
-
-    &:active {
-      border: 1px solid var(--button-active-border);
-    }
-  }
-
-  .help-icon {
-    @include outlineButtonStyles;
-    @include filledButtonOnCanvas;
-
-    width: var(--lg-button-size);
-    height: var(--lg-button-size);
-
-    svg {
-      width: var(--lg-icon-size);
-      height: var(--lg-icon-size);
-    }
-  }
-
-  .reset-zoom-button {
-    font-family: var(--ui-font);
-  }
-
   .finalize-button {
     display: grid;
     grid-auto-flow: column;
@@ -500,10 +412,6 @@ body.excalidraw-cursor-resize * {
   @include isMobile {
     aside {
       display: none;
-    }
-    .scroll-back-to-content {
-      bottom: calc(80px + var(--sab, 0));
-      z-index: -1;
     }
   }
 
@@ -642,30 +550,6 @@ body.excalidraw-cursor-resize * {
       font-weight: 400;
       margin: 0 0 0.25rem;
       padding: 0;
-    }
-  }
-
-  .main-menu-trigger {
-    @include filledButtonOnCanvas;
-  }
-
-  .App-mobile-menu,
-  .App-menu__left {
-    --button-border: transparent;
-    --button-bg: var(--color-surface-mid);
-  }
-
-  @at-root .excalidraw.theme--dark#{&} {
-    .App-mobile-menu,
-    .App-menu__left {
-      --button-hover-bg: #363541;
-      --button-bg: var(--color-surface-high);
-    }
-  }
-
-  .App-menu__left {
-    .buttonList {
-      padding: 0.25rem 0;
     }
   }
 

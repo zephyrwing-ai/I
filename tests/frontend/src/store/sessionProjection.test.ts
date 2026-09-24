@@ -23,7 +23,7 @@ function entry(partial: Partial<HistoryPageEntry> & Pick<HistoryPageEntry, "entr
     payload: partial.payload,
     createdAt: partial.createdAt ?? partial.entryOrder,
     updatedAt: partial.updatedAt ?? partial.entryOrder,
-    completedAt: partial.completedAt ?? null,
+    durationMs: partial.durationMs ?? null,
   };
 }
 

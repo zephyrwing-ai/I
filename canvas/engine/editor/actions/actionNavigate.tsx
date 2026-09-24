@@ -39,8 +39,6 @@ export const actionGoToCollaborator = register({
           socketId: collaborator.socketId,
           username: collaborator.username || "",
         },
-        // Close mobile menu
-        openMenu: appState.openMenu === "canvas" ? null : appState.openMenu,
       },
       captureUpdate: CaptureUpdateAction.EVENTUALLY,
     };

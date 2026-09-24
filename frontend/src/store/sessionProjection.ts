@@ -67,7 +67,7 @@ export function mergePersistedEntries(
     if (entry.type === "assistant_message") {
       turn.assistantContent = entry.payload.content;
       turn.assistantAt = entry.updatedAt;
-      turn.assistantCompletedAt = entry.completedAt ?? undefined;
+      turn.assistantDurationMs = entry.durationMs ?? undefined;
       turn.finalContent = entry.status === "completed" ? entry.payload.content : undefined;
       turn.reasoningContent = entry.payload.reasoning ?? "";
       turn.stopReason = entry.payload.toolCalls?.length ? "tool_use" : "stop";

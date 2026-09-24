@@ -84,7 +84,7 @@ export interface CanvasDocument {
   files: Record<string, CanvasBinaryFile>;
 }
 
-export type CanvasContextScope = "selection" | "document";
+export type CanvasContextScope = "selection";
 
 export interface CanvasContextInput {
   document: CanvasDocument;
@@ -176,7 +176,7 @@ export interface HistoryPageEntry {
   payload: ModelMessage;
   createdAt: number;
   updatedAt: number;
-  completedAt: number | null;
+  durationMs: number | null;
 }
 
 export interface HistoryPageResult {

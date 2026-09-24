@@ -7,6 +7,8 @@ export interface HistoryState {
   nextCursor: string | null;
   hasMore: boolean;
   snapshotOrder: number;
+  requestGeneration: number;
+  hydrationVersion: number;
   loadingInitial: boolean;
   loadingOlder: boolean;
   loadingSearch: boolean;
@@ -21,6 +23,8 @@ export const initialHistoryState: HistoryState = {
   nextCursor: null,
   hasMore: false,
   snapshotOrder: 0,
+  requestGeneration: 0,
+  hydrationVersion: 0,
   loadingInitial: true,
   loadingOlder: false,
   loadingSearch: false,

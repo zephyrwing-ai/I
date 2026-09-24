@@ -38,7 +38,6 @@ const ConfirmDialog = (props: Props) => {
         <DialogActionButton
           label={cancelText}
           onClick={() => {
-            setAppState({ openMenu: null });
             // flush any pending updates synchronously,
             // otherwise it could lead to crash in some chromium versions (131.0.6778.86),
             // when `.focus` is invoked with container in some intermediate state
@@ -53,7 +52,6 @@ const ConfirmDialog = (props: Props) => {
         <DialogActionButton
           label={confirmText}
           onClick={() => {
-            setAppState({ openMenu: null });
             // flush any pending updates synchronously,
             // otherwise it leads to crash in some chromium versions (131.0.6778.86),
             // when `.focus` is invoked with container in some intermediate state

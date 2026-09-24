@@ -17,22 +17,27 @@ Canvas 按钮。
 
 Canvas 面板。
 
-- 位置：位于右侧工作侧栏的内容区域，顶部保留50px安全区给标题栏按钮组和窗口操作区域。
-- 布局：宿主工具条位于画布上方；Excalidraw 占据工具条以下的全部可用高度，Canvas 面板自身不产生外层滚动。
-- 工具条：显示 Canvas 名称和保存状态；右侧提供使用选区与使用整个画布两个引用入口。编辑器主菜单只保留 Save（JSON）和 Save as image。
+- 位置：Canvas 使用右侧工作侧栏的完整内容区域。
+- 布局：Canvas 背景使用 Agent Studio 的 `--bg` 颜色，不绘制可见背景网格；网格吸附仍作为独立的绘图辅助状态，不会自动显示背景线。编辑器区域从窗口顶部延伸至侧栏底部；透明标题栏和右上角应用按钮浮在 Canvas 上方，按钮保持可点击。Canvas 面板自身不产生外层滚动。
+- 工具条：绘图工具固定在 Canvas 底部，与缩放/撤销区沿用同一底部基线；工具按钮直接显示在 Canvas 表面，不使用额外 Island 卡片容器，也不显示工具提示说明行。工具的选中、悬停、按下和键盘聚焦反馈使用 Agent Studio 灰色 token。选区定位最多每帧计算一次，传给编辑器的回调与配置保持稳定，避免拖动元素时反复重渲染整个编辑器。Help 按钮及其快捷键帮助对话框入口从 Canvas 源码中移除。
 - 工具：只保留选择、手型平移、矩形、圆形、菱形、线、箭头、自由绘制、文字、图片、橡皮擦、撤销和重做。
-- 使用选区：没有选中元素时禁用；触发后只引用当前非删除选区。
-- 使用整个画布：画布没有非删除元素时禁用；触发后引用当前全部非删除元素。
-- 关闭：侧栏关闭到零宽后不初始化新的编辑器实例；再次打开时在具有确定非零尺寸的容器中恢复编辑器。
+- 选区反馈：选中元素只增加一条与背景及图形均有足够对比度的选择轮廓；轮廓与元素自身描边保持清晰间距，控制点保持可见。不绘制多层平行光晕，不改写图形本身的描边或文档数据。
+- 选区浮层：选择一个或多个元素时，在选区附近显示 Use selection、Save image、Save JSON；三个操作位于同一个圆角浮层中，以贯穿浮层内容高度的竖线分隔。浮层操作区高度与底部工具栏单个按钮热区一致；按钮的 hover/active 背景填满各自分隔区域，不在按钮内部额外绘制小块背景。Save image 打开既有图片导出对话框，默认导出选区且可改为整个画布，并保留所选图片格式对应的扩展名；Save JSON 导出整个画布为标准 `.json` 文件。已有文件句柄继续使用用户原有文件名和扩展名。Use selection 只引用当前非删除选区；如需引用全画布，用户可先全选元素再执行 Use selection。默认菜单按钮及 Stroke/Background/Layers 属性面板和样式操作入口不再由 Canvas 挂载；无状态提示内容时不渲染空提示容器。
+- 样式：新建线条固定黑色，默认线宽为中等；自由绘制与普通线条使用同一视觉宽度，不通过压力将画笔放大。新建文字采用 Agent Studio 左侧的无衬线系统字体栈和 14px 默认字号；现有文档中的元素样式不在加载时改写。文字工具使用无衬线 T 图标；工具序号保持 8（图片9、橡皮擦0）。
+- 底部操作：Zoom 以整数百分比显示，四舍五入到最近的 1%；聚焦时整段进入编辑态并全选含 `%` 的值，输入 `24` 或 `24%` 均表示 24%。输入值限制在 10%–3000%，确认后以视口中心缩放；输入框无独立边框或内层框，焦点反馈应用于整个 Zoom 操作区。Zoom、Undo、Redo 的垂直热区与绘图工具按钮一致，Zoom 字段宽度按百分比文本内容保留必要空间。不提供 Reset Zoom 动作、快捷键或命令面板入口；滚轮、触控板和手势缩放保持可用。Zoom、Undo、Redo 共享一个底部浮层外框，并与选区操作浮层复用相同的背景材质、边框、圆角、阴影、分隔线与 hover/active token；操作之间以贯穿内容高度的竖线分隔，内部按钮不各自形成卡片。
+- 视口定位：当当前选区移出视口，或画布内容整体不可见时，从视口中心向目标作射线，并在射线与视口边界的交点显示透明的 30×30px 点击热区；只显示 18px、2px 描边的 mouse-pointer-2 图标并旋转指向目标，不对 TopBar 或底部工具区设置位置禁区，也不添加圆形底色、边框或阴影。选区优先，否则指向最近的画布内容。点击图标将视口平移到目标附近，不改变缩放比例；目标可见或画布为空时不显示。与普通画布内容一致，指针可能被更高层的 UI 遮挡，UI 控件仍保留点击优先级。
+- 关闭：侧栏关闭到零宽后短时间内不销毁编辑器实例；再次打开时在具有确定非零尺寸的容器中恢复编辑器。
+- 生命周期：应用启动后预热 Canvas 编辑器模块和当前项目文档；Canvas 首次打开后保持编辑器实例。侧栏关闭只隐藏并设置不可交互状态。连续关闭 10 分钟后才释放 renderer、图片解码缓存和撤销状态，Canvas 文档快照与编辑器模块缓存继续保留。
 - 滚轮：Canvas 保留 Excalidraw 的平移、缩放和选择行为，不接入消息流或输出文件列表的弹性滚动。
 - 安全：关闭远程 embeddable 内容、内置 Load、通用 Export、Library、Live Collaboration、Publish、分享和 AI/diagram 入口；Save 通过受控文件对话框输出 JSON，Save as image 保留图片导出。
+- 异常隔离：编辑器模块或文档恢复失败时，只在 Canvas 区域显示错误和重试入口，不得让主工作台 Renderer 变成空白。
 
 Canvas 持久化。
 
 - 范围：Canvas 属于当前项目或无项目历史范围，不属于当前 Run 的输出文件范围。
 - 文档：场景元素、可恢复 AppState 和图片文件元数据组成一个 CanvasDocument。
 - 图片：图片二进制与场景元数据分开保存，以 fileId 关联；不写入 HistoryRecorder 的项目历史 payload。
-- 保存：Renderer 只通过 Preload 暴露的受限 IPC 读写文档。Renderer 以 dirty generation 串行提交，Main 按项目范围单写者和 expected revision 校验顺序；旧 revision 的保存不得覆盖新文档。关闭或切换面板时等待最后一个 generation flush 完成后再销毁编辑器。Main 负责路径、输入验证、原子替换、revision 和图片资源目录；Renderer 不直接获得用户目录路径。
+- 保存：Renderer 只通过 Preload 暴露的受限 IPC 读写文档。Renderer 以 dirty generation 串行提交，Main 按项目范围单写者和 expected revision 校验顺序；旧 revision 的保存不得覆盖新文档。Canvas 卸载前等待最后一个 generation flush 完成；普通侧栏关闭或面板切换不销毁编辑器。Main 负责路径、输入验证、原子替换、revision 和图片资源目录；Renderer 不直接获得用户目录路径。
 - 恢复：打开 Canvas 时从当前项目或无项目范围文档恢复；编辑器内存不构成跨关闭或重启的持久化来源。保存失败保留 dirty 状态并提供重试，不静默回退到旧文档。
 - 剪贴板：普通文字、截图和本地图片按 Excalidraw 原生粘贴行为处理；富文本聊天内容中的远程图片与文字不承诺一次粘贴完整保真。
 
@@ -62,14 +67,14 @@ Canvas revision。
 
 - revision 由 Main 的 CanvasDocumentStore 生成，初始值为0；每次通过 expected revision 校验并成功完成场景与资源提交后递增一次。
 - Renderer 的 dirty generation 只表示本地编辑顺序，不直接充当 revision；同一个 revision 可以对应多次被合并的 Renderer 保存尝试。
-- `CanvasContextSnapshot` 固化 `canvasSessionId`、revision、引用范围、元素 ID、结构文本和可选 PNG；后续编辑不修改已经固化的 snapshot。
+- `CanvasContextSnapshot` 固化 `canvasSessionId`、revision、所选元素 ID、结构文本和可选 PNG；后续编辑不修改已经固化的 snapshot。
 - revision 冲突时 Main 拒绝旧写入并返回当前 revision，Renderer 保留 dirty 草稿，由用户重试或重新加载后决定如何合并。
 
 Canvas 引用。
 
 - 默认：Canvas 内容不自动进入任何模型请求。
-- 创建：用户点击使用选区或使用整个画布后，Main 固化当前 revision，并返回一个不透明的 contextId、元素数量、图片数量和视觉快照标识。contextId 默认有效10分钟，Main 最多保留32条未消费引用；过期或被淘汰时，Composer chip 显示失效并要求重新创建。
-- `prepareCanvasContext` 接受当前 CanvasDocument、`scope`、`selectedElementIds` 和可选 PNG；Main 先校验文档与视觉快照，再保存文档并以保存成功后的 revision 创建 snapshot。选区范围只允许引用当前文档中存在的非删除元素。
+- 创建：用户点击 Use selection 后，Main 固化当前 revision 与当前非删除选区，并返回一个不透明的 contextId、元素数量、图片数量和视觉快照标识。需要完整画布上下文时先全选画布元素，再点击 Use selection。contextId 默认有效10分钟，Main 最多保留32条未消费引用；过期或被淘汰时，Composer chip 显示失效并要求重新创建。
+- `prepareCanvasContext` 接受当前 CanvasDocument、`selectedElementIds` 和可选 PNG；Main 先校验文档与视觉快照，再保存文档并以保存成功后的 revision 创建 snapshot。只允许引用当前文档中存在的非删除选中元素。
 - context registry 保存 descriptor 与 Runtime 所需的结构文本、视觉快照和过期时间；Renderer 只拿到 descriptor，不拿到 Main 的资源路径。
 - Composer：引用以可删除 chip 显示在任务输入上方。用户删除 chip 时，下一次 Run 不携带对应 contextId。
 - 冻结：创建引用后继续编辑 Canvas 不会修改已经附加的 snapshot；需要新内容时再次创建引用。
@@ -90,7 +95,7 @@ Excalidraw 编辑器
   → Provider
 ```
 
-1. CanvasSurface 向 Main 请求准备上下文，提交当前 CanvasDocument、引用范围、选中元素 ID 和可选 PNG。
+1. CanvasSurface 向 Main 请求准备上下文，提交当前 CanvasDocument、选中元素 ID 和可选 PNG。
 2. Main 校验输入并持久化 CanvasDocument，使用稳定 revision 生成短生命周期 contextId。
 3. Composer 在用户发送时只提交 contextId，不提交原始场景 JSON、图片 base64 或本地文件路径。
 4. Main 在启动 Run 时消费 contextId，并将冻结的结构文本和视觉快照交给 Runner。

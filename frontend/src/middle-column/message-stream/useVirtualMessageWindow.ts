@@ -138,6 +138,10 @@ interface UseVirtualMessageWindowOptions {
   items: VirtualMessageItem[];
   rootRef: RefObject<HTMLDivElement>;
   scrollRef?: RefObject<HTMLElement>;
+  projectId: string | null;
+  historyGeneration: number;
+  historyHydrationVersion: number;
+  historyReady: boolean;
   hasMore: boolean;
   loadingOlder: boolean;
   onLoadOlder?: () => void | Promise<void>;
@@ -147,6 +151,10 @@ export function useVirtualMessageWindow({
   items,
   rootRef,
   scrollRef,
+  projectId,
+  historyGeneration,
+  historyHydrationVersion,
+  historyReady,
   hasMore,
   loadingOlder,
   onLoadOlder,
@@ -154,6 +162,10 @@ export function useVirtualMessageWindow({
   const measuredHeights = useRef(new Map<string, number>());
   const previousLayout = useRef<VirtualMessageLayout | null>(null);
   const loadRequested = useRef(false);
+  const olderRequestEpoch = useRef(0);
+  const activeGeneration = useRef(historyGeneration);
+  const activeScope = useRef({ projectId, historyGeneration });
+  const bottomFrame = useRef<number | null>(null);
   const stickToBottom = useRef(true);
   const [measurementVersion, setMeasurementVersion] = useState(0);
   const [viewport, setViewport] = useState({ scrollTop: 0, height: DEFAULT_VIEWPORT_HEIGHT, ready: false });
@@ -172,17 +184,44 @@ export function useVirtualMessageWindow({
   );
 
   const requestOlder = useCallback(() => {
+    if (activeGeneration.current !== historyGeneration) return;
     if (!hasMore || loadingOlder || loadRequested.current || !onLoadOlder) return;
     loadRequested.current = true;
+    const requestEpoch = olderRequestEpoch.current;
     void Promise.resolve(onLoadOlder()).finally(() => {
-      loadRequested.current = false;
+      if (olderRequestEpoch.current === requestEpoch) loadRequested.current = false;
     });
-  }, [hasMore, loadingOlder, onLoadOlder]);
+  }, [hasMore, historyGeneration, loadingOlder, onLoadOlder]);
+
+  useBrowserLayoutEffect(() => {
+    const previousScope = activeScope.current;
+    if (previousScope.projectId === projectId && previousScope.historyGeneration === historyGeneration) return;
+    activeScope.current = { projectId, historyGeneration };
+    activeGeneration.current = historyGeneration;
+    measuredHeights.current.clear();
+    previousLayout.current = null;
+    olderRequestEpoch.current += 1;
+    loadRequested.current = false;
+    stickToBottom.current = true;
+    if (bottomFrame.current !== null) cancelAnimationFrame(bottomFrame.current);
+    bottomFrame.current = null;
+
+    const element = findScrollElement(rootRef.current, scrollRef);
+    if (element) {
+      element.scrollTop = 0;
+      setViewport({ scrollTop: 0, height: element.clientHeight, ready: false });
+    } else {
+      setViewport({ scrollTop: 0, height: DEFAULT_VIEWPORT_HEIGHT, ready: false });
+    }
+    setMeasurementVersion((value) => value + 1);
+  }, [historyGeneration, projectId, rootRef, scrollRef]);
 
   useEffect(() => {
     const element = findScrollElement(rootRef.current, scrollRef);
     if (!element) return;
+    const observedGeneration = historyGeneration;
     const sync = (): void => {
+      if (activeGeneration.current !== observedGeneration) return;
       stickToBottom.current = shouldStickToBottom(element.scrollTop, element.clientHeight, element.scrollHeight);
       setViewport((current) => {
         const next = { scrollTop: element.scrollTop, height: element.clientHeight, ready: true };
@@ -200,7 +239,7 @@ export function useVirtualMessageWindow({
       element.removeEventListener("scroll", sync);
       observer.disconnect();
     };
-  }, [requestOlder, rootRef, scrollRef]);
+  }, [historyGeneration, requestOlder, rootRef, scrollRef]);
 
   useBrowserLayoutEffect(() => {
     const element = findScrollElement(rootRef.current, scrollRef);
@@ -222,11 +261,13 @@ export function useVirtualMessageWindow({
     const root = rootRef.current;
     const element = findScrollElement(root, scrollRef);
     if (!root || !element || typeof ResizeObserver === "undefined") return;
+    const observedGeneration = historyGeneration;
     // Width changes from the resizable sidebar can reflow mounted blocks. The
     // existing block observer measures those new heights and feeds them back
     // into the same virtual layout and anchor correction path used by folding,
     // streaming, and history hydration.
     const observer = new ResizeObserver((entries) => {
+      if (activeGeneration.current !== observedGeneration) return;
       let changed = false;
       let correction = 0;
       const viewportTop = element.getBoundingClientRect().top;
@@ -247,22 +288,33 @@ export function useVirtualMessageWindow({
       if (correction !== 0) element.scrollTop += correction;
       setMeasurementVersion((value) => value + 1);
       if (stickToBottom.current) {
-        requestAnimationFrame(() => {
+        if (bottomFrame.current !== null) cancelAnimationFrame(bottomFrame.current);
+        bottomFrame.current = requestAnimationFrame(() => {
+          bottomFrame.current = null;
+          if (activeGeneration.current !== observedGeneration) return;
           scrollToBottomInstant(element);
+          setViewport({ scrollTop: element.scrollTop, height: element.clientHeight, ready: true });
         });
       }
     });
     root.querySelectorAll<HTMLElement>("[data-message-block-id]").forEach((node) => observer.observe(node));
     return () => observer.disconnect();
-  }, [range.startIndex, range.endIndex, rootRef, scrollRef]);
+  }, [historyGeneration, range.startIndex, range.endIndex, rootRef, scrollRef]);
 
   useBrowserLayoutEffect(() => {
+    const root = rootRef.current;
     const element = findScrollElement(rootRef.current, scrollRef);
-    if (!element || items.length === 0) return;
-    const oldLayout = previousLayout.current;
-    if (!oldLayout || oldLayout.items.length !== 0 || !stickToBottom.current) return;
-    scrollToBottomInstant(element);
-  }, [items.length, rootRef, scrollRef]);
+    if (!historyReady || !root || !element) return;
+    stickToBottom.current = true;
+    if (Number(root.dataset.blockCount ?? 0) === 0) {
+      element.scrollTop = 0;
+    } else {
+      // This effect runs only at a history hydration boundary. Live appends
+      // retain the user's current follow or reading state.
+      scrollToBottomInstant(element);
+    }
+    setViewport({ scrollTop: element.scrollTop, height: element.clientHeight, ready: true });
+  }, [historyGeneration, historyHydrationVersion, historyReady, projectId, rootRef, scrollRef]);
 
   const revealBlock = useCallback(async (blockId: string): Promise<boolean> => {
     const root = rootRef.current;

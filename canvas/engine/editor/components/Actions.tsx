@@ -1,195 +1,14 @@
 import type { ActionManager } from "../actions/manager";
-import type {
-  ExcalidrawElement,
-  ExcalidrawElementType,
-  NonDeletedElementsMap,
-  NonDeletedSceneElementsMap,
-} from "../element/types";
 import { t } from "../i18n";
-import {
-  canHaveArrowheads,
-  getTargetElements,
-  hasBackground,
-} from "../scene";
 import { SHAPES } from "../shapes";
-import type { AppClassProperties, AppProps, UIAppState, Zoom } from "../types";
-import { capitalizeString, isTransparent } from "../utils";
-import Stack from "./Stack";
+import type { AppClassProperties, AppProps, UIAppState } from "../types";
+import { capitalizeString } from "../utils";
 import { ToolButton } from "./ToolButton";
-import { hasStrokeColor } from "../scene/comparisons";
 import { trackEvent } from "../analytics";
-import {
-  hasBoundTextElement,
-  isTextElement,
-} from "../element/typeChecks";
 import clsx from "clsx";
 import { actionToggleZenMode } from "../actions";
 import { Tooltip } from "./Tooltip";
-import {
-  shouldAllowVerticalAlign,
-  suppportsHorizontalAlign,
-} from "../element/textElement";
-
 import "./Actions.scss";
-import { CLASSES } from "../constants";
-import { alignActionsPredicate } from "../actions/actionAlign";
-
-export const canChangeStrokeColor = (
-  appState: UIAppState,
-  targetElements: ExcalidrawElement[],
-) => {
-  let commonSelectedType: ExcalidrawElementType | null =
-    targetElements[0]?.type || null;
-
-  for (const element of targetElements) {
-    if (element.type !== commonSelectedType) {
-      commonSelectedType = null;
-      break;
-    }
-  }
-
-  return (
-    (hasStrokeColor(appState.activeTool.type) &&
-      appState.activeTool.type !== "image" &&
-      commonSelectedType !== "image" &&
-      commonSelectedType !== "frame" &&
-      commonSelectedType !== "magicframe") ||
-    targetElements.some((element) => hasStrokeColor(element.type))
-  );
-};
-
-export const canChangeBackgroundColor = (
-  appState: UIAppState,
-  targetElements: ExcalidrawElement[],
-) => {
-  return (
-    hasBackground(appState.activeTool.type) ||
-    targetElements.some((element) => hasBackground(element.type))
-  );
-};
-
-export const SelectedShapeActions = ({
-  appState,
-  elementsMap,
-  renderAction,
-  app,
-}: {
-  appState: UIAppState;
-  elementsMap: NonDeletedElementsMap | NonDeletedSceneElementsMap;
-  renderAction: ActionManager["renderAction"];
-  app: AppClassProperties;
-}) => {
-  const targetElements = getTargetElements(elementsMap, appState);
-
-  let isSingleElementBoundContainer = false;
-  if (
-    targetElements.length === 2 &&
-    (hasBoundTextElement(targetElements[0]) ||
-      hasBoundTextElement(targetElements[1]))
-  ) {
-    isSingleElementBoundContainer = true;
-  }
-  const isRTL = document.documentElement.getAttribute("dir") === "rtl";
-
-  const showFillIcons =
-    (hasBackground(appState.activeTool.type) &&
-      !isTransparent(appState.currentItemBackgroundColor)) ||
-    targetElements.some(
-      (element) =>
-        hasBackground(element.type) && !isTransparent(element.backgroundColor),
-    );
-
-  const showAlignActions =
-    !isSingleElementBoundContainer && alignActionsPredicate(appState, app);
-
-  return (
-    <div className="panelColumn">
-      <div>
-        {canChangeStrokeColor(appState, targetElements) &&
-          renderAction("changeStrokeColor")}
-      </div>
-      {canChangeBackgroundColor(appState, targetElements) && (
-        <div>{renderAction("changeBackgroundColor")}</div>
-      )}
-      {showFillIcons && renderAction("changeFillStyle")}
-
-      {(appState.activeTool.type === "freedraw" ||
-        targetElements.some((element) => element.type === "freedraw")) &&
-        renderAction("changeStrokeShape")}
-
-      {(appState.activeTool.type === "text" ||
-        targetElements.some(isTextElement)) && (
-        <>
-          {renderAction("changeFontFamily")}
-          {renderAction("changeFontSize")}
-          {(appState.activeTool.type === "text" ||
-            suppportsHorizontalAlign(targetElements, elementsMap)) &&
-            renderAction("changeTextAlign")}
-        </>
-      )}
-
-      {shouldAllowVerticalAlign(targetElements, elementsMap) &&
-        renderAction("changeVerticalAlign")}
-      {(canHaveArrowheads(appState.activeTool.type) ||
-        targetElements.some((element) => canHaveArrowheads(element.type))) && (
-        <>{renderAction("changeArrowhead")}</>
-      )}
-
-      <fieldset>
-        <legend>{t("labels.layers")}</legend>
-        <div className="buttonList">
-          {renderAction("sendToBack")}
-          {renderAction("sendBackward")}
-          {renderAction("bringForward")}
-          {renderAction("bringToFront")}
-        </div>
-      </fieldset>
-
-      {showAlignActions && !isSingleElementBoundContainer && (
-        <fieldset>
-          <legend>{t("labels.align")}</legend>
-          <div className="buttonList">
-            {
-              // swap this order for RTL so the button positions always match their action
-              // (i.e. the leftmost button aligns left)
-            }
-            {isRTL ? (
-              <>
-                {renderAction("alignRight")}
-                {renderAction("alignHorizontallyCentered")}
-                {renderAction("alignLeft")}
-              </>
-            ) : (
-              <>
-                {renderAction("alignLeft")}
-                {renderAction("alignHorizontallyCentered")}
-                {renderAction("alignRight")}
-              </>
-            )}
-            {targetElements.length > 2 &&
-              renderAction("distributeHorizontally")}
-            {/* breaks the row ˇˇ */}
-            <div style={{ flexBasis: "100%", height: 0 }} />
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: ".5rem",
-                marginTop: "-0.5rem",
-              }}
-            >
-              {renderAction("alignTop")}
-              {renderAction("alignVerticallyCentered")}
-              {renderAction("alignBottom")}
-              {targetElements.length > 2 &&
-                renderAction("distributeVertically")}
-            </div>
-          </div>
-        </fieldset>
-      )}
-    </div>
-  );
-};
 
 export const ShapesSwitcher = ({
   activeTool,
@@ -201,93 +20,79 @@ export const ShapesSwitcher = ({
   appState: UIAppState;
   app: AppClassProperties;
   UIOptions: AppProps["UIOptions"];
-}) => {
-  return (
-    <>
-      {SHAPES.map(({ value, icon, key, numericKey, fillable }, index) => {
-        if (
-          UIOptions.tools?.[
-            value as Extract<typeof value, keyof AppProps["UIOptions"]["tools"]>
-          ] === false
-        ) {
-          return null;
-        }
+}) => (
+  <>
+    {SHAPES.map(({ value, icon, key, numericKey, fillable }) => {
+      if (
+        UIOptions.tools?.[
+          value as Extract<typeof value, keyof AppProps["UIOptions"]["tools"]>
+        ] === false
+      ) {
+        return null;
+      }
 
-        const label = t(`toolBar.${value}`);
-        const letter =
-          key && capitalizeString(typeof key === "string" ? key : key[0]);
-        const shortcut = letter
-          ? `${letter} ${t("helpDialog.or")} ${numericKey}`
-          : `${numericKey}`;
-        return (
-          <ToolButton
-            className={clsx("Shape", { fillable })}
-            key={value}
-            type="radio"
-            icon={icon}
-            checked={activeTool.type === value}
-            name="editor-current-shape"
-            title={`${capitalizeString(label)} — ${shortcut}`}
-            keyBindingLabel={numericKey || letter}
-            aria-label={capitalizeString(label)}
-            aria-keyshortcuts={shortcut}
-            data-testid={`toolbar-${value}`}
-            onPointerDown={({ pointerType }) => {
-              if (!appState.penDetected && pointerType === "pen") {
-                app.togglePenMode(true);
-              }
-            }}
-            onChange={({ pointerType }) => {
-              if (appState.activeTool.type !== value) {
-                trackEvent("toolbar", value, "ui");
-              }
-              if (value === "image") {
-                app.setActiveTool({
-                  type: value,
-                  insertOnCanvasDirectly: pointerType !== "mouse",
-                });
-              } else {
-                app.setActiveTool({ type: value });
-              }
-            }}
-          />
-        );
-      })}
-    </>
-  );
-};
+      const label = t(`toolBar.${value}`);
+      const letter = key && capitalizeString(typeof key === "string" ? key : key[0]);
+      const shortcut = letter
+        ? `${letter} ${t("helpDialog.or")} ${numericKey}`
+        : `${numericKey}`;
+      return (
+        <ToolButton
+          className={clsx("Shape", { fillable })}
+          key={value}
+          type="radio"
+          icon={icon}
+          checked={activeTool.type === value}
+          name="editor-current-shape"
+          title={`${capitalizeString(label)} — ${shortcut}`}
+          keyBindingLabel={numericKey || letter}
+          aria-label={capitalizeString(label)}
+          aria-keyshortcuts={shortcut}
+          data-testid={`toolbar-${value}`}
+          onPointerDown={({ pointerType }) => {
+            if (!appState.penDetected && pointerType === "pen") {
+              app.togglePenMode(true);
+            }
+          }}
+          onChange={({ pointerType }) => {
+            if (appState.activeTool.type !== value) {
+              trackEvent("toolbar", value, "ui");
+            }
+            if (value === "image") {
+              app.setActiveTool({
+                type: value,
+                insertOnCanvasDirectly: pointerType !== "mouse",
+              });
+            } else {
+              app.setActiveTool({ type: value });
+            }
+          }}
+        />
+      );
+    })}
+  </>
+);
 
 export const ZoomActions = ({
   renderAction,
-  zoom,
 }: {
   renderAction: ActionManager["renderAction"];
-  zoom: Zoom;
-}) => (
-  <Stack.Col gap={1} className={CLASSES.ZOOM_ACTIONS}>
-    <Stack.Row align="center">
-      {renderAction("zoomOut")}
-      {renderAction("resetZoom")}
-      {renderAction("zoomIn")}
-    </Stack.Row>
-  </Stack.Col>
-);
+}) => renderAction("setZoom");
 
 export const UndoRedoActions = ({
   renderAction,
-  className,
 }: {
   renderAction: ActionManager["renderAction"];
-  className?: string;
 }) => (
-  <div className={`undo-redo-buttons ${className}`}>
-    <div className="undo-button-container">
-      <Tooltip label={t("buttons.undo")}>{renderAction("undo")}</Tooltip>
-    </div>
-    <div className="redo-button-container">
-      <Tooltip label={t("buttons.redo")}> {renderAction("redo")}</Tooltip>
-    </div>
-  </div>
+  <>
+    <Tooltip label={t("buttons.undo")}>
+      {renderAction("undo", { size: "small" })}
+    </Tooltip>
+    <span className="canvas-footer-divider" aria-hidden="true" />
+    <Tooltip label={t("buttons.redo")}>
+      {renderAction("redo", { size: "small" })}
+    </Tooltip>
+  </>
 );
 
 export const ExitZenModeAction = ({

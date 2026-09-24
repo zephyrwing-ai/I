@@ -4,20 +4,17 @@ import type {
   AppClassProperties,
   AppProps,
   AppState,
-  Device,
+  PointerCoords,
   ExcalidrawProps,
   UIAppState,
 } from "../types";
 import type { ActionManager } from "../actions/manager";
 import { t } from "../i18n";
 import Stack from "./Stack";
-import { showSelectedShapeActions } from "../element";
 import type { NonDeletedExcalidrawElement } from "../element/types";
 import { FixedSideContainer } from "./FixedSideContainer";
 import { Island } from "./Island";
-import { HintViewer } from "./HintViewer";
-import { calculateScrollCenter } from "../scene";
-import { SelectedShapeActions, ShapesSwitcher } from "./Actions";
+import { ShapesSwitcher } from "./Actions";
 import { Section } from "./Section";
 import { SCROLLBAR_WIDTH, SCROLLBAR_MARGIN } from "../scene/scrollbars";
 import { LockButton } from "./LockButton";
@@ -25,13 +22,18 @@ import { PenModeButton } from "./PenModeButton";
 import { HandButton } from "./HandButton";
 import { isHandToolActive } from "../appState";
 import { useTunnels } from "../context/tunnels";
+import OffscreenContentIndicator from "./OffscreenContentIndicator";
 
 type MobileMenuProps = {
   appState: UIAppState;
+  scrollX: number;
+  scrollY: number;
+  offscreenContentTarget: PointerCoords | null;
   actionManager: ActionManager;
   renderImageExportDialog: () => React.ReactNode;
   setAppState: React.Component<any, AppState>["setState"];
   elements: readonly NonDeletedExcalidrawElement[];
+  selectedElements: readonly NonDeletedExcalidrawElement[];
   onLockToggle: () => void;
   onHandToolToggle: () => void;
   onPenModeToggle: AppClassProperties["togglePenMode"];
@@ -41,7 +43,6 @@ type MobileMenuProps = {
     appState: UIAppState,
   ) => JSX.Element | null;
   renderCustomStats?: ExcalidrawProps["renderCustomStats"];
-  device: Device;
   renderWelcomeScreen: boolean;
   UIOptions: AppProps["UIOptions"];
   app: AppClassProperties;
@@ -49,7 +50,11 @@ type MobileMenuProps = {
 
 export const MobileMenu = ({
   appState,
+  scrollX,
+  scrollY,
+  offscreenContentTarget,
   elements,
+  selectedElements,
   actionManager,
   setAppState,
   onLockToggle,
@@ -58,34 +63,28 @@ export const MobileMenu = ({
 
   renderTopRightUI,
   renderCustomStats,
-  device,
   renderWelcomeScreen,
   UIOptions,
   app,
 }: MobileMenuProps) => {
   const {
     WelcomeScreenCenterTunnel,
-    MainMenuTunnel,
   } = useTunnels();
   const renderToolbar = () => {
     return (
       <FixedSideContainer side="top" className="App-top-bar">
         {renderWelcomeScreen && <WelcomeScreenCenterTunnel.Out />}
-        <Section heading="shapes">
+        <Section heading="shapes" className="shapes-section shapes-section--bottom">
           {(heading: React.ReactNode) => (
             <Stack.Col gap={4} align="center">
-              <Stack.Row gap={1} className="App-toolbar-container">
-                <Island padding={1} className="App-toolbar App-toolbar--mobile">
-                  {heading}
-                  <Stack.Row gap={1}>
-                    <ShapesSwitcher
-                      appState={appState}
-                      activeTool={appState.activeTool}
-                      UIOptions={UIOptions}
-                      app={app}
-                    />
-                  </Stack.Row>
-                </Island>
+              {heading}
+              <Stack.Row gap={1} className="App-toolbar App-toolbar--mobile App-toolbar--canvas">
+                <ShapesSwitcher
+                  appState={appState}
+                  activeTool={appState.activeTool}
+                  UIOptions={UIOptions}
+                  app={app}
+                />
                 {renderTopRightUI && renderTopRightUI(true, appState)}
                 <div className="mobile-misc-tools-container">
                   <PenModeButton
@@ -112,12 +111,6 @@ export const MobileMenu = ({
             </Stack.Col>
           )}
         </Section>
-        <HintViewer
-          appState={appState}
-          isMobile={true}
-          device={device}
-          app={app}
-        />
       </FixedSideContainer>
     );
   };
@@ -129,15 +122,12 @@ export const MobileMenu = ({
     ) {
       return (
         <div className="App-toolbar-content">
-          <MainMenuTunnel.Out />
         </div>
       );
     }
 
     return (
       <div className="App-toolbar-content">
-        <MainMenuTunnel.Out />
-        {actionManager.renderAction("toggleEditMenu")}
         {actionManager.renderAction(
           appState.multiElement ? "finalize" : "duplicateSelection",
         )}
@@ -164,39 +154,19 @@ export const MobileMenu = ({
         }}
       >
         <Island padding={0}>
-          {appState.openMenu === "shape" &&
-          !appState.viewModeEnabled &&
-          appState.openDialog?.name !== "elementLinkSelector" &&
-          showSelectedShapeActions(appState, elements) ? (
-            <Section className="App-mobile-menu" heading="selectedShapeActions">
-              <SelectedShapeActions
-                appState={appState}
-                elementsMap={app.scene.getNonDeletedElementsMap()}
-                renderAction={actionManager.renderAction}
-                app={app}
-              />
-            </Section>
-          ) : null}
           <footer className="App-toolbar">
             {renderAppToolbar()}
-            {appState.scrolledOutside &&
-              !appState.openMenu &&
-              !appState.openSidebar && (
-                <button
-                  type="button"
-                  className="scroll-back-to-content"
-                  onClick={() => {
-                    setAppState((appState) => ({
-                      ...calculateScrollCenter(elements, appState),
-                    }));
-                  }}
-                >
-                  {t("buttons.scrollBackToContent")}
-                </button>
-              )}
           </footer>
         </Island>
       </div>
+      <OffscreenContentIndicator
+        appState={appState}
+        selectedElements={selectedElements}
+        scrollX={scrollX}
+        scrollY={scrollY}
+        offscreenContentTarget={offscreenContentTarget}
+        setAppState={setAppState}
+      />
     </>
   );
 };

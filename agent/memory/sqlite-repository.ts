@@ -112,7 +112,7 @@ function rowToEntry(row: Row): HistoryEntry {
     payload: parsePayload(row.payload_json),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
-    completedAt: row.completed_at === null || row.completed_at === undefined ? null : Number(row.completed_at),
+    durationMs: row.duration_ms === null || row.duration_ms === undefined ? null : Number(row.duration_ms),
   };
 }
 
@@ -240,13 +240,13 @@ export class SqliteHistoryRepository implements HistoryRepository {
       this.database.prepare(`
         INSERT INTO entries
           (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
-           revision, payload_version, payload_json, created_at, updated_at, completed_at)
+           revision, payload_version, payload_json, created_at, updated_at, duration_ms)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         entry.id, projectId, nextOrder, entry.type, entry.status, entry.runId,
         entry.turnId ?? null, entry.toolCallId ?? null, entry.revision ?? 0,
         entry.payloadVersion ?? 1, JSON.stringify(entry.payload), timestamp, updatedAt,
-        entry.completedAt ?? null,
+        entry.durationMs ?? null,
       );
       return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id) as Row);
     });
@@ -264,14 +264,14 @@ export class SqliteHistoryRepository implements HistoryRepository {
       const nextPayloadVersion = patch.payloadVersion ?? existing.payloadVersion;
       const nextTurnId = patch.turnId === undefined ? existing.turnId : patch.turnId;
       const nextToolCallId = patch.toolCallId === undefined ? existing.toolCallId : patch.toolCallId;
-      const nextCompletedAt = patch.completedAt === undefined ? existing.completedAt : patch.completedAt;
+      const nextDurationMs = patch.durationMs === undefined ? existing.durationMs : patch.durationMs;
       validatePayloadForType(existing.type, nextPayload, nextToolCallId);
       this.database.prepare(`
         UPDATE entries
         SET status = ?, turn_id = ?, tool_call_id = ?, revision = revision + 1,
-            payload_version = ?, payload_json = ?, updated_at = ?, completed_at = ?
+            payload_version = ?, payload_json = ?, updated_at = ?, duration_ms = ?
         WHERE id = ? AND revision = ?
-      `).run(nextStatus, nextTurnId, nextToolCallId, nextPayloadVersion, JSON.stringify(nextPayload), updatedAt, nextCompletedAt, entryId, expectedRevision);
+      `).run(nextStatus, nextTurnId, nextToolCallId, nextPayloadVersion, JSON.stringify(nextPayload), updatedAt, nextDurationMs, entryId, expectedRevision);
       return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId) as Row);
     });
   }

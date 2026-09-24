@@ -57,7 +57,7 @@ function toHistoryEntry(entry: HistoryEntry): HistoryPageEntry {
     payload: entry.payload,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
-    completedAt: entry.completedAt,
+    durationMs: entry.durationMs,
   };
 }
 

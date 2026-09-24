@@ -1,7 +1,6 @@
 import { t } from "../../i18n";
 import { useTunnels } from "../../context/tunnels";
 import {
-  WelcomeScreenHelpArrow,
   WelcomeScreenMenuArrow,
   WelcomeScreenTopToolbarArrow,
 } from "../icons";
@@ -36,17 +35,4 @@ const ToolbarHint = ({ children }: { children?: React.ReactNode }) => {
 };
 ToolbarHint.displayName = "ToolbarHint";
 
-const HelpHint = ({ children }: { children?: React.ReactNode }) => {
-  const { WelcomeScreenHelpHintTunnel } = useTunnels();
-  return (
-    <WelcomeScreenHelpHintTunnel.In>
-      <div className="excalifont welcome-screen-decor welcome-screen-decor-hint welcome-screen-decor-hint--help">
-        <div>{children || t("welcomeScreen.defaults.helpHint")}</div>
-        {WelcomeScreenHelpArrow}
-      </div>
-    </WelcomeScreenHelpHintTunnel.In>
-  );
-};
-HelpHint.displayName = "HelpHint";
-
-export { HelpHint, MenuHint, ToolbarHint };
+export { MenuHint, ToolbarHint };

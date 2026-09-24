@@ -2,76 +2,106 @@ import { useCallback, useEffect, useRef } from "react";
 import type { HistoryPageResult } from "../../../shell/shared/ipc";
 import type { AgentAction, AgentState } from "../store/agentReducer";
 
+interface InFlightHistoryPage {
+  generation: number;
+  promise: Promise<void>;
+}
+
 export function useSessionHistory(
   state: AgentState,
   dispatch: (action: AgentAction) => void,
 ): {
   hydrated: boolean;
+  loadingInitial: boolean;
   loadingOlder: boolean;
   loadingSearch: boolean;
   hasMore: boolean;
   error: string | null;
   loadOlder: () => Promise<void>;
   loadSearch: () => Promise<void>;
-  reload: () => Promise<void>;
+  reload: (projectId: string | null) => Promise<void>;
 } {
-  const olderPageInFlight = useRef<Promise<void> | null>(null);
+  const requestGeneration = useRef(state.history.requestGeneration);
+  const olderPageInFlight = useRef<InFlightHistoryPage | null>(null);
 
-  const loadInitial = useCallback(async (): Promise<void> => {
-    dispatch({ type: "historyLoadStarted", scope: "initial" });
+  const reload = useCallback(async (projectId: string | null): Promise<void> => {
+    const generation = ++requestGeneration.current;
+    olderPageInFlight.current = null;
+    dispatch({ type: "historyScopeLoadStarted", projectId, generation });
     try {
       const page = await window.agentAPI.loadHistoryPage({ cursor: null, limit: 100 });
-      dispatch({ type: "historyHydrated", page });
+      if (page.projectId !== projectId) {
+        throw new Error("The active project changed while history was loading. Choose the project again.");
+      }
+      dispatch({ type: "historyHydrated", page, generation });
     } catch (error) {
-      dispatch({ type: "historyLoadFailed", scope: "initial", error: error instanceof Error ? error.message : String(error) });
+      dispatch({
+        type: "historyLoadFailed",
+        scope: "initial",
+        generation,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }, [dispatch]);
 
   const loadOlderPage = useCallback(async (scope: "older" | "search"): Promise<void> => {
-    if (olderPageInFlight.current) return olderPageInFlight.current;
     const history = state.history;
     if (!history.hydrated || history.loadingOlder || history.loadingSearch || !history.hasMore || !history.nextCursor) return;
+    const generation = history.requestGeneration;
+    const inFlight = olderPageInFlight.current;
+    if (inFlight?.generation === generation) return inFlight.promise;
+
     const cursor = history.nextCursor;
+    dispatch({ type: "historyLoadStarted", scope, generation });
     const operation = (async (): Promise<void> => {
-      dispatch({ type: "historyLoadStarted", scope });
       try {
         const page: HistoryPageResult = await window.agentAPI.loadHistoryPage({ cursor, limit: 100 });
-        dispatch({ type: "olderHistoryLoaded", page });
+        if (page.projectId !== history.projectId) {
+          throw new Error("The active project changed while history was loading. Choose the project again.");
+        }
+        dispatch({ type: "olderHistoryLoaded", page, generation });
       } catch (error) {
-        dispatch({ type: "historyLoadFailed", scope, error: error instanceof Error ? error.message : String(error) });
+        dispatch({
+          type: "historyLoadFailed",
+          scope,
+          generation,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     })();
-    olderPageInFlight.current = operation;
+    const current = { generation, promise: operation };
+    olderPageInFlight.current = current;
     void operation.then(() => {
-      if (olderPageInFlight.current === operation) olderPageInFlight.current = null;
+      if (olderPageInFlight.current === current) olderPageInFlight.current = null;
     });
     return operation;
   }, [dispatch, state.history]);
 
   const loadOlder = useCallback(async (): Promise<void> => {
     if (!state.history.hydrated) {
-      if (!state.history.loadingInitial) await loadInitial();
+      if (!state.history.loadingInitial) await reload(state.history.projectId);
       return;
     }
     await loadOlderPage("older");
-  }, [loadInitial, loadOlderPage, state.history.hydrated, state.history.loadingInitial]);
+  }, [loadOlderPage, reload, state.history]);
 
   const loadSearch = useCallback(async (): Promise<void> => {
     await loadOlderPage("search");
   }, [loadOlderPage]);
 
   useEffect(() => {
-    void loadInitial();
-  }, [loadInitial]);
+    void reload(null);
+  }, [reload]);
 
   return {
     hydrated: state.history.hydrated,
+    loadingInitial: state.history.loadingInitial,
     loadingOlder: state.history.loadingOlder,
     loadingSearch: state.history.loadingSearch,
     hasMore: state.history.hasMore,
     error: state.history.error,
     loadOlder,
     loadSearch,
-    reload: loadInitial,
+    reload,
   };
 }

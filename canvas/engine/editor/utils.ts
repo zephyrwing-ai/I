@@ -93,6 +93,9 @@ export const getFontFamilyString = ({
 }: {
   fontFamily: FontFamilyValues;
 }) => {
+  if (fontFamily === FONT_FAMILY.Helvetica) {
+    return '"SF Pro Text", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", Helvetica, Arial, "Segoe UI Emoji", sans-serif';
+  }
   for (const [fontFamilyString, id] of Object.entries(FONT_FAMILY)) {
     if (id === fontFamily) {
       // TODO: we should fallback first to generic family names first

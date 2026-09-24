@@ -38,15 +38,15 @@ test("SQLite history stores project and unprojected entries in one ordered strea
   assert.deepEqual([user.entryOrder, assistant.entryOrder, unprojected.entryOrder], [1, 2, 3]);
   assert.deepEqual((await repository.listEntries(project.id)).map((entry) => entry.entryOrder), [1, 2]);
   assert.deepEqual((await repository.listEntries(null)).map((entry) => entry.entryOrder), [3]);
-  assert.equal(assistant.completedAt, null);
+  assert.equal(assistant.durationMs, null);
 
   const completed = await repository.updateEntry(assistant.id, assistant.revision, {
     status: "completed",
     payload: { role: "assistant", content: "hello" },
-    completedAt: 1_700_000_003_000,
+    durationMs: 2_345,
   });
   assert.equal(completed.revision, assistant.revision + 1);
-  assert.equal(completed.completedAt, 1_700_000_003_000);
+  assert.equal(completed.durationMs, 2_345);
   await assert.rejects(
     repository.updateEntry(assistant.id, assistant.revision, { status: "failed" }),
     (error: unknown) => error instanceof RepositoryError && error.code === "conflict",

@@ -1,14 +1,14 @@
 /* ===== 对话框列（原来的 composer-* 规则整体迁入，不再依赖外层 24px 内边距） ===== */
-.composer { position: relative; padding: 54px 0 18px; background: transparent; }
-.composer-shell { position: relative; z-index: 1; width: 100%; min-height: 116px; margin: 0; padding: 20px 14px 10px; border: 1px solid var(--border); border-radius: 22px; background: var(--surface); box-shadow: 0 16px 42px var(--shadow-soft); display: flex; flex-direction: column; gap: 8px; transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
+.composer { position: relative; padding: 44px 0 18px; background: transparent; }
+.composer-shell { position: relative; z-index: 1; width: 100%; min-height: 116px; margin: 0; padding: 18px 14px 10px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); box-shadow: 0 16px 42px var(--shadow-soft); display: flex; flex-direction: column; gap: 8px; transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
 .composer-shell:hover { background: var(--surface-hover); }
-.composer-project-row { position: absolute; z-index: 0; top: 12px; left: 18px; right: 18px; min-height: 64px; border: 1px solid var(--border); border-radius: 22px; background: var(--surface-hover); box-shadow: 0 8px 22px var(--shadow-soft); display: flex; align-items: center; }
-.composer-project-picker { min-width: 0; flex: 1; min-height: 62px; padding: 0 20px; border: 0; border-radius: 21px; background: transparent; color: var(--text-secondary); display: flex; align-items: center; gap: 10px; text-align: left; font-size: 16px; font-weight: 400; }
-.composer-project-picker:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+.composer-project-row { position: absolute; z-index: 0; top: 8px; left: 18px; right: 18px; height: 50px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface-hover); box-shadow: 0 8px 22px var(--shadow-soft); display: flex; align-items: flex-start; }
+.composer-project-picker { width: fit-content; max-width: calc(100% - 48px); height: 28px; min-width: 0; flex: 0 1 auto; margin-top: 4px; margin-left: 8px; padding: 0 12px; border: 0; border-radius: 14px; background: transparent; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; text-align: left; font-size: 14px; font-weight: 400; }
+.composer-project-picker:hover:not(:disabled), .composer-project-picker:focus-visible { color: var(--text); background: var(--surface-bubble); }
 .composer-project-picker:disabled { opacity: .72; }
 .composer-project-picker > svg { flex: 0 0 18px; }
 .composer-project-picker > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-project-clear { width: 32px; height: 32px; margin-right: 8px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); display: grid; place-items: center; }
+.composer-project-clear { width: 28px; height: 28px; margin-top: 4px; margin-right: 8px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); display: grid; place-items: center; }
 .composer-project-clear:hover:not(:disabled) { background: var(--hover); color: var(--text); }
 .composer-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
 .composer-attachment { max-width: 230px; height: 42px; padding: 5px 6px 5px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--input); display: grid; grid-template-columns: 28px minmax(0,1fr) 26px; align-items: center; gap: 7px; }
@@ -41,15 +41,16 @@
 .composer-icon-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
 .model-picker, .model-picker-trigger, .model-popover, .model-popover > button { user-select: none; }
 .model-picker { position: relative; width: fit-content; }
-.model-picker-trigger { position: relative; width: fit-content; max-width: 100%; height: 28px; padding: 0 8px; gap: 12px; border: 0; border-radius: 16px; background: transparent; color: var(--text-reading); font-size: 14px; font-weight: 400; display: flex; align-items: center; justify-content: center; transition: none; contain: layout; }
+.model-picker-trigger { position: relative; width: fit-content; max-width: 100%; height: 28px; padding: 0 8px; gap: 12px; border: 0; border-radius: 14px; background: transparent; color: var(--text-reading); font-size: 14px; font-weight: 400; display: flex; align-items: center; justify-content: center; transition: background 120ms ease, width 180ms var(--ease-standard); contain: layout; }
 .model-picker-trigger.is-width-animated { transition: width 180ms var(--ease-standard); }
 .model-picker-trigger > span { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
 .model-picker-trigger > svg { flex: 0 0 15px; transition: transform 180ms var(--ease-standard); }
 .model-picker-trigger[aria-expanded="true"] > svg { transform: rotate(-90deg); }
-.model-picker-trigger:hover:not(:disabled), .model-picker-trigger[aria-expanded="true"] { background: transparent; color: var(--text); }
+.model-picker-trigger:hover:not(:disabled), .model-picker-trigger:focus-visible, .model-picker-trigger[aria-expanded="true"] { background: var(--surface-bubble); color: var(--text); }
 .model-popover { position: absolute; z-index: 10; left: 50%; margin-left: -125px; bottom: 36px; width: 250px; max-height: 300px; padding: 4px; overflow-y: auto; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: 0 16px 40px var(--shadow-medium); transform-origin: bottom right; animation: model-popover-in 150ms var(--ease-standard); }
-.model-popover > button { width: 100%; min-height: 28px; padding: 0 4px; border: 0; border-radius: 16px; background: transparent; color: var(--text-secondary); font-size: 14px; font-weight: 400; display: flex; align-items: center; justify-content: space-between; text-align: left; }
-.model-popover > button:hover, .model-popover > button[aria-selected="true"] { background: transparent; color: var(--text); }
+.model-popover > button { width: 100%; min-height: 28px; padding: 0 4px; border: 0; border-radius: 16px; background: transparent; color: var(--text-secondary); font-size: 14px; font-weight: 400; display: flex; align-items: center; justify-content: space-between; text-align: left; transition: background 120ms ease, color 120ms ease; }
+.model-popover > button:hover, .model-popover > button:focus-visible { background: var(--surface-secondary); color: var(--text); }
+.model-popover > button[aria-selected="true"] { color: var(--text); }
 .model-popover strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
 .model-empty { min-height: 72px; color: var(--text-muted); display: grid; place-items: center; }
 .send-stop-button { width: 28px; height: 28px; flex: 0 0 28px; padding: 0; border: 0; border-radius: 50%; background: var(--text); color: var(--on-dark); display: grid; place-items: center; transition: filter 120ms ease-out, transform 80ms ease-out, opacity 120ms ease-out; }

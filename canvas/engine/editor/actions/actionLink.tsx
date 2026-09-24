@@ -23,7 +23,6 @@ export const actionLink = register({
       appState: {
         ...appState,
         showHyperlinkPopup: "editor",
-        openMenu: null,
       },
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     };

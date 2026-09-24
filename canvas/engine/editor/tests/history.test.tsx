@@ -6,7 +6,6 @@ import {
   act,
   assertSelectedElements,
   render,
-  togglePopover,
   getCloneByOrigId,
 } from "./test-utils";
 import "../../utils/test-utils";
@@ -23,7 +22,6 @@ import { arrayToMap } from "../utils";
 import {
   COLOR_PALETTE,
   DEFAULT_ELEMENT_BACKGROUND_COLOR_INDEX,
-  DEFAULT_ELEMENT_STROKE_COLOR_INDEX,
 } from "../colors";
 import { KEYS } from "../keys";
 import { newElementWith } from "../element/mutateElement";
@@ -84,6 +82,19 @@ const red = COLOR_PALETTE.red[DEFAULT_ELEMENT_BACKGROUND_COLOR_INDEX];
 const blue = COLOR_PALETTE.blue[DEFAULT_ELEMENT_BACKGROUND_COLOR_INDEX];
 const yellow = COLOR_PALETTE.yellow[DEFAULT_ELEMENT_BACKGROUND_COLOR_INDEX];
 const violet = COLOR_PALETTE.violet[DEFAULT_ELEMENT_BACKGROUND_COLOR_INDEX];
+
+const updateSelectedBackgroundColor = (color: string): void => {
+  const selectedIds = new Set(API.getSelectedElements().map((element) => element.id));
+  API.updateScene({
+    elements: h.elements.map((element) =>
+      selectedIds.has(element.id)
+        ? newElementWith(element, { backgroundColor: color })
+        : element,
+    ),
+    appState: { currentItemBackgroundColor: color },
+    captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+  });
+};
 
 describe("history", () => {
   beforeEach(() => {
@@ -261,9 +272,8 @@ describe("history", () => {
       await render(<Excalidraw handleKeyboardGlobally={true} />);
 
       const rect = UI.createElement("rectangle", { x: 10 });
-      togglePopover("Background");
-      UI.clickOnTestId("color-red");
-      UI.clickOnTestId("color-blue");
+      updateSelectedBackgroundColor(red);
+      updateSelectedBackgroundColor(blue);
 
       expect(API.getUndoStack().length).toBe(3);
       expect(API.getRedoStack().length).toBe(0);
@@ -1014,8 +1024,6 @@ describe("history", () => {
         }),
       ]);
 
-      togglePopover("Stroke");
-      UI.clickOnTestId("color-red");
       mouse.down(40, -20);
       mouse.up(50, 10);
 
@@ -1032,7 +1040,7 @@ describe("history", () => {
         }),
         expect.objectContaining({
           id: freedraw2.id,
-          strokeColor: COLOR_PALETTE.red[DEFAULT_ELEMENT_STROKE_COLOR_INDEX],
+          strokeColor: black,
         }),
       ]);
 
@@ -1829,8 +1837,7 @@ describe("history", () => {
 
     it("should not override remote changes on different elements", async () => {
       UI.createElement("rectangle", { x: 10 });
-      togglePopover("Background");
-      UI.clickOnTestId("color-red");
+      updateSelectedBackgroundColor(red);
 
       expect(API.getUndoStack().length).toBe(2);
 
@@ -1873,8 +1880,7 @@ describe("history", () => {
 
     it("should not override remote changes on different properties", async () => {
       UI.createElement("rectangle", { x: 10 });
-      togglePopover("Background");
-      UI.clickOnTestId("color-red");
+      updateSelectedBackgroundColor(red);
 
       expect(API.getUndoStack().length).toBe(2);
 
@@ -1909,9 +1915,8 @@ describe("history", () => {
     // This is due to the fact that deltas are updated in `applyLatestChanges`.
     it("should update history entries after remote changes on the same properties", async () => {
       UI.createElement("rectangle", { x: 10 });
-      togglePopover("Background");
-      UI.clickOnTestId("color-red");
-      UI.clickOnTestId("color-blue");
+      updateSelectedBackgroundColor(red);
+      updateSelectedBackgroundColor(blue);
 
       // At this point we have all the history entries created, no new entries will be created, only existing entries will get inversed and updated
       expect(API.getUndoStack().length).toBe(3);
@@ -2306,8 +2311,7 @@ describe("history", () => {
 
     it("should iterate through the history when when element change relates to remotely deleted element", async () => {
       UI.createElement("rectangle", { x: 10 });
-      togglePopover("Background");
-      UI.clickOnTestId("color-red");
+      updateSelectedBackgroundColor(red);
 
       expect(API.getUndoStack().length).toBe(2);
 
@@ -2362,8 +2366,7 @@ describe("history", () => {
       const rect1 = UI.createElement("rectangle", { x: 10 });
 
       const rect2 = UI.createElement("rectangle", { x: 20 });
-      togglePopover("Background");
-      UI.clickOnTestId("color-red");
+      updateSelectedBackgroundColor(red);
 
       const rect3 = UI.createElement("rectangle", { x: 30, y: 30 });
 
