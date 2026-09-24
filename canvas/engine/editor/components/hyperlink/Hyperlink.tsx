@@ -227,7 +227,6 @@ export const Hyperlink = ({
     appState.selectedElementsAreBeingDragged ||
     appState.resizingElement ||
     appState.isRotating ||
-    appState.openMenu ||
     appState.viewModeEnabled
   ) {
     return null;

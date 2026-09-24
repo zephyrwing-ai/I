@@ -23,7 +23,7 @@ interface HistoryPageEntry {
   payload: ModelMessage;
   createdAt: number;
   updatedAt: number;
-  completedAt: number | null;
+  durationMs: number | null;
 }
 
 interface HistoryPageResult {
@@ -48,7 +48,24 @@ Main active project scope
   → AgentState / MessageStream
 ```
 
-项目切换时，Reducer 发现 `page.projectId` 发生变化并建立新的历史投影。旧项目的 `entriesById` 保持在 SQLite 中，当前页面只显示新范围。
+目标项目确定后，Renderer 先将历史投影切换到目标 `projectId` 并进入加载状态；目标页面返回后，Reducer 将该范围的 `HistoryPageEntry` 投影为新的 `AgentState`。旧项目的 `entriesById` 保持在 SQLite 中，当前页面只显示新范围。
+
+## 项目范围切换与滚动状态
+
+`projectId` 同时标识历史投影和 MessageStream 的虚拟窗口作用域，`null` 表示无项目历史。Renderer 在开始切换时立即将当前页面标记为目标范围加载中，并清空旧范围的 `runs`、`runOrder` 与当前历史页投影；Composer 展示的目标项目和消息流范围保持一致。
+
+每次历史读取在 Renderer 内绑定目标 `projectId` 与请求代次。Main 在请求开始时捕获对应历史范围；异步结果返回后，Reducer 仅接收仍匹配当前作用域及最新代次的页面。该门控覆盖首次 hydrate、项目切换后的 reload、旧页分页与搜索读取，保证切换前发起的迟到结果不会污染当前项目。
+
+MessageStream 接收当前 `projectId` 和 hydrate 就绪状态，并据此管理虚拟窗口：
+
+- `projectId` 或历史替换代次改变时，虚拟窗口清理旧作用域的高度测量、前一布局、分页在途标记、视口快照和底部跟随状态；同一项目重新 hydrate 也建立新的首屏布局。
+- 新范围的消息使用估算高度建立布局；首轮 DOM 提交和 ResizeObserver 测量将累计高度逐步修正为真实值。
+- hydrate 完成后，有消息的范围将首屏直接定位到最新消息；空范围显示空状态并将滚动位置置零。
+- 真实高度后续变化时，底部跟随状态依据最新虚拟总高度更新 `scrollTop`；该过程使用瞬时定位，不呈现从顶部移动到中间的过渡帧。
+- 同一范围内加载更早页面时，虚拟窗口保留首个可见 `blockId` 与视口偏移；实时追加按是否停留在底部决定跟随，搜索定位按目标 `blockId` 居中。
+- 搜索活动目标随着作用域切换清除，搜索控制器只从当前范围的 MessageBlock 序列构造结果。
+
+作用域切换策略和虚拟高度重建细节以[消息流](./message-stream.mdx)为准。历史投影负责提供可靠的范围身份、请求代次和 hydrate 状态；MessageStream 负责把它们落实为布局重建和滚动策略。
 
 ## 实时事件
 

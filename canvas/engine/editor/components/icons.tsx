@@ -190,31 +190,6 @@ export const WelcomeScreenMenuArrow = createIcon(
 );
 
 // custom
-export const WelcomeScreenHelpArrow = createIcon(
-  <>
-    <path
-      d="M18.026 1.232c-5.268 13.125-5.548 33.555 3.285 42.311 8.823 8.75 33.31 12.304 42.422 13.523"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-    />
-    <path
-      fillRule="evenodd"
-      clipRule="evenodd"
-      d="m72.181 59.247-13.058-10-2.948 13.62 16.006-3.62Z"
-      fill="currentColor"
-    />
-    <path
-      d="M72.181 59.247c-3.163-2.429-6.337-4.856-13.058-10m13.058 10c-5.145-3.936-10.292-7.882-13.058-10m0 0c-.78 3.603-1.563 7.196-2.948 13.62m2.948-13.62c-1.126 5.168-2.24 10.346-2.948 13.62m0 0c5.168-1.166 10.334-2.343 16.006-3.62m-16.006 3.62c5.51-1.248 11.01-2.495 16.006-3.62"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-    />
-  </>,
-  { width: 85, height: 71, fill: "none" },
-);
-
-// custom
 export const WelcomeScreenTopToolbarArrow = createIcon(
   <>
     <path
@@ -329,15 +304,11 @@ export const FreedrawIcon = createIcon(
   modifiedTablerIconProps,
 );
 
-// tabler-icons: typography
+// Agent Studio sans-serif text tool
 export const TextIcon = createIcon(
-  <g strokeWidth="1.5">
-    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-    <line x1="4" y1="20" x2="7" y2="20" />
-    <line x1="14" y1="20" x2="21" y2="20" />
-    <line x1="6.9" y1="15" x2="13.8" y2="15" />
-    <line x1="10.2" y1="6.3" x2="16" y2="20" />
-    <polyline points="5 20 11 4 13 4 20 20"></polyline>
+  <g strokeWidth="1.5" strokeLinecap="round">
+    <path d="M5 4h14" />
+    <path d="M12 4v16" />
   </g>,
   tablerIconProps,
 );
@@ -359,26 +330,6 @@ export const EraserIcon = createIcon(
     <path stroke="none" d="M0 0h24v24H0z" fill="none" />
     <path d="M19 20h-10.5l-4.21 -4.3a1 1 0 0 1 0 -1.41l10 -10a1 1 0 0 1 1.41 0l5 5a1 1 0 0 1 0 1.41l-9.2 9.3" />
     <path d="M18 13.3l-6.3 -6.3" />
-  </g>,
-  tablerIconProps,
-);
-
-export const ZoomInIcon = createIcon(
-  <path strokeWidth="1.25" d="M10 4.167v11.666M4.167 10h11.666" />,
-  modifiedTablerIconProps,
-);
-
-export const ZoomOutIcon = createIcon(
-  <path d="M5 10h10" strokeWidth="1.25" />,
-  modifiedTablerIconProps,
-);
-
-export const ZoomResetIcon = createIcon(
-  <g strokeWidth={1.25}>
-    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-    <path d="M21 21l-6 -6" />
-    <path d="M3.268 12.043a7.017 7.017 0 0 0 6.634 4.957a7.012 7.012 0 0 0 7.043 -6.131a7 7 0 0 0 -5.314 -7.672a7.021 7.021 0 0 0 -8.241 4.403" />
-    <path d="M3 4v4h4" />
   </g>,
   tablerIconProps,
 );
@@ -426,48 +377,10 @@ export const SunIcon = createIcon(
   { ...modifiedTablerIconProps, strokeWidth: 1.5 },
 );
 
-export const HamburgerMenuIcon = createIcon(
-  <g strokeWidth="1.5">
-    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-    <line x1="4" y1="6" x2="20" y2="6"></line>
-    <line x1="4" y1="12" x2="20" y2="12"></line>
-    <line x1="4" y1="18" x2="20" y2="18"></line>
-  </g>,
-  tablerIconProps,
-);
-
 export const ExportIcon = createIcon(
   <path
     strokeWidth="1.25"
     d="M3.333 14.167v1.666c0 .92.747 1.667 1.667 1.667h10c.92 0 1.667-.746 1.667-1.667v-1.666M5.833 9.167 10 13.333l4.167-4.166M10 3.333v10"
-  />,
-  modifiedTablerIconProps,
-);
-
-export const HelpIcon = createIcon(
-  <g strokeWidth="1.5">
-    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-    <circle cx="12" cy="12" r="9"></circle>
-    <line x1="12" y1="17" x2="12" y2="17.01"></line>
-    <path d="M12 13.5a1.5 1.5 0 0 1 1 -1.5a2.6 2.6 0 1 0 -3 -4"></path>
-  </g>,
-  tablerIconProps,
-);
-
-export const HelpIconThin = createIcon(
-  <g strokeWidth="1.25">
-    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-    <circle cx="12" cy="12" r="9"></circle>
-    <line x1="12" y1="17" x2="12" y2="17.01"></line>
-    <path d="M12 13.5a1.5 1.5 0 0 1 1 -1.5a2.6 2.6 0 1 0 -3 -4"></path>
-  </g>,
-  tablerIconProps,
-);
-
-export const ExternalLinkIcon = createIcon(
-  <path
-    strokeWidth="1.25"
-    d="M9.167 5.833H5.833c-1.254 0-2.5 1.282-2.5 2.5v5.834c0 1.283 1.252 2.5 2.5 2.5h5.834c1.251 0 2.5-1.25 2.5-2.5v-3.334M8.333 11.667l8.334-8.334M12.5 3.333h4.167V7.5"
   />,
   modifiedTablerIconProps,
 );
@@ -526,32 +439,9 @@ export const bucketFillIcon = createIcon(
   tablerIconProps,
 );
 
-export const ExportImageIcon = createIcon(
-  <g strokeWidth="1.25">
-    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-    <path d="M15 8h.01"></path>
-    <path d="M12 20h-5a3 3 0 0 1 -3 -3v-10a3 3 0 0 1 3 -3h10a3 3 0 0 1 3 3v5"></path>
-    <path d="M4 15l4 -4c.928 -.893 2.072 -.893 3 0l4 4"></path>
-    <path d="M14 14l1 -1c.617 -.593 1.328 -.793 2.009 -.598"></path>
-    <path d="M19 16v6"></path>
-    <path d="M22 19l-3 3l-3 -3"></path>
-  </g>,
-  tablerIconProps,
-);
-
 export const exportToFileIcon = createIcon(
   "M216 0h80c13.3 0 24 10.7 24 24v168h87.7c17.8 0 26.7 21.5 14.1 34.1L269.7 378.3c-7.5 7.5-19.8 7.5-27.3 0L90.1 226.1c-12.6-12.6-3.7-34.1 14.1-34.1H192V24c0-13.3 10.7-24 24-24zm296 376v112c0 13.3-10.7 24-24 24H24c-13.3 0-24-10.7-24-24V376c0-13.3 10.7-24 24-24h146.7l49 49c20.1 20.1 52.5 20.1 72.6 0l49-49H488c13.3 0 24 10.7 24 24zm-124 88c0-11-9-20-20-20s-20 9-20 20 9 20 20 20 20-9 20-20zm64 0c0-11-9-20-20-20s-20 9-20 20 9 20 20 20 20-9 20-20z",
   { width: 512, height: 512 },
-);
-
-export const zoomIn = createIcon(
-  "M416 208H272V64c0-17.67-14.33-32-32-32h-32c-17.67 0-32 14.33-32 32v144H32c-17.67 0-32 14.33-32 32v32c0 17.67 14.33 32 32 32h144v144c0 17.67 14.33 32 32 32h32c17.67 0 32-14.33 32-32V304h144c17.67 0 32-14.33 32-32v-32c0-17.67-14.33-32-32-32z",
-  { width: 448, height: 512 },
-);
-
-export const zoomOut = createIcon(
-  "M416 208H32c-17.67 0-32 14.33-32 32v32c0 17.67 14.33 32 32 32h384c17.67 0 32-14.33 32-32v-32c0-17.67-14.33-32-32-32z",
-  { width: 448, height: 512 },
 );
 
 export const done = createIcon(
@@ -623,18 +513,6 @@ export const shareWindows = createIcon(
     />
   </>,
   { width: 64, height: 64 },
-);
-
-// Icon imported form Storybook
-// Storybook is licensed under MIT https://github.com/storybookjs/storybook/blob/next/LICENSE
-export const resetZoom = createIcon(
-  <path
-    stroke="currentColor"
-    strokeWidth="40"
-    fill="currentColor"
-    d="M148 560a318 318 0 0 0 522 110 316 316 0 0 0 0-450 316 316 0 0 0-450 0c-11 11-21 22-30 34v4h47c25 0 46 21 46 46s-21 45-46 45H90c-13 0-25-6-33-14-9-9-14-20-14-33V156c0-25 20-45 45-45s45 20 45 45v32l1 1a401 401 0 0 1 623 509l212 212a42 42 0 0 1-59 59L698 757A401 401 0 0 1 65 570a42 42 0 0 1 83-10z"
-  />,
-  { width: 1024 },
 );
 
 const arrowBarToTopJSX = (

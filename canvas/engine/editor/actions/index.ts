@@ -8,24 +8,8 @@ export {
 export { actionSelectAll } from "./actionSelectAll";
 export { actionDuplicateSelection } from "./actionDuplicateSelection";
 export {
-  actionChangeStrokeColor,
-  actionChangeBackgroundColor,
-  actionChangeStrokeWidth,
-  actionChangeFillStyle,
-  actionChangeSloppiness,
-  actionChangeOpacity,
-  actionChangeFontSize,
-  actionChangeFontFamily,
-  actionChangeTextAlign,
-  actionChangeVerticalAlign,
-} from "./actionProperties";
-
-export {
-  actionChangeViewBackgroundColor,
   actionClearCanvas,
-  actionZoomIn,
-  actionZoomOut,
-  actionResetZoom,
+  actionSetZoom,
   actionZoomToFit,
   actionToggleTheme,
 } from "./actionCanvas";
@@ -39,12 +23,6 @@ export {
   actionSaveFileToDisk,
 } from "./actionExport";
 
-export { actionCopyStyles, actionPasteStyles } from "./actionStyles";
-export {
-  actionToggleCanvasMenu,
-  actionToggleEditMenu,
-  actionShortcuts,
-} from "./actionMenu";
 
 export { actionGroup, actionUngroup } from "./actionGroup";
 

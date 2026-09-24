@@ -31,27 +31,28 @@ export class CanvasContextRegistry {
   }
 
   async prepare(input: CanvasContextInput): Promise<CanvasContextDescriptor> {
-    if (input.scope !== "selection" && input.scope !== "document") throw new Error("The canvas context scope is invalid.");
+    if (input.scope !== "selection") throw new Error("The canvas context scope is invalid.");
     if (input.visual && (!input.visual.dataURL.startsWith("data:image/png;base64,") || input.visual.dataURL.length > 8 * 1024 * 1024)) {
       throw new Error("The canvas visual snapshot is invalid or too large.");
     }
-    const revision = await this.documentStore.save(input.document);
     const allElements = input.document.elements.filter((element) => element.deleted !== true && element.isDeleted !== true);
     const selectedIds = new Set(input.selectedElementIds);
-    const elements = input.scope === "selection"
-      ? allElements.filter((element) => typeof element.id === "string" && selectedIds.has(element.id))
-      : allElements;
+    const elements = allElements.filter((element) => typeof element.id === "string" && selectedIds.has(element.id));
+    if (elements.length === 0) {
+      throw new Error("Canvas selection context must include at least one existing element.");
+    }
+    const revision = await this.documentStore.save(input.document);
     const imageCount = elements.filter((element) => element.type === "image" || typeof element.fileId === "string").length;
     const descriptor: CanvasContextDescriptor = {
       contextId: randomUUID(),
-      label: input.scope === "selection" ? `Canvas selection · ${elements.length} elements` : `Canvas · ${elements.length} elements`,
+      label: `Canvas selection · ${elements.length} elements`,
       scope: input.scope,
       elementCount: elements.length,
       imageCount,
       revision,
       hasVisual: Boolean(input.visual),
     };
-    const text = summarizeCanvas(elements, revision, input.scope);
+    const text = summarizeCanvas(elements, revision);
     this.contexts.set(descriptor.contextId, {
       context: { descriptor, text, ...(input.visual ? { visual: input.visual } : {}) },
       expiresAt: Date.now() + CONTEXT_TTL_MS,
@@ -87,8 +88,8 @@ export class CanvasContextRegistry {
   }
 }
 
-function summarizeCanvas(elements: Record<string, unknown>[], revision: number, scope: string): string {
-  const lines = [`Canvas context (revision ${revision}, ${scope}).`, "Use this as visual working context for this run only:"];
+function summarizeCanvas(elements: Record<string, unknown>[], revision: number): string {
+  const lines = [`Canvas selection context (revision ${revision}).`, "Use this as visual working context for this run only:"];
   const sorted = [...elements].sort((a, b) => numberValue(a.y) - numberValue(b.y) || numberValue(a.x) - numberValue(b.x));
   for (const element of sorted) {
     const type = typeof element.type === "string" ? element.type : "element";

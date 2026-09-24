@@ -64,13 +64,17 @@ function buildMessageBlocks(
 /**
  * 消息列：纯文本行直接堆叠进入阅读流。
  * 每个 run = 用户消息（右对齐气泡 + 时间戳与复制行）+ 过程块（Working for 折叠行 + 展开内容）+ 最终答案。
- * 空状态保持空白视图；有内容时按 run 顺序呈现上述三部分。
+ * 空状态提示由主列布局居中展示；有内容时按 run 顺序呈现上述三部分。
  */
 export interface MessageStreamHandle {
   revealBlock: (blockId: string) => Promise<boolean>;
 }
 
 export interface MessageStreamProps {
+  projectId?: string | null;
+  historyGeneration?: number;
+  historyHydrationVersion?: number;
+  historyReady?: boolean;
   order: string[];
   runs: Record<string, RunState>;
   runTimings: Record<string, RunTiming>;
@@ -83,6 +87,10 @@ export interface MessageStreamProps {
 }
 
 export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>(function MessageStream({
+  projectId = null,
+  historyGeneration = 0,
+  historyHydrationVersion = 0,
+  historyReady = true,
   order,
   runs,
   runTimings,
@@ -102,22 +110,27 @@ export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>
     items: blocks,
     rootRef,
     scrollRef,
+    projectId,
+    historyGeneration,
+    historyHydrationVersion,
+    historyReady,
     hasMore,
     loadingOlder,
     onLoadOlder,
   });
   useImperativeHandle(ref, () => ({ revealBlock }), [revealBlock]);
   const visibleBlocks = blocks.slice(range.startIndex, range.endIndex);
+  const loadingHistory = !historyReady && !historyError;
 
   return (
     <div ref={rootRef} className="message-stream" data-block-count={blocks.length}>
-      {(loadingOlder || historyError) && (
+      {(loadingHistory || loadingOlder || historyError) && (
         <div className={`message-history-status${historyError ? " is-error" : ""}`} role={historyError ? "alert" : "status"}>
           {historyError ? (
             <button type="button" onClick={() => void onLoadOlder?.()}>
               History loading failed. Click to retry
             </button>
-          ) : "Loading earlier messages…"}
+          ) : loadingOlder ? "Loading earlier messages…" : "Loading history…"}
         </div>
       )}
       <div className="message-virtual-spacer" data-virtual-spacer="top" style={{ height: range.topSpacer }} />

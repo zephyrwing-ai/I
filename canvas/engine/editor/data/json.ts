@@ -77,13 +77,13 @@ export const saveAsJSON = async (
 ) => {
   const serialized = serializeAsJSON(elements, appState, files, "local");
   const blob = new Blob([serialized], {
-    type: MIME_TYPES.excalidraw,
+    type: MIME_TYPES.json,
   });
 
   const fileHandle = await fileSave(blob, {
     name,
-    extension: "excalidraw",
-    description: "Excalidraw file",
+    extension: "json",
+    description: "Canvas JSON file",
     fileHandle: isImageFileHandle(appState.fileHandle)
       ? null
       : appState.fileHandle,

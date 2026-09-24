@@ -13,7 +13,6 @@ import {
   actionCopyAsPng,
   actionCopyAsSvg,
   copyText,
-  actionCopyStyles,
   actionCut,
   actionDeleteSelected,
   actionDuplicateSelection,
@@ -21,7 +20,6 @@ import {
   actionFlipHorizontal,
   actionFlipVertical,
   actionGroup,
-  actionPasteStyles,
   actionSelectAll,
   actionSendBackward,
   actionSendToBack,
@@ -220,9 +218,9 @@ import {
   getElementsWithinSelection,
   getNormalizedZoom,
   getSelectedElements,
-  hasBackground,
   isSomeElementSelected,
 } from "../scene";
+import { getClosestElementToPoint } from "../scene/offscreenIndicator";
 import Scene from "../scene/Scene";
 import type {
   RenderInteractiveSceneCallback,
@@ -391,7 +389,6 @@ import {
 } from "../snapping";
 import { actionWrapTextInContainer } from "../actions/actionBoundText";
 import BraveMeasureTextError from "./BraveMeasureTextError";
-import { activeEyeDropperAtom } from "./EyeDropper";
 import type { ExcalidrawElementSkeleton } from "../data/transform";
 import { convertToExcalidrawElements } from "../data/transform";
 import type { ValueOf } from "../utility-types";
@@ -573,6 +570,10 @@ class App extends React.Component<AppProps, AppState> {
   public visibleElements: readonly NonDeletedExcalidrawElement[];
   private resizeObserver: ResizeObserver | undefined;
   private nearestScrollableContainer: HTMLElement | Document | undefined;
+  private offscreenContentTarget: {
+    elementId: ExcalidrawElement["id"];
+    point: { x: number; y: number };
+  } | null = null;
   public library: AppClassProperties["library"];
   public libraryItemsFromStorage: LibraryItems | undefined;
   public id: string;
@@ -1570,10 +1571,16 @@ class App extends React.Component<AppProps, AppState> {
                         <LayerUI
                           canvas={this.canvas}
                           appState={this.state}
+                          scrollX={this.state.scrollX}
+                          scrollY={this.state.scrollY}
+                          offscreenContentTarget={
+                            this.offscreenContentTarget?.point ?? null
+                          }
                           files={this.files}
                           setAppState={this.setAppState}
                           actionManager={this.actionManager}
                           elements={this.scene.getNonDeletedElements()}
+                          selectedElements={selectedElements}
                           onLockToggle={this.toggleLock}
                           onPenModeToggle={this.togglePenMode}
                           onHandToolToggle={this.onHandToolToggle}
@@ -1723,7 +1730,6 @@ class App extends React.Component<AppProps, AppState> {
                           renderConfig={{
                             imageCache: this.imageCache,
                             isExporting: false,
-                            renderGrid: isGridModeEnabled(this),
                             canvasBackgroundColor:
                               this.state.viewBackgroundColor,
                             embedsValidationStatus: this.embedsValidationStatus,
@@ -1742,7 +1748,6 @@ class App extends React.Component<AppProps, AppState> {
                             renderConfig={{
                               imageCache: this.imageCache,
                               isExporting: false,
-                              renderGrid: false,
                               canvasBackgroundColor:
                                 this.state.viewBackgroundColor,
                               embedsValidationStatus:
@@ -2062,50 +2067,6 @@ class App extends React.Component<AppProps, AppState> {
 
       this.onMagicFrameGenerate(frame, "upstream");
     }
-  };
-
-  private openEyeDropper = ({ type }: { type: "stroke" | "background" }) => {
-    editorJotaiStore.set(activeEyeDropperAtom, {
-      swapPreviewOnAlt: true,
-      colorPickerType:
-        type === "stroke" ? "elementStroke" : "elementBackground",
-      onSelect: (color, event) => {
-        const shouldUpdateStrokeColor =
-          (type === "background" && event.altKey) ||
-          (type === "stroke" && !event.altKey);
-        const selectedElements = this.scene.getSelectedElements(this.state);
-        if (
-          !selectedElements.length ||
-          this.state.activeTool.type !== "selection"
-        ) {
-          if (shouldUpdateStrokeColor) {
-            this.syncActionResult({
-              appState: { ...this.state, currentItemStrokeColor: color },
-              captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-            });
-          } else {
-            this.syncActionResult({
-              appState: { ...this.state, currentItemBackgroundColor: color },
-              captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-            });
-          }
-        } else {
-          this.updateScene({
-            elements: this.scene.getElementsIncludingDeleted().map((el) => {
-              if (this.state.selectedElementIds[el.id]) {
-                return newElementWith(el, {
-                  [shouldUpdateStrokeColor ? "strokeColor" : "backgroundColor"]:
-                    color,
-                });
-              }
-              return el;
-            }),
-            captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-          });
-        }
-      },
-      keepOpenOnAlt: false,
-    });
   };
 
   public dismissLinearEditor = () => {
@@ -2880,7 +2841,54 @@ class App extends React.Component<AppProps, AppState> {
       this.state.editingTextElement
         ? false
         : !atLeastOneVisibleElement && elementsMap.size > 0;
-    if (this.state.scrolledOutside !== scrolledOutside) {
+
+    let targetChanged = false;
+    if (!scrolledOutside) {
+      targetChanged = this.offscreenContentTarget !== null;
+      this.offscreenContentTarget = null;
+    } else {
+      let targetElement = this.offscreenContentTarget
+        ? elementsMap.get(this.offscreenContentTarget.elementId)
+        : undefined;
+
+      if (!targetElement) {
+        const viewportCenter = viewportCoordsToSceneCoords(
+          {
+            clientX: this.state.offsetLeft + this.state.width / 2,
+            clientY: this.state.offsetTop + this.state.height / 2,
+          },
+          this.state,
+        );
+        targetElement =
+          getClosestElementToPoint(
+            Array.from(elementsMap.values()) as NonDeletedExcalidrawElement[],
+            elementsMap,
+            viewportCenter,
+          ) ?? undefined;
+      }
+
+      if (targetElement) {
+        const [x1, y1, x2, y2] = getElementAbsoluteCoords(
+          targetElement,
+          elementsMap,
+        );
+        const point = { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
+        targetChanged =
+          !this.offscreenContentTarget ||
+          this.offscreenContentTarget.elementId !== targetElement.id ||
+          this.offscreenContentTarget.point.x !== point.x ||
+          this.offscreenContentTarget.point.y !== point.y;
+        this.offscreenContentTarget = {
+          elementId: targetElement.id,
+          point,
+        };
+      } else {
+        targetChanged = this.offscreenContentTarget !== null;
+        this.offscreenContentTarget = null;
+      }
+    }
+
+    if (this.state.scrolledOutside !== scrolledOutside || targetChanged) {
       this.setState({ scrolledOutside });
     }
 
@@ -3960,41 +3968,46 @@ class App extends React.Component<AppProps, AppState> {
   );
 
   public getEditorUIOffsets = (): Offsets => {
-    const toolbarBottom =
-      this.excalidrawContainerRef?.current
-        ?.querySelector(".App-toolbar")
-        ?.getBoundingClientRect()?.bottom ?? 0;
-    const sidebarRect = this.excalidrawContainerRef?.current
-      ?.querySelector(".sidebar")
-      ?.getBoundingClientRect();
-    const propertiesPanelRect = this.excalidrawContainerRef?.current
-      ?.querySelector(".App-menu__left")
-      ?.getBoundingClientRect();
-
+    const container = this.excalidrawContainerRef?.current;
+    const containerRect = container?.getBoundingClientRect();
+    const toolbarTop = container
+      ?.querySelector(".layer-ui__wrapper > .shapes-section--bottom")
+      ?.getBoundingClientRect().top;
+    const footerTop = container
+      ?.querySelector(".App-menu_bottom, .App-bottom-bar footer")
+      ?.getBoundingClientRect().top;
+    const sidebarRect = container?.querySelector(".sidebar")?.getBoundingClientRect();
     const PADDING = 16;
+    const lowerHalfStart = containerRect
+      ? containerRect.top + containerRect.height / 2
+      : 0;
+    const bottomOcclusionTop = [toolbarTop, footerTop]
+      .filter((top): top is number => top !== undefined && top > lowerHalfStart)
+      .reduce(
+        (top, candidate) => Math.min(top, candidate),
+        containerRect?.bottom ?? 0,
+      );
+    const bottomReserved = containerRect
+      ? Math.max(containerRect.bottom - bottomOcclusionTop + PADDING, PADDING)
+      : PADDING;
 
     return getLanguage().rtl
       ? {
-          top: toolbarBottom + PADDING,
-          right:
-            Math.max(
-              this.state.width -
-                (propertiesPanelRect?.left ?? this.state.width),
-              0,
-            ) + PADDING,
-          bottom: PADDING,
+          top: PADDING,
+          right: PADDING,
+          bottom: bottomReserved,
           left: Math.max(sidebarRect?.right ?? 0, 0) + PADDING,
         }
       : {
-          top: toolbarBottom + PADDING,
+          top: PADDING,
           right: Math.max(
             this.state.width -
               (sidebarRect?.left ?? this.state.width) +
               PADDING,
             0,
           ),
-          bottom: PADDING,
-          left: Math.max(propertiesPanelRect?.right ?? 0, 0) + PADDING,
+          bottom: bottomReserved,
+          left: PADDING,
         };
   };
 
@@ -4212,12 +4225,7 @@ class App extends React.Component<AppProps, AppState> {
         return;
       }
 
-      if (event.key === KEYS.QUESTION_MARK) {
-        this.setState({
-          openDialog: { name: "help" },
-        });
-        return;
-      } else if (
+      if (
         event.key.toLowerCase() === KEYS.E &&
         event.shiftKey &&
         event[KEYS.CTRL_OR_CMD]
@@ -4437,82 +4445,12 @@ class App extends React.Component<AppProps, AppState> {
       }
 
       if (
-        (event.key === KEYS.G || event.key === KEYS.S) &&
-        !event.altKey &&
-        !event[KEYS.CTRL_OR_CMD]
-      ) {
-        const selectedElements = this.scene.getSelectedElements(this.state);
-        if (
-          this.state.activeTool.type === "selection" &&
-          !selectedElements.length
-        ) {
-          return;
-        }
-
-        if (
-          event.key === KEYS.G &&
-          (hasBackground(this.state.activeTool.type) ||
-            selectedElements.some((element) => hasBackground(element.type)))
-        ) {
-          this.setState({ openPopup: "elementBackground" });
-          event.stopPropagation();
-        }
-        if (event.key === KEYS.S) {
-          this.setState({ openPopup: "elementStroke" });
-          event.stopPropagation();
-        }
-      }
-
-      if (
-        !event[KEYS.CTRL_OR_CMD] &&
-        event.shiftKey &&
-        event.key.toLowerCase() === KEYS.F
-      ) {
-        const selectedElements = this.scene.getSelectedElements(this.state);
-
-        if (
-          this.state.activeTool.type === "selection" &&
-          !selectedElements.length
-        ) {
-          return;
-        }
-
-        if (
-          this.state.activeTool.type === "text" ||
-          selectedElements.find(
-            (element) =>
-              isTextElement(element) ||
-              getBoundTextElement(
-                element,
-                this.scene.getNonDeletedElementsMap(),
-              ),
-          )
-        ) {
-          event.preventDefault();
-          this.setState({ openPopup: "fontFamily" });
-        }
-      }
-
-      if (
         event[KEYS.CTRL_OR_CMD] &&
         (event.key === KEYS.BACKSPACE || event.key === KEYS.DELETE)
       ) {
         editorJotaiStore.set(activeConfirmDialogAtom, "clearCanvas");
       }
 
-      // eye dropper
-      // -----------------------------------------------------------------------
-      const lowerCased = event.key.toLocaleLowerCase();
-      const isPickingStroke = lowerCased === KEYS.S && event.shiftKey;
-      const isPickingBackground =
-        event.key === KEYS.I || (lowerCased === KEYS.G && event.shiftKey);
-
-      if (isPickingStroke || isPickingBackground) {
-        this.openEyeDropper({
-          type: isPickingStroke ? "stroke" : "background",
-        });
-      }
-      // -----------------------------------------------------------------------
     },
   );
 
@@ -10820,8 +10758,6 @@ class App extends React.Component<AppProps, AppState> {
       CONTEXT_MENU_SEPARATOR,
       ...options,
       CONTEXT_MENU_SEPARATOR,
-      actionCopyStyles,
-      actionPasteStyles,
       CONTEXT_MENU_SEPARATOR,
       actionGroup,
       actionTextAutoResize,

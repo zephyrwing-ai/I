@@ -21,7 +21,6 @@
 .message-history-status { position: sticky; top: 4px; z-index: 2; width: fit-content; min-height: 24px; margin: 0 auto -24px; color: var(--text-muted); font-size: 12px; line-height: 24px; pointer-events: none; }
 .message-history-status button { height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--surface-secondary); color: var(--text-secondary); font: inherit; pointer-events: auto; cursor: pointer; }
 .message-history-status button:hover { color: var(--text); }
-
 /* 用户消息：右对齐气泡（14px / 24px 行高，四角一致 16px，扁平纯填充），与后续内容 28px 垂直间距 */
 .user-message-row { width: 100%; margin: 0 0 28px; display: flex; justify-content: flex-end; }
 .user-message-group { width: fit-content; display: flex; flex-direction: column; align-items: flex-end; max-width: 76%; }
@@ -71,8 +70,8 @@
 .markdown a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 .markdown a:hover { color: var(--text); }
 .markdown code { font-family: var(--mono); font-size: 0.92em; padding: 1px 4px; border-radius: 4px; background: var(--surface-secondary); }
-.markdown pre { margin: 0; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-secondary); }
-.markdown pre code { display: block; padding: 0; border-radius: 0; background: transparent; font-size: 12px; line-height: 20px; white-space: pre; }
+.markdown pre { max-width: 100%; margin: 0; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-secondary); }
+.markdown pre code { display: block; padding: 0; border-radius: 0; background: transparent; font-size: 12px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .markdown table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 20px; }
 .md-table-wrap { overflow-x: auto; }
 .markdown th, .markdown td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }

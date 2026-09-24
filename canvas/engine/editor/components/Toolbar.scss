@@ -3,11 +3,8 @@
 
 .excalidraw {
   .App-toolbar {
-    &.zen-mode {
-      .ToolIcon__keybinding,
-      .HintViewer {
-        display: none;
-      }
+    &.zen-mode .ToolIcon__keybinding {
+      display: none;
     }
 
     &__divider {

@@ -152,14 +152,10 @@ export function RunProcess({
     return () => clearInterval(timer);
   }, [working, runTiming]);
 
-  const persistedElapsed = run.taskAt !== undefined && answerTurn?.assistantCompletedAt !== undefined
-    ? answerTurn.assistantCompletedAt - run.taskAt
-    : undefined;
-  const totalElapsed = runTiming
-    ? working
-      ? now - runTiming.startedAt
-      : (runTiming.completedAt ?? now) - runTiming.startedAt
-    : persistedElapsed;
+  const persistedDuration = answerTurn?.assistantDurationMs;
+  const totalElapsed = working && runTiming
+    ? now - runTiming.startedAt
+    : persistedDuration ?? (runTiming ? (runTiming.completedAt ?? now) - runTiming.startedAt : undefined);
   const turns = run.turnOrder
     .map((turnId) => run.turns[turnId])
     .filter((turn): turn is TurnState => Boolean(turn));

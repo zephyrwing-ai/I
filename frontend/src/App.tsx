@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { Column } from "./middle-column/Column";
 import { MessageStream, type MessageStreamHandle } from "./middle-column/message-stream/MessageStream";
 import { StreamRegion } from "./middle-column/message-stream/StreamScrollbar";
@@ -7,7 +7,12 @@ import { Composer } from "./middle-column/composer/Composer";
 import { TopBar, SearchPopover } from "./components/TopBar";
 import { ConfigPanel } from "./components/ConfigPanel";
 import { OutputSidebar } from "./components/OutputSidebar";
-import { CanvasSurface } from "../../canvas/ui/CanvasSurface";
+import {
+  CanvasSurface,
+  preloadCanvasDocument,
+  preloadCanvasEditor,
+  resetPreloadedCanvasDocument,
+} from "../../canvas/ui/CanvasSurface";
 import { useFloatingPanel } from "./hooks/useFloatingPanel";
 import { useSessionHistory } from "./hooks/useSessionHistory";
 import { useGlobalSearch } from "./hooks/useGlobalSearch";
@@ -81,9 +86,14 @@ export default function App() {
 
   const history = useSessionHistory(state, dispatch);
   const search = useGlobalSearch(state, history.loadSearch);
+  const showEmptyState = history.hydrated && state.runOrder.length === 0 && !history.loadingOlder && !history.error;
 
   useEffect(() => {
-    void window.agentAPI.getActiveProject().then(setProject).catch(() => undefined);
+    void preloadCanvasEditor().catch(() => undefined);
+    void window.agentAPI.getActiveProject().then((activeProject) => {
+      setProject(activeProject);
+      void preloadCanvasDocument().catch(() => undefined);
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -117,7 +127,7 @@ export default function App() {
   }, [searchOpen]);
 
   // 底部占位高度 = Composer 实时高度（外壳 116px + 输入/附件增减同步），见设计文档「滚动条-底部占位」
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = composerRef.current;
     if (!element) return;
     const measure = (): void => setComposerHeight(element.offsetHeight);
@@ -173,10 +183,12 @@ export default function App() {
   const handleSelectProject = async (): Promise<void> => {
     if (running) return;
     try {
+      resetPreloadedCanvasDocument();
       const selected = await window.agentAPI.selectProject();
       if (!selected) return;
       setProject(selected);
-      await history.reload();
+      void preloadCanvasDocument().catch(() => undefined);
+      await history.reload(selected.projectId);
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
     }
@@ -185,9 +197,11 @@ export default function App() {
   const handleClearProject = async (): Promise<void> => {
     if (running) return;
     try {
+      resetPreloadedCanvasDocument();
       const cleared = await window.agentAPI.clearProject();
       setProject(cleared);
-      await history.reload();
+      void preloadCanvasDocument().catch(() => undefined);
+      await history.reload(cleared.projectId);
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
     }
@@ -230,6 +244,10 @@ export default function App() {
               {state.error && <div className="error-banner">{state.error}</div>}
               <MessageStream
                 ref={messageStreamRef}
+                projectId={state.history.projectId}
+                historyGeneration={state.history.requestGeneration}
+                historyHydrationVersion={state.history.hydrationVersion}
+                historyReady={history.hydrated}
                 order={state.runOrder}
                 runs={state.runs}
                 runTimings={runTimings.current}
@@ -242,6 +260,11 @@ export default function App() {
               />
               <div style={{ height: composerHeight }} />
             </StreamRegion>
+            {showEmptyState && (
+              <div className="column-empty-state" style={{ bottom: composerHeight }}>
+                What can I do for you ?
+              </div>
+            )}
             <div ref={composerRef} className="composer-inner">
               <Composer
                 running={running}

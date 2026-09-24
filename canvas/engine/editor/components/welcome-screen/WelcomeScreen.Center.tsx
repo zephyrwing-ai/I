@@ -1,9 +1,7 @@
 import type { JSX } from "react";
-import { actionShortcuts } from "../../actions";
 import { t } from "../../i18n";
-import { useDevice, useExcalidrawActionManager } from "../App";
+import { useDevice } from "../App";
 import { useTunnels } from "../../context/tunnels";
-import { HelpIcon } from "../icons";
 import { ExcalidrawLogo } from "../ExcalidrawLogo";
 
 const WelcomeScreenMenuItemContent = ({
@@ -94,9 +92,6 @@ const Center = ({ children }: { children?: React.ReactNode }) => {
           <>
             <Logo />
             <Heading>{t("welcomeScreen.defaults.center_heading")}</Heading>
-            <Menu>
-              <MenuItemHelp />
-            </Menu>
           </>
         )}
       </div>
@@ -128,21 +123,6 @@ const Menu = ({ children }: { children?: React.ReactNode }) => {
 };
 Menu.displayName = "Menu";
 
-const MenuItemHelp = () => {
-  const actionManager = useExcalidrawActionManager();
-
-  return (
-    <WelcomeScreenMenuItem
-      onSelect={() => actionManager.executeAction(actionShortcuts)}
-      shortcut="?"
-      icon={HelpIcon}
-    >
-      {t("helpDialog.title")}
-    </WelcomeScreenMenuItem>
-  );
-};
-MenuItemHelp.displayName = "MenuItemHelp";
-
 // -----------------------------------------------------------------------------
 
 Center.Logo = Logo;
@@ -150,6 +130,5 @@ Center.Heading = Heading;
 Center.Menu = Menu;
 Center.MenuItem = WelcomeScreenMenuItem;
 Center.MenuItemLink = WelcomeScreenMenuItemLink;
-Center.MenuItemHelp = MenuItemHelp;
 
 export { Center };

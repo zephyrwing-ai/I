@@ -60,7 +60,7 @@ export interface HistoryEntry {
   payload: ModelMessage;
   createdAt: number;
   updatedAt: number;
-  completedAt: number | null;
+  durationMs: number | null;
 }
 
 export interface AppendEntryInput {
@@ -75,7 +75,7 @@ export interface AppendEntryInput {
   payload: ModelMessage;
   createdAt?: number;
   updatedAt?: number;
-  completedAt?: number | null;
+  durationMs?: number | null;
 }
 
 export interface EntryPatch {
@@ -85,7 +85,7 @@ export interface EntryPatch {
   turnId?: string | null;
   toolCallId?: string | null;
   updatedAt?: number;
-  completedAt?: number | null;
+  durationMs?: number | null;
 }
 
 export interface MessageCommitContext {

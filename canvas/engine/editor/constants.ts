@@ -111,7 +111,6 @@ export const ENV = {
 };
 
 export const CLASSES = {
-  SHAPE_ACTIONS_MENU: "App-menu__left",
   ZOOM_ACTIONS: "zoom-actions",
   SEARCH_MENU_INPUT_WRAPPER: "layer-ui__search-inputWrapper",
 };
@@ -177,8 +176,8 @@ export const FRAME_STYLE = {
 };
 
 export const MIN_FONT_SIZE = 1;
-export const DEFAULT_FONT_SIZE = 20;
-export const DEFAULT_FONT_FAMILY: FontFamilyValues = FONT_FAMILY.Excalifont;
+export const DEFAULT_FONT_SIZE = 14;
+export const DEFAULT_FONT_FAMILY: FontFamilyValues = FONT_FAMILY.Helvetica;
 export const DEFAULT_TEXT_ALIGN = "left";
 export const DEFAULT_VERTICAL_ALIGN = "top";
 export const DEFAULT_VERSION = "{version}";
@@ -281,7 +280,6 @@ export const URL_HASH_KEYS = {
 
 export const DEFAULT_UI_OPTIONS: AppProps["UIOptions"] = {
   canvasActions: {
-    changeViewBackgroundColor: true,
     clearCanvas: true,
     export: { saveFileToDisk: true },
     saveToActiveFile: true,
@@ -390,7 +388,7 @@ export const DEFAULT_ELEMENT_PROPS: {
   strokeColor: COLOR_PALETTE.black,
   backgroundColor: COLOR_PALETTE.transparent,
   fillStyle: "solid",
-  strokeWidth: STROKE_WIDTH.extraBold,
+  strokeWidth: STROKE_WIDTH.bold,
   strokeStyle: "solid",
   roughness: ROUGHNESS.architect,
   opacity: 100,

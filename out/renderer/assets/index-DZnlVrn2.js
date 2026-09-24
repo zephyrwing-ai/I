@@ -1,4 +1,4 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./index-BIHiqvDO.js","./index-H0i9UwL_.css"])))=>i.map(i=>d[i]);
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./index-aCo1Oxwf.js","./index-B0hAA_Nb.css"])))=>i.map(i=>d[i]);
 function _mergeNamespaces(n, m) {
   for (var i = 0; i < m.length; i++) {
     const e = m[i];
@@ -20064,8 +20064,8 @@ function RunProcess({
     const timer = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(timer);
   }, [working, runTiming]);
-  const persistedElapsed = run.taskAt !== void 0 && answerTurn?.assistantCompletedAt !== void 0 ? answerTurn.assistantCompletedAt - run.taskAt : void 0;
-  const totalElapsed = runTiming ? working ? now - runTiming.startedAt : (runTiming.completedAt ?? now) - runTiming.startedAt : persistedElapsed;
+  const persistedDuration = answerTurn?.assistantDurationMs;
+  const totalElapsed = working && runTiming ? now - runTiming.startedAt : persistedDuration ?? (runTiming ? (runTiming.completedAt ?? now) - runTiming.startedAt : void 0);
   const turns = run.turnOrder.map((turnId) => run.turns[turnId]).filter((turn) => Boolean(turn));
   const retrying = turns.some((turn) => turn.status === "retrying");
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "run-process", children: [
@@ -20231,6 +20231,10 @@ function useVirtualMessageWindow({
   items,
   rootRef,
   scrollRef,
+  projectId,
+  historyGeneration,
+  historyHydrationVersion,
+  historyReady,
   hasMore,
   loadingOlder,
   onLoadOlder
@@ -20238,6 +20242,10 @@ function useVirtualMessageWindow({
   const measuredHeights = reactExports.useRef(/* @__PURE__ */ new Map());
   const previousLayout = reactExports.useRef(null);
   const loadRequested = reactExports.useRef(false);
+  const olderRequestEpoch = reactExports.useRef(0);
+  const activeGeneration = reactExports.useRef(historyGeneration);
+  const activeScope = reactExports.useRef({ projectId, historyGeneration });
+  const bottomFrame = reactExports.useRef(null);
   const stickToBottom = reactExports.useRef(true);
   const [measurementVersion, setMeasurementVersion] = reactExports.useState(0);
   const [viewport, setViewport] = reactExports.useState({ scrollTop: 0, height: DEFAULT_VIEWPORT_HEIGHT, ready: false });
@@ -20252,16 +20260,41 @@ function useVirtualMessageWindow({
     [effectiveScrollTop, layout, viewport.height]
   );
   const requestOlder = reactExports.useCallback(() => {
+    if (activeGeneration.current !== historyGeneration) return;
     if (!hasMore || loadingOlder || loadRequested.current || !onLoadOlder) return;
     loadRequested.current = true;
+    const requestEpoch = olderRequestEpoch.current;
     void Promise.resolve(onLoadOlder()).finally(() => {
-      loadRequested.current = false;
+      if (olderRequestEpoch.current === requestEpoch) loadRequested.current = false;
     });
-  }, [hasMore, loadingOlder, onLoadOlder]);
+  }, [hasMore, historyGeneration, loadingOlder, onLoadOlder]);
+  useBrowserLayoutEffect(() => {
+    const previousScope = activeScope.current;
+    if (previousScope.projectId === projectId && previousScope.historyGeneration === historyGeneration) return;
+    activeScope.current = { projectId, historyGeneration };
+    activeGeneration.current = historyGeneration;
+    measuredHeights.current.clear();
+    previousLayout.current = null;
+    olderRequestEpoch.current += 1;
+    loadRequested.current = false;
+    stickToBottom.current = true;
+    if (bottomFrame.current !== null) cancelAnimationFrame(bottomFrame.current);
+    bottomFrame.current = null;
+    const element2 = findScrollElement(rootRef.current, scrollRef);
+    if (element2) {
+      element2.scrollTop = 0;
+      setViewport({ scrollTop: 0, height: element2.clientHeight, ready: false });
+    } else {
+      setViewport({ scrollTop: 0, height: DEFAULT_VIEWPORT_HEIGHT, ready: false });
+    }
+    setMeasurementVersion((value) => value + 1);
+  }, [historyGeneration, projectId, rootRef, scrollRef]);
   reactExports.useEffect(() => {
     const element2 = findScrollElement(rootRef.current, scrollRef);
     if (!element2) return;
+    const observedGeneration = historyGeneration;
     const sync = () => {
+      if (activeGeneration.current !== observedGeneration) return;
       stickToBottom.current = shouldStickToBottom(element2.scrollTop, element2.clientHeight, element2.scrollHeight);
       setViewport((current) => {
         const next = { scrollTop: element2.scrollTop, height: element2.clientHeight, ready: true };
@@ -20277,7 +20310,7 @@ function useVirtualMessageWindow({
       element2.removeEventListener("scroll", sync);
       observer.disconnect();
     };
-  }, [requestOlder, rootRef, scrollRef]);
+  }, [historyGeneration, requestOlder, rootRef, scrollRef]);
   useBrowserLayoutEffect(() => {
     const element2 = findScrollElement(rootRef.current, scrollRef);
     const oldLayout = previousLayout.current;
@@ -20296,7 +20329,9 @@ function useVirtualMessageWindow({
     const root2 = rootRef.current;
     const element2 = findScrollElement(root2, scrollRef);
     if (!root2 || !element2 || typeof ResizeObserver === "undefined") return;
+    const observedGeneration = historyGeneration;
     const observer = new ResizeObserver((entries) => {
+      if (activeGeneration.current !== observedGeneration) return;
       let changed = false;
       let correction = 0;
       const viewportTop = element2.getBoundingClientRect().top;
@@ -20317,21 +20352,30 @@ function useVirtualMessageWindow({
       if (correction !== 0) element2.scrollTop += correction;
       setMeasurementVersion((value) => value + 1);
       if (stickToBottom.current) {
-        requestAnimationFrame(() => {
+        if (bottomFrame.current !== null) cancelAnimationFrame(bottomFrame.current);
+        bottomFrame.current = requestAnimationFrame(() => {
+          bottomFrame.current = null;
+          if (activeGeneration.current !== observedGeneration) return;
           scrollToBottomInstant(element2);
+          setViewport({ scrollTop: element2.scrollTop, height: element2.clientHeight, ready: true });
         });
       }
     });
     root2.querySelectorAll("[data-message-block-id]").forEach((node2) => observer.observe(node2));
     return () => observer.disconnect();
-  }, [range.startIndex, range.endIndex, rootRef, scrollRef]);
+  }, [historyGeneration, range.startIndex, range.endIndex, rootRef, scrollRef]);
   useBrowserLayoutEffect(() => {
+    const root2 = rootRef.current;
     const element2 = findScrollElement(rootRef.current, scrollRef);
-    if (!element2 || items.length === 0) return;
-    const oldLayout = previousLayout.current;
-    if (!oldLayout || oldLayout.items.length !== 0 || !stickToBottom.current) return;
-    scrollToBottomInstant(element2);
-  }, [items.length, rootRef, scrollRef]);
+    if (!historyReady || !root2 || !element2) return;
+    stickToBottom.current = true;
+    if (Number(root2.dataset.blockCount ?? 0) === 0) {
+      element2.scrollTop = 0;
+    } else {
+      scrollToBottomInstant(element2);
+    }
+    setViewport({ scrollTop: element2.scrollTop, height: element2.clientHeight, ready: true });
+  }, [historyGeneration, historyHydrationVersion, historyReady, projectId, rootRef, scrollRef]);
   const revealBlock = reactExports.useCallback(async (blockId) => {
     const root2 = rootRef.current;
     const element2 = findScrollElement(root2, scrollRef);
@@ -20390,6 +20434,10 @@ function buildMessageBlocks(order2, runs, runTimings, activeSearchBlockId = null
   });
 }
 const MessageStream = reactExports.forwardRef(function MessageStream2({
+  projectId = null,
+  historyGeneration = 0,
+  historyHydrationVersion = 0,
+  historyReady = true,
   order: order2,
   runs,
   runTimings,
@@ -20409,14 +20457,19 @@ const MessageStream = reactExports.forwardRef(function MessageStream2({
     items: blocks,
     rootRef,
     scrollRef,
+    projectId,
+    historyGeneration,
+    historyHydrationVersion,
+    historyReady,
     hasMore,
     loadingOlder,
     onLoadOlder
   });
   reactExports.useImperativeHandle(ref, () => ({ revealBlock }), [revealBlock]);
   const visibleBlocks = blocks.slice(range.startIndex, range.endIndex);
+  const loadingHistory = !historyReady && !historyError;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: rootRef, className: "message-stream", "data-block-count": blocks.length, children: [
-    (loadingOlder || historyError) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message-history-status${historyError ? " is-error" : ""}`, role: historyError ? "alert" : "status", children: historyError ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void onLoadOlder?.(), children: "History loading failed. Click to retry" }) : "Loading earlier messages…" }),
+    (loadingHistory || loadingOlder || historyError) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message-history-status${historyError ? " is-error" : ""}`, role: historyError ? "alert" : "status", children: historyError ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void onLoadOlder?.(), children: "History loading failed. Click to retry" }) : loadingOlder ? "Loading earlier messages…" : "Loading history…" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "message-virtual-spacer", "data-virtual-spacer": "top", style: { height: range.topSpacer } }),
     visibleBlocks.map((block, visibleIndex) => {
       const blockIndex = range.startIndex + visibleIndex;
@@ -20881,8 +20934,11 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
         {
           type: "button",
           className: "composer-project-picker",
-          onClick: onSelectProject,
-          disabled: running || !ready,
+          onClick: (event) => {
+            event.stopPropagation();
+            if (!running) onSelectProject();
+          },
+          disabled: running,
           title: project.canonicalPath ?? "Choose folder",
           "aria-label": project.projectId ? `Project ${project.displayName}` : "Choose folder",
           children: [
@@ -20891,7 +20947,10 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
           ]
         }
       ),
-      project.projectId && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "composer-project-clear", onClick: onClearProject, disabled: running || !ready, "aria-label": "Clear project", title: "Clear project", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "close", width: "14", height: "14" }) })
+      project.projectId && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "composer-project-clear", onClick: (event) => {
+        event.stopPropagation();
+        onClearProject();
+      }, disabled: running, "aria-label": "Clear project", title: "Clear project", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "close", width: "14", height: "14" }) })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-shell", children: [
       attachments.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-attachments", "aria-label": "Attachments", children: attachments.map((attachment) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment", children: [
@@ -21444,6 +21503,7 @@ function shouldCollapseSidebar(rawWidth) {
   return rawWidth <= OUTPUT_SIDEBAR_MIN_WIDTH - OUTPUT_SIDEBAR_COLLAPSE_DISTANCE;
 }
 const WIDTH_KEY = "workbench.outputSidebarWidth";
+const CANVAS_KEEP_ALIVE_MS = 10 * 60 * 1e3;
 function clampWidth(width, viewportWidth) {
   return clampOutputSidebarWidth(width, viewportWidth);
 }
@@ -21453,6 +21513,9 @@ function initialWidth() {
 }
 function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", canvas }) {
   const [phase, setPhase] = reactExports.useState(open ? "open" : "closed");
+  const [canvasMounted, setCanvasMounted] = reactExports.useState(
+    () => open && activePanel === "canvas"
+  );
   const [width, setWidth] = reactExports.useState(initialWidth);
   const [viewportWidth, setViewportWidth] = reactExports.useState(() => window.innerWidth);
   const [dragWidth, setDragWidth] = reactExports.useState(width);
@@ -21464,6 +21527,7 @@ function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", can
   const shellRef = reactExports.useRef(null);
   const dragRef = reactExports.useRef({ startX: 0, startWidth: width, rawWidth: width });
   const frameRef = reactExports.useRef(null);
+  const canvasReleaseTimerRef = reactExports.useRef(null);
   const fileListRef = reactExports.useRef(null);
   const fileContentRef = reactExports.useRef(null);
   useElasticScroll(fileListRef, fileContentRef);
@@ -21490,6 +21554,23 @@ function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", can
     });
   }, [open]);
   reactExports.useEffect(() => {
+    if (open && activePanel === "canvas") {
+      if (canvasReleaseTimerRef.current !== null) {
+        window.clearTimeout(canvasReleaseTimerRef.current);
+        canvasReleaseTimerRef.current = null;
+      }
+      setCanvasMounted(true);
+      return;
+    }
+    if (open || !canvasMounted || canvasReleaseTimerRef.current !== null) {
+      return;
+    }
+    canvasReleaseTimerRef.current = window.setTimeout(() => {
+      canvasReleaseTimerRef.current = null;
+      setCanvasMounted(false);
+    }, CANVAS_KEEP_ALIVE_MS);
+  }, [activePanel, canvasMounted, open]);
+  reactExports.useEffect(() => {
     if (shellRef.current) shellRef.current.inert = phase === "closed";
   }, [phase]);
   reactExports.useEffect(() => {
@@ -21515,6 +21596,9 @@ function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", can
   }, [selected?.fileId, selected?.updatedAt]);
   reactExports.useEffect(() => () => {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    if (canvasReleaseTimerRef.current !== null) {
+      window.clearTimeout(canvasReleaseTimerRef.current);
+    }
   }, []);
   const finishTransition = (event) => {
     if (event.target !== shellRef.current || event.propertyName !== "width" || phase === "dragging") return;
@@ -21606,8 +21690,16 @@ function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", can
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-resizer", role: "separator", tabIndex: open ? 0 : -1, "aria-orientation": "vertical", "aria-valuemin": OUTPUT_SIDEBAR_MIN_WIDTH, "aria-valuemax": getOutputSidebarMaxWidth(viewportWidth), "aria-valuenow": Math.round(targetWidth), onPointerDown: startDrag, onDoubleClick: resetWidth, onKeyDown: resizeWithKeyboard }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `output-sidebar-content ${activePanel === "canvas" ? "is-canvas" : ""}`, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-sidebar-header", "aria-hidden": "true" }),
-          activePanel === "canvas" ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "right-sidebar-canvas", children: phase === "closed" ? null : canvas }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          activePanel !== "canvas" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-sidebar-header", "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "div",
+            {
+              className: `right-sidebar-canvas ${activePanel === "canvas" && phase !== "closed" ? "is-active" : "is-hidden"}`,
+              "aria-hidden": activePanel !== "canvas" || phase === "closed",
+              children: canvasMounted ? canvas : null
+            }
+          ),
+          activePanel !== "canvas" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: fileListRef, className: "output-file-list", role: "listbox", "aria-label": "Output files", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "output-file-layout", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: fileContentRef, className: "output-file-content", children: [
               fileGroups.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "panel-empty", children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "book-open", width: "24", height: "24" }),
@@ -21726,29 +21818,80 @@ const __vitePreload = function preload(baseModule, deps, importerUrl) {
     return baseModule().catch(handlePreloadError);
   });
 };
+let canvasEditorPromise = null;
+let preloadedCanvasDocument = null;
+function preloadCanvasEditor() {
+  canvasEditorPromise ??= __vitePreload(() => import("./index-aCo1Oxwf.js"), true ? __vite__mapDeps([0,1]) : void 0, import.meta.url).catch((error) => {
+    canvasEditorPromise = null;
+    throw error;
+  });
+  return canvasEditorPromise;
+}
+function preloadCanvasDocument() {
+  preloadedCanvasDocument ??= window.agentAPI.loadCanvasDocument().catch((error) => {
+    preloadedCanvasDocument = null;
+    throw error;
+  });
+  return preloadedCanvasDocument;
+}
+function resetPreloadedCanvasDocument() {
+  preloadedCanvasDocument = null;
+}
+class CanvasRenderErrorBoundary extends reactExports.Component {
+  constructor() {
+    super(...arguments);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Canvas renderer failed", error, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "canvas-panel-state canvas-panel-error", role: "alert", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Canvas could not be loaded." }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => window.location.reload(), children: "Retry" })
+      ] });
+    }
+    return this.props.children;
+  }
+}
+function consumeCanvasDocument() {
+  const promise = preloadedCanvasDocument ?? window.agentAPI.loadCanvasDocument();
+  preloadedCanvasDocument = null;
+  return promise;
+}
 const Excalidraw = reactExports.lazy(async () => {
-  const module = await __vitePreload(() => import("./index-BIHiqvDO.js"), true ? __vite__mapDeps([0,1]) : void 0, import.meta.url);
+  const module = await preloadCanvasEditor();
   return { default: module.Excalidraw };
 });
 function CanvasSurface({ onContextPrepared }) {
   const [document2, setDocument] = reactExports.useState(null);
   const [api, setApi] = reactExports.useState(null);
+  const [selectionActionPosition, setSelectionActionPosition] = reactExports.useState(null);
   const [loading, setLoading] = reactExports.useState(true);
   const [saving, setSaving] = reactExports.useState(false);
   const [selectedCount, setSelectedCount] = reactExports.useState(0);
-  const [elementCount, setElementCount] = reactExports.useState(0);
   const [busy, setBusy] = reactExports.useState(false);
+  const [savingJSON, setSavingJSON] = reactExports.useState(false);
   const [notice, setNotice] = reactExports.useState(null);
   const sceneRef = reactExports.useRef(null);
+  const editorRef = reactExports.useRef(null);
+  const selectionActionsRef = reactExports.useRef(null);
+  const selectionPositionRequestRef = reactExports.useRef(0);
+  const selectionPositionFrameRef = reactExports.useRef(null);
+  const selectionPositionWorkInFlightRef = reactExports.useRef(false);
+  const pendingSelectionPositionRef = reactExports.useRef(null);
   const saveTimerRef = reactExports.useRef(null);
   const loadedRef = reactExports.useRef(false);
   reactExports.useEffect(() => {
     let cancelled = false;
-    void window.agentAPI.loadCanvasDocument().then((result) => {
+    void consumeCanvasDocument().then((result) => {
       if (cancelled) return;
       setDocument(result.document);
       sceneRef.current = result.document;
-      setElementCount(result.document.elements.filter((element2) => element2.isDeleted !== true && element2.deleted !== true).length);
       loadedRef.current = true;
       setLoading(false);
     }).catch((error) => {
@@ -21756,25 +21899,40 @@ function CanvasSurface({ onContextPrepared }) {
       setNotice(error instanceof Error ? error.message : "Unable to load the canvas.");
       setDocument(emptyDocument());
       sceneRef.current = emptyDocument();
-      setElementCount(0);
       loadedRef.current = true;
       setLoading(false);
     });
     return () => {
       cancelled = true;
+      selectionPositionRequestRef.current += 1;
+      pendingSelectionPositionRef.current = null;
+      if (selectionPositionFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionPositionFrameRef.current);
+      }
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
       if (loadedRef.current && sceneRef.current) void window.agentAPI.saveCanvasDocument(sceneRef.current);
     };
   }, []);
   const initialData = reactExports.useMemo(() => {
     if (!document2) return null;
+    const softwareBackground = window.getComputedStyle(window.document.documentElement).getPropertyValue("--bg").trim() || "#f7f3ee";
     return {
       elements: document2.elements,
-      appState: document2.appState,
+      appState: {
+        ...document2.appState,
+        viewBackgroundColor: softwareBackground
+      },
       files: document2.files
     };
   }, [document2]);
-  const scheduleSave = (next) => {
+  const uiOptions = reactExports.useMemo(() => ({
+    canvasActions: {
+      saveToActiveFile: true,
+      export: false,
+      saveAsImage: true
+    }
+  }), []);
+  const scheduleSave = reactExports.useCallback((next) => {
     sceneRef.current = next;
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
@@ -21785,31 +21943,116 @@ function CanvasSurface({ onContextPrepared }) {
         setNotice(error instanceof Error ? error.message : "Unable to save the canvas.");
       });
     }, 450);
-  };
-  const handleChange = (elements, appState, files) => {
+  }, []);
+  const scheduleSelectionPosition = reactExports.useCallback(() => {
+    if (selectionPositionFrameRef.current !== null || selectionPositionWorkInFlightRef.current || !pendingSelectionPositionRef.current) {
+      return;
+    }
+    selectionPositionFrameRef.current = window.requestAnimationFrame(() => {
+      selectionPositionFrameRef.current = null;
+      const snapshot = pendingSelectionPositionRef.current;
+      pendingSelectionPositionRef.current = null;
+      if (!snapshot) return;
+      selectionPositionWorkInFlightRef.current = true;
+      void preloadCanvasEditor().then((editor) => {
+        if (snapshot.request !== selectionPositionRequestRef.current) return;
+        const editorBounds = editorRef.current?.getBoundingClientRect();
+        if (!editorBounds || snapshot.selectedElements.length === 0 || !snapshot.appState.zoom) return;
+        const [minX, minY, maxX, maxY] = editor.getCommonBounds(snapshot.selectedElements);
+        const transformPoint = (sceneY) => editor.sceneCoordsToViewportCoords(
+          { sceneX: (minX + maxX) / 2, sceneY },
+          {
+            zoom: snapshot.appState.zoom,
+            offsetLeft: snapshot.appState.offsetLeft ?? 0,
+            offsetTop: snapshot.appState.offsetTop ?? 0,
+            scrollX: snapshot.appState.scrollX ?? 0,
+            scrollY: snapshot.appState.scrollY ?? 0
+          }
+        );
+        const upperAnchor = transformPoint(minY);
+        const lowerAnchor = transformPoint(maxY);
+        const placeBelow = upperAnchor.y - editorBounds.top < 96;
+        const anchor = placeBelow ? lowerAnchor : upperAnchor;
+        const actionMargin = Math.min(
+          editorBounds.width / 2,
+          (selectionActionsRef.current?.offsetWidth ?? 280) / 2 + 8
+        );
+        const left = Math.max(
+          actionMargin,
+          Math.min(editorBounds.width - actionMargin, anchor.x - editorBounds.left)
+        );
+        const top = Math.max(
+          58,
+          Math.min(
+            editorBounds.height - 140,
+            anchor.y - editorBounds.top + (placeBelow ? 10 : -10)
+          )
+        );
+        const nextPosition = { left, top, placement: placeBelow ? "below" : "above" };
+        setSelectionActionPosition((current) => {
+          if (current?.placement === nextPosition.placement && Math.abs(current.left - nextPosition.left) < 1 && Math.abs(current.top - nextPosition.top) < 1) {
+            return current;
+          }
+          return nextPosition;
+        });
+      }).catch((error) => {
+        console.error("Unable to position Canvas selection actions", error);
+      }).finally(() => {
+        selectionPositionWorkInFlightRef.current = false;
+        if (pendingSelectionPositionRef.current) scheduleSelectionPosition();
+      });
+    });
+  }, []);
+  const handleChange = reactExports.useCallback((elements, appState, files) => {
     if (!loadedRef.current) return;
-    const selected = Object.keys(appState.selectedElementIds ?? {});
-    setSelectedCount(selected.length);
-    setElementCount(elements.filter((element2) => element2.isDeleted !== true).length);
+    const selectedIds = Object.keys(appState.selectedElementIds ?? {});
+    setSelectedCount(selectedIds.length);
+    const request = ++selectionPositionRequestRef.current;
+    if (selectedIds.length === 0) {
+      pendingSelectionPositionRef.current = null;
+      if (selectionPositionFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionPositionFrameRef.current);
+        selectionPositionFrameRef.current = null;
+      }
+      setSelectionActionPosition(null);
+    } else {
+      const selectedIdSet = new Set(selectedIds);
+      const selectedElements = elements.filter(
+        (element2) => selectedIdSet.has(element2.id) && element2.isDeleted !== true && element2.deleted !== true
+      );
+      pendingSelectionPositionRef.current = {
+        request,
+        selectedElements,
+        appState: {
+          zoom: appState.zoom,
+          offsetLeft: appState.offsetLeft,
+          offsetTop: appState.offsetTop,
+          scrollX: appState.scrollX,
+          scrollY: appState.scrollY
+        }
+      };
+      scheduleSelectionPosition();
+    }
     scheduleSave({
       elements: [...elements],
       appState: pickPersistedAppState(appState),
       files
     });
-  };
-  const prepareContext = async (scope) => {
+  }, [scheduleSave, scheduleSelectionPosition]);
+  const prepareSelectionContext = async () => {
     if (!api || !sceneRef.current || busy) return;
     const allElements = api.getSceneElements();
     const selectedIds = Object.keys(api.getAppState().selectedElementIds ?? {});
-    if (scope === "selection" && selectedIds.length === 0) {
+    if (selectedIds.length === 0) {
       setNotice("Select one or more canvas elements first.");
       return;
     }
     setBusy(true);
     setNotice(null);
     try {
-      const selected = scope === "selection" ? allElements.filter((element2) => selectedIds.includes(element2.id)) : allElements;
-      const excalidraw = await __vitePreload(() => import("./index-BIHiqvDO.js"), true ? __vite__mapDeps([0,1]) : void 0, import.meta.url);
+      const selectedIdSet = new Set(selectedIds);
+      const selected = allElements.filter((element2) => selectedIdSet.has(element2.id));
+      const excalidraw = await __vitePreload(() => import("./index-aCo1Oxwf.js"), true ? __vite__mapDeps([0,1]) : void 0, import.meta.url);
       const blob = await excalidraw.exportToBlob({
         elements: selected,
         appState: api.getAppState(),
@@ -21820,7 +22063,7 @@ function CanvasSurface({ onContextPrepared }) {
       const dataURL = await blobToDataURL(blob);
       const descriptor = await window.agentAPI.prepareCanvasContext({
         document: sceneRef.current,
-        scope,
+        scope: "selection",
         selectedElementIds: selectedIds,
         visual: { mediaType: "image/png", dataURL }
       });
@@ -21832,18 +22075,33 @@ function CanvasSurface({ onContextPrepared }) {
       setBusy(false);
     }
   };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "canvas-panel", "aria-label": "Canvas workspace", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "canvas-panel-toolbar", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "canvas-panel-status", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Canvas" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: saving ? "Saving…" : selectedCount > 0 ? `${selectedCount} selected` : "Select to reference" })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "canvas-panel-actions", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void prepareContext("selection"), disabled: loading || !api || busy || selectedCount === 0, children: busy ? "Preparing…" : "Use selection" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "canvas-panel-secondary-action", onClick: () => void prepareContext("document"), disabled: loading || !api || busy || elementCount === 0, children: "Use canvas" })
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-editor", children: loading || !initialData ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-state", children: "Loading canvas…" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(reactExports.Suspense, { fallback: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-state", children: "Loading drawing tools…" }), children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+  const saveCanvasJSON = async () => {
+    if (!api || savingJSON) return;
+    setSavingJSON(true);
+    setNotice(null);
+    try {
+      const editor = await __vitePreload(() => import("./index-aCo1Oxwf.js"), true ? __vite__mapDeps([0,1]) : void 0, import.meta.url);
+      const { fileHandle } = await editor.saveAsJSON(
+        api.getSceneElements(),
+        api.getAppState(),
+        api.getFiles(),
+        api.getName()
+      );
+      api.updateScene({ appState: { fileHandle } });
+      setNotice("Canvas JSON saved.");
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setNotice(error instanceof Error ? error.message : "Unable to export the canvas JSON.");
+      }
+    } finally {
+      setSavingJSON(false);
+    }
+  };
+  const openImageExport = () => {
+    api?.updateScene({ appState: { openDialog: { name: "imageExport" } } });
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "canvas-panel", "aria-label": "Canvas workspace", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "canvas-panel-editor", ref: editorRef, children: [
+    loading || !initialData ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-state", children: "Loading canvas…" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(CanvasRenderErrorBoundary, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(reactExports.Suspense, { fallback: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-state", children: "Loading drawing tools…" }), children: /* @__PURE__ */ jsxRuntimeExports.jsx(
       Excalidraw,
       {
         initialData,
@@ -21852,18 +22110,29 @@ function CanvasSurface({ onContextPrepared }) {
         handleKeyboardGlobally: false,
         aiEnabled: false,
         validateEmbeddable: false,
-        UIOptions: {
-          canvasActions: {
-            saveToActiveFile: true,
-            export: false,
-            saveAsImage: true
-          }
-        },
+        UIOptions: uiOptions,
         autoFocus: false
       }
     ) }) }),
-    notice && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "canvas-panel-notice", role: "status", children: notice })
-  ] });
+    selectionActionPosition && selectedCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        ref: selectionActionsRef,
+        className: `canvas-selection-actions placement-${selectionActionPosition.placement}`,
+        style: { left: selectionActionPosition.left, top: selectionActionPosition.top },
+        role: "toolbar",
+        "aria-label": "Canvas selection actions",
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void prepareSelectionContext(), disabled: loading || !api || busy, children: busy ? "Preparing…" : "Use selection" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "canvas-selection-actions__divider", "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: openImageExport, disabled: loading || !api || busy, children: "Save image" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "canvas-selection-actions__divider", "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void saveCanvasJSON(), disabled: loading || !api || savingJSON, children: savingJSON ? "Saving…" : "Save JSON" })
+        ]
+      }
+    ),
+    (saving || notice) && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "canvas-panel-status", "aria-live": "polite", children: saving ? "Saving…" : notice })
+  ] }) });
 }
 function pickPersistedAppState(appState) {
   return {
@@ -21932,58 +22201,81 @@ function useFloatingPanel(open, returnFocusRef) {
   return { mounted, onTransitionEnd, panelRef, phase };
 }
 function useSessionHistory(state, dispatch) {
+  const requestGeneration = reactExports.useRef(state.history.requestGeneration);
   const olderPageInFlight = reactExports.useRef(null);
-  const loadInitial = reactExports.useCallback(async () => {
-    dispatch({ type: "historyLoadStarted", scope: "initial" });
+  const reload = reactExports.useCallback(async (projectId) => {
+    const generation = ++requestGeneration.current;
+    olderPageInFlight.current = null;
+    dispatch({ type: "historyScopeLoadStarted", projectId, generation });
     try {
       const page = await window.agentAPI.loadHistoryPage({ cursor: null, limit: 100 });
-      dispatch({ type: "historyHydrated", page });
+      if (page.projectId !== projectId) {
+        throw new Error("The active project changed while history was loading. Choose the project again.");
+      }
+      dispatch({ type: "historyHydrated", page, generation });
     } catch (error) {
-      dispatch({ type: "historyLoadFailed", scope: "initial", error: error instanceof Error ? error.message : String(error) });
+      dispatch({
+        type: "historyLoadFailed",
+        scope: "initial",
+        generation,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }, [dispatch]);
   const loadOlderPage = reactExports.useCallback(async (scope) => {
-    if (olderPageInFlight.current) return olderPageInFlight.current;
     const history = state.history;
     if (!history.hydrated || history.loadingOlder || history.loadingSearch || !history.hasMore || !history.nextCursor) return;
+    const generation = history.requestGeneration;
+    const inFlight = olderPageInFlight.current;
+    if (inFlight?.generation === generation) return inFlight.promise;
     const cursor = history.nextCursor;
+    dispatch({ type: "historyLoadStarted", scope, generation });
     const operation = (async () => {
-      dispatch({ type: "historyLoadStarted", scope });
       try {
         const page = await window.agentAPI.loadHistoryPage({ cursor, limit: 100 });
-        dispatch({ type: "olderHistoryLoaded", page });
+        if (page.projectId !== history.projectId) {
+          throw new Error("The active project changed while history was loading. Choose the project again.");
+        }
+        dispatch({ type: "olderHistoryLoaded", page, generation });
       } catch (error) {
-        dispatch({ type: "historyLoadFailed", scope, error: error instanceof Error ? error.message : String(error) });
+        dispatch({
+          type: "historyLoadFailed",
+          scope,
+          generation,
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     })();
-    olderPageInFlight.current = operation;
+    const current = { generation, promise: operation };
+    olderPageInFlight.current = current;
     void operation.then(() => {
-      if (olderPageInFlight.current === operation) olderPageInFlight.current = null;
+      if (olderPageInFlight.current === current) olderPageInFlight.current = null;
     });
     return operation;
   }, [dispatch, state.history]);
   const loadOlder = reactExports.useCallback(async () => {
     if (!state.history.hydrated) {
-      if (!state.history.loadingInitial) await loadInitial();
+      if (!state.history.loadingInitial) await reload(state.history.projectId);
       return;
     }
     await loadOlderPage("older");
-  }, [loadInitial, loadOlderPage, state.history.hydrated, state.history.loadingInitial]);
+  }, [loadOlderPage, reload, state.history]);
   const loadSearch = reactExports.useCallback(async () => {
     await loadOlderPage("search");
   }, [loadOlderPage]);
   reactExports.useEffect(() => {
-    void loadInitial();
-  }, [loadInitial]);
+    void reload(null);
+  }, [reload]);
   return {
     hydrated: state.history.hydrated,
+    loadingInitial: state.history.loadingInitial,
     loadingOlder: state.history.loadingOlder,
     loadingSearch: state.history.loadingSearch,
     hasMore: state.history.hasMore,
     error: state.history.error,
     loadOlder,
     loadSearch,
-    reload: loadInitial
+    reload
   };
 }
 const DEFAULT_CONTEXT_CHARS = 48;
@@ -22078,6 +22370,9 @@ function useGlobalSearch(state, loadSearchPage) {
     }
   }, [activeBlockId, results]);
   reactExports.useEffect(() => {
+    setActiveBlockId(null);
+  }, [state.history.requestGeneration]);
+  reactExports.useEffect(() => {
     if (!query.trim() || !state.history.hydrated || !state.history.hasMore || state.history.loadingSearch) return;
     const timer = window.setTimeout(() => {
       void loadSearchPage();
@@ -22106,6 +22401,8 @@ const initialHistoryState = {
   nextCursor: null,
   hasMore: false,
   snapshotOrder: 0,
+  requestGeneration: 0,
+  hydrationVersion: 0,
   loadingInitial: true,
   loadingOlder: false,
   loadingSearch: false,
@@ -22193,7 +22490,7 @@ function mergePersistedEntries(state, entries) {
     if (entry.type === "assistant_message") {
       turn.assistantContent = entry.payload.content;
       turn.assistantAt = entry.updatedAt;
-      turn.assistantCompletedAt = entry.completedAt ?? void 0;
+      turn.assistantDurationMs = entry.durationMs ?? void 0;
       turn.finalContent = entry.status === "completed" ? entry.payload.content : void 0;
       turn.reasoningContent = entry.payload.reasoning ?? "";
       turn.stopReason = entry.payload.toolCalls?.length ? "tool_use" : "stop";
@@ -22308,23 +22605,41 @@ function agentReducer(state, action) {
     }
     case "runRejected":
       return { ...state, status: "failed", currentRunId: null, error: action.error };
+    case "historyScopeLoadStarted":
+      if (action.generation <= state.history.requestGeneration) return state;
+      return {
+        ...state,
+        status: "idle",
+        currentRunId: null,
+        runs: {},
+        runOrder: [],
+        error: null,
+        history: {
+          ...initialHistoryState,
+          projectId: action.projectId,
+          requestGeneration: action.generation,
+          hydrationVersion: state.history.hydrationVersion,
+          loadingInitial: true
+        }
+      };
     case "historyLoadStarted":
+      if (action.generation !== state.history.requestGeneration) return state;
       return {
         ...state,
         history: {
           ...state.history,
-          loadingInitial: action.scope === "initial" ? true : state.history.loadingInitial,
           loadingOlder: action.scope === "older" ? true : state.history.loadingOlder,
           loadingSearch: action.scope === "search" ? true : state.history.loadingSearch,
           error: null
         }
       };
     case "historyHydrated": {
+      if (action.generation !== state.history.requestGeneration || action.page.projectId !== state.history.projectId) return state;
       const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
       const projected = mergePersistedEntries({ runs: {}, runOrder: [] }, action.page.entries);
       return {
         ...state,
-        history,
+        history: { ...history, hydrationVersion: state.history.hydrationVersion + 1 },
         runs: projected.runs,
         runOrder: projected.runOrder,
         currentRunId: null,
@@ -22333,11 +22648,13 @@ function agentReducer(state, action) {
       };
     }
     case "olderHistoryLoaded": {
+      if (action.generation !== state.history.requestGeneration || action.page.projectId !== state.history.projectId) return state;
       const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
       const projected = mergePersistedEntries(state, action.page.entries);
       return { ...state, history, runs: projected.runs, runOrder: projected.runOrder };
     }
     case "historyLoadFailed":
+      if (action.generation !== state.history.requestGeneration) return state;
       return {
         ...state,
         history: {
@@ -22558,8 +22875,13 @@ function App() {
   }, []);
   const history = useSessionHistory(state, dispatch);
   const search2 = useGlobalSearch(state, history.loadSearch);
+  const showEmptyState = history.hydrated && state.runOrder.length === 0 && !history.loadingOlder && !history.error;
   reactExports.useEffect(() => {
-    void window.agentAPI.getActiveProject().then(setProject).catch(() => void 0);
+    void preloadCanvasEditor().catch(() => void 0);
+    void window.agentAPI.getActiveProject().then((activeProject) => {
+      setProject(activeProject);
+      void preloadCanvasDocument().catch(() => void 0);
+    }).catch(() => void 0);
   }, []);
   reactExports.useEffect(() => {
     if (!history.hydrated || historyReadyRef.current) return;
@@ -22588,7 +22910,7 @@ function App() {
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [searchOpen]);
-  reactExports.useEffect(() => {
+  reactExports.useLayoutEffect(() => {
     const element2 = composerRef.current;
     if (!element2) return;
     const measure = () => setComposerHeight(element2.offsetHeight);
@@ -22636,10 +22958,12 @@ function App() {
   const handleSelectProject = async () => {
     if (running) return;
     try {
+      resetPreloadedCanvasDocument();
       const selected = await window.agentAPI.selectProject();
       if (!selected) return;
       setProject(selected);
-      await history.reload();
+      void preloadCanvasDocument().catch(() => void 0);
+      await history.reload(selected.projectId);
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
     }
@@ -22647,9 +22971,11 @@ function App() {
   const handleClearProject = async () => {
     if (running) return;
     try {
+      resetPreloadedCanvasDocument();
       const cleared = await window.agentAPI.clearProject();
       setProject(cleared);
-      await history.reload();
+      void preloadCanvasDocument().catch(() => void 0);
+      await history.reload(cleared.projectId);
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
     }
@@ -22694,6 +23020,10 @@ function App() {
           MessageStream,
           {
             ref: messageStreamRef,
+            projectId: state.history.projectId,
+            historyGeneration: state.history.requestGeneration,
+            historyHydrationVersion: state.history.hydrationVersion,
+            historyReady: history.hydrated,
             order: state.runOrder,
             runs: state.runs,
             runTimings: runTimings.current,
@@ -22707,6 +23037,7 @@ function App() {
         ),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: composerHeight } })
       ] }),
+      showEmptyState && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "column-empty-state", style: { bottom: composerHeight }, children: "What can I do for you ?" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: composerRef, className: "composer-inner", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
         Composer,
         {

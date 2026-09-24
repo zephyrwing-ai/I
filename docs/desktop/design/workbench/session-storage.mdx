@@ -5,7 +5,7 @@
 - Main 使用 `app.getPath("userData")` 生成 `agent-sessions.sqlite`。
 - `projects` 保存真实项目目录的稳定身份、规范化路径和最近激活时间。
 - `entries.project_id` 保存项目历史范围；`NULL` 保存无项目历史范围。
-- `project_context` 保存项目的有界目录结构缓存。
+- `project_context` 保存项目的优先排序、有界导航地图和省略元数据。
 - `HistoryRecorder` 保存当前历史范围的模型可见消息、流式草稿和工具恢复账本。
 - Renderer 保存页面事件队列、项目展示状态和历史投影。
 
@@ -39,6 +39,8 @@ active Canvas document scope
 
 `HistoryService` 保存一个 Main 侧当前范围读取器。Renderer 提交游标和页大小，Main 使用 `project_id = ?` 或 `project_id IS NULL` 读取 entries，并按照 `entry_order` 生成正序页面、下一页游标和 `snapshotOrder`。
 
+助手消息完成写入时，HistoryRecorder 根据同一 run 用户 entry 的 `createdAt` 保存 `durationMs`。历史分页将该毫秒值交给 Renderer 投影，消息流直接格式化 `durationMs` 展示 `Worked for`。
+
 Preload 暴露：
 
 - `getActiveProject()`；
@@ -57,6 +59,6 @@ Main 以以下条件决定目录扫描：
 - 扫描策略版本变化；
 - 工具修改项目文件后缓存被标记 dirty。
 
-每次项目范围的模型请求都取得缓存中的有界目录树，并把它作为 transient `project_context` 加入模型请求。目录结构不会进入 `entries`；Provider prompt cache 负责重复前缀的性能优化，Runtime 负责每次请求的上下文正确性。
+每次项目范围的模型请求都取得缓存中的有界导航地图，以可读的工作目录说明和结构化目录行加入 transient `project_context`。地图标注深度、目录条目和总节点上限，并明确指出省略位置；文件正文由同一工作目录下的文件工具按需读取。目录地图不会进入 `entries`；Runtime 按本次运行固定的 `cwd` 提供文件操作上下文。
 
 无项目范围拥有稳定的历史记录和模型上下文。它使用 `projectId = NULL`，并且模型请求只包含历史、Canvas 上下文和当前任务。

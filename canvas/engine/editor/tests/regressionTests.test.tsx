@@ -12,7 +12,6 @@ import {
   fireEvent,
   render,
   screen,
-  togglePopover,
   unmountComponent,
 } from "./test-utils";
 import { FONT_FAMILY } from "../constants";
@@ -153,21 +152,6 @@ describe("regression tests", () => {
       });
     }
   }
-  it("change the properties of a shape", () => {
-    UI.clickTool("rectangle");
-
-    mouse.down(10, 10);
-    mouse.up(10, 10);
-    togglePopover("Background");
-    UI.clickOnTestId("color-yellow");
-    UI.clickOnTestId("color-red");
-
-    togglePopover("Stroke");
-    UI.clickOnTestId("color-blue");
-    expect(API.getSelectedElement().backgroundColor).toBe("#ffc9c9");
-    expect(API.getSelectedElement().strokeColor).toBe("#1971c2");
-  });
-
   it("click on an element and drag it", () => {
     UI.clickTool("rectangle");
     mouse.down(10, 10);
@@ -968,8 +952,7 @@ describe("regression tests", () => {
       UI.clickTool("rectangle");
       // change background color since default is transparent
       // and transparent elements can't be selected by clicking inside of them
-      togglePopover("Background");
-      UI.clickOnTestId("color-red");
+      API.setAppState({ currentItemBackgroundColor: "#ffc9c9" });
       mouse.down();
       mouse.up(1000, 1000);
 

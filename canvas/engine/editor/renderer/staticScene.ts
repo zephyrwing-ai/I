@@ -13,7 +13,7 @@ import {
 } from "../element/typeChecks";
 import { renderElement } from "../renderer/renderElement";
 import { createPlaceholderEmbeddableLabel } from "../element/embeddable";
-import type { StaticCanvasAppState, Zoom } from "../types";
+import type { StaticCanvasAppState } from "../types";
 import type {
   ElementsMap,
   ExcalidrawFrameLikeElement,
@@ -32,82 +32,6 @@ import { bootstrapCanvas, getNormalizedCanvasDimensions } from "./helpers";
 import { throttleRAF } from "../utils";
 import { getBoundTextElement } from "../element/textElement";
 import { isElementLink } from "../element/elementLink";
-
-const GridLineColor = {
-  Bold: "#dddddd",
-  Regular: "#e5e5e5",
-} as const;
-
-const strokeGrid = (
-  context: CanvasRenderingContext2D,
-  /** grid cell pixel size */
-  gridSize: number,
-  /** setting to 1 will disble bold lines */
-  gridStep: number,
-  scrollX: number,
-  scrollY: number,
-  zoom: Zoom,
-  width: number,
-  height: number,
-) => {
-  const offsetX = (scrollX % gridSize) - gridSize;
-  const offsetY = (scrollY % gridSize) - gridSize;
-
-  const actualGridSize = gridSize * zoom.value;
-
-  const spaceWidth = 1 / zoom.value;
-
-  context.save();
-
-  // Offset rendering by 0.5 to ensure that 1px wide lines are crisp.
-  // We only do this when zoomed to 100% because otherwise the offset is
-  // fractional, and also visibly offsets the elements.
-  // We also do this per-axis, as each axis may already be offset by 0.5.
-  if (zoom.value === 1) {
-    context.translate(offsetX % 1 ? 0 : 0.5, offsetY % 1 ? 0 : 0.5);
-  }
-
-  // vertical lines
-  for (let x = offsetX; x < offsetX + width + gridSize * 2; x += gridSize) {
-    const isBold =
-      gridStep > 1 && Math.round(x - scrollX) % (gridStep * gridSize) === 0;
-    // don't render regular lines when zoomed out and they're barely visible
-    if (!isBold && actualGridSize < 10) {
-      continue;
-    }
-
-    const lineWidth = Math.min(1 / zoom.value, isBold ? 4 : 1);
-    context.lineWidth = lineWidth;
-    const lineDash = [lineWidth * 3, spaceWidth + (lineWidth + spaceWidth)];
-
-    context.beginPath();
-    context.setLineDash(isBold ? [] : lineDash);
-    context.strokeStyle = isBold ? GridLineColor.Bold : GridLineColor.Regular;
-    context.moveTo(x, offsetY - gridSize);
-    context.lineTo(x, Math.ceil(offsetY + height + gridSize * 2));
-    context.stroke();
-  }
-
-  for (let y = offsetY; y < offsetY + height + gridSize * 2; y += gridSize) {
-    const isBold =
-      gridStep > 1 && Math.round(y - scrollY) % (gridStep * gridSize) === 0;
-    if (!isBold && actualGridSize < 10) {
-      continue;
-    }
-
-    const lineWidth = Math.min(1 / zoom.value, isBold ? 4 : 1);
-    context.lineWidth = lineWidth;
-    const lineDash = [lineWidth * 3, spaceWidth + (lineWidth + spaceWidth)];
-
-    context.beginPath();
-    context.setLineDash(isBold ? [] : lineDash);
-    context.strokeStyle = isBold ? GridLineColor.Bold : GridLineColor.Regular;
-    context.moveTo(offsetX - gridSize, y);
-    context.lineTo(Math.ceil(offsetX + width + gridSize * 2), y);
-    context.stroke();
-  }
-  context.restore();
-};
 
 const frameClip = (
   frame: ExcalidrawFrameLikeElement,
@@ -219,7 +143,7 @@ const _renderStaticScene = ({
     return;
   }
 
-  const { renderGrid = true, isExporting } = renderConfig;
+  const { isExporting } = renderConfig;
 
   const [normalizedWidth, normalizedHeight] = getNormalizedCanvasDimensions(
     canvas,
@@ -236,22 +160,9 @@ const _renderStaticScene = ({
     viewBackgroundColor: appState.viewBackgroundColor,
   });
 
-  // Apply zoom
+  // Apply zoom. The canvas background is intentionally plain; grid snapping
+  // remains an independent drawing aid and does not render a visible grid.
   context.scale(appState.zoom.value, appState.zoom.value);
-
-  // Grid
-  if (renderGrid) {
-    strokeGrid(
-      context,
-      appState.gridSize,
-      appState.gridStep,
-      appState.scrollX,
-      appState.scrollY,
-      appState.zoom,
-      normalizedWidth / appState.zoom.value,
-      normalizedHeight / appState.zoom.value,
-    );
-  }
 
   const groupsToBeAddedToFrame = new Set<string>();
 

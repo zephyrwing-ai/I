@@ -225,8 +225,11 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
           <button
             type="button"
             className="composer-project-picker"
-            onClick={onSelectProject}
-            disabled={running || !ready}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (!running) onSelectProject();
+            }}
+            disabled={running}
             title={project.canonicalPath ?? "Choose folder"}
             aria-label={project.projectId ? `Project ${project.displayName}` : "Choose folder"}
           >
@@ -234,7 +237,7 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
             <span>{project.projectId ? project.displayName : "Choose folder"}</span>
           </button>
           {project.projectId && (
-            <button type="button" className="composer-project-clear" onClick={onClearProject} disabled={running || !ready} aria-label="Clear project" title="Clear project">
+            <button type="button" className="composer-project-clear" onClick={(event) => { event.stopPropagation(); onClearProject(); }} disabled={running} aria-label="Clear project" title="Clear project">
               <Icon name="close" width="14" height="14" />
             </button>
           )}

@@ -39,7 +39,6 @@ export const KEYS = {
   DELETE: "Delete",
   ENTER: "Enter",
   ESCAPE: "Escape",
-  QUESTION_MARK: "?",
   SPACE: " ",
   TAB: "Tab",
   CHEVRON_LEFT: "<",

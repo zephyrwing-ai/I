@@ -39,7 +39,6 @@ export const ElementCanvasButtons = ({
     appState.newElement ||
     appState.resizingElement ||
     appState.isRotating ||
-    appState.openMenu ||
     appState.viewModeEnabled
   ) {
     return null;

@@ -1,13 +1,10 @@
-import { ColorPicker } from "../components/ColorPicker/ColorPicker";
+import { useEffect, useRef, useState } from "react";
 import {
   handIcon,
   MoonIcon,
   SunIcon,
   TrashIcon,
   zoomAreaIcon,
-  ZoomInIcon,
-  ZoomOutIcon,
-  ZoomResetIcon,
 } from "../components/icons";
 import { ToolButton } from "../components/ToolButton";
 import {
@@ -25,7 +22,7 @@ import { getNormalizedZoom } from "../scene";
 import { centerScrollOn } from "../scene/scroll";
 import { getStateForZoom } from "../scene/zoom";
 import type { AppState, Offsets } from "../types";
-import { getShortcutKey, updateActiveTool } from "../utils";
+import { updateActiveTool } from "../utils";
 import { register } from "./register";
 import { Tooltip } from "../components/Tooltip";
 import { newElementWith } from "../element/mutateElement";
@@ -34,49 +31,14 @@ import {
   isEraserActive,
   isHandToolActive,
 } from "../appState";
-import { DEFAULT_CANVAS_BACKGROUND_PICKS } from "../colors";
 import type { SceneBounds } from "../element/bounds";
 import { setCursor } from "../cursor";
 import { CaptureUpdateAction } from "../store";
 import { clamp, roundToStep } from "@agent-studio/canvas-math";
-
-export const actionChangeViewBackgroundColor = register({
-  name: "changeViewBackgroundColor",
-  label: "labels.canvasBackground",
-  paletteName: "Change canvas background color",
-  trackEvent: false,
-  predicate: (elements, appState, props, app) => {
-    return (
-      !!app.props.UIOptions.canvasActions.changeViewBackgroundColor &&
-      !appState.viewModeEnabled
-    );
-  },
-  perform: (_, appState, value) => {
-    return {
-      appState: { ...appState, ...value },
-      captureUpdate: !!value.viewBackgroundColor
-        ? CaptureUpdateAction.IMMEDIATELY
-        : CaptureUpdateAction.EVENTUALLY,
-    };
-  },
-  PanelComponent: ({ elements, appState, updateData, appProps }) => {
-    // FIXME move me to src/components/mainMenu/DefaultItems.tsx
-    return (
-      <ColorPicker
-        palette={null}
-        topPicks={DEFAULT_CANVAS_BACKGROUND_PICKS}
-        label={t("labels.canvasBackground")}
-        type="canvasBackground"
-        color={appState.viewBackgroundColor}
-        onChange={(color) => updateData({ viewBackgroundColor: color })}
-        data-testid="canvas-background-picker"
-        elements={elements}
-        appState={appState}
-        updateData={updateData}
-      />
-    );
-  },
-});
+import {
+  formatZoomPercentage,
+  parseZoomPercentage,
+} from "./zoomInput";
 
 export const actionClearCanvas = register({
   name: "clearCanvas",
@@ -120,129 +82,130 @@ export const actionClearCanvas = register({
   },
 });
 
-export const actionZoomIn = register({
-  name: "zoomIn",
-  label: "buttons.zoomIn",
-  viewMode: true,
-  icon: ZoomInIcon,
-  trackEvent: { category: "canvas" },
-  perform: (_elements, appState, _, app) => {
-    return {
-      appState: {
-        ...appState,
-        ...getStateForZoom(
-          {
-            viewportX: appState.width / 2 + appState.offsetLeft,
-            viewportY: appState.height / 2 + appState.offsetTop,
-            nextZoom: getNormalizedZoom(appState.zoom.value + ZOOM_STEP),
-          },
-          appState,
-        ),
-        userToFollow: null,
-      },
-      captureUpdate: CaptureUpdateAction.EVENTUALLY,
-    };
-  },
-  PanelComponent: ({ updateData, appState }) => (
-    <ToolButton
-      type="button"
-      className="zoom-in-button zoom-button"
-      icon={ZoomInIcon}
-      title={`${t("buttons.zoomIn")} — ${getShortcutKey("CtrlOrCmd++")}`}
-      aria-label={t("buttons.zoomIn")}
-      disabled={appState.zoom.value >= MAX_ZOOM}
-      onClick={() => {
-        updateData(null);
-      }}
-    />
-  ),
-  keyTest: (event) =>
-    (event.code === CODES.EQUAL || event.code === CODES.NUM_ADD) &&
-    (event[KEYS.CTRL_OR_CMD] || event.shiftKey),
-});
+const ZoomControl = ({
+  zoom,
+  updateData,
+}: {
+  zoom: number;
+  updateData: (percentage?: number) => void;
+}) => {
+  const [draft, setDraft] = useState(() => formatZoomPercentage(zoom));
+  const editingRef = useRef(false);
+  const editedRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-export const actionZoomOut = register({
-  name: "zoomOut",
-  label: "buttons.zoomOut",
-  icon: ZoomOutIcon,
-  viewMode: true,
-  trackEvent: { category: "canvas" },
-  perform: (_elements, appState, _, app) => {
-    return {
-      appState: {
-        ...appState,
-        ...getStateForZoom(
-          {
-            viewportX: appState.width / 2 + appState.offsetLeft,
-            viewportY: appState.height / 2 + appState.offsetTop,
-            nextZoom: getNormalizedZoom(appState.zoom.value - ZOOM_STEP),
-          },
-          appState,
-        ),
-        userToFollow: null,
-      },
-      captureUpdate: CaptureUpdateAction.EVENTUALLY,
-    };
-  },
-  PanelComponent: ({ updateData, appState }) => (
-    <ToolButton
-      type="button"
-      className="zoom-out-button zoom-button"
-      icon={ZoomOutIcon}
-      title={`${t("buttons.zoomOut")} — ${getShortcutKey("CtrlOrCmd+-")}`}
-      aria-label={t("buttons.zoomOut")}
-      disabled={appState.zoom.value <= MIN_ZOOM}
-      onClick={() => {
-        updateData(null);
-      }}
-    />
-  ),
-  keyTest: (event) =>
-    (event.code === CODES.MINUS || event.code === CODES.NUM_SUBTRACT) &&
-    (event[KEYS.CTRL_OR_CMD] || event.shiftKey),
-});
+  useEffect(() => {
+    if (!editingRef.current) {
+      setDraft(formatZoomPercentage(zoom));
+    }
+  }, [zoom]);
 
-export const actionResetZoom = register({
-  name: "resetZoom",
-  label: "buttons.resetZoom",
-  icon: ZoomResetIcon,
-  viewMode: true,
-  trackEvent: { category: "canvas" },
-  perform: (_elements, appState, _, app) => {
-    return {
-      appState: {
-        ...appState,
-        ...getStateForZoom(
-          {
-            viewportX: appState.width / 2 + appState.offsetLeft,
-            viewportY: appState.height / 2 + appState.offsetTop,
-            nextZoom: getNormalizedZoom(1),
-          },
-          appState,
-        ),
-        userToFollow: null,
-      },
-      captureUpdate: CaptureUpdateAction.EVENTUALLY,
-    };
-  },
-  PanelComponent: ({ updateData, appState }) => (
-    <Tooltip label={t("buttons.resetZoom")} style={{ height: "100%" }}>
-      <ToolButton
-        type="button"
-        className="reset-zoom-button zoom-button"
-        title={t("buttons.resetZoom")}
-        aria-label={t("buttons.resetZoom")}
-        onClick={() => {
-          updateData(null);
+  const commit = () => {
+    if (!editingRef.current) {
+      return;
+    }
+    editingRef.current = false;
+    if (!editedRef.current) {
+      setDraft(formatZoomPercentage(zoom));
+      return;
+    }
+    editedRef.current = false;
+
+    const percentage = parseZoomPercentage(draft);
+    if (percentage === null) {
+      setDraft(formatZoomPercentage(zoom));
+      return;
+    }
+
+    const clampedPercentage = clamp(
+      percentage,
+      MIN_ZOOM * 100,
+      MAX_ZOOM * 100,
+    );
+    setDraft(formatZoomPercentage(clampedPercentage / 100));
+    if (Math.abs(clampedPercentage / 100 - zoom) > 0.000001) {
+      updateData(clampedPercentage);
+    }
+  };
+
+  const cancel = () => {
+    editingRef.current = false;
+    editedRef.current = false;
+    setDraft(formatZoomPercentage(zoom));
+    inputRef.current?.blur();
+  };
+
+  return (
+    <div className="zoom-control" title={t("labels.zoom")}>
+      <input
+        ref={inputRef}
+        className="zoom-control__input"
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        spellCheck={false}
+        value={draft}
+        aria-label={t("labels.zoom")}
+        onFocus={() => {
+          editingRef.current = true;
+          editedRef.current = false;
+          setDraft(formatZoomPercentage(zoom));
+          inputRef.current?.select();
         }}
-      >
-        {(appState.zoom.value * 100).toFixed(0)}%
-      </ToolButton>
-    </Tooltip>
+        onChange={(event) => {
+          editedRef.current = true;
+          setDraft(event.target.value);
+        }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+            inputRef.current?.blur();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            cancel();
+          }
+        }}
+      />
+    </div>
+  );
+};
+
+export const actionSetZoom = register({
+  name: "setZoom",
+  label: "labels.zoom",
+  viewMode: true,
+  trackEvent: { category: "canvas" },
+  perform: (_elements, appState, percentage: number) => {
+    if (!Number.isFinite(percentage)) {
+      return false;
+    }
+    const nextZoom = getNormalizedZoom(
+      clamp(percentage / 100, MIN_ZOOM, MAX_ZOOM),
+    );
+    return {
+      appState: {
+        ...appState,
+        ...getStateForZoom(
+          {
+            viewportX: appState.width / 2 + appState.offsetLeft,
+            viewportY: appState.height / 2 + appState.offsetTop,
+            nextZoom,
+          },
+          appState,
+        ),
+        userToFollow: null,
+      },
+      captureUpdate: CaptureUpdateAction.EVENTUALLY,
+    };
+  },
+  PanelComponent: ({ updateData, appState }) => (
+    <ZoomControl
+      zoom={appState.zoom.value}
+      updateData={updateData}
+    />
   ),
-  keyTest: (event) =>
-    (event.code === CODES.ZERO || event.code === CODES.NUM_ZERO) &&
-    (event[KEYS.CTRL_OR_CMD] || event.shiftKey),
 });
 
 const zoomValueToFitBoundsOnViewport = (

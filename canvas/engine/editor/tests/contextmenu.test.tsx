@@ -5,11 +5,9 @@ import {
   mockBoundingClientRect,
   restoreOriginalGetBoundingClientRect,
   GlobalTestState,
-  screen,
   queryByText,
   queryAllByText,
   waitFor,
-  togglePopover,
   unmountComponent,
 } from "./test-utils";
 import { Excalidraw } from "../index";
@@ -18,7 +16,6 @@ import { reseed } from "../random";
 import { UI, Pointer, Keyboard } from "./helpers/ui";
 import { KEYS } from "../keys";
 import type { ShortcutName } from "../actions/shortcuts";
-import { copiedStyles } from "../actions/actionStyles";
 import { API } from "./helpers/api";
 import { setDateTimeForTests } from "../utils";
 import { vi } from "vitest";
@@ -120,8 +117,6 @@ describe("contextMenu element", () => {
       "copy",
       "paste",
       "wrapSelectionInFrame",
-      "copyStyles",
-      "pasteStyles",
       "deleteSelectedElements",
       "addToLibrary",
       "flipHorizontal",
@@ -214,8 +209,6 @@ describe("contextMenu element", () => {
       "copy",
       "paste",
       "wrapSelectionInFrame",
-      "copyStyles",
-      "pasteStyles",
       "deleteSelectedElements",
       "group",
       "addToLibrary",
@@ -271,8 +264,6 @@ describe("contextMenu element", () => {
       "copy",
       "paste",
       "wrapSelectionInFrame",
-      "copyStyles",
-      "pasteStyles",
       "deleteSelectedElements",
       "copyElementLink",
       "ungroup",
@@ -294,91 +285,6 @@ describe("contextMenu element", () => {
         contextMenu?.querySelector(`li[data-testid="${item}"]`),
       ).not.toBeNull();
     });
-  });
-
-  it("selecting 'Copy styles' in context menu copies styles", () => {
-    UI.clickTool("rectangle");
-    mouse.down(10, 10);
-    mouse.up(20, 20);
-
-    fireEvent.contextMenu(GlobalTestState.interactiveCanvas, {
-      button: 2,
-      clientX: 3,
-      clientY: 3,
-    });
-    const contextMenu = UI.queryContextMenu();
-    expect(copiedStyles).toBe("{}");
-    fireEvent.click(queryByText(contextMenu!, "Copy styles")!);
-    expect(copiedStyles).not.toBe("{}");
-    const element = JSON.parse(copiedStyles)[0];
-    expect(element).toEqual(API.getSelectedElement());
-  });
-
-  it("selecting 'Paste styles' in context menu pastes styles", () => {
-    UI.clickTool("rectangle");
-    mouse.down(10, 10);
-    mouse.up(20, 20);
-
-    UI.clickTool("rectangle");
-    mouse.down(10, 10);
-    mouse.up(20, 20);
-
-    // Change some styles of second rectangle
-    togglePopover("Stroke");
-    UI.clickOnTestId("color-red");
-    togglePopover("Background");
-    UI.clickOnTestId("color-blue");
-    // Fill style
-    fireEvent.click(screen.getByTitle("Cross-hatch"));
-    // Stroke width
-    fireEvent.click(screen.getByTitle("Bold"));
-    // Stroke style
-    fireEvent.click(screen.getByTitle("Dotted"));
-    // Roughness
-    fireEvent.click(screen.getByTitle("Cartoonist"));
-    // Opacity
-    fireEvent.change(screen.getByTestId("opacity"), {
-      target: { value: "60" },
-    });
-
-    // closing the background popover as this blocks
-    // context menu from rendering after we started focussing
-    // the popover once rendered :/
-    togglePopover("Background");
-
-    mouse.reset();
-
-    // Copy styles of second rectangle
-    fireEvent.contextMenu(GlobalTestState.interactiveCanvas, {
-      button: 2,
-      clientX: 40,
-      clientY: 40,
-    });
-
-    let contextMenu = UI.queryContextMenu();
-    fireEvent.click(queryByText(contextMenu!, "Copy styles")!);
-    const secondRect = JSON.parse(copiedStyles)[0];
-    expect(secondRect.id).toBe(h.elements[1].id);
-
-    mouse.reset();
-    // Paste styles to first rectangle
-    fireEvent.contextMenu(GlobalTestState.interactiveCanvas, {
-      button: 2,
-      clientX: 10,
-      clientY: 10,
-    });
-    contextMenu = UI.queryContextMenu();
-    fireEvent.click(queryByText(contextMenu!, "Paste styles")!);
-
-    const firstRect = API.getSelectedElement();
-    expect(firstRect.id).toBe(h.elements[0].id);
-    expect(firstRect.strokeColor).toBe("#e03131");
-    expect(firstRect.backgroundColor).toBe("#a5d8ff");
-    expect(firstRect.fillStyle).toBe("cross-hatch");
-    expect(firstRect.strokeWidth).toBe(2); // Bold: 2
-    expect(firstRect.strokeStyle).toBe("dotted");
-    expect(firstRect.roughness).toBe(2); // Cartoonist: 2
-    expect(firstRect.opacity).toBe(60);
   });
 
   it("selecting 'Delete' in context menu deletes element", () => {

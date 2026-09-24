@@ -22,6 +22,7 @@ interface OutputSidebarProps {
 }
 
 const WIDTH_KEY = "workbench.outputSidebarWidth";
+const CANVAS_KEEP_ALIVE_MS = 10 * 60 * 1000;
 
 function clampWidth(width: number, viewportWidth: number): number {
   return clampOutputSidebarWidth(width, viewportWidth);
@@ -34,6 +35,9 @@ function initialWidth(): number {
 
 export function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", canvas }: OutputSidebarProps) {
   const [phase, setPhase] = useState<SidebarPhase>(open ? "open" : "closed");
+  const [canvasMounted, setCanvasMounted] = useState(
+    () => open && activePanel === "canvas",
+  );
   const [width, setWidth] = useState(initialWidth);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [dragWidth, setDragWidth] = useState(width);
@@ -45,6 +49,7 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
   const shellRef = useRef<HTMLElement>(null);
   const dragRef = useRef({ startX: 0, startWidth: width, rawWidth: width });
   const frameRef = useRef<number | null>(null);
+  const canvasReleaseTimerRef = useRef<number | null>(null);
   const fileListRef = useRef<HTMLDivElement>(null);
   const fileContentRef = useRef<HTMLDivElement>(null);
   useElasticScroll(fileListRef, fileContentRef);
@@ -80,6 +85,26 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
   }, [open]);
 
   useEffect(() => {
+    if (open && activePanel === "canvas") {
+      if (canvasReleaseTimerRef.current !== null) {
+        window.clearTimeout(canvasReleaseTimerRef.current);
+        canvasReleaseTimerRef.current = null;
+      }
+      setCanvasMounted(true);
+      return;
+    }
+
+    if (open || !canvasMounted || canvasReleaseTimerRef.current !== null) {
+      return;
+    }
+
+    canvasReleaseTimerRef.current = window.setTimeout(() => {
+      canvasReleaseTimerRef.current = null;
+      setCanvasMounted(false);
+    }, CANVAS_KEEP_ALIVE_MS);
+  }, [activePanel, canvasMounted, open]);
+
+  useEffect(() => {
     if (shellRef.current) shellRef.current.inert = phase === "closed";
   }, [phase]);
 
@@ -110,6 +135,9 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
 
   useEffect(() => () => {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    if (canvasReleaseTimerRef.current !== null) {
+      window.clearTimeout(canvasReleaseTimerRef.current);
+    }
   }, []);
 
   const finishTransition = (event: TransitionEvent<HTMLElement>): void => {
@@ -208,11 +236,15 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
     >
       <div className="output-resizer" role="separator" tabIndex={open ? 0 : -1} aria-orientation="vertical" aria-valuemin={OUTPUT_SIDEBAR_MIN_WIDTH} aria-valuemax={getOutputSidebarMaxWidth(viewportWidth)} aria-valuenow={Math.round(targetWidth)} onPointerDown={startDrag} onDoubleClick={resetWidth} onKeyDown={resizeWithKeyboard} />
       <div className={`output-sidebar-content ${activePanel === "canvas" ? "is-canvas" : ""}`}>
-        <div className="output-sidebar-header" aria-hidden="true" />
+        {activePanel !== "canvas" && <div className="output-sidebar-header" aria-hidden="true" />}
 
-        {activePanel === "canvas" ? (
-          <div className="right-sidebar-canvas">{phase === "closed" ? null : canvas}</div>
-        ) : (
+        <div
+          className={`right-sidebar-canvas ${activePanel === "canvas" && phase !== "closed" ? "is-active" : "is-hidden"}`}
+          aria-hidden={activePanel !== "canvas" || phase === "closed"}
+        >
+          {canvasMounted ? canvas : null}
+        </div>
+        {activePanel !== "canvas" && (
           <>
         <div ref={fileListRef} className="output-file-list" role="listbox" aria-label="Output files">
           <div className="output-file-layout">

@@ -2236,7 +2236,7 @@ function toHistoryEntry(entry) {
     payload: entry.payload,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
-    completedAt: entry.completedAt
+    durationMs: entry.durationMs
   };
 }
 class HistoryService {
@@ -2280,11 +2280,61 @@ class HistoryService {
     };
   }
 }
-const SCAN_POLICY_VERSION = "tree-v1-depth2-entries20";
+const SCAN_POLICY_VERSION = "tree-v2-prioritized-depth2-dir20-nodes180";
 const MAX_CACHE_AGE_MS = 3e4;
 const MAX_DEPTH = 2;
 const MAX_ENTRIES_PER_DIRECTORY = 20;
-const IGNORED_NAMES = /* @__PURE__ */ new Set([".git", ".hg", ".svn", ".next", ".pytest_cache", "__pycache__", "build", "coverage", "dist", "node_modules", "out", "target", "venv", ".venv"]);
+const MAX_TREE_NODES = 180;
+const MAX_PROJECT_CONTEXT_CHARS = 6e3;
+const IGNORED_DIRECTORY_NAMES = /* @__PURE__ */ new Set([
+  ".git",
+  ".hg",
+  ".svn",
+  ".next",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".mypy_cache",
+  ".tox",
+  ".turbo",
+  ".venv",
+  ".vite",
+  ".cache",
+  "__pycache__",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "out",
+  "target",
+  "vendor",
+  "venv"
+]);
+const PRIORITY_ROOT_FILES = [
+  "agents.md",
+  "claude.md",
+  "readme.md",
+  "package.json",
+  "pyproject.toml",
+  "cargo.toml",
+  "go.mod",
+  "pom.xml",
+  "makefile"
+];
+const PRIORITY_DIRECTORIES = [
+  "src",
+  "app",
+  "apps",
+  "packages",
+  "lib",
+  "cmd",
+  "internal",
+  "server",
+  "frontend",
+  "backend",
+  "test",
+  "tests",
+  "docs"
+];
 class ProjectRegistry {
   constructor(repository) {
     this.repository = repository;
@@ -2332,8 +2382,20 @@ class ProjectRegistry {
   async ensureContext(project) {
     const cached = await this.repository.getProjectContext(project.id);
     if (cached && !cached.dirty && cached.scanPolicyVersion === SCAN_POLICY_VERSION && Date.now() - cached.capturedAt < MAX_CACHE_AGE_MS) return cached;
-    const tree = await scanTree(project.canonicalPath, 0);
-    const treeJson = JSON.stringify({ root: project.canonicalPath, tree });
+    const budget = { remainingNodes: MAX_TREE_NODES };
+    const scan = await scanTree(project.canonicalPath, 0, budget);
+    const snapshot = {
+      schemaVersion: 2,
+      root: project.canonicalPath,
+      maxDepth: MAX_DEPTH,
+      maxEntriesPerDirectory: MAX_ENTRIES_PER_DIRECTORY,
+      maxTotalEntries: MAX_TREE_NODES,
+      entries: scan.entries,
+      omittedEntries: scan.omittedEntries,
+      treeBudgetReached: scan.treeBudgetReached,
+      unreadable: scan.unreadable
+    };
+    const treeJson = JSON.stringify(snapshot);
     const treeHash = createHash("sha256").update(treeJson).digest("hex");
     return this.repository.saveProjectContext(project.id, {
       treeJson,
@@ -2344,35 +2406,156 @@ class ProjectRegistry {
     });
   }
 }
-async function scanTree(directory, depth) {
-  if (depth > MAX_DEPTH) return [];
-  let entries;
+async function readDirectoryEntries(directory, depth) {
+  let handle;
   try {
-    entries = await readdir(directory, { withFileTypes: true });
+    handle = await opendir(directory);
   } catch {
-    return [];
+    return { entries: [], totalEntries: 0, unreadable: true };
   }
-  const visible = entries.filter((entry) => !IGNORED_NAMES.has(entry.name)).sort((left, right) => left.name.localeCompare(right.name));
-  const nodes = [];
-  for (const entry of visible.slice(0, MAX_ENTRIES_PER_DIRECTORY)) {
-    if (entry.isDirectory()) {
-      nodes.push({ name: entry.name, kind: "directory", children: depth < MAX_DEPTH ? await scanTree(join(directory, entry.name), depth + 1) : void 0 });
-    } else if (entry.isFile()) {
-      nodes.push({ name: entry.name, kind: "file" });
+  const entries = [];
+  let totalEntries = 0;
+  try {
+    for await (const entry of handle) {
+      const isDirectory = entry.isDirectory();
+      if (isNoisyName(entry.name, isDirectory) || !isDirectory && !entry.isFile()) continue;
+      totalEntries += 1;
+      let insertionIndex = entries.findIndex((current) => compareEntries(entry, current, depth) < 0);
+      if (insertionIndex < 0) insertionIndex = entries.length;
+      if (insertionIndex >= MAX_ENTRIES_PER_DIRECTORY) continue;
+      entries.splice(insertionIndex, 0, entry);
+      if (entries.length > MAX_ENTRIES_PER_DIRECTORY) entries.pop();
     }
+  } catch {
+    return { entries, totalEntries, unreadable: true };
   }
-  if (visible.length > MAX_ENTRIES_PER_DIRECTORY) nodes.push({ name: `… ${visible.length - MAX_ENTRIES_PER_DIRECTORY} more entries`, kind: "file", truncated: visible.length - MAX_ENTRIES_PER_DIRECTORY });
-  return nodes;
+  return { entries, totalEntries, unreadable: false };
+}
+function isNoisyName(name, isDirectory) {
+  if (name.startsWith(".")) return true;
+  if (!isDirectory) return false;
+  const normalized = name.toLowerCase();
+  return IGNORED_DIRECTORY_NAMES.has(normalized) || /^node-compile-cache(?:[-_.].*)?$/i.test(name) || /^tsx-\d+$/i.test(name);
+}
+function compareEntries(left, right, depth) {
+  const priorityDelta = entryPriority(left, depth) - entryPriority(right, depth);
+  if (priorityDelta !== 0) return priorityDelta;
+  const leftName = left.name.toLowerCase();
+  const rightName = right.name.toLowerCase();
+  return leftName.localeCompare(rightName) || left.name.localeCompare(right.name);
+}
+function entryPriority(entry, depth) {
+  const normalizedName = entry.name.toLowerCase();
+  if (depth === 0 && entry.isFile()) {
+    const index = PRIORITY_ROOT_FILES.indexOf(normalizedName);
+    if (index >= 0) return index;
+  }
+  if (entry.isDirectory()) {
+    const index = PRIORITY_DIRECTORIES.indexOf(normalizedName);
+    return 100 + (index >= 0 ? index : PRIORITY_DIRECTORIES.length);
+  }
+  return 1e3;
+}
+async function scanTree(directory, depth, budget) {
+  const listing = await readDirectoryEntries(directory, depth);
+  if (listing.unreadable && listing.entries.length === 0) {
+    return { entries: [], omittedEntries: 0, treeBudgetReached: false, unreadable: true };
+  }
+  const nodesBeforeScan = budget.remainingNodes;
+  const selectedCount = Math.min(listing.entries.length, MAX_ENTRIES_PER_DIRECTORY, nodesBeforeScan);
+  const selectedEntries = listing.entries.slice(0, selectedCount);
+  const omittedEntries = Math.max(0, listing.totalEntries - selectedEntries.length);
+  budget.remainingNodes -= selectedEntries.length;
+  let treeBudgetReached = listing.totalEntries > selectedEntries.length && nodesBeforeScan < Math.min(listing.totalEntries, MAX_ENTRIES_PER_DIRECTORY);
+  let unreadable = listing.unreadable;
+  const nodes = [];
+  for (const entry of selectedEntries) {
+    const isDirectory = entry.isDirectory();
+    const node = { name: entry.name, kind: isDirectory ? "directory" : "file" };
+    if (isDirectory) {
+      if (depth >= MAX_DEPTH) {
+        node.childrenOmittedReason = "depth-limit";
+      } else if (budget.remainingNodes <= 0) {
+        node.childrenOmittedReason = "tree-budget";
+        treeBudgetReached = true;
+      } else {
+        const children = await scanTree(join(directory, entry.name), depth + 1, budget);
+        node.children = children.entries;
+        if (children.omittedEntries > 0) node.omittedEntries = children.omittedEntries;
+        if (children.unreadable) node.childrenOmittedReason = "unreadable";
+        treeBudgetReached ||= children.treeBudgetReached;
+        unreadable ||= children.unreadable;
+      }
+    }
+    nodes.push(node);
+  }
+  return { entries: nodes, omittedEntries, treeBudgetReached, unreadable };
 }
 function formatProjectContext(project, context) {
-  return [
+  const snapshot = parseTreeSnapshot(context.treeJson);
+  const header = [
     "<project_context>",
-    `Project: ${project.displayName}`,
-    `Working directory: ${project.canonicalPath}`,
-    "The following bounded directory tree is a navigation map. Read file contents with tools when needed.",
-    context.treeJson,
-    "</project_context>"
-  ].join("\n");
+    `Project: ${JSON.stringify(project.displayName)}`,
+    `Current working directory: ${JSON.stringify(project.canonicalPath)}`,
+    "The selected directory is the working directory for this run.",
+    snapshot ? `Project map: partial, maximum depth ${snapshot.maxDepth}, ${snapshot.maxEntriesPerDirectory} entries per directory, ${snapshot.maxTotalEntries} total entries.` : "Project map: unavailable; use filesystem tools to inspect the selected directory.",
+    "Hidden and common generated/cache directories are omitted from this map.",
+    "The map contains paths, not file contents. Use filesystem tools when you need details."
+  ];
+  const treeLines = [];
+  if (snapshot) {
+    if (snapshot.unreadable) treeLines.push("- Some directories could not be listed.");
+    appendTreeEntries(snapshot.entries, 0, treeLines);
+    if (snapshot.omittedEntries > 0) treeLines.push(`- … ${snapshot.omittedEntries} root entries are outside this bounded map.`);
+    if (snapshot.treeBudgetReached) treeLines.push("- Additional paths omitted after reaching the total map limit.");
+  }
+  const closing = "</project_context>";
+  const clippingNotice = "- Additional map lines omitted to fit the context budget; use filesystem tools to explore further.";
+  const headerText = header.join("\n");
+  const baseSize = headerText.length + closing.length + 2;
+  const lineBudget = Math.max(0, MAX_PROJECT_CONTEXT_CHARS - baseSize - clippingNotice.length - 2);
+  const visibleTreeLines = [];
+  let usedChars = 0;
+  let clipped = false;
+  for (const line of treeLines) {
+    const cost = line.length + (visibleTreeLines.length > 0 ? 1 : 0);
+    if (usedChars + cost > lineBudget) {
+      clipped = true;
+      break;
+    }
+    visibleTreeLines.push(line);
+    usedChars += cost;
+  }
+  return [...header, ...visibleTreeLines, ...clipped ? [clippingNotice] : [], closing].join("\n");
+}
+function parseTreeSnapshot(treeJson) {
+  try {
+    const value = JSON.parse(treeJson);
+    if (value.schemaVersion !== 2 || typeof value.root !== "string" || !Array.isArray(value.entries)) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+function appendTreeEntries(entries, depth, lines) {
+  for (const entry of entries) {
+    const indent = "  ".repeat(depth);
+    lines.push(`${indent}- ${formatEntryName(entry.name)}${entry.kind === "directory" ? "/" : ""}`);
+    if (entry.omittedEntries) lines.push(`${indent}  … ${entry.omittedEntries} immediate entries are outside this bounded map.`);
+    if (entry.childrenOmittedReason) {
+      const reason = {
+        "depth-limit": `Subdirectories beyond depth ${MAX_DEPTH} are omitted.`,
+        "tree-budget": "Subdirectory contents are omitted at the total map limit.",
+        unreadable: "This directory could not be listed."
+      }[entry.childrenOmittedReason];
+      lines.push(`${indent}  [${reason}]`);
+    }
+    if (entry.children?.length) appendTreeEntries(entry.children, depth + 1, lines);
+  }
+}
+function formatEntryName(name) {
+  if (!/[\u0000-\u001f\u007f<>]/.test(name)) return name;
+  return JSON.stringify(name).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
 }
 const CONTEXT_TTL_MS = 10 * 60 * 1e3;
 const MAX_CONTEXT_TEXT = 12e3;
@@ -2393,25 +2576,28 @@ class CanvasContextRegistry {
     return this.documentStore.save(document);
   }
   async prepare(input) {
-    if (input.scope !== "selection" && input.scope !== "document") throw new Error("The canvas context scope is invalid.");
+    if (input.scope !== "selection") throw new Error("The canvas context scope is invalid.");
     if (input.visual && (!input.visual.dataURL.startsWith("data:image/png;base64,") || input.visual.dataURL.length > 8 * 1024 * 1024)) {
       throw new Error("The canvas visual snapshot is invalid or too large.");
     }
-    const revision = await this.documentStore.save(input.document);
     const allElements = input.document.elements.filter((element) => element.deleted !== true && element.isDeleted !== true);
     const selectedIds = new Set(input.selectedElementIds);
-    const elements = input.scope === "selection" ? allElements.filter((element) => typeof element.id === "string" && selectedIds.has(element.id)) : allElements;
+    const elements = allElements.filter((element) => typeof element.id === "string" && selectedIds.has(element.id));
+    if (elements.length === 0) {
+      throw new Error("Canvas selection context must include at least one existing element.");
+    }
+    const revision = await this.documentStore.save(input.document);
     const imageCount = elements.filter((element) => element.type === "image" || typeof element.fileId === "string").length;
     const descriptor = {
       contextId: randomUUID(),
-      label: input.scope === "selection" ? `Canvas selection · ${elements.length} elements` : `Canvas · ${elements.length} elements`,
+      label: `Canvas selection · ${elements.length} elements`,
       scope: input.scope,
       elementCount: elements.length,
       imageCount,
       revision,
       hasVisual: Boolean(input.visual)
     };
-    const text = summarizeCanvas(elements, revision, input.scope);
+    const text = summarizeCanvas(elements, revision);
     this.contexts.set(descriptor.contextId, {
       context: { descriptor, text, ...input.visual ? { visual: input.visual } : {} },
       expiresAt: Date.now() + CONTEXT_TTL_MS
@@ -2444,8 +2630,8 @@ class CanvasContextRegistry {
     for (const [id, record] of this.contexts) if (record.expiresAt <= now2) this.contexts.delete(id);
   }
 }
-function summarizeCanvas(elements, revision, scope) {
-  const lines = [`Canvas context (revision ${revision}, ${scope}).`, "Use this as visual working context for this run only:"];
+function summarizeCanvas(elements, revision) {
+  const lines = [`Canvas selection context (revision ${revision}).`, "Use this as visual working context for this run only:"];
   const sorted = [...elements].sort((a, b) => numberValue(a.y) - numberValue(b.y) || numberValue(a.x) - numberValue(b.x));
   for (const element of sorted) {
     const type = typeof element.type === "string" ? element.type : "element";
@@ -2573,7 +2759,7 @@ function toDataURL(mimeType, bytes) {
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 function hasTable(database, name) {
   const row = database.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
   return row?.present === 1;
@@ -2581,6 +2767,36 @@ function hasTable(database, name) {
 function hasColumn(database, table, column) {
   const rows = database.prepare(`PRAGMA table_info(${table})`).all();
   return rows.some((row) => row.name === column);
+}
+function migrateCompletedAtToDurationMs(database) {
+  if (!hasColumn(database, "entries", "duration_ms")) {
+    database.exec("ALTER TABLE entries ADD COLUMN duration_ms INTEGER");
+  }
+  if (!hasColumn(database, "entries", "completed_at")) return;
+  database.exec(`
+    UPDATE entries AS assistant
+    SET duration_ms = MAX(0, assistant.completed_at - (
+      SELECT user_entry.created_at
+      FROM entries AS user_entry
+      WHERE user_entry.project_id IS assistant.project_id
+        AND user_entry.run_id = assistant.run_id
+        AND user_entry.type = 'user_message'
+      ORDER BY user_entry.entry_order ASC
+      LIMIT 1
+    ))
+    WHERE assistant.type = 'assistant_message'
+      AND assistant.status = 'completed'
+      AND assistant.completed_at IS NOT NULL
+      AND assistant.duration_ms IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM entries AS user_entry
+        WHERE user_entry.project_id IS assistant.project_id
+          AND user_entry.run_id = assistant.run_id
+          AND user_entry.type = 'user_message'
+      )
+  `);
+  database.exec("ALTER TABLE entries DROP COLUMN completed_at");
 }
 function createProjectSchema(database) {
   database.exec(`
@@ -2616,7 +2832,7 @@ function createProjectSchema(database) {
       payload_json TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      completed_at INTEGER
+      duration_ms INTEGER
     );
 
     CREATE INDEX IF NOT EXISTS entries_project_order_idx
@@ -2655,6 +2871,7 @@ function createProjectSchema(database) {
 }
 function migrateLegacySessionSchema(database) {
   const legacyCompletedAt = hasColumn(database, "entries", "completed_at") ? "completed_at" : "NULL";
+  const legacyDurationMs = hasColumn(database, "entries", "duration_ms") ? "duration_ms" : "NULL";
   const legacyCwd = hasColumn(database, "tool_invocations", "cwd") ? "cwd" : "''";
   database.exec("PRAGMA foreign_keys = OFF");
   database.exec("BEGIN IMMEDIATE");
@@ -2692,16 +2909,17 @@ function migrateLegacySessionSchema(database) {
         payload_json TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
-        completed_at INTEGER
+        completed_at INTEGER,
+        duration_ms INTEGER
       );
 
       INSERT INTO entries_project_new
         (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
-         revision, payload_version, payload_json, created_at, updated_at, completed_at)
+         revision, payload_version, payload_json, created_at, updated_at, completed_at, duration_ms)
       SELECT id, NULL,
         ROW_NUMBER() OVER (ORDER BY created_at ASC, session_id ASC, session_seq ASC, id ASC),
         type, status, run_id, turn_id, tool_call_id, revision, payload_version,
-        payload_json, created_at, updated_at, ${legacyCompletedAt}
+        payload_json, created_at, updated_at, ${legacyCompletedAt}, ${legacyDurationMs}
       FROM entries;
 
       DROP TABLE entries;
@@ -2750,6 +2968,7 @@ function migrateLegacySessionSchema(database) {
       CREATE INDEX tool_invocations_project_phase_idx
         ON tool_invocations (project_id, phase, ordinal ASC);
     `);
+    migrateCompletedAtToDurationMs(database);
     database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     database.exec("COMMIT");
   } catch (error) {
@@ -2775,6 +2994,7 @@ function initializeSchema(database) {
     return;
   }
   createProjectSchema(database);
+  migrateCompletedAtToDurationMs(database);
   database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
 class RepositoryError extends Error {
@@ -2862,7 +3082,7 @@ function rowToEntry(row) {
     payload: parsePayload(row.payload_json),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
-    completedAt: row.completed_at === null || row.completed_at === void 0 ? null : Number(row.completed_at)
+    durationMs: row.duration_ms === null || row.duration_ms === void 0 ? null : Number(row.duration_ms)
   };
 }
 function rowToToolInvocation(row) {
@@ -2971,7 +3191,7 @@ class SqliteHistoryRepository {
       this.database.prepare(`
         INSERT INTO entries
           (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
-           revision, payload_version, payload_json, created_at, updated_at, completed_at)
+           revision, payload_version, payload_json, created_at, updated_at, duration_ms)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         entry.id,
@@ -2987,7 +3207,7 @@ class SqliteHistoryRepository {
         JSON.stringify(entry.payload),
         timestamp,
         updatedAt,
-        entry.completedAt ?? null
+        entry.durationMs ?? null
       );
       return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id));
     });
@@ -3004,14 +3224,14 @@ class SqliteHistoryRepository {
       const nextPayloadVersion = patch.payloadVersion ?? existing.payloadVersion;
       const nextTurnId = patch.turnId === void 0 ? existing.turnId : patch.turnId;
       const nextToolCallId = patch.toolCallId === void 0 ? existing.toolCallId : patch.toolCallId;
-      const nextCompletedAt = patch.completedAt === void 0 ? existing.completedAt : patch.completedAt;
+      const nextDurationMs = patch.durationMs === void 0 ? existing.durationMs : patch.durationMs;
       validatePayloadForType(existing.type, nextPayload, nextToolCallId);
       this.database.prepare(`
         UPDATE entries
         SET status = ?, turn_id = ?, tool_call_id = ?, revision = revision + 1,
-            payload_version = ?, payload_json = ?, updated_at = ?, completed_at = ?
+            payload_version = ?, payload_json = ?, updated_at = ?, duration_ms = ?
         WHERE id = ? AND revision = ?
-      `).run(nextStatus, nextTurnId, nextToolCallId, nextPayloadVersion, JSON.stringify(nextPayload), updatedAt, nextCompletedAt, entryId, expectedRevision);
+      `).run(nextStatus, nextTurnId, nextToolCallId, nextPayloadVersion, JSON.stringify(nextPayload), updatedAt, nextDurationMs, entryId, expectedRevision);
       return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId));
     });
   }
@@ -3225,7 +3445,9 @@ class DefaultHistoryRecorder {
     this.projectId = projectId;
     this.repository = repository;
     for (const entry of [...entries].sort((left, right) => left.entryOrder - right.entryOrder)) {
-      if (entry.type === "user_message") this.userEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload) });
+      if (entry.type === "user_message") {
+        this.userEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload), createdAt: entry.createdAt });
+      }
       if (entry.type === "tool_result" && entry.toolCallId) this.toolEntries.set(entry.toolCallId, { entryId: entry.id, message: cloneMessage(entry.payload) });
       if (entry.type === "assistant_message" && entry.turnId) this.assistantEntries.set(entry.turnId, entry.id);
       if (entry.status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
@@ -3258,6 +3480,7 @@ class DefaultHistoryRecorder {
         runId: context.runId,
         payload: copy
       });
+      this.userEntries.set(context.runId, { entryId, message: copy, createdAt: entry.createdAt });
       this.completedMessages.push(cloneMessage(entry.payload));
     });
   }
@@ -3425,6 +3648,8 @@ class DefaultHistoryRecorder {
     const finalStatus = draft.finalStatus;
     const status = finalStatus ?? (draft.terminal ? "completed" : "streaming");
     const completedAt = status === "completed" ? Date.now() : void 0;
+    const userCreatedAt = this.userEntries.get(draft.runId)?.createdAt;
+    const durationMs = completedAt !== void 0 && userCreatedAt !== void 0 ? Math.max(0, completedAt - userCreatedAt) : void 0;
     let entry;
     if (draft.revision === null) {
       entry = await this.repository.appendEntry(this.projectId, {
@@ -3434,13 +3659,15 @@ class DefaultHistoryRecorder {
         runId: draft.runId,
         turnId: draft.turnId,
         payload: cloneMessage(draft.message),
-        completedAt
+        updatedAt: completedAt,
+        durationMs
       });
     } else {
       entry = await this.repository.updateEntry(draft.entryId, draft.revision, {
         status,
         payload: cloneMessage(draft.message),
-        completedAt
+        updatedAt: completedAt,
+        durationMs
       });
     }
     draft.revision = entry.revision;

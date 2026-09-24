@@ -54,7 +54,6 @@ export {
   resizePerfectLineForNWHandler,
   getNormalizedDimensions,
 } from "./sizeHelpers";
-export { showSelectedShapeActions } from "./showSelectedShapeActions";
 
 /**
  * @deprecated unsafe, use hashElementsVersion instead

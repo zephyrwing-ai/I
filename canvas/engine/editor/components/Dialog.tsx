@@ -90,7 +90,6 @@ export const Dialog = (props: DialogProps) => {
 
   const setAppState = useExcalidrawSetAppState();
   const onClose = () => {
-    setAppState({ openMenu: null });
     (lastActiveElement as HTMLElement).focus();
     props.onCloseRequest();
   };

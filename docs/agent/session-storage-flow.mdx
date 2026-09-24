@@ -5,6 +5,8 @@ description: Agent 按项目范围提交消息、恢复工具和构造模型上�
 
 这组流程描述项目历史和无项目历史的统一提交边界。`projectId` 为真实项目 ID 时，消息归入该项目；`projectId = NULL` 时，消息归入无项目历史。
 
+![项目历史存储流程](./session-storage-flow.png)
+
 ## 参与者职责
 
 - Electron Main 打开 `userData/agent-sessions.sqlite`，维护项目注册表和项目上下文缓存。

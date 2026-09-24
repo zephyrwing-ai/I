@@ -27,8 +27,8 @@ export interface TurnState {
   assistantContent: string;
   /** 模型消息时间；历史记录使用 assistant entry 的最终更新时间。 */
   assistantAt?: number;
-  /** 助手消息完成持久化的时间；历史记录用于恢复 Worked for。 */
-  assistantCompletedAt?: number;
+  /** 从用户提交到助手消息完成的持久化耗时，单位毫秒。 */
+  assistantDurationMs?: number;
   /** 思考内容（reasoningDelta 增量累加）；展示在 worked for 折叠内。 */
   reasoningContent: string;
   finalContent?: string;
@@ -67,10 +67,11 @@ export type AgentAction =
   | { type: "runAccepted"; runId: string; task: string; taskAt: number }
   | { type: "runRejected"; error: string }
   | { type: "stopRequested" }
-  | { type: "historyLoadStarted"; scope: "initial" | "older" | "search" }
-  | { type: "historyHydrated"; page: HistoryPageResult }
-  | { type: "olderHistoryLoaded"; page: HistoryPageResult }
-  | { type: "historyLoadFailed"; scope: "initial" | "older" | "search"; error: string }
+  | { type: "historyScopeLoadStarted"; projectId: string | null; generation: number }
+  | { type: "historyLoadStarted"; scope: "older" | "search"; generation: number }
+  | { type: "historyHydrated"; page: HistoryPageResult; generation: number }
+  | { type: "olderHistoryLoaded"; page: HistoryPageResult; generation: number }
+  | { type: "historyLoadFailed"; scope: "initial" | "older" | "search"; generation: number; error: string }
   | { type: "event"; event: AgentEvent };
 
 export const initialAgentState: AgentState = {
@@ -175,12 +176,30 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
     case "runRejected":
       return { ...state, status: "failed", currentRunId: null, error: action.error };
 
+    case "historyScopeLoadStarted":
+      if (action.generation <= state.history.requestGeneration) return state;
+      return {
+        ...state,
+        status: "idle",
+        currentRunId: null,
+        runs: {},
+        runOrder: [],
+        error: null,
+        history: {
+          ...initialHistoryState,
+          projectId: action.projectId,
+          requestGeneration: action.generation,
+          hydrationVersion: state.history.hydrationVersion,
+          loadingInitial: true,
+        },
+      };
+
     case "historyLoadStarted":
+      if (action.generation !== state.history.requestGeneration) return state;
       return {
         ...state,
         history: {
           ...state.history,
-          loadingInitial: action.scope === "initial" ? true : state.history.loadingInitial,
           loadingOlder: action.scope === "older" ? true : state.history.loadingOlder,
           loadingSearch: action.scope === "search" ? true : state.history.loadingSearch,
           error: null,
@@ -188,11 +207,12 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
       };
 
     case "historyHydrated": {
+      if (action.generation !== state.history.requestGeneration || action.page.projectId !== state.history.projectId) return state;
       const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
       const projected = mergePersistedEntries({ runs: {}, runOrder: [] }, action.page.entries);
       return {
         ...state,
-        history,
+        history: { ...history, hydrationVersion: state.history.hydrationVersion + 1 },
         runs: projected.runs,
         runOrder: projected.runOrder,
         currentRunId: null,
@@ -202,12 +222,14 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
     }
 
     case "olderHistoryLoaded": {
+      if (action.generation !== state.history.requestGeneration || action.page.projectId !== state.history.projectId) return state;
       const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
       const projected = mergePersistedEntries(state, action.page.entries);
       return { ...state, history, runs: projected.runs, runOrder: projected.runOrder };
     }
 
     case "historyLoadFailed":
+      if (action.generation !== state.history.requestGeneration) return state;
       return {
         ...state,
         history: {

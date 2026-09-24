@@ -32,15 +32,6 @@ import {
   getBoundTextElement,
 } from "./textElement";
 import { wrapText } from "./textWrapping";
-import {
-  actionDecreaseFontSize,
-  actionIncreaseFontSize,
-} from "../actions/actionProperties";
-import {
-  actionResetZoom,
-  actionZoomIn,
-  actionZoomOut,
-} from "../actions/actionCanvas";
 import type App from "../components/App";
 import { LinearElementEditor } from "./linearElementEditor";
 import { parseClipboard } from "../clipboard";
@@ -370,23 +361,7 @@ export const textWysiwyg = ({
   }
 
   editable.onkeydown = (event) => {
-    if (!event.shiftKey && actionZoomIn.keyTest(event)) {
-      event.preventDefault();
-      app.actionManager.executeAction(actionZoomIn);
-      updateWysiwygStyle();
-    } else if (!event.shiftKey && actionZoomOut.keyTest(event)) {
-      event.preventDefault();
-      app.actionManager.executeAction(actionZoomOut);
-      updateWysiwygStyle();
-    } else if (!event.shiftKey && actionResetZoom.keyTest(event)) {
-      event.preventDefault();
-      app.actionManager.executeAction(actionResetZoom);
-      updateWysiwygStyle();
-    } else if (actionDecreaseFontSize.keyTest(event)) {
-      app.actionManager.executeAction(actionDecreaseFontSize);
-    } else if (actionIncreaseFontSize.keyTest(event)) {
-      app.actionManager.executeAction(actionIncreaseFontSize);
-    } else if (event.key === KEYS.ESCAPE) {
+    if (event.key === KEYS.ESCAPE) {
       event.preventDefault();
       submittedViaKeyboard = true;
       handleSubmit();
@@ -653,9 +628,7 @@ export const textWysiwyg = ({
     if (
       ((event.target instanceof HTMLElement ||
         event.target instanceof SVGElement) &&
-        event.target.closest(
-          `.${CLASSES.SHAPE_ACTIONS_MENU}, .${CLASSES.ZOOM_ACTIONS}`,
-        ) &&
+        event.target.closest(`.${CLASSES.ZOOM_ACTIONS}`) &&
         !isWritableElement(event.target)) ||
       isPropertiesTrigger
     ) {

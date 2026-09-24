@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 function hasTable(database: DatabaseSync, name: string): boolean {
   const row = database.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) as { present?: number } | undefined;
@@ -10,6 +10,38 @@ function hasTable(database: DatabaseSync, name: string): boolean {
 function hasColumn(database: DatabaseSync, table: string, column: string): boolean {
   const rows = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
   return rows.some((row) => row.name === column);
+}
+
+function migrateCompletedAtToDurationMs(database: DatabaseSync): void {
+  if (!hasColumn(database, "entries", "duration_ms")) {
+    database.exec("ALTER TABLE entries ADD COLUMN duration_ms INTEGER");
+  }
+  if (!hasColumn(database, "entries", "completed_at")) return;
+
+  database.exec(`
+    UPDATE entries AS assistant
+    SET duration_ms = MAX(0, assistant.completed_at - (
+      SELECT user_entry.created_at
+      FROM entries AS user_entry
+      WHERE user_entry.project_id IS assistant.project_id
+        AND user_entry.run_id = assistant.run_id
+        AND user_entry.type = 'user_message'
+      ORDER BY user_entry.entry_order ASC
+      LIMIT 1
+    ))
+    WHERE assistant.type = 'assistant_message'
+      AND assistant.status = 'completed'
+      AND assistant.completed_at IS NOT NULL
+      AND assistant.duration_ms IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM entries AS user_entry
+        WHERE user_entry.project_id IS assistant.project_id
+          AND user_entry.run_id = assistant.run_id
+          AND user_entry.type = 'user_message'
+      )
+  `);
+  database.exec("ALTER TABLE entries DROP COLUMN completed_at");
 }
 
 function createProjectSchema(database: DatabaseSync): void {
@@ -46,7 +78,7 @@ function createProjectSchema(database: DatabaseSync): void {
       payload_json TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      completed_at INTEGER
+      duration_ms INTEGER
     );
 
     CREATE INDEX IF NOT EXISTS entries_project_order_idx
@@ -86,6 +118,7 @@ function createProjectSchema(database: DatabaseSync): void {
 
 function migrateLegacySessionSchema(database: DatabaseSync): void {
   const legacyCompletedAt = hasColumn(database, "entries", "completed_at") ? "completed_at" : "NULL";
+  const legacyDurationMs = hasColumn(database, "entries", "duration_ms") ? "duration_ms" : "NULL";
   const legacyCwd = hasColumn(database, "tool_invocations", "cwd") ? "cwd" : "''";
   database.exec("PRAGMA foreign_keys = OFF");
   database.exec("BEGIN IMMEDIATE");
@@ -123,16 +156,17 @@ function migrateLegacySessionSchema(database: DatabaseSync): void {
         payload_json TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
-        completed_at INTEGER
+        completed_at INTEGER,
+        duration_ms INTEGER
       );
 
       INSERT INTO entries_project_new
         (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
-         revision, payload_version, payload_json, created_at, updated_at, completed_at)
+         revision, payload_version, payload_json, created_at, updated_at, completed_at, duration_ms)
       SELECT id, NULL,
         ROW_NUMBER() OVER (ORDER BY created_at ASC, session_id ASC, session_seq ASC, id ASC),
         type, status, run_id, turn_id, tool_call_id, revision, payload_version,
-        payload_json, created_at, updated_at, ${legacyCompletedAt}
+        payload_json, created_at, updated_at, ${legacyCompletedAt}, ${legacyDurationMs}
       FROM entries;
 
       DROP TABLE entries;
@@ -181,6 +215,7 @@ function migrateLegacySessionSchema(database: DatabaseSync): void {
       CREATE INDEX tool_invocations_project_phase_idx
         ON tool_invocations (project_id, phase, ordinal ASC);
     `);
+    migrateCompletedAtToDurationMs(database);
     database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     database.exec("COMMIT");
   } catch (error) {
@@ -210,5 +245,6 @@ export function initializeSchema(database: DatabaseSync): void {
   }
 
   createProjectSchema(database);
+  migrateCompletedAtToDurationMs(database);
   database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
