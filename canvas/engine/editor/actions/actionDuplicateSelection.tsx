@@ -1,6 +1,6 @@
 import { KEYS } from "../keys";
 import { register } from "./register";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import { duplicateElement, getNonDeletedElements } from "../element";
 import { isSomeElementSelected } from "../scene";
 import { ToolButton } from "../components/ToolButton";
@@ -102,30 +102,30 @@ export const actionDuplicateSelection = register({
 });
 
 const duplicateElements = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: AppState,
 ): Partial<Exclude<ActionResult, false>> => {
   // ---------------------------------------------------------------------------
 
   const groupIdMap = new Map();
-  const newElements: ExcalidrawElement[] = [];
-  const oldElements: ExcalidrawElement[] = [];
+  const newElements: CanvasEditorElement[] = [];
+  const oldElements: CanvasEditorElement[] = [];
   const oldIdToDuplicatedId = new Map();
-  const duplicatedElementsMap = new Map<string, ExcalidrawElement>();
+  const duplicatedElementsMap = new Map<string, CanvasEditorElement>();
 
   const elementsMap = arrayToMap(elements);
 
   const duplicateAndOffsetElement = <
-    T extends ExcalidrawElement | ExcalidrawElement[],
+    T extends CanvasEditorElement | CanvasEditorElement[],
   >(
     element: T,
-  ): T extends ExcalidrawElement[]
-    ? ExcalidrawElement[]
-    : ExcalidrawElement | null => {
+  ): T extends CanvasEditorElement[]
+    ? CanvasEditorElement[]
+    : CanvasEditorElement | null => {
     const elements = castArray(element);
 
     const _newElements = elements.reduce(
-      (acc: ExcalidrawElement[], element) => {
+      (acc: CanvasEditorElement[], element) => {
         if (processedIds.has(element.id)) {
           return acc;
         }
@@ -158,9 +158,9 @@ const duplicateElements = (
 
     return (
       Array.isArray(element) ? _newElements : _newElements[0] || null
-    ) as T extends ExcalidrawElement[]
-      ? ExcalidrawElement[]
-      : ExcalidrawElement | null;
+    ) as T extends CanvasEditorElement[]
+      ? CanvasEditorElement[]
+      : CanvasEditorElement | null;
   };
 
   elements = normalizeElementOrder(elements);
@@ -182,13 +182,13 @@ const duplicateElements = (
   //
   // For convenience we mark even the newly created ones even though we don't
   // loop over them.
-  const processedIds = new Map<ExcalidrawElement["id"], true>();
+  const processedIds = new Map<CanvasEditorElement["id"], true>();
 
-  const elementsWithClones: ExcalidrawElement[] = elements.slice();
+  const elementsWithClones: CanvasEditorElement[] = elements.slice();
 
   const insertAfterIndex = (
     index: number,
-    elements: ExcalidrawElement | null | ExcalidrawElement[],
+    elements: CanvasEditorElement | null | CanvasEditorElement[],
   ) => {
     invariant(index !== -1, "targetIndex === -1 ");
 
@@ -341,7 +341,7 @@ const duplicateElements = (
         {
           editingGroupId: appState.editingGroupId,
           selectedElementIds: nextElementsToSelect.reduce(
-            (acc: Record<ExcalidrawElement["id"], true>, element) => {
+            (acc: Record<CanvasEditorElement["id"], true>, element) => {
               if (!isBoundToContainer(element)) {
                 acc[element.id] = true;
               }

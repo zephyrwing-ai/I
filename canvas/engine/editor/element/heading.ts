@@ -14,7 +14,7 @@ import {
   vectorFromPoint,
 } from "@agent-studio/canvas-math";
 import { getCenterForBounds, type Bounds } from "./bounds";
-import type { ExcalidrawBindableElement } from "./types";
+import type { CanvasEditorBindableElement } from "./types";
 
 export const HEADING_RIGHT = [1, 0] as Heading;
 export const HEADING_DOWN = [0, 1] as Heading;
@@ -77,7 +77,7 @@ export const headingIsVertical = (a: Heading) => !headingIsHorizontal(a);
 export const headingForPointFromElement = <
   Point extends GlobalPoint | LocalPoint,
 >(
-  element: Readonly<ExcalidrawBindableElement>,
+  element: Readonly<CanvasEditorBindableElement>,
   aabb: Readonly<Bounds>,
   p: Readonly<Point>,
 ): Heading => {

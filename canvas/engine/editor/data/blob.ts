@@ -2,7 +2,7 @@ import { nanoid } from "nanoid";
 import { cleanAppStateForExport } from "../appState";
 import { IMAGE_MIME_TYPES, MIME_TYPES } from "../constants";
 import { clearElementsForExport } from "../element";
-import type { ExcalidrawElement, FileId } from "../element/types";
+import type { CanvasEditorElement, FileId } from "../element/types";
 import { CanvasError, ImageSceneDataError } from "../errors";
 import { calculateScrollCenter } from "../scene";
 import { decodeSvgBase64Payload } from "../scene/export";
@@ -12,7 +12,7 @@ import { bytesToHexString, isPromiseLike } from "../utils";
 import { base64ToString, stringToBase64, toByteString } from "./encode";
 import type { FileSystemHandle } from "./filesystem";
 import { nativeFileSystemSupported } from "./filesystem";
-import { isValidExcalidrawData, isValidLibrary } from "./json";
+import { isValidCanvasEditorData, isValidLibrary } from "./json";
 import { restore, restoreLibraryItems } from "./restore";
 import type { ImportedLibraryData } from "./types";
 
@@ -122,7 +122,7 @@ export const loadSceneOrLibraryFromBlob = async (
   blob: Blob | File,
   /** @see restore.localAppState */
   localAppState: AppState | null,
-  localElements: readonly ExcalidrawElement[] | null,
+  localElements: readonly CanvasEditorElement[] | null,
   /** FileSystemHandle. Defaults to `blob.handle` if defined, otherwise null. */
   fileHandle?: FileSystemHandle | null,
 ) => {
@@ -140,9 +140,9 @@ export const loadSceneOrLibraryFromBlob = async (
       }
       throw error;
     }
-    if (isValidExcalidrawData(data)) {
+    if (isValidCanvasEditorData(data)) {
       return {
-        type: MIME_TYPES.excalidraw,
+        type: MIME_TYPES.canvas,
         data: restore(
           {
             elements: clearElementsForExport(data.elements || []),
@@ -163,7 +163,7 @@ export const loadSceneOrLibraryFromBlob = async (
       };
     } else if (isValidLibrary(data)) {
       return {
-        type: MIME_TYPES.excalidrawlib,
+        type: MIME_TYPES.canvaslib,
         data,
       };
     }
@@ -180,7 +180,7 @@ export const loadFromBlob = async (
   blob: Blob,
   /** @see restore.localAppState */
   localAppState: AppState | null,
-  localElements: readonly ExcalidrawElement[] | null,
+  localElements: readonly CanvasEditorElement[] | null,
   /** FileSystemHandle. Defaults to `blob.handle` if defined, otherwise null. */
   fileHandle?: FileSystemHandle | null,
 ) => {
@@ -190,7 +190,7 @@ export const loadFromBlob = async (
     localElements,
     fileHandle,
   );
-  if (ret.type !== MIME_TYPES.excalidraw) {
+  if (ret.type !== MIME_TYPES.canvas) {
     throw new Error("Error: invalid file");
   }
   return ret.data;
@@ -443,19 +443,20 @@ export const createFile = (
 
 /** attempts to detect correct mimeType if none is set, or if an image
  * has an incorrect extension.
- * Note: doesn't handle missing .excalidraw/.excalidrawlib extension  */
+ * Infers legacy scene/library MIME types from their file extensions.
+ */
 export const normalizeFile = async (file: File) => {
   if (!file.type) {
     if (file?.name?.endsWith(".excalidrawlib")) {
       file = createFile(
         await blobToArrayBuffer(file),
-        MIME_TYPES.excalidrawlib,
+        MIME_TYPES.canvaslib,
         file.name,
       );
     } else if (file?.name?.endsWith(".excalidraw")) {
       file = createFile(
         await blobToArrayBuffer(file),
-        MIME_TYPES.excalidraw,
+        MIME_TYPES.canvas,
         file.name,
       );
     } else {

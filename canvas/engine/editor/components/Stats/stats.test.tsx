@@ -12,12 +12,12 @@ import * as StaticScene from "../../renderer/staticScene";
 import { vi } from "vitest";
 import { reseed } from "../../random";
 import { setDateTimeForTests } from "../../utils";
-import { Excalidraw, mutateElement } from "../..";
+import { CanvasEditor, mutateElement } from "../..";
 import { t } from "../../i18n";
 import type {
-  ExcalidrawElement,
-  ExcalidrawLinearElement,
-  ExcalidrawTextElement,
+  CanvasEditorElement,
+  CanvasEditorLinearElement,
+  CanvasEditorTextElement,
 } from "../../element/types";
 import { getTextEditor, updateTextEditor } from "../../tests/queries/dom";
 import { getCommonBounds, isTextElement } from "../../element";
@@ -34,7 +34,7 @@ let stats: HTMLElement | null = null;
 let elementStats: HTMLElement | null | undefined = null;
 
 const testInputProperty = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   property: "x" | "y" | "width" | "height" | "angle" | "fontSize",
   label: string,
   initialValue: number,
@@ -90,7 +90,7 @@ describe("binding with linear elements", () => {
     reseed(19);
     setDateTimeForTests("201933152653");
 
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
 
     API.setElements([]);
 
@@ -123,7 +123,7 @@ describe("binding with linear elements", () => {
   });
 
   it("should remain bound to linear element on small position change", async () => {
-    const linear = h.elements[1] as ExcalidrawLinearElement;
+    const linear = h.elements[1] as CanvasEditorLinearElement;
     const inputX = UI.queryStatsProperty("X")?.querySelector(
       ".drag-input",
     ) as HTMLInputElement;
@@ -135,7 +135,7 @@ describe("binding with linear elements", () => {
   });
 
   it("should remain bound to linear element on small angle change", async () => {
-    const linear = h.elements[1] as ExcalidrawLinearElement;
+    const linear = h.elements[1] as CanvasEditorLinearElement;
     const inputAngle = UI.queryStatsProperty("A")?.querySelector(
       ".drag-input",
     ) as HTMLInputElement;
@@ -146,7 +146,7 @@ describe("binding with linear elements", () => {
   });
 
   it("should unbind linear element on large position change", async () => {
-    const linear = h.elements[1] as ExcalidrawLinearElement;
+    const linear = h.elements[1] as CanvasEditorLinearElement;
     const inputX = UI.queryStatsProperty("X")?.querySelector(
       ".drag-input",
     ) as HTMLInputElement;
@@ -158,7 +158,7 @@ describe("binding with linear elements", () => {
   });
 
   it("should remain bound to linear element on small angle change", async () => {
-    const linear = h.elements[1] as ExcalidrawLinearElement;
+    const linear = h.elements[1] as CanvasEditorLinearElement;
     const inputAngle = UI.queryStatsProperty("A")?.querySelector(
       ".drag-input",
     ) as HTMLInputElement;
@@ -177,7 +177,7 @@ describe("stats for a generic element", () => {
     reseed(7);
     setDateTimeForTests("201933152653");
 
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
 
     API.setElements([]);
 
@@ -351,7 +351,7 @@ describe("stats for a non-generic element", () => {
     reseed(7);
     setDateTimeForTests("201933152653");
 
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
 
     API.setElements([]);
 
@@ -376,14 +376,14 @@ describe("stats for a non-generic element", () => {
   it("text element", async () => {
     UI.clickTool("text");
     mouse.clickAt(20, 30);
-    const textEditorSelector = ".excalidraw-textEditorContainer > textarea";
+    const textEditorSelector = ".agent-canvas-textEditorContainer > textarea";
     const editor = await getTextEditor(textEditorSelector, true);
     updateTextEditor(editor, "Hello!");
     act(() => {
       editor.blur();
     });
 
-    const text = h.elements[0] as ExcalidrawTextElement;
+    const text = h.elements[0] as CanvasEditorTextElement;
     mouse.clickOn(text);
 
     elementStats = stats?.querySelector("#elementStats");
@@ -498,7 +498,7 @@ describe("stats for multiple elements", () => {
     reseed(7);
     setDateTimeForTests("201933152653");
 
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
 
     API.setElements([]);
 
@@ -570,7 +570,7 @@ describe("stats for multiple elements", () => {
     // text, rectangle, frame
     UI.clickTool("text");
     mouse.clickAt(20, 30);
-    const textEditorSelector = ".excalidraw-textEditorContainer > textarea";
+    const textEditorSelector = ".agent-canvas-textEditorContainer > textarea";
     const editor = await getTextEditor(textEditorSelector, true);
     updateTextEditor(editor, "Hello!");
     act(() => {

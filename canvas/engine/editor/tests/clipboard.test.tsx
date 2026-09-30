@@ -7,7 +7,7 @@ import {
   unmountComponent,
 } from "./test-utils";
 import { Pointer, Keyboard } from "./helpers/ui";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { KEYS } from "../keys";
 import type { NormalizedZoomValue } from "../types";
 import { API } from "./helpers/api";
@@ -69,7 +69,7 @@ beforeEach(async () => {
   mouse.reset();
 
   await render(
-    <Excalidraw
+    <CanvasEditor
       autoFocus={true}
       handleKeyboardGlobally={true}
       initialData={{ appState: { zoom: { value: 1 as NormalizedZoomValue } } }}
@@ -179,13 +179,13 @@ describe("Paste bound text container", () => {
     height: 175,
     fontSize: 20,
     fontFamily: 1,
-    text: "Excalidraw is a\nvirtual \nopensource \nwhiteboard for \nsketching \nhand-drawn like\ndiagrams",
+    text: "CanvasEditor is a\nvirtual \nopensource \nwhiteboard for \nsketching \nhand-drawn like\ndiagrams",
     baseline: 168,
     textAlign: "center",
     verticalAlign: "middle",
     containerId: container.id,
     originalText:
-      "Excalidraw is a virtual opensource whiteboard for sketching hand-drawn like diagrams",
+      "CanvasEditor is a virtual opensource whiteboard for sketching hand-drawn like diagrams",
   };
 
   it("should fix ellipse bounding box", async () => {

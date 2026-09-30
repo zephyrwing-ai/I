@@ -1,14 +1,14 @@
 import type {
-  ExcalidrawElement,
-  ExcalidrawLinearElement,
-  ExcalidrawTextElement,
-  ExcalidrawArrowElement,
-  ExcalidrawRectangleElement,
-  ExcalidrawEllipseElement,
-  ExcalidrawDiamondElement,
-  ExcalidrawTextContainer,
-  ExcalidrawTextElementWithContainer,
-  ExcalidrawImageElement,
+  CanvasEditorElement,
+  CanvasEditorLinearElement,
+  CanvasEditorTextElement,
+  CanvasEditorArrowElement,
+  CanvasEditorRectangleElement,
+  CanvasEditorEllipseElement,
+  CanvasEditorDiamondElement,
+  CanvasEditorTextContainer,
+  CanvasEditorTextElementWithContainer,
+  CanvasEditorImageElement,
 } from "../../element/types";
 import type { TransformHandleType } from "../../element/transformHandles";
 import {
@@ -141,7 +141,7 @@ export class Keyboard {
 }
 
 const getElementPointForSelection = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
 ): GlobalPoint => {
   const { x, y, width, height, angle } = element;
   const target = pointFrom<GlobalPoint>(
@@ -280,7 +280,7 @@ export class Pointer {
 
   select(
     /** if multiple elements supplied, they're shift-selected */
-    elements: ExcalidrawElement | ExcalidrawElement[],
+    elements: CanvasEditorElement | CanvasEditorElement[],
   ) {
     API.clearSelection();
 
@@ -295,13 +295,13 @@ export class Pointer {
     this.reset();
   }
 
-  clickOn(element: ExcalidrawElement) {
+  clickOn(element: CanvasEditorElement) {
     this.reset();
     this.click(...getElementPointForSelection(element));
     this.reset();
   }
 
-  doubleClickOn(element: ExcalidrawElement) {
+  doubleClickOn(element: CanvasEditorElement) {
     this.reset();
     this.doubleClick(...getElementPointForSelection(element));
     this.reset();
@@ -311,7 +311,7 @@ export class Pointer {
 const mouse = new Pointer("mouse");
 
 const transform = (
-  element: ExcalidrawElement | ExcalidrawElement[],
+  element: CanvasEditorElement | CanvasEditorElement[],
   handle: TransformHandleType,
   mouseMove: [deltaX: number, deltaY: number],
   keyboardModifiers: KeyboardModifiers = {},
@@ -365,7 +365,7 @@ const transform = (
   });
 };
 
-const proxy = <T extends ExcalidrawElement>(
+const proxy = <T extends CanvasEditorElement>(
   element: T,
 ): typeof element & {
   /** Returns the actual, current element from the elements array, instead of
@@ -382,7 +382,7 @@ const proxy = <T extends ExcalidrawElement>(
         if (prop === "get") {
           if (currentElement.hasOwnProperty("get")) {
             throw new Error(
-              "trying to get `get` test property, but ExcalidrawElement seems to define its own",
+              "trying to get `get` test property, but CanvasEditorElement seems to define its own",
             );
           }
           return () => currentElement;
@@ -397,18 +397,18 @@ const proxy = <T extends ExcalidrawElement>(
 type DrawingToolName = Exclude<ToolType, "lock" | "selection" | "eraser">;
 
 type Element<T extends DrawingToolName> = T extends "line" | "freedraw"
-  ? ExcalidrawLinearElement
+  ? CanvasEditorLinearElement
   : T extends "arrow"
-  ? ExcalidrawArrowElement
+  ? CanvasEditorArrowElement
   : T extends "text"
-  ? ExcalidrawTextElement
+  ? CanvasEditorTextElement
   : T extends "rectangle"
-  ? ExcalidrawRectangleElement
+  ? CanvasEditorRectangleElement
   : T extends "ellipse"
-  ? ExcalidrawEllipseElement
+  ? CanvasEditorEllipseElement
   : T extends "diamond"
-  ? ExcalidrawDiamondElement
-  : ExcalidrawElement;
+  ? CanvasEditorDiamondElement
+  : CanvasEditorElement;
 
 export class UI {
   static clickTool = (toolName: ToolType | "lock") => {
@@ -437,7 +437,7 @@ export class UI {
   };
 
   /**
-   * Creates an Excalidraw element, and returns a proxy that wraps it so that
+   * Creates an CanvasEditor element, and returns a proxy that wraps it so that
    * accessing props will return the latest ones from the object existing in
    * the app's elements array. This is because across the app lifecycle we tend
    * to recreate element objects and the returned reference will become stale.
@@ -516,9 +516,9 @@ export class UI {
   }
 
   static async editText<
-    T extends ExcalidrawTextElement | ExcalidrawTextContainer,
+    T extends CanvasEditorTextElement | CanvasEditorTextContainer,
   >(element: T, text: string) {
-    const textEditorSelector = ".excalidraw-textEditorContainer > textarea";
+    const textEditorSelector = ".agent-canvas-textEditorContainer > textarea";
     const openedEditor =
       document.querySelector<HTMLTextAreaElement>(textEditorSelector);
 
@@ -542,7 +542,7 @@ export class UI {
       : proxy(
           h.elements[
             h.elements.length - 1
-          ] as ExcalidrawTextElementWithContainer,
+          ] as CanvasEditorTextElementWithContainer,
         );
   }
 
@@ -555,7 +555,7 @@ export class UI {
   };
 
   static resize(
-    element: ExcalidrawElement | ExcalidrawElement[],
+    element: CanvasEditorElement | CanvasEditorElement[],
     handle: TransformHandleDirection,
     mouseMove: [deltaX: number, deltaY: number],
     keyboardModifiers: KeyboardModifiers = {},
@@ -564,7 +564,7 @@ export class UI {
   }
 
   static crop(
-    element: ExcalidrawImageElement,
+    element: CanvasEditorImageElement,
     handle: TransformHandleDirection,
     naturalWidth: number,
     naturalHeight: number,
@@ -596,21 +596,21 @@ export class UI {
   }
 
   static rotate(
-    element: ExcalidrawElement | ExcalidrawElement[],
+    element: CanvasEditorElement | CanvasEditorElement[],
     mouseMove: [deltaX: number, deltaY: number],
     keyboardModifiers: KeyboardModifiers = {},
   ) {
     return transform(element, "rotation", mouseMove, keyboardModifiers);
   }
 
-  static group(elements: ExcalidrawElement[]) {
+  static group(elements: CanvasEditorElement[]) {
     mouse.select(elements);
     Keyboard.withModifierKeys({ ctrl: true }, () => {
       Keyboard.keyPress(KEYS.G);
     });
   }
 
-  static ungroup(elements: ExcalidrawElement[]) {
+  static ungroup(elements: CanvasEditorElement[]) {
     mouse.select(elements);
     Keyboard.withModifierKeys({ ctrl: true, shift: true }, () => {
       Keyboard.keyPress(KEYS.G);

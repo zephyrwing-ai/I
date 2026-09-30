@@ -4,83 +4,83 @@ import type { MarkNonNullable } from "../utility-types";
 import { assertNever } from "../utils";
 import type { Bounds } from "./bounds";
 import type {
-  ExcalidrawElement,
-  ExcalidrawTextElement,
-  ExcalidrawEmbeddableElement,
-  ExcalidrawLinearElement,
-  ExcalidrawBindableElement,
-  ExcalidrawFreeDrawElement,
-  InitializedExcalidrawImageElement,
-  ExcalidrawImageElement,
-  ExcalidrawTextElementWithContainer,
-  ExcalidrawTextContainer,
-  ExcalidrawFrameElement,
+  CanvasEditorElement,
+  CanvasEditorTextElement,
+  CanvasEditorEmbeddableElement,
+  CanvasEditorLinearElement,
+  CanvasEditorBindableElement,
+  CanvasEditorFreeDrawElement,
+  InitializedCanvasEditorImageElement,
+  CanvasEditorImageElement,
+  CanvasEditorTextElementWithContainer,
+  CanvasEditorTextContainer,
+  CanvasEditorFrameElement,
   RoundnessType,
-  ExcalidrawFrameLikeElement,
-  ExcalidrawElementType,
-  ExcalidrawIframeElement,
-  ExcalidrawIframeLikeElement,
-  ExcalidrawMagicFrameElement,
-  ExcalidrawArrowElement,
-  ExcalidrawElbowArrowElement,
+  CanvasEditorFrameLikeElement,
+  CanvasEditorElementType,
+  CanvasEditorIframeElement,
+  CanvasEditorIframeLikeElement,
+  CanvasEditorMagicFrameElement,
+  CanvasEditorArrowElement,
+  CanvasEditorElbowArrowElement,
   PointBinding,
   FixedPointBinding,
-  ExcalidrawFlowchartNodeElement,
+  CanvasEditorFlowchartNodeElement,
 } from "./types";
 
 export const isInitializedImageElement = (
-  element: ExcalidrawElement | null,
-): element is InitializedExcalidrawImageElement => {
+  element: CanvasEditorElement | null,
+): element is InitializedCanvasEditorImageElement => {
   return !!element && element.type === "image" && !!element.fileId;
 };
 
 export const isImageElement = (
-  element: ExcalidrawElement | null,
-): element is ExcalidrawImageElement => {
+  element: CanvasEditorElement | null,
+): element is CanvasEditorImageElement => {
   return !!element && element.type === "image";
 };
 
 export const isEmbeddableElement = (
-  element: ExcalidrawElement | null | undefined,
-): element is ExcalidrawEmbeddableElement => {
+  element: CanvasEditorElement | null | undefined,
+): element is CanvasEditorEmbeddableElement => {
   return !!element && element.type === "embeddable";
 };
 
 export const isIframeElement = (
-  element: ExcalidrawElement | null,
-): element is ExcalidrawIframeElement => {
+  element: CanvasEditorElement | null,
+): element is CanvasEditorIframeElement => {
   return !!element && element.type === "iframe";
 };
 
 export const isIframeLikeElement = (
-  element: ExcalidrawElement | null,
-): element is ExcalidrawIframeLikeElement => {
+  element: CanvasEditorElement | null,
+): element is CanvasEditorIframeLikeElement => {
   return (
     !!element && (element.type === "iframe" || element.type === "embeddable")
   );
 };
 
 export const isTextElement = (
-  element: ExcalidrawElement | null,
-): element is ExcalidrawTextElement => {
+  element: CanvasEditorElement | null,
+): element is CanvasEditorTextElement => {
   return element != null && element.type === "text";
 };
 
 export const isFrameElement = (
-  element: ExcalidrawElement | null,
-): element is ExcalidrawFrameElement => {
+  element: CanvasEditorElement | null,
+): element is CanvasEditorFrameElement => {
   return element != null && element.type === "frame";
 };
 
 export const isMagicFrameElement = (
-  element: ExcalidrawElement | null,
-): element is ExcalidrawMagicFrameElement => {
+  element: CanvasEditorElement | null,
+): element is CanvasEditorMagicFrameElement => {
   return element != null && element.type === "magicframe";
 };
 
 export const isFrameLikeElement = (
-  element: ExcalidrawElement | null,
-): element is ExcalidrawFrameLikeElement => {
+  element: CanvasEditorElement | null,
+): element is CanvasEditorFrameLikeElement => {
   return (
     element != null &&
     (element.type === "frame" || element.type === "magicframe")
@@ -88,32 +88,32 @@ export const isFrameLikeElement = (
 };
 
 export const isFreeDrawElement = (
-  element?: ExcalidrawElement | null,
-): element is ExcalidrawFreeDrawElement => {
+  element?: CanvasEditorElement | null,
+): element is CanvasEditorFreeDrawElement => {
   return element != null && isFreeDrawElementType(element.type);
 };
 
 export const isFreeDrawElementType = (
-  elementType: ExcalidrawElementType,
+  elementType: CanvasEditorElementType,
 ): boolean => {
   return elementType === "freedraw";
 };
 
 export const isLinearElement = (
-  element?: ExcalidrawElement | null,
-): element is ExcalidrawLinearElement => {
+  element?: CanvasEditorElement | null,
+): element is CanvasEditorLinearElement => {
   return element != null && isLinearElementType(element.type);
 };
 
 export const isArrowElement = (
-  element?: ExcalidrawElement | null,
-): element is ExcalidrawArrowElement => {
+  element?: CanvasEditorElement | null,
+): element is CanvasEditorArrowElement => {
   return element != null && element.type === "arrow";
 };
 
 export const isElbowArrow = (
-  element?: ExcalidrawElement,
-): element is ExcalidrawElbowArrowElement => {
+  element?: CanvasEditorElement,
+): element is CanvasEditorElbowArrowElement => {
   return isArrowElement(element) && element.elbowed;
 };
 
@@ -126,9 +126,9 @@ export const isLinearElementType = (
 };
 
 export const isBindingElement = (
-  element?: ExcalidrawElement | null,
+  element?: CanvasEditorElement | null,
   includeLocked = true,
-): element is ExcalidrawLinearElement => {
+): element is CanvasEditorLinearElement => {
   return (
     element != null &&
     (!element.locked || includeLocked === true) &&
@@ -143,9 +143,9 @@ export const isBindingElementType = (
 };
 
 export const isBindableElement = (
-  element: ExcalidrawElement | null | undefined,
+  element: CanvasEditorElement | null | undefined,
   includeLocked = true,
-): element is ExcalidrawBindableElement => {
+): element is CanvasEditorBindableElement => {
   return (
     element != null &&
     (!element.locked || includeLocked === true) &&
@@ -162,8 +162,8 @@ export const isBindableElement = (
 };
 
 export const isRectanguloidElement = (
-  element?: ExcalidrawElement | null,
-): element is ExcalidrawBindableElement => {
+  element?: CanvasEditorElement | null,
+): element is CanvasEditorBindableElement => {
   return (
     element != null &&
     (element.type === "rectangle" ||
@@ -180,8 +180,8 @@ export const isRectanguloidElement = (
 // TODO: Remove this when proper distance calculation is introduced
 // @see binding.ts:distanceToBindableElement()
 export const isRectangularElement = (
-  element?: ExcalidrawElement | null,
-): element is ExcalidrawBindableElement => {
+  element?: CanvasEditorElement | null,
+): element is CanvasEditorBindableElement => {
   return (
     element != null &&
     (element.type === "rectangle" ||
@@ -196,9 +196,9 @@ export const isRectangularElement = (
 };
 
 export const isTextBindableContainer = (
-  element: ExcalidrawElement | null,
+  element: CanvasEditorElement | null,
   includeLocked = true,
-): element is ExcalidrawTextContainer => {
+): element is CanvasEditorTextContainer => {
   return (
     element != null &&
     (!element.locked || includeLocked === true) &&
@@ -209,10 +209,10 @@ export const isTextBindableContainer = (
   );
 };
 
-export const isExcalidrawElement = (
+export const isCanvasEditorElement = (
   element: any,
-): element is ExcalidrawElement => {
-  const type: ExcalidrawElementType | undefined = element?.type;
+): element is CanvasEditorElement => {
+  const type: CanvasEditorElementType | undefined = element?.type;
   if (!type) {
     return false;
   }
@@ -240,8 +240,8 @@ export const isExcalidrawElement = (
 };
 
 export const isFlowchartNodeElement = (
-  element: ExcalidrawElement,
-): element is ExcalidrawFlowchartNodeElement => {
+  element: CanvasEditorElement,
+): element is CanvasEditorFlowchartNodeElement => {
   return (
     element.type === "rectangle" ||
     element.type === "ellipse" ||
@@ -250,8 +250,8 @@ export const isFlowchartNodeElement = (
 };
 
 export const hasBoundTextElement = (
-  element: ExcalidrawElement | null,
-): element is MarkNonNullable<ExcalidrawBindableElement, "boundElements"> => {
+  element: CanvasEditorElement | null,
+): element is MarkNonNullable<CanvasEditorBindableElement, "boundElements"> => {
   return (
     isTextBindableContainer(element) &&
     !!element.boundElements?.some(({ type }) => type === "text")
@@ -259,8 +259,8 @@ export const hasBoundTextElement = (
 };
 
 export const isBoundToContainer = (
-  element: ExcalidrawElement | null,
-): element is ExcalidrawTextElementWithContainer => {
+  element: CanvasEditorElement | null,
+): element is CanvasEditorTextElementWithContainer => {
   return (
     element !== null &&
     "containerId" in element &&
@@ -280,7 +280,7 @@ export const isUsingProportionalRadius = (type: string) =>
 
 export const canApplyRoundnessTypeToElement = (
   roundnessType: RoundnessType,
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
 ) => {
   if (
     (roundnessType === ROUNDNESS.ADAPTIVE_RADIUS ||
@@ -302,7 +302,7 @@ export const canApplyRoundnessTypeToElement = (
 };
 
 export const getDefaultRoundnessTypeForElement = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
 ) => {
   if (isUsingProportionalRadius(element.type)) {
     return {

@@ -1,14 +1,14 @@
 // -----------------------------------------------------------------------------
-// ExcalidrawImageElement & related helpers
+// CanvasEditorImageElement & related helpers
 // -----------------------------------------------------------------------------
 
 import { MIME_TYPES, SVG_NS } from "../constants";
 import type { AppClassProperties, DataURL, BinaryFiles } from "../types";
 import { isInitializedImageElement } from "./typeChecks";
 import type {
-  ExcalidrawElement,
+  CanvasEditorElement,
   FileId,
-  InitializedExcalidrawImageElement,
+  InitializedCanvasEditorImageElement,
 } from "./types";
 
 export const loadHTMLImageElement = (dataURL: DataURL) => {
@@ -82,11 +82,11 @@ export const updateImageCache = async ({
 };
 
 export const getInitializedImageElements = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
 ) =>
   elements.filter((element) =>
     isInitializedImageElement(element),
-  ) as InitializedExcalidrawImageElement[];
+  ) as InitializedCanvasEditorImageElement[];
 
 export const isHTMLSVGElement = (node: Node | null): node is SVGElement => {
   // lower-casing due to XML/HTML convention differences

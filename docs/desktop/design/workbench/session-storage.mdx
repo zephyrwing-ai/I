@@ -6,6 +6,7 @@
 - `projects` 保存真实项目目录的稳定身份、规范化路径和最近激活时间。
 - `entries.project_id` 保存项目历史范围；`NULL` 保存无项目历史范围。
 - `project_context` 保存项目的优先排序、有界导航地图和省略元数据。
+- 独立的待处理输入存储保存 Main 已接收的运行中补充文本及其应用状态；`entries` 保存 completed 用户消息与终态归档的 interrupted 用户输入。
 - `HistoryRecorder` 保存当前历史范围的模型可见消息、流式草稿和工具恢复账本。
 - Renderer 保存页面事件队列、项目展示状态和历史投影。
 
@@ -36,11 +37,24 @@ CanvasSurface 以项目 ID 加载对应场景，Main 以每次画布请求携带
 6. Runtime 按提交屏障调用模型、工具和 Recorder。
 7. Renderer 通过 AgentEvent 渲染实时过程，通过 `history:load-page` 读取当前范围的持久化历史。
 
+## 运行中输入装配
+
+1. Renderer 在当前模型输出或工具执行期间提交文本快照、独立 `inputId`、`activeRunId` 和当前 `projectId`；Preload 把 `steer` 请求交给 Main。项目、工作目录、模型、附件与画布选区继续使用 Runner 启动时捕获的配置。
+2. Main 通过 Runner 核对活动 `runId` 与项目范围，其中 `projectId = null` 与项目运行使用同一接收契约。Main 在应用数据库中持久化待处理输入，并按接收顺序分配 `acceptOrder`。
+3. 持久化完成后，Main 返回携带 `inputId`、`acceptOrder` 和接收时间的 ACK。ACK 表示 Main 已绑定并保存输入，`inputsApplied` 表示 Runtime 已把输入交给下一次模型请求。
+4. Runtime 完成当前 Assistant Message 和已发起工具的全部 Tool Message 提交，在安全边界调用 Recorder。Recorder 在一个事务中按 `acceptOrder` 把本批输入写为 completed 用户 entries，并更新待处理状态；用户 entry 沿用 `inputId`。
+5. Runtime 在事务完成后按顺序扩展内存 `messages`，发出 `inputsApplied` 并继续下一次模型请求。Renderer 依据 `inputId` 合并接收 ACK、应用事件与持久化 entry。
+6. Runner 使用同一串行门控处理入队与终态封闭。门控内已接收的输入进入安全边界；封闭后收到的请求返回拒绝，发送方保留对应文本快照。停止、失败和启动恢复通过 Recorder 在事务中写入同 `inputId` 的 interrupted 用户 entries，并把剩余输入转为 `unapplied` 状态。
+
+待处理输入以运行范围为归属，项目配置沿用运行启动时的快照；`projectId = null` 的终态输入记录进入通用历史范围。相同 `inputId` 的重试返回同一持久化接收记录，连续两条独立输入按 FIFO 处理。物理存储结构由实现确定，`entries` 的 `entryOrder` 继续表达 completed 消息的 Assistant、Tool、User 顺序，并保存 interrupted 用户输入的归档位置。
+
 ## 历史分页
 
 `HistoryService` 保存一个 Main 侧当前范围读取器。Renderer 提交游标和页大小，Main 使用 `project_id = ?` 或 `project_id IS NULL` 读取 entries，并按照 `entry_order` 生成正序页面、下一页游标和 `snapshotOrder`。
 
-助手消息完成写入时，HistoryRecorder 根据同一 run 用户 entry 的 `createdAt` 保存 `durationMs`。历史分页将该毫秒值交给 Renderer 投影，消息流直接格式化 `durationMs` 展示 `Worked for`。
+Run 级时长以 `runStarted.startedAt` 为唯一计时起点，在运行终态计算总时长。HistoryRecorder 把总时长保存到最终 Assistant Message 的 `durationMs`；`runCompleted.finalTurnId` 与 `finalDurationMs` 提供最终回合身份和实时总时长，历史分页提供持久化时长。`inputsApplied.startedAt` 标记补充文本进入模型上下文的时刻。活动组时长归属见[消息流视图规范](./message-stream.mdx)。
+
+HistoryService 继续分页 `entries` 并使用 `entryOrder` 游标。Renderer 以 `inputId` 归并运行 ACK、`runCompleted.unappliedInputIds` 和 completed/interrupted 用户 entries，并以项目范围和历史请求代次约束历史结果。
 
 Preload 暴露：
 
@@ -48,6 +62,7 @@ Preload 暴露：
 - `selectProject()`；
 - `clearProject()`；
 - `loadHistoryPage()`。
+- `steer()`：提交运行中补充文本并接收持久化 ACK。
 
 Renderer 只能通过这些受限接口读取项目描述和当前历史页面。数据库路径、Repository 和其他项目历史范围由 Main 持有。
 

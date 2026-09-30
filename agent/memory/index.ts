@@ -9,6 +9,7 @@ export {
   createTransientHistoryRecorder,
 } from "./session-recorder.js";
 export type {
+  AcceptRunInputInput,
   AppendEntryInput,
   AssistantDeltaKind,
   CreateProjectInput,
@@ -22,6 +23,8 @@ export type {
   HistoryScope,
   MessageCommitContext,
   ModelMessage,
+  PendingRunInput,
+  PendingRunInputState,
   Project,
   ProjectContextInput,
   ProjectContextRecord,

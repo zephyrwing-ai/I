@@ -1,7 +1,7 @@
 @import "../css/variables.module.scss";
 
-.excalidraw {
-  &.excalidraw-modal-container {
+.agent-canvas {
+  &.agent-canvas-modal-container {
     position: absolute;
     z-index: var(--zIndex-modal);
   }

@@ -1,15 +1,15 @@
 import type {
-  ExcalidrawArrowElement,
-  ExcalidrawElbowArrowElement,
-  ExcalidrawElement,
-  ExcalidrawElementType,
-  ExcalidrawLinearElement,
-  ExcalidrawSelectionElement,
-  ExcalidrawTextElement,
+  CanvasEditorArrowElement,
+  CanvasEditorElbowArrowElement,
+  CanvasEditorElement,
+  CanvasEditorElementType,
+  CanvasEditorLinearElement,
+  CanvasEditorSelectionElement,
+  CanvasEditorTextElement,
   FixedPointBinding,
   FontFamilyValues,
   NonDeletedSceneElementsMap,
-  OrderedExcalidrawElement,
+  OrderedCanvasEditorElement,
   PointBinding,
   StrokeRoundness,
 } from "../element/types";
@@ -71,7 +71,7 @@ type RestoredAppState = Omit<
   "offsetTop" | "offsetLeft" | "width" | "height"
 >;
 
-export const AllowedExcalidrawActiveTools: Record<
+export const AllowedCanvasEditorActiveTools: Record<
   AppState["activeTool"]["type"],
   boolean
 > = {
@@ -94,7 +94,7 @@ export const AllowedExcalidrawActiveTools: Record<
 };
 
 export type RestoredDataState = {
-  elements: OrderedExcalidrawElement[];
+  elements: OrderedCanvasEditorElement[];
   appState: RestoredAppState;
   files: BinaryFiles;
 };
@@ -108,10 +108,10 @@ const getFontFamilyByName = (fontFamilyName: string): FontFamilyValues => {
   return DEFAULT_FONT_FAMILY;
 };
 
-const repairBinding = <T extends ExcalidrawLinearElement>(
+const repairBinding = <T extends CanvasEditorLinearElement>(
   element: T,
   binding: PointBinding | FixedPointBinding | null,
-): T extends ExcalidrawElbowArrowElement
+): T extends CanvasEditorElbowArrowElement
   ? FixedPointBinding | null
   : PointBinding | FixedPointBinding | null => {
   if (!binding) {
@@ -122,8 +122,8 @@ const repairBinding = <T extends ExcalidrawLinearElement>(
 
   if (isElbowArrow(element)) {
     const fixedPointBinding:
-      | ExcalidrawElbowArrowElement["startBinding"]
-      | ExcalidrawElbowArrowElement["endBinding"] = isFixedPointBinding(binding)
+      | CanvasEditorElbowArrowElement["startBinding"]
+      | CanvasEditorElbowArrowElement["endBinding"] = isFixedPointBinding(binding)
       ? {
           ...binding,
           focus,
@@ -137,20 +137,20 @@ const repairBinding = <T extends ExcalidrawLinearElement>(
   return {
     ...binding,
     focus,
-  } as T extends ExcalidrawElbowArrowElement
+  } as T extends CanvasEditorElbowArrowElement
     ? FixedPointBinding | null
     : PointBinding | FixedPointBinding | null;
 };
 
 const restoreElementWithProperties = <
-  T extends Required<Omit<ExcalidrawElement, "customData">> & {
-    customData?: ExcalidrawElement["customData"];
+  T extends Required<Omit<CanvasEditorElement, "customData">> & {
+    customData?: CanvasEditorElement["customData"];
     /** @deprecated */
-    boundElementIds?: readonly ExcalidrawElement["id"][];
+    boundElementIds?: readonly CanvasEditorElement["id"][];
     /** @deprecated */
     strokeSharpness?: StrokeRoundness;
   },
-  K extends Pick<T, keyof Omit<Required<T>, keyof ExcalidrawElement>>,
+  K extends Pick<T, keyof Omit<Required<T>, keyof CanvasEditorElement>>,
 >(
   element: T,
   extra: Pick<
@@ -159,9 +159,9 @@ const restoreElementWithProperties = <
     // @ts-ignore TS complains here but type checks the call sites fine.
     keyof K
   > &
-    Partial<Pick<ExcalidrawElement, "type" | "x" | "y" | "customData">>,
+    Partial<Pick<CanvasEditorElement, "type" | "x" | "y" | "customData">>,
 ): T => {
-  const base: Pick<T, keyof ExcalidrawElement> = {
+  const base: Pick<T, keyof CanvasEditorElement> = {
     type: extra.type || element.type,
     // all elements must have version > 0 so getSceneVersion() will pick up
     // newly added elements
@@ -223,7 +223,7 @@ const restoreElementWithProperties = <
 };
 
 const restoreElement = (
-  element: Exclude<ExcalidrawElement, ExcalidrawSelectionElement>,
+  element: Exclude<CanvasEditorElement, CanvasEditorSelectionElement>,
 ): typeof element | null => {
   element = { ...element };
 
@@ -310,7 +310,7 @@ const restoreElement = (
 
       return restoreElementWithProperties(element, {
         type:
-          (element.type as ExcalidrawElementType | "draw") === "draw"
+          (element.type as CanvasEditorElementType | "draw") === "draw"
             ? "line"
             : element.type,
         startBinding: repairBinding(element, element.startBinding),
@@ -346,13 +346,13 @@ const restoreElement = (
         points,
         x,
         y,
-        elbowed: (element as ExcalidrawArrowElement).elbowed,
+        elbowed: (element as CanvasEditorArrowElement).elbowed,
         ...getSizeFromPoints(points),
       } as const;
 
       // TODO: Separate arrow from linear element
       return isElbowArrow(element)
-        ? restoreElementWithProperties(element as ExcalidrawElbowArrowElement, {
+        ? restoreElementWithProperties(element as CanvasEditorElbowArrowElement, {
             ...base,
             elbowed: true,
             startBinding: repairBinding(element, element.startBinding),
@@ -361,7 +361,7 @@ const restoreElement = (
             startIsSpecial: element.startIsSpecial,
             endIsSpecial: element.endIsSpecial,
           })
-        : restoreElementWithProperties(element as ExcalidrawArrowElement, base);
+        : restoreElementWithProperties(element as CanvasEditorArrowElement, base);
     }
 
     // generic elements
@@ -392,18 +392,18 @@ const restoreElement = (
  * NOTE mutates elements.
  */
 const repairContainerElement = (
-  container: Mutable<ExcalidrawElement>,
-  elementsMap: Map<string, Mutable<ExcalidrawElement>>,
+  container: Mutable<CanvasEditorElement>,
+  elementsMap: Map<string, Mutable<CanvasEditorElement>>,
 ) => {
   if (container.boundElements) {
     // copy because we're not cloning on restore, and we don't want to mutate upstream
     const boundElements = container.boundElements.slice();
 
     // dedupe bindings & fix boundElement.containerId if not set already
-    const boundIds = new Set<ExcalidrawElement["id"]>();
+    const boundIds = new Set<CanvasEditorElement["id"]>();
     container.boundElements = boundElements.reduce(
       (
-        acc: Mutable<NonNullable<ExcalidrawElement["boundElements"]>>,
+        acc: Mutable<NonNullable<CanvasEditorElement["boundElements"]>>,
         binding,
       ) => {
         const boundElement = elementsMap.get(binding.id);
@@ -422,7 +422,7 @@ const repairContainerElement = (
             // if defined, lest boundElements is stale
             !boundElement.containerId
           ) {
-            (boundElement as Mutable<ExcalidrawTextElement>).containerId =
+            (boundElement as Mutable<CanvasEditorTextElement>).containerId =
               container.id;
           }
         }
@@ -440,8 +440,8 @@ const repairContainerElement = (
  * NOTE mutates elements.
  */
 const repairBoundElement = (
-  boundElement: Mutable<ExcalidrawTextElement>,
-  elementsMap: Map<string, Mutable<ExcalidrawElement>>,
+  boundElement: Mutable<CanvasEditorTextElement>,
+  elementsMap: Map<string, Mutable<CanvasEditorElement>>,
 ) => {
   const container = boundElement.containerId
     ? elementsMap.get(boundElement.containerId)
@@ -475,8 +475,8 @@ const repairBoundElement = (
  * NOTE mutates elements.
  */
 const repairFrameMembership = (
-  element: Mutable<ExcalidrawElement>,
-  elementsMap: Map<string, Mutable<ExcalidrawElement>>,
+  element: Mutable<CanvasEditorElement>,
+  elementsMap: Map<string, Mutable<CanvasEditorElement>>,
 ) => {
   if (element.frameId) {
     const containingFrame = elementsMap.get(element.frameId);
@@ -490,9 +490,9 @@ const repairFrameMembership = (
 export const restoreElements = (
   elements: ImportedDataState["elements"],
   /** NOTE doesn't serve for reconciliation */
-  localElements: readonly ExcalidrawElement[] | null | undefined,
+  localElements: readonly CanvasEditorElement[] | null | undefined,
   opts?: { refreshDimensions?: boolean; repairBindings?: boolean } | undefined,
-): OrderedExcalidrawElement[] => {
+): OrderedCanvasEditorElement[] => {
   // used to detect duplicate top-level element ids
   const existingIds = new Set<string>();
   const localElementsMap = localElements ? arrayToMap(localElements) : null;
@@ -501,7 +501,7 @@ export const restoreElements = (
       // filtering out selection, which is legacy, no longer kept in elements,
       // and causing issues if retained
       if (element.type !== "selection" && !isInvisiblySmallElement(element)) {
-        let migratedElement: ExcalidrawElement | null = restoreElement(element);
+        let migratedElement: CanvasEditorElement | null = restoreElement(element);
         if (migratedElement) {
           const localElement = localElementsMap?.get(element.id);
           if (localElement && localElement.version > migratedElement.version) {
@@ -519,7 +519,7 @@ export const restoreElements = (
         }
       }
       return elements;
-    }, [] as ExcalidrawElement[]),
+    }, [] as CanvasEditorElement[]),
   );
 
   if (!opts?.repairBindings) {
@@ -556,14 +556,14 @@ export const restoreElements = (
         (!restoredElementsMap.has(element.startBinding.elementId) ||
           !isArrowElement(element))
       ) {
-        (element as Mutable<ExcalidrawLinearElement>).startBinding = null;
+        (element as Mutable<CanvasEditorLinearElement>).startBinding = null;
       }
       if (
         element.endBinding &&
         (!restoredElementsMap.has(element.endBinding.elementId) ||
           !isArrowElement(element))
       ) {
-        (element as Mutable<ExcalidrawLinearElement>).endBinding = null;
+        (element as Mutable<CanvasEditorLinearElement>).endBinding = null;
       }
     }
   }
@@ -719,7 +719,7 @@ export const restoreAppState = (
       ...updateActiveTool(
         defaultAppState,
         nextAppState.activeTool.type &&
-          AllowedExcalidrawActiveTools[nextAppState.activeTool.type]
+          AllowedCanvasEditorActiveTools[nextAppState.activeTool.type]
           ? nextAppState.activeTool
           : { type: "selection" },
       ),
@@ -758,7 +758,7 @@ export const restore = (
    * Supply `null` if you can't get access to it.
    */
   localAppState: Partial<AppState> | null | undefined,
-  localElements: readonly ExcalidrawElement[] | null | undefined,
+  localElements: readonly CanvasEditorElement[] | null | undefined,
   elementsConfig?: { refreshDimensions?: boolean; repairBindings?: boolean },
 ): RestoredDataState => {
   return {

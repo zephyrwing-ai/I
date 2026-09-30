@@ -1,4 +1,4 @@
-import type { ElementsMap, ExcalidrawElement } from "./types";
+import type { ElementsMap, CanvasEditorElement } from "./types";
 import { mutateElement } from "./mutateElement";
 import { isFreeDrawElement, isLinearElement } from "./typeChecks";
 import { SHIFT_LOCKING_ANGLE } from "../constants";
@@ -10,7 +10,7 @@ import { viewportCoordsToSceneCoords } from "../utils";
 //        - perhaps could be as part of a standalone 'cleanup' action, in addition to 'finalize'
 //        - could also be part of `_clearElements`
 export const isInvisiblySmallElement = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
 ): boolean => {
   if (isLinearElement(element) || isFreeDrawElement(element)) {
     return element.points.length < 2;
@@ -19,7 +19,7 @@ export const isInvisiblySmallElement = (
 };
 
 export const isElementInViewport = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   width: number,
   height: number,
   viewTransformations: {
@@ -56,7 +56,7 @@ export const isElementInViewport = (
 };
 
 export const isElementCompletelyInViewport = (
-  elements: ExcalidrawElement[],
+  elements: CanvasEditorElement[],
   width: number,
   height: number,
   viewTransformations: {
@@ -166,7 +166,7 @@ export const getLockedLinearCursorAlignSize = (
 };
 
 export const resizePerfectLineForNWHandler = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   x: number,
   y: number,
 ) => {
@@ -201,12 +201,12 @@ export const resizePerfectLineForNWHandler = (
 };
 
 export const getNormalizedDimensions = (
-  element: Pick<ExcalidrawElement, "width" | "height" | "x" | "y">,
+  element: Pick<CanvasEditorElement, "width" | "height" | "x" | "y">,
 ): {
-  width: ExcalidrawElement["width"];
-  height: ExcalidrawElement["height"];
-  x: ExcalidrawElement["x"];
-  y: ExcalidrawElement["y"];
+  width: CanvasEditorElement["width"];
+  height: CanvasEditorElement["height"];
+  x: CanvasEditorElement["x"];
+  y: CanvasEditorElement["y"];
 } => {
   const ret = {
     width: element.width,

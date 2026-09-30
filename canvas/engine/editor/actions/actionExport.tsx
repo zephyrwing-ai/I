@@ -128,7 +128,7 @@ export const actionChangeExportEmbedScene = register({
     >
       {t("imageExportDialog.label.embedScene")}
       <Tooltip label={t("imageExportDialog.tooltip.embedScene")} long={true}>
-        <div className="excalidraw-tooltip-icon">{questionCircle}</div>
+        <div className="agent-canvas-tooltip-icon">{questionCircle}</div>
       </Tooltip>
     </CheckboxItem>
   ),

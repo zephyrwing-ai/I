@@ -4,7 +4,7 @@ import { CaptureUpdateAction } from "../store";
 import { ToolButton } from "../components/ToolButton";
 import { t } from "../i18n";
 import { isImageElement } from "../element/typeChecks";
-import type { ExcalidrawImageElement } from "../element/types";
+import type { CanvasEditorImageElement } from "../element/types";
 
 export const actionToggleCropEditor = register({
   name: "cropEditor",
@@ -17,7 +17,7 @@ export const actionToggleCropEditor = register({
     const selectedElement = app.scene.getSelectedElements({
       selectedElementIds: appState.selectedElementIds,
       includeBoundTextElement: true,
-    })[0] as ExcalidrawImageElement;
+    })[0] as CanvasEditorImageElement;
 
     return {
       appState: {

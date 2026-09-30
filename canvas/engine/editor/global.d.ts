@@ -1,9 +1,9 @@
 interface Window {
   ClipboardItem: any;
-  __EXCALIDRAW_SHA__: string | undefined;
-  EXCALIDRAW_ASSET_PATH: string | string[] | undefined;
-  EXCALIDRAW_EXPORT_SOURCE: string;
-  EXCALIDRAW_THROTTLE_RENDER: boolean | undefined;
+  __AGENT_CANVAS_SHA__: string | undefined;
+  AGENT_CANVAS_ASSET_PATH: string | string[] | undefined;
+  AGENT_CANVAS_EXPORT_SOURCE: string;
+  AGENT_CANVAS_THROTTLE_RENDER: boolean | undefined;
   DEBUG_FRACTIONAL_INDICES: boolean | undefined;
   gtag: Function;
   sa_event: Function;

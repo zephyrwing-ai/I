@@ -1,9 +1,9 @@
 import rough from "roughjs/bin/rough";
 import type {
-  ExcalidrawElement,
-  ExcalidrawFrameLikeElement,
-  ExcalidrawTextElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  CanvasEditorFrameLikeElement,
+  CanvasEditorTextElement,
+  NonDeletedCanvasEditorElement,
   NonDeletedSceneElementsMap,
 } from "../element/types";
 import type { Bounds } from "../element/bounds";
@@ -43,7 +43,7 @@ import { renderStaticScene } from "../renderer/staticScene";
 import { Fonts } from "../fonts";
 import { base64ToString, decode, encode, stringToBase64 } from "../data/encode";
 
-const truncateText = (element: ExcalidrawTextElement, maxWidth: number) => {
+const truncateText = (element: CanvasEditorTextElement, maxWidth: number) => {
   if (element.width <= maxWidth) {
     return element;
   }
@@ -81,19 +81,19 @@ const truncateText = (element: ExcalidrawTextElement, maxWidth: number) => {
  * proper canvas rendering, even within editor (instead of DOM).
  */
 const addFrameLabelsAsTextElements = (
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   opts: Pick<AppState, "exportWithDarkMode">,
 ) => {
-  const nextElements: NonDeletedExcalidrawElement[] = [];
+  const nextElements: NonDeletedCanvasEditorElement[] = [];
   for (const element of elements) {
     if (isFrameLikeElement(element)) {
-      let textElement: Mutable<ExcalidrawTextElement> = newTextElement({
+      let textElement: Mutable<CanvasEditorTextElement> = newTextElement({
         x: element.x,
         y: element.y - FRAME_STYLE.nameOffsetY,
         fontFamily: FONT_FAMILY.Helvetica,
         fontSize: FRAME_STYLE.nameFontSize,
         lineHeight:
-          FRAME_STYLE.nameLineHeight as ExcalidrawTextElement["lineHeight"],
+          FRAME_STYLE.nameLineHeight as CanvasEditorTextElement["lineHeight"],
         strokeColor: opts.exportWithDarkMode
           ? FRAME_STYLE.nameColorDarkTheme
           : FRAME_STYLE.nameColorLightTheme,
@@ -112,7 +112,7 @@ const addFrameLabelsAsTextElements = (
 };
 
 const getFrameRenderingConfig = (
-  exportingFrame: ExcalidrawFrameLikeElement | null,
+  exportingFrame: CanvasEditorFrameLikeElement | null,
   frameRendering: AppState["frameRendering"] | null,
 ): AppState["frameRendering"] => {
   frameRendering = frameRendering || getDefaultAppState().frameRendering;
@@ -130,12 +130,12 @@ const prepareElementsForRender = ({
   frameRendering,
   exportWithDarkMode,
 }: {
-  elements: readonly ExcalidrawElement[];
-  exportingFrame: ExcalidrawFrameLikeElement | null | undefined;
+  elements: readonly CanvasEditorElement[];
+  exportingFrame: CanvasEditorFrameLikeElement | null | undefined;
   frameRendering: AppState["frameRendering"];
   exportWithDarkMode: AppState["exportWithDarkMode"];
 }) => {
-  let nextElements: readonly ExcalidrawElement[];
+  let nextElements: readonly CanvasEditorElement[];
 
   if (exportingFrame) {
     nextElements = getElementsOverlappingFrame(elements, exportingFrame);
@@ -151,7 +151,7 @@ const prepareElementsForRender = ({
 };
 
 export const exportToCanvas = async (
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   appState: AppState,
   files: BinaryFiles,
   {
@@ -163,7 +163,7 @@ export const exportToCanvas = async (
     exportBackground: boolean;
     exportPadding?: number;
     viewBackgroundColor: string;
-    exportingFrame?: ExcalidrawFrameLikeElement | null;
+    exportingFrame?: CanvasEditorFrameLikeElement | null;
   },
   createCanvas: (
     width: number,
@@ -262,7 +262,7 @@ const createHTMLComment = (text: string) => {
 };
 
 export const exportToSvg = async (
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   appState: {
     exportBackground: boolean;
     exportPadding?: number;
@@ -278,7 +278,7 @@ export const exportToSvg = async (
      * if true, all embeddables passed in will be rendered when possible.
      */
     renderEmbeddables?: boolean;
-    exportingFrame?: ExcalidrawFrameLikeElement | null;
+    exportingFrame?: CanvasEditorFrameLikeElement | null;
     skipInliningFonts?: true;
     reuseImages?: boolean;
   },
@@ -490,7 +490,7 @@ export const encodeSvgBase64Payload = ({
   );
 
   metadataElement.appendChild(
-    createHTMLComment(`payload-type:${MIME_TYPES.excalidraw}`),
+    createHTMLComment(`payload-type:${MIME_TYPES.canvas}`),
   );
   metadataElement.appendChild(createHTMLComment("payload-version:2"));
   metadataElement.appendChild(createHTMLComment("payload-start"));
@@ -499,7 +499,7 @@ export const encodeSvgBase64Payload = ({
 };
 
 export const decodeSvgBase64Payload = ({ svg }: { svg: string }) => {
-  if (svg.includes(`payload-type:${MIME_TYPES.excalidraw}`)) {
+  if (svg.includes(`payload-type:${MIME_TYPES.canvas}`)) {
     const match = svg.match(
       /<!-- payload-start -->\s*(.+?)\s*<!-- payload-end -->/,
     );
@@ -517,7 +517,7 @@ export const decodeSvgBase64Payload = ({ svg }: { svg: string }) => {
         // legacy, un-encoded scene JSON
         if (
           "type" in encodedData &&
-          encodedData.type === EXPORT_DATA_TYPES.excalidraw
+          encodedData.type === EXPORT_DATA_TYPES.canvas
         ) {
           return json;
         }
@@ -534,7 +534,7 @@ export const decodeSvgBase64Payload = ({ svg }: { svg: string }) => {
 
 // calculate smallest area to fit the contents in
 const getCanvasSize = (
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   exportPadding: number,
 ): Bounds => {
   const [minX, minY, maxX, maxY] = getCommonBounds(elements);
@@ -545,7 +545,7 @@ const getCanvasSize = (
 };
 
 export const getExportSize = (
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   exportPadding: number,
   scale: number,
 ): [number, number] => {

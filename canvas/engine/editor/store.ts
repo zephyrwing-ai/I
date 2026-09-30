@@ -3,7 +3,7 @@ import { AppStateChange, ElementsChange } from "./change";
 import { ENV } from "./constants";
 import { newElementWith } from "./element/mutateElement";
 import { deepCopyElement } from "./element/newElement";
-import type { OrderedExcalidrawElement } from "./element/types";
+import type { OrderedCanvasEditorElement } from "./element/types";
 import { Emitter } from "./emitter";
 import type { AppState, ObservedAppState } from "./types";
 import type { ValueOf } from "./utility-types";
@@ -108,7 +108,7 @@ export interface IStore {
    * @emits StoreIncrementEvent when increment is calculated.
    */
   commit(
-    elements: Map<string, OrderedExcalidrawElement> | undefined,
+    elements: Map<string, OrderedCanvasEditorElement> | undefined,
     appState: AppState | ObservedAppState | undefined,
   ): void;
 
@@ -123,9 +123,9 @@ export interface IStore {
    * This is necessary in updates in which we receive reconciled elements, already containing elements which were not yet captured by the local store (i.e. collab).
    */
   filterUncomittedElements(
-    prevElements: Map<string, OrderedExcalidrawElement>,
-    nextElements: Map<string, OrderedExcalidrawElement>,
-  ): Map<string, OrderedExcalidrawElement>;
+    prevElements: Map<string, OrderedCanvasEditorElement>,
+    nextElements: Map<string, OrderedCanvasEditorElement>,
+  ): Map<string, OrderedCanvasEditorElement>;
 }
 
 export class Store implements IStore {
@@ -159,7 +159,7 @@ export class Store implements IStore {
   };
 
   public commit = (
-    elements: Map<string, OrderedExcalidrawElement> | undefined,
+    elements: Map<string, OrderedCanvasEditorElement> | undefined,
     appState: AppState | ObservedAppState | undefined,
   ): void => {
     try {
@@ -177,7 +177,7 @@ export class Store implements IStore {
   };
 
   public captureIncrement = (
-    elements: Map<string, OrderedExcalidrawElement> | undefined,
+    elements: Map<string, OrderedCanvasEditorElement> | undefined,
     appState: AppState | ObservedAppState | undefined,
   ) => {
     const prevSnapshot = this.snapshot;
@@ -207,7 +207,7 @@ export class Store implements IStore {
   };
 
   public updateSnapshot = (
-    elements: Map<string, OrderedExcalidrawElement> | undefined,
+    elements: Map<string, OrderedCanvasEditorElement> | undefined,
     appState: AppState | ObservedAppState | undefined,
   ) => {
     const nextSnapshot = this.snapshot.maybeClone(elements, appState);
@@ -219,8 +219,8 @@ export class Store implements IStore {
   };
 
   public filterUncomittedElements = (
-    prevElements: Map<string, OrderedExcalidrawElement>,
-    nextElements: Map<string, OrderedExcalidrawElement>,
+    prevElements: Map<string, OrderedCanvasEditorElement>,
+    nextElements: Map<string, OrderedCanvasEditorElement>,
   ) => {
     for (const [id, prevElement] of prevElements.entries()) {
       const nextElement = nextElements.get(id);
@@ -264,7 +264,7 @@ export class Store implements IStore {
 
 export class Snapshot {
   private constructor(
-    public readonly elements: Map<string, OrderedExcalidrawElement>,
+    public readonly elements: Map<string, OrderedCanvasEditorElement>,
     public readonly appState: ObservedAppState,
     public readonly meta: {
       didElementsChange: boolean;
@@ -295,7 +295,7 @@ export class Snapshot {
    * @returns same instance if there are no changes detected, new instance otherwise.
    */
   public maybeClone(
-    elements: Map<string, OrderedExcalidrawElement> | undefined,
+    elements: Map<string, OrderedCanvasEditorElement> | undefined,
     appState: AppState | ObservedAppState | undefined,
   ) {
     const nextElementsSnapshot = this.maybeCreateElementsSnapshot(elements);
@@ -353,7 +353,7 @@ export class Snapshot {
   }
 
   private maybeCreateElementsSnapshot(
-    elements: Map<string, OrderedExcalidrawElement> | undefined,
+    elements: Map<string, OrderedCanvasEditorElement> | undefined,
   ) {
     if (!elements) {
       return this.elements;
@@ -375,7 +375,7 @@ export class Snapshot {
    * NOTE: we shouldn't just use `sceneVersionNonce` instead, as we need to call this before the scene updates.
    */
   private detectChangedElements(
-    nextElements: Map<string, OrderedExcalidrawElement>,
+    nextElements: Map<string, OrderedCanvasEditorElement>,
   ) {
     if (this.elements === nextElements) {
       return false;
@@ -408,7 +408,7 @@ export class Snapshot {
    * Perform structural clone, cloning only elements that changed.
    */
   private createElementsSnapshot(
-    nextElements: Map<string, OrderedExcalidrawElement>,
+    nextElements: Map<string, OrderedCanvasEditorElement>,
   ) {
     const clonedElements = new Map();
 

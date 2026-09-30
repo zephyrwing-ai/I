@@ -12,11 +12,13 @@ import "./Actions.scss";
 
 export const ShapesSwitcher = ({
   activeTool,
+  temporaryHandActive = false,
   appState,
   app,
   UIOptions,
 }: {
   activeTool: UIAppState["activeTool"];
+  temporaryHandActive?: boolean;
   appState: UIAppState;
   app: AppClassProperties;
   UIOptions: AppProps["UIOptions"];
@@ -42,7 +44,7 @@ export const ShapesSwitcher = ({
           key={value}
           type="radio"
           icon={icon}
-          checked={activeTool.type === value}
+          checked={!temporaryHandActive && activeTool.type === value}
           name="editor-current-shape"
           title={`${capitalizeString(label)} — ${shortcut}`}
           keyBindingLabel={numericKey || letter}

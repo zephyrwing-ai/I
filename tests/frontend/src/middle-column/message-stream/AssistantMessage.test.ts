@@ -4,10 +4,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RunState, TurnState } from "../../../../../frontend/src/store/agentReducer.js";
 import {
-  FinalAnswer,
-  RunProcess,
+  AssistantMessage,
   formatElapsed,
-} from "../../../../../frontend/src/middle-column/message-stream/RunProcess.js";
+} from "../../../../../frontend/src/middle-column/message-stream/AssistantMessage.js";
 
 function turn(patch: Partial<TurnState> = {}): TurnState {
   return {
@@ -23,10 +22,18 @@ function turn(patch: Partial<TurnState> = {}): TurnState {
 }
 
 function run(turns: TurnState[]): RunState {
+  const inputId = "run-1:task";
   return {
     runId: "run-1",
+    projectId: null,
+    source: "live",
+    inputs: { [inputId]: { inputId, task: "任务", at: 1_000, status: "applied" } },
+    pendingInputIds: [],
+    timeline: [
+      { kind: "user", inputId },
+      ...turns.map((item) => ({ kind: "assistant" as const, turnId: item.turnId })),
+    ],
     status: "running",
-    turnOrder: turns.map((item) => item.turnId),
     turns: Object.fromEntries(turns.map((item) => [item.turnId, item])),
     outputFileOrder: [],
     outputFiles: {},
@@ -41,31 +48,30 @@ test("elapsed time follows the workbench display boundaries", () => {
   assert.equal(formatElapsed(3_723_000), "1h2m3s");
 });
 
-test("a running tool-free last turn keeps process and answer rendering as separate blocks", () => {
+test("a running assistant turn keeps reasoning collapsed and renders the streaming answer", () => {
   const state = run([
     turn({
       assistantContent: "正在生成，答案",
       reasoningContent: "内部过程",
     }),
   ]);
-  const html = renderToStaticMarkup(createElement(RunProcess, {
+  const html = renderToStaticMarkup(createElement(AssistantMessage, {
     run: state,
-    runTiming: { startedAt: Date.now() },
-  }));
-  const answerHtml = renderToStaticMarkup(createElement(FinalAnswer, {
-    run: state,
-    runTiming: { startedAt: Date.now() },
+    turnIds: ["turn-1"],
+    answerTurnId: "turn-1",
+    isWorking: true,
   }));
 
-  assert.ok(html.includes("Working for"), html);
-  assert.ok(html.includes("内部过程"), html);
-  assert.doesNotMatch(html, /final-answer|正在生成, 答案|Copy answer/);
-  assert.ok(answerHtml.includes('class="model-text final-answer markdown"'), answerHtml);
-  assert.ok(answerHtml.includes("正在生成, 答案"), answerHtml);
-  assert.doesNotMatch(answerHtml, /aria-label="Copy answer"/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, />Working for</);
+  assert.doesNotMatch(html, />Thinking</);
+  assert.ok(html.indexOf("run-work-detail") < html.indexOf("内部过程"), html);
+  assert.ok(html.includes('class="model-text final-answer markdown"'), html);
+  assert.ok(html.includes("正在生成, 答案"), html);
+  assert.doesNotMatch(html, /aria-label="Copy answer"/);
 });
 
-test("the latest completed tool-free turn is rendered by the separate final-answer block", () => {
+test("tool turns and the final model request share one work fold and one run duration", () => {
   const state = run([
     turn({
       turnId: "tool-turn",
@@ -88,19 +94,24 @@ test("the latest completed tool-free turn is rendered by the separate final-answ
       status: "completed",
       assistantContent: "**最终答案**，完成。",
       finalContent: "**最终答案**，完成。",
+      assistantAt: 3_000,
     }),
   ]);
-  const html = renderToStaticMarkup(createElement(RunProcess, {
-    run: state,
-    runTiming: { startedAt: 1_000, completedAt: 3_000 },
+  const completed = { ...state, status: "completed" as const, finalTurnId: "answer-turn", finalDurationMs: 2_000 };
+  const oldHtml = renderToStaticMarkup(createElement(AssistantMessage, {
+    run: completed,
+    turnIds: ["tool-turn"],
   }));
-  const answerHtml = renderToStaticMarkup(createElement(FinalAnswer, {
-    run: state,
-    runTiming: { startedAt: 1_000, completedAt: 3_000 },
+  const answerHtml = renderToStaticMarkup(createElement(AssistantMessage, {
+    run: completed,
+    turnIds: ["tool-turn", "answer-turn"],
+    answerTurnId: "answer-turn",
+    showDuration: true,
   }));
 
-  assert.ok(html.includes("Worked for 2.0s"), html);
-  assert.doesNotMatch(html, /最终答案|final-answer|Copy answer/);
+  assert.doesNotMatch(oldHtml, /Worked for|最终答案/);
+  assert.match(oldHtml, /Ran commands/);
+  assert.ok(answerHtml.includes("Worked for 2.0s"), answerHtml);
   assert.ok(answerHtml.includes("最终答案, 完成."), answerHtml);
   assert.doesNotMatch(answerHtml, /<strong>/);
   assert.match(answerHtml, /aria-label="Copy answer"/);
@@ -114,11 +125,11 @@ test("a persisted duration restores Worked for after reload", () => {
       assistantDurationMs: 2_000,
     }),
   ]);
-  const html = renderToStaticMarkup(createElement(RunProcess, { run: state }));
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: { ...state, status: "completed", finalTurnId: "turn-1" }, turnIds: ["turn-1"], answerTurnId: "turn-1", showDuration: true }));
   assert.ok(html.includes("Worked for 2.0s"), html);
 });
 
-test("a persisted assistant message shows its timestamp in the final-answer block", () => {
+test("a persisted assistant message shows its timestamp in its assistant block", () => {
   const state = run([
     turn({
       status: "completed",
@@ -126,13 +137,13 @@ test("a persisted assistant message shows its timestamp in the final-answer bloc
       assistantAt: new Date(2026, 8, 17, 11, 45).getTime(),
     }),
   ]);
-  const html = renderToStaticMarkup(createElement(FinalAnswer, { run: state }));
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: ["turn-1"], answerTurnId: "turn-1" }));
 
   assert.match(html, /Thu Sep 17 11:45 AM/);
   assert.match(html, /aria-label="Copy answer"/);
 });
 
-test("assistant text moves into process details once its turn starts a tool", () => {
+test("assistant text and tool actions stay together in the same assistant block", () => {
   const state = run([
     turn({
       assistantContent: "先检查目录",
@@ -147,11 +158,11 @@ test("assistant text moves into process details once its turn starts a tool", ()
       },
     }),
   ]);
-  const html = renderToStaticMarkup(createElement(RunProcess, { run: state }));
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: ["turn-1"] }));
 
   assert.ok(html.includes("先检查目录"), html);
   assert.ok(html.includes("Ran ls"), html);
-  assert.doesNotMatch(html, /final-answer/);
+  assert.match(html, />Working for</);
 });
 
 test("long tool output renders a bounded preview and an expansion control", () => {
@@ -171,7 +182,7 @@ test("long tool output renders a bounded preview and an expansion control", () =
       },
     }),
   ]);
-  const html = renderToStaticMarkup(createElement(RunProcess, { run: state }));
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: ["turn-1"] }));
 
   assert.ok(html.includes(`${"a".repeat(600)}\n… Collapsed (2100 characters total)`), html);
   assert.ok(html.includes("Expand full output"), html);

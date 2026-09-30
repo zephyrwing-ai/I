@@ -67,9 +67,9 @@ export class WorkerInTheMainChunkError extends Error {
  * Use this for generic, handled errors, so you can check against them
  * and rethrow if needed
  */
-export class ExcalidrawError extends Error {
+export class CanvasEditorError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ExcalidrawError";
+    this.name = "CanvasEditorError";
   }
 }

@@ -3,13 +3,18 @@ import { run, type AgentEvents } from "../../agent/loop.js";
 import type { HistoryRecorder, HistoryScope } from "../../agent/memory/types.js";
 import type { ModelConfig } from "../../agent/model/index.js";
 import type { ModelMessage } from "../../agent/model/types.js";
+import type { PendingRunInput } from "../../agent/memory/types.js";
 import type { ResolvedCanvasContext } from "../../canvas/context/CanvasContextRegistry.js";
+import type { ResolvedAttachment } from "./input-attachments.js";
 import { createLocalBashOps } from "../../agent/environment.js";
 import { createToolRegistry, type ToolResult as InternalToolResult } from "../../agent/tools/index.js";
+import { createCanvasEditTool, type CanvasEditExecutor } from "../../agent/tools/canvas-edit.js";
 import type { FileArtifact } from "../../agent/types.js";
-import type { AgentEvent, OutputFileDescriptor, Provider, ToolResult } from "../shared/ipc.js";
+import type { AgentEvent, OutputFileDescriptor, Provider, SteerRequest, ToolResult } from "../shared/ipc.js";
+import { RunInputInbox } from "./run-input-inbox.js";
 
 const SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
+const MAX_CANVAS_EDIT_BASE_ELEMENTS = 1_000;
 
 export interface RunnerHandle {
   runId: string;
@@ -32,9 +37,13 @@ export interface ResolvedRunRequest {
   getApiKey: () => Promise<string>;
   /** Main assigns this before consuming any run-scoped references. */
   runId?: string;
+  /** Main assigns the persisted ID for the initial user entry. */
+  initialUserEntryId?: string;
+  ownerWebContentsId?: number;
   /** Project and other context that lives only in this model run and is never recorded. */
   runScopedContext?: ModelMessage[];
   canvasContexts?: ResolvedCanvasContext[];
+  attachments?: ResolvedAttachment[];
 }
 
 export type ArtifactRegistrar = (
@@ -47,13 +56,15 @@ export type ArtifactRegistrar = (
 export class AgentRunner {
   private controller = new AbortController();
   private active = false;
+  private activeRun: { runId: string; projectId: HistoryScope; ownerWebContentsId?: number; inbox: RunInputInbox } | null = null;
   private readonly idleResolvers = new Set<() => void>();
   // Filesystem capabilities belong to the runtime, while cwd and projectId
   // identify the current run's execution and history scopes independently.
-  private readonly tools = createToolRegistry(createLocalBashOps());
+  private readonly baseTools = createToolRegistry(createLocalBashOps());
 
   constructor(
     private readonly registerArtifacts?: ArtifactRegistrar,
+    private readonly canvasEdit?: { execute: CanvasEditExecutor; enableCreateWithoutSelection?: boolean },
   ) {}
 
   get isActive(): boolean {
@@ -67,14 +78,28 @@ export class AgentRunner {
 
   start(req: ResolvedRunRequest, emit: (event: AgentEvent) => void): RunnerHandle {
     if (this.active) throw new Error("A run is already in progress. Stop the current task first.");
-    this.active = true;
-    this.controller = new AbortController();
     const runId = req.runId ?? randomUUID();
     if (req.projectId === undefined) {
-      this.markIdle();
       throw new Error("The run request is missing a project scope.");
     }
     const recorder = req.historyRecorder;
+    const tools = new Map(this.baseTools);
+    if (this.canvasEdit && req.ownerWebContentsId !== undefined &&
+        ((req.canvasContexts?.length ?? 0) > 0 || this.canvasEdit.enableCreateWithoutSelection)) {
+      const sourceElements = selectedCanvasElements(req.canvasContexts ?? [], req.projectId);
+      tools.set("canvas_edit", createCanvasEditTool({
+        runId,
+        projectId: req.projectId,
+        ownerWebContentsId: req.ownerWebContentsId,
+        sourceElements,
+        imageAttachments: req.attachments,
+        execute: this.canvasEdit.execute,
+      }));
+    }
+    this.controller = new AbortController();
+    this.active = true;
+    const inbox = new RunInputInbox(runId, req.projectId, recorder);
+    this.activeRun = { runId, projectId: req.projectId, ownerWebContentsId: req.ownerWebContentsId, inbox };
     const emitOnce = (() => {
       let completed = false;
       return (event: AgentEvent) => {
@@ -110,6 +135,7 @@ export class AgentRunner {
       },
       onTurnRetrying: (ctx) => emitOnce({ type: "turnRetrying", ...ctx }),
       onTurnCompleted: (ctx) => emitOnce({ type: "turnCompleted", ...ctx }),
+      onInputsApplied: (result) => emitOnce({ type: "inputsApplied", ...result }),
       onRunCompleted: (result) => emitOnce({ type: "runCompleted", ...result }),
     };
 
@@ -133,31 +159,77 @@ export class AgentRunner {
         runId,
         systemPrompt: SYSTEM_PROMPT,
         cwd: req.cwd,
-        tools: this.tools,
+        tools,
         signal: this.controller.signal,
         recorder,
+        initialUserEntryId: req.initialUserEntryId,
+        steeringInbox: inbox,
         runScopedContext: [
           ...(req.runScopedContext ?? []),
           ...(req.canvasContexts?.map(toModelMessage) ?? []),
         ],
-      }, events).catch((error: unknown) => {
-        emitOnce({ type: "runCompleted", runId, status: "failed", turnCount: 0, error: { kind: "runtime", message: error instanceof Error ? error.message : String(error) } });
+      }, events).catch(async (error: unknown) => {
+        let unappliedInputIds: string[] = [];
+        try {
+          unappliedInputIds = await inbox.closeAndAbandon("failed");
+        } catch {
+          // Startup recovery reclassifies any durable inputs left accepted.
+        }
+        emitOnce({ type: "runCompleted", runId, status: "failed", turnCount: 0, error: { kind: "runtime", message: error instanceof Error ? error.message : String(error) }, ...(unappliedInputIds.length ? { unappliedInputIds } : {}) });
       });
     });
 
-    return { runId, stop: () => this.controller.abort() };
+    return { runId, stop: () => this.stop() };
   }
 
-  stop(): void {
-    if (this.active) this.controller.abort();
+  async steer(request: SteerRequest, senderWebContentsId?: number): Promise<PendingRunInput> {
+    const active = this.activeRun;
+    if (!this.active || !active || active.runId !== request.runId || active.projectId !== request.projectId) {
+      throw new Error("The selected run has finished or belongs to another project.");
+    }
+    if (active.ownerWebContentsId !== undefined && active.ownerWebContentsId !== senderWebContentsId) {
+      throw new Error("The selected run belongs to another window.");
+    }
+    return active.inbox.accept(request.inputId, request.task);
+  }
+
+  stop(senderWebContentsId?: number): void {
+    if (senderWebContentsId !== undefined
+      && this.activeRun?.ownerWebContentsId !== undefined
+      && this.activeRun.ownerWebContentsId !== senderWebContentsId) return;
+    if (this.active) {
+      this.activeRun?.inbox.stopAdmission();
+      this.controller.abort();
+    }
   }
 
   private markIdle(): void {
     if (!this.active) return;
     this.active = false;
+    this.activeRun = null;
     for (const resolve of this.idleResolvers) resolve();
     this.idleResolvers.clear();
   }
+}
+
+function selectedCanvasElements(contexts: ResolvedCanvasContext[], projectId: HistoryScope): Record<string, unknown>[] {
+  const elements = new Map<string, Record<string, unknown>>();
+  for (const context of contexts) {
+    if (context.descriptor.projectId !== projectId) throw new Error("The Canvas selection belongs to another project.");
+    const parsed = JSON.parse(context.text) as { elements?: unknown };
+    if (!Array.isArray(parsed.elements)) throw new Error("The Canvas selection is invalid.");
+    for (const element of parsed.elements) {
+      if (!element || typeof element !== "object" || Array.isArray(element) ||
+          typeof (element as Record<string, unknown>).id !== "string") {
+        throw new Error("The Canvas selection contains an invalid element.");
+      }
+      elements.set((element as Record<string, unknown>).id as string, element as Record<string, unknown>);
+      if (elements.size > MAX_CANVAS_EDIT_BASE_ELEMENTS) {
+        throw new Error(`Canvas Edit supports at most ${MAX_CANVAS_EDIT_BASE_ELEMENTS} referenced elements per Run.`);
+      }
+    }
+  }
+  return [...elements.values()];
 }
 
 function toModelMessage(context: ResolvedCanvasContext): ModelMessage {

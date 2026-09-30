@@ -9,7 +9,7 @@ import {
 import { mutateElement } from "../element/mutateElement";
 import { useCallback, useEffect, useState } from "react";
 import { t } from "../i18n";
-import type { ElementsMap, ExcalidrawElement } from "../element/types";
+import type { ElementsMap, CanvasEditorElement } from "../element/types";
 import { ToolButton } from "./ToolButton";
 import { TrashIcon } from "./icons";
 import { KEYS } from "../keys";
@@ -24,7 +24,7 @@ const ElementLinkDialog = ({
   appState,
   generateLinkForSelection = defaultGetElementLinkFromSelection,
 }: {
-  sourceElementId: ExcalidrawElement["id"];
+  sourceElementId: CanvasEditorElement["id"];
   elementsMap: ElementsMap;
   appState: UIAppState;
   onClose?: () => void;

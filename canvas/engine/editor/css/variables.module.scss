@@ -1,7 +1,7 @@
 @import "open-color/open-color.scss";
 
 @mixin isMobile() {
-  @at-root .excalidraw--mobile#{&} {
+  @at-root .agent-canvas--mobile#{&} {
     @content;
   }
 }

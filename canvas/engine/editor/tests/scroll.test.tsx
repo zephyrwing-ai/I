@@ -5,7 +5,7 @@ import {
   restoreOriginalGetBoundingClientRect,
   waitFor,
 } from "./test-utils";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { API } from "./helpers/api";
 import { Keyboard } from "./helpers/ui";
 import { KEYS } from "../keys";
@@ -26,7 +26,7 @@ describe("appState", () => {
 
     await render(
       <div>
-        <Excalidraw
+        <CanvasEditor
           initialData={{
             elements: [
               API.createElement({
@@ -56,7 +56,7 @@ describe("appState", () => {
 
   it("moving by page up/down/left/right", async () => {
     mockBoundingClientRect();
-    await render(<Excalidraw handleKeyboardGlobally={true} />, {});
+    await render(<CanvasEditor handleKeyboardGlobally={true} />, {});
 
     const scrollTest = () => {
       const initialScrollY = h.state.scrollY;

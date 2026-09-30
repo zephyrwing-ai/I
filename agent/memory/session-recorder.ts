@@ -4,6 +4,7 @@ import { SqliteHistoryRepository } from "./sqlite-repository.js";
 import type { ModelMessage } from "../model/types.js";
 import {
   RepositoryError,
+  type AcceptRunInputInput,
   type AssistantDeltaKind,
   type MessageCommitContext,
   type RecordedRunStatus,
@@ -11,6 +12,7 @@ import {
   type HistoryRecorder,
   type HistoryRepository,
   type HistoryScope,
+  type PendingRunInput,
   type RegisterToolInvocationInput,
   type ToolCommitContext,
   type ToolInvocationRecord,
@@ -74,8 +76,9 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
   readonly projectId: HistoryScope;
   private readonly repository: HistoryRepository;
   private readonly completedMessages: ModelMessage[] = [];
+  private readonly completedEntryIds = new Set<string>();
   private readonly activeDrafts = new Map<string, DraftState>();
-  private readonly userEntries = new Map<string, { entryId: string; message: ModelMessage; createdAt?: number }>();
+  private readonly initialUserEntries = new Map<string, { entryId: string; message: ModelMessage }>();
   private readonly toolEntries = new Map<string, { entryId: string; message: ModelMessage }>();
   private readonly assistantEntries = new Map<string, string>();
   private writeChain: Promise<void> = Promise.resolve();
@@ -87,11 +90,13 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
     this.repository = repository;
     for (const entry of [...entries].sort((left, right) => left.entryOrder - right.entryOrder)) {
       if (entry.type === "user_message") {
-        this.userEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload), createdAt: entry.createdAt });
+        if (!this.initialUserEntries.has(entry.runId)) {
+          this.initialUserEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload) });
+        }
       }
       if (entry.type === "tool_result" && entry.toolCallId) this.toolEntries.set(entry.toolCallId, { entryId: entry.id, message: cloneMessage(entry.payload) });
       if (entry.type === "assistant_message" && entry.turnId) this.assistantEntries.set(entry.turnId, entry.id);
-      if (entry.status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
+      this.appendCompletedEntry(entry);
     }
   }
 
@@ -106,17 +111,19 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
   commitUser(message: ModelMessage, context: MessageCommitContext): Promise<void> {
     validateMessage(message, "user");
     this.ensureOpen();
-    const previous = this.userEntries.get(context.runId);
-    if (previous) {
-      if (!isSameMessage(previous.message, message)) {
-        return Promise.reject(new RepositoryError(`A different user message already belongs to run ${context.runId}.`, "conflict"));
-      }
-      return this.waitForWrites();
-    }
-    const entryId = randomUUID();
     const copy = cloneMessage(message);
-    this.userEntries.set(context.runId, { entryId, message: copy });
-    return this.enqueueAndCheck(async () => {
+    return this.enqueueResult(async () => {
+      const previous = this.initialUserEntries.get(context.runId);
+      if (previous) {
+        if (context.entryId && previous.entryId !== context.entryId) {
+          throw new RepositoryError(`The initial user entry ID changed for run ${context.runId}.`, "conflict");
+        }
+        if (!isSameMessage(previous.message, copy)) {
+          throw new RepositoryError(`A different initial user message already belongs to run ${context.runId}.`, "conflict");
+        }
+        return;
+      }
+      const entryId = context.entryId ?? randomUUID();
       const entry = await this.repository.appendEntry(this.projectId, {
         id: entryId,
         type: "user_message",
@@ -124,9 +131,38 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
         runId: context.runId,
         payload: copy,
       });
-      this.userEntries.set(context.runId, { entryId, message: copy, createdAt: entry.createdAt });
-      this.completedMessages.push(cloneMessage(entry.payload));
+      this.initialUserEntries.set(context.runId, { entryId, message: copy });
+      this.appendCompletedEntry(entry);
     });
+  }
+
+  acceptRunInput(input: AcceptRunInputInput): Promise<PendingRunInput> {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.acceptRunInput(this.projectId, input));
+  }
+
+  listAcceptedRunInputs(runId: string): Promise<PendingRunInput[]> {
+    this.ensureOpen();
+    return this.waitForWrites().then(() => this.repository.listAcceptedRunInputs(this.projectId, runId));
+  }
+
+  applyRunInputs(runId: string, inputIds: string[]): Promise<HistoryEntry[]> {
+    this.ensureOpen();
+    return this.enqueueResult(async () => {
+      const entries = await this.repository.applyRunInputs(this.projectId, runId, inputIds);
+      for (const entry of entries) this.appendCompletedEntry(entry);
+      return entries;
+    });
+  }
+
+  abandonRunInputs(runId: string, reason: string): Promise<HistoryEntry[]> {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.abandonRunInputs(this.projectId, runId, reason));
+  }
+
+  finalizeAnswerDuration(turnId: string, durationMs: number): Promise<void> {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.finalizeAnswerDuration(this.projectId, turnId, durationMs));
   }
 
   recordAssistantDelta(kind: AssistantDeltaKind, delta: string, context: TurnCommitContext): void {
@@ -235,7 +271,7 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
         toolCallId: context.toolCallId,
         payload: copy,
       });
-      this.completedMessages.push(cloneMessage(entry.payload));
+      this.appendCompletedEntry(entry);
     });
   }
 
@@ -310,10 +346,6 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
     const finalStatus = draft.finalStatus;
     const status = finalStatus ?? (draft.terminal ? "completed" : "streaming");
     const completedAt = status === "completed" ? Date.now() : undefined;
-    const userCreatedAt = this.userEntries.get(draft.runId)?.createdAt;
-    const durationMs = completedAt !== undefined && userCreatedAt !== undefined
-      ? Math.max(0, completedAt - userCreatedAt)
-      : undefined;
     let entry: HistoryEntry;
     if (draft.revision === null) {
       entry = await this.repository.appendEntry(this.projectId, {
@@ -324,21 +356,19 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
         turnId: draft.turnId,
         payload: cloneMessage(draft.message),
         updatedAt: completedAt,
-        durationMs,
       });
     } else {
       entry = await this.repository.updateEntry(draft.entryId, draft.revision, {
         status,
         payload: cloneMessage(draft.message),
         updatedAt: completedAt,
-        durationMs,
       });
     }
     draft.revision = entry.revision;
     this.assistantEntries.set(draft.turnId, entry.id);
     draft.pendingBytes = 0;
     draft.dirty = false;
-    if (status === "completed") this.completedMessages.push(cloneMessage(entry.payload));
+    this.appendCompletedEntry(entry);
     if (draft.terminal) this.activeDrafts.delete(draft.key);
   }
 
@@ -350,14 +380,15 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
     return next;
   }
 
+  private appendCompletedEntry(entry: HistoryEntry): void {
+    if (entry.status !== "completed" || this.completedEntryIds.has(entry.id)) return;
+    this.completedEntryIds.add(entry.id);
+    this.completedMessages.push(cloneMessage(entry.payload));
+  }
+
   private enqueueResult<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.writeChain.then(operation, operation);
-    this.writeChain = next.then(
-      () => undefined,
-      (error) => {
-        this.backgroundError = error;
-      },
-    );
+    this.writeChain = next.then(() => undefined, () => undefined);
     return next;
   }
 
@@ -387,7 +418,24 @@ async function readAllEntries(repository: HistoryRepository, projectId: HistoryS
   }
 }
 
+const recoveryByRepository = new WeakMap<HistoryRepository, Promise<void>>();
+
+async function recoverAcceptedInputsOnce(repository: HistoryRepository): Promise<void> {
+  let recovery = recoveryByRepository.get(repository);
+  if (!recovery) {
+    recovery = repository.recoverAcceptedRunInputs("startup_recovery").then(() => undefined);
+    recoveryByRepository.set(repository, recovery);
+  }
+  try {
+    await recovery;
+  } catch (error) {
+    if (recoveryByRepository.get(repository) === recovery) recoveryByRepository.delete(repository);
+    throw error;
+  }
+}
+
 export async function createHistoryRecorder(repository: HistoryRepository, projectId: HistoryScope): Promise<DefaultHistoryRecorder> {
+  await recoverAcceptedInputsOnce(repository);
   const entries = await readAllEntries(repository, projectId);
   for (const entry of entries) {
     if (entry.status !== "streaming") continue;

@@ -2,27 +2,27 @@ import type { JSX } from "react";
 import type React from "react";
 import type {
   PointerType,
-  ExcalidrawLinearElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorLinearElement,
+  NonDeletedCanvasEditorElement,
   NonDeleted,
   TextAlign,
-  ExcalidrawElement,
+  CanvasEditorElement,
   GroupId,
-  ExcalidrawBindableElement,
+  CanvasEditorBindableElement,
   Arrowhead,
   ChartType,
   FontFamilyValues,
   FileId,
-  ExcalidrawImageElement,
+  CanvasEditorImageElement,
   Theme,
   StrokeRoundness,
-  ExcalidrawEmbeddableElement,
-  ExcalidrawMagicFrameElement,
-  ExcalidrawFrameLikeElement,
-  ExcalidrawElementType,
-  ExcalidrawIframeLikeElement,
-  OrderedExcalidrawElement,
-  ExcalidrawNonSelectionElement,
+  CanvasEditorEmbeddableElement,
+  CanvasEditorMagicFrameElement,
+  CanvasEditorFrameLikeElement,
+  CanvasEditorElementType,
+  CanvasEditorIframeLikeElement,
+  OrderedCanvasEditorElement,
+  CanvasEditorNonSelectionElement,
 } from "./element/types";
 import type { Action } from "./actions/types";
 import type { LinearElementEditor } from "./element/linearElementEditor";
@@ -43,6 +43,7 @@ import type { SnapLine } from "./snapping";
 import type { Merge, MaybePromise, ValueOf, MakeBrand } from "./utility-types";
 import type { CaptureUpdateActionType } from "./store";
 import type { UserIdleState } from "./constants";
+import type { CanvasEditElementRecord, CanvasEditImageFile, CanvasEditOperation, CanvasEditOutcome } from "../../commands/types";
 
 export type SocketId = string & { _brand: "SocketId" };
 
@@ -117,7 +118,7 @@ export type BinaryFileData = {
 
 export type BinaryFileMetadata = Omit<BinaryFileData, "dataURL">;
 
-export type BinaryFiles = Record<ExcalidrawElement["id"], BinaryFileData>;
+export type BinaryFiles = Record<CanvasEditorElement["id"], BinaryFileData>;
 
 export type ToolType =
   | "selection"
@@ -136,7 +137,7 @@ export type ToolType =
   | "embeddable"
   | "laser";
 
-export type ElementOrToolType = ExcalidrawElementType | ToolType | "custom";
+export type ElementOrToolType = CanvasEditorElementType | ToolType | "custom";
 
 export type ActiveTool =
   | {
@@ -246,33 +247,33 @@ export interface AppState {
   isLoading: boolean;
   errorMessage: React.ReactNode;
   activeEmbeddable: {
-    element: NonDeletedExcalidrawElement;
+    element: NonDeletedCanvasEditorElement;
     state: "hover" | "active";
   } | null;
   /**
    * for a newly created element
    * - set on pointer down, updated during pointer move, used on pointer up
    */
-  newElement: NonDeleted<ExcalidrawNonSelectionElement> | null;
+  newElement: NonDeleted<CanvasEditorNonSelectionElement> | null;
   /**
    * for a single element that's being resized
    * - set on pointer down when it's selected and the active tool is selection
    */
-  resizingElement: NonDeletedExcalidrawElement | null;
+  resizingElement: NonDeletedCanvasEditorElement | null;
   /**
    * multiElement is for multi-point linear element that's created by clicking as opposed to dragging
    * - when set and present, the editor will handle linear element creation logic accordingly
    */
-  multiElement: NonDeleted<ExcalidrawLinearElement> | null;
+  multiElement: NonDeleted<CanvasEditorLinearElement> | null;
   /**
    * decoupled from newElement, dragging selection only creates selectionElement
    * - set on pointer down, updated during pointer move
    */
-  selectionElement: NonDeletedExcalidrawElement | null;
+  selectionElement: NonDeletedCanvasEditorElement | null;
   isBindingEnabled: boolean;
-  startBoundElement: NonDeleted<ExcalidrawBindableElement> | null;
+  startBoundElement: NonDeleted<CanvasEditorBindableElement> | null;
   suggestedBindings: SuggestedBinding[];
-  frameToHighlight: NonDeleted<ExcalidrawFrameLikeElement> | null;
+  frameToHighlight: NonDeleted<CanvasEditorFrameLikeElement> | null;
   frameRendering: {
     enabled: boolean;
     name: boolean;
@@ -280,11 +281,11 @@ export interface AppState {
     clip: boolean;
   };
   editingFrame: string | null;
-  elementsToHighlight: NonDeleted<ExcalidrawElement>[] | null;
+  elementsToHighlight: NonDeleted<CanvasEditorElement>[] | null;
   /**
    * set when a new text is created or when an existing text is being edited
    */
-  editingTextElement: NonDeletedExcalidrawElement | null;
+  editingTextElement: NonDeletedCanvasEditorElement | null;
   editingLinearElement: LinearElementEditor | null;
   activeTool: {
     /**
@@ -302,9 +303,9 @@ export interface AppState {
   exportScale: number;
   currentItemStrokeColor: string;
   currentItemBackgroundColor: string;
-  currentItemFillStyle: ExcalidrawElement["fillStyle"];
+  currentItemFillStyle: CanvasEditorElement["fillStyle"];
   currentItemStrokeWidth: number;
-  currentItemStrokeStyle: ExcalidrawElement["strokeStyle"];
+  currentItemStrokeStyle: CanvasEditorElement["strokeStyle"];
   currentItemRoughness: number;
   currentItemOpacity: number;
   currentItemFontFamily: FontFamilyValues;
@@ -329,7 +330,7 @@ export interface AppState {
     | null
     | { name: "imageExport" }
     | { name: "commandPalette" }
-    | { name: "elementLinkSelector"; sourceElementId: ExcalidrawElement["id"] };
+    | { name: "elementLinkSelector"; sourceElementId: CanvasEditorElement["id"] };
 
   /**
    * Reflects user preference for whether the default sidebar should be docked.
@@ -383,7 +384,7 @@ export interface AppState {
         data: Spreadsheet;
       };
   /** imageElement waiting to be placed on canvas */
-  pendingImageElementId: ExcalidrawImageElement["id"] | null;
+  pendingImageElementId: CanvasEditorImageElement["id"] | null;
   showHyperlinkPopup: false | "info" | "editor";
   selectedLinearElement: LinearElementEditor | null;
   snapLines: readonly SnapLine[];
@@ -399,7 +400,7 @@ export interface AppState {
 
   /** image cropping */
   isCropping: boolean;
-  croppingElementId: ExcalidrawElement["id"] | null;
+  croppingElementId: CanvasEditorElement["id"] | null;
 
   searchMatches: readonly SearchMatch[];
 }
@@ -450,7 +451,7 @@ export declare class GestureEvent extends UIEvent {
 // libraries
 // -----------------------------------------------------------------------------
 /** @deprecated legacy: do not use outside of migration paths */
-export type LibraryItem_v1 = readonly NonDeleted<ExcalidrawElement>[];
+export type LibraryItem_v1 = readonly NonDeleted<CanvasEditorElement>[];
 /** @deprecated legacy: do not use outside of migration paths */
 type LibraryItems_v1 = readonly LibraryItem_v1[];
 
@@ -458,7 +459,7 @@ type LibraryItems_v1 = readonly LibraryItem_v1[];
 export type LibraryItem = {
   id: string;
   status: "published" | "unpublished";
-  elements: readonly NonDeleted<ExcalidrawElement>[];
+  elements: readonly NonDeleted<CanvasEditorElement>[];
   /** timestamp in epoch (ms) */
   created: number;
   name?: string;
@@ -474,7 +475,7 @@ export type LibraryItemsSource =
   | MaybePromise<LibraryItems_anyVersion | Blob>;
 // -----------------------------------------------------------------------------
 
-export type ExcalidrawInitialDataState = Merge<
+export type CanvasEditorInitialDataState = Merge<
   ImportedDataState,
   {
     libraryItems?: MaybePromise<Required<ImportedDataState>["libraryItems"]>;
@@ -486,16 +487,16 @@ export type OnUserFollowedPayload = {
   action: "FOLLOW" | "UNFOLLOW";
 };
 
-export interface ExcalidrawProps {
+export interface CanvasEditorProps {
   onChange?: (
-    elements: readonly OrderedExcalidrawElement[],
+    elements: readonly OrderedCanvasEditorElement[],
     appState: AppState,
     files: BinaryFiles,
   ) => void;
   initialData?:
-    | (() => MaybePromise<ExcalidrawInitialDataState | null>)
-    | MaybePromise<ExcalidrawInitialDataState | null>;
-  excalidrawAPI?: (api: ExcalidrawImperativeAPI) => void;
+    | (() => MaybePromise<CanvasEditorInitialDataState | null>)
+    | MaybePromise<CanvasEditorInitialDataState | null>;
+  canvasAPI?: (api: CanvasEditorImperativeAPI) => void;
   isCollaborating?: boolean;
   onPointerUpdate?: (payload: {
     pointer: { x: number; y: number; tool: "pointer" | "laser" };
@@ -518,10 +519,10 @@ export interface ExcalidrawProps {
    * the element if changes are made)
    */
   onDuplicate?: (
-    nextElements: readonly ExcalidrawElement[],
+    nextElements: readonly CanvasEditorElement[],
     /** excludes the duplicated elements */
-    prevElements: readonly ExcalidrawElement[],
-  ) => ExcalidrawElement[] | void;
+    prevElements: readonly CanvasEditorElement[],
+  ) => CanvasEditorElement[] | void;
   renderTopRightUI?: (
     isMobile: boolean,
     appState: UIAppState,
@@ -536,7 +537,7 @@ export interface ExcalidrawProps {
   // @TODO come with better API before v0.18.0
   name?: string;
   renderCustomStats?: (
-    elements: readonly NonDeletedExcalidrawElement[],
+    elements: readonly NonDeletedCanvasEditorElement[],
     appState: UIAppState,
   ) => JSX.Element;
   UIOptions?: Partial<UIOptions>;
@@ -547,7 +548,7 @@ export interface ExcalidrawProps {
   generateIdForFile?: (file: File) => string | Promise<string>;
   generateLinkForSelection?: (id: string, type: "element" | "group") => string;
   onLinkOpen?: (
-    element: NonDeletedExcalidrawElement,
+    element: NonDeletedCanvasEditorElement,
     event: CustomEvent<{
       nativeEvent: MouseEvent | React.PointerEvent<HTMLCanvasElement>;
     }>,
@@ -570,7 +571,7 @@ export interface ExcalidrawProps {
     | RegExp[]
     | ((link: string) => boolean | undefined);
   renderEmbeddable?: (
-    element: NonDeleted<ExcalidrawEmbeddableElement>,
+    element: NonDeleted<CanvasEditorEmbeddableElement>,
     appState: AppState,
   ) => JSX.Element | null;
   aiEnabled?: boolean;
@@ -587,12 +588,12 @@ export type SceneData = {
 export type ExportOpts = {
   saveFileToDisk?: boolean;
   onExportToBackend?: (
-    exportedElements: readonly NonDeletedExcalidrawElement[],
+    exportedElements: readonly NonDeletedCanvasEditorElement[],
     appState: UIAppState,
     files: BinaryFiles,
   ) => void;
   renderCustomUI?: (
-    exportedElements: readonly NonDeletedExcalidrawElement[],
+    exportedElements: readonly NonDeletedCanvasEditorElement[],
     appState: UIAppState,
     files: BinaryFiles,
     canvas: HTMLCanvasElement,
@@ -602,7 +603,7 @@ export type ExportOpts = {
 // NOTE at the moment, if action name corresponds to canvasAction prop, its
 // truthiness value will determine whether the action is rendered or not
 // (see manager renderAction). We also override canvasAction values in
-// Excalidraw package index.tsx.
+// CanvasEditor package index.tsx.
 export type CanvasActions = Partial<{
   clearCanvas: boolean;
   export: false | ExportOpts;
@@ -622,7 +623,7 @@ export type UIOptions = Partial<{
 }>;
 
 export type AppProps = Merge<
-  ExcalidrawProps,
+  CanvasEditorProps,
   {
     UIOptions: Merge<
       UIOptions,
@@ -682,7 +683,7 @@ export type AppClassProperties = {
   plugins: App["plugins"];
   getEditorUIOffsets: App["getEditorUIOffsets"];
   visibleElements: App["visibleElements"];
-  excalidrawContainerValue: App["excalidrawContainerValue"];
+  canvasContainerValue: App["canvasContainerValue"];
 
   onPointerUpEmitter: App["onPointerUpEmitter"];
 };
@@ -697,7 +698,7 @@ export type PointerDownState = Readonly<{
   // The previous pointer position
   lastCoords: { x: number; y: number };
   // map of original elements data
-  originalElements: Map<string, NonDeleted<ExcalidrawElement>>;
+  originalElements: Map<string, NonDeleted<CanvasEditorElement>>;
   resize: {
     // Handle when resizing, might change during the pointer interaction
     handleType: MaybeTransformHandleType;
@@ -713,10 +714,10 @@ export type PointerDownState = Readonly<{
   hit: {
     // The element the pointer is "hitting", is determined on the initial
     // pointer down event
-    element: NonDeleted<ExcalidrawElement> | null;
+    element: NonDeleted<CanvasEditorElement> | null;
     // The elements the pointer is "hitting", is determined on the initial
     // pointer down event
-    allHitElements: NonDeleted<ExcalidrawElement>[];
+    allHitElements: NonDeleted<CanvasEditorElement>[];
     // This is determined on the initial pointer down event
     wasAddedToSelection: boolean;
     // Whether selected element(s) were duplicated, might change during the
@@ -749,7 +750,8 @@ export type PointerDownState = Readonly<{
 
 export type UnsubscribeCallback = () => void;
 
-export interface ExcalidrawImperativeAPI {
+export interface CanvasEditorImperativeAPI {
+  applyCanvasEdit: (operations: CanvasEditOperation[], sourceElements: CanvasEditElementRecord[], imageFiles?: CanvasEditImageFile[]) => CanvasEditOutcome;
   updateScene: InstanceType<typeof App>["updateScene"];
   replaceScene: InstanceType<typeof App>["replaceScene"];
   updateLibrary: InstanceType<typeof Library>["updateLibrary"];
@@ -783,7 +785,7 @@ export interface ExcalidrawImperativeAPI {
   updateFrameRendering: InstanceType<typeof App>["updateFrameRendering"];
   onChange: (
     callback: (
-      elements: readonly ExcalidrawElement[],
+      elements: readonly CanvasEditorElement[],
       appState: AppState,
       files: BinaryFiles,
     ) => void,
@@ -832,13 +834,13 @@ export type FrameNameBounds = {
 
 export type FrameNameBoundsCache = {
   get: (
-    frameElement: ExcalidrawFrameLikeElement | ExcalidrawMagicFrameElement,
+    frameElement: CanvasEditorFrameLikeElement | CanvasEditorMagicFrameElement,
   ) => FrameNameBounds | null;
   _cache: Map<
     string,
     FrameNameBounds & {
       zoom: AppState["zoom"]["value"];
-      versionNonce: ExcalidrawFrameLikeElement["versionNonce"];
+      versionNonce: CanvasEditorFrameLikeElement["versionNonce"];
     }
   >;
 };
@@ -862,13 +864,13 @@ export type Primitive =
 export type JSONValue = string | number | boolean | null | object;
 
 export type EmbedsValidationStatus = Map<
-  ExcalidrawIframeLikeElement["id"],
+  CanvasEditorIframeLikeElement["id"],
   boolean
 >;
 
-export type ElementsPendingErasure = Set<ExcalidrawElement["id"]>;
+export type ElementsPendingErasure = Set<CanvasEditorElement["id"]>;
 
-export type PendingExcalidrawElements = ExcalidrawElement[];
+export type PendingCanvasEditorElements = CanvasEditorElement[];
 
 /** Runtime gridSize value. Null indicates disabled grid. */
 export type NullableGridSize =
@@ -876,8 +878,8 @@ export type NullableGridSize =
   | null;
 
 export type GenerateDiagramToCode = (props: {
-  frame: ExcalidrawMagicFrameElement;
-  children: readonly ExcalidrawElement[];
+  frame: CanvasEditorMagicFrameElement;
+  children: readonly CanvasEditorElement[];
 }) => MaybePromise<{ html: string }>;
 
 export type Offsets = Partial<{

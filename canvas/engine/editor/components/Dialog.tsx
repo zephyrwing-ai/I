@@ -2,9 +2,9 @@ import clsx from "clsx";
 import React, { useEffect, useState } from "react";
 import { useCallbackRefState } from "../hooks/useCallbackRefState";
 import {
-  useExcalidrawContainer,
+  useCanvasEditorContainer,
   useDevice,
-  useExcalidrawSetAppState,
+  useCanvasEditorSetAppState,
 } from "./App";
 import { KEYS } from "../keys";
 import "./Dialog.scss";
@@ -45,7 +45,7 @@ function getDialogSize(size: DialogSize): number {
 export const Dialog = (props: DialogProps) => {
   const [islandNode, setIslandNode] = useCallbackRefState<HTMLDivElement>();
   const [lastActiveElement] = useState(document.activeElement);
-  const { id } = useExcalidrawContainer();
+  const { id } = useCanvasEditorContainer();
   const isFullscreen = useDevice().viewport.isMobile;
 
   useEffect(() => {
@@ -88,7 +88,7 @@ export const Dialog = (props: DialogProps) => {
     return () => islandNode.removeEventListener("keydown", handleKeyDown);
   }, [islandNode, props.autofocus]);
 
-  const setAppState = useExcalidrawSetAppState();
+  const setAppState = useCanvasEditorSetAppState();
   const onClose = () => {
     (lastActiveElement as HTMLElement).focus();
     props.onCloseRequest();

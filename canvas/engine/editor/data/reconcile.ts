@@ -1,6 +1,6 @@
 import throttle from "lodash.throttle";
 import { ENV } from "../constants";
-import type { OrderedExcalidrawElement } from "../element/types";
+import type { OrderedCanvasEditorElement } from "../element/types";
 import {
   orderByFractionalIndex,
   syncInvalidIndices,
@@ -10,16 +10,16 @@ import type { AppState } from "../types";
 import type { MakeBrand } from "../utility-types";
 import { arrayToMap } from "../utils";
 
-export type ReconciledExcalidrawElement = OrderedExcalidrawElement &
+export type ReconciledCanvasEditorElement = OrderedCanvasEditorElement &
   MakeBrand<"ReconciledElement">;
 
-export type RemoteExcalidrawElement = OrderedExcalidrawElement &
-  MakeBrand<"RemoteExcalidrawElement">;
+export type RemoteCanvasEditorElement = OrderedCanvasEditorElement &
+  MakeBrand<"RemoteCanvasEditorElement">;
 
 const shouldDiscardRemoteElement = (
   localAppState: AppState,
-  local: OrderedExcalidrawElement | undefined,
-  remote: RemoteExcalidrawElement,
+  local: OrderedCanvasEditorElement | undefined,
+  remote: RemoteCanvasEditorElement,
 ): boolean => {
   if (
     local &&
@@ -41,9 +41,9 @@ const shouldDiscardRemoteElement = (
 
 const validateIndicesThrottled = throttle(
   (
-    orderedElements: readonly OrderedExcalidrawElement[],
-    localElements: readonly OrderedExcalidrawElement[],
-    remoteElements: readonly RemoteExcalidrawElement[],
+    orderedElements: readonly OrderedCanvasEditorElement[],
+    localElements: readonly OrderedCanvasEditorElement[],
+    remoteElements: readonly RemoteCanvasEditorElement[],
   ) => {
     if (
       import.meta.env.DEV ||
@@ -71,12 +71,12 @@ const validateIndicesThrottled = throttle(
 );
 
 export const reconcileElements = (
-  localElements: readonly OrderedExcalidrawElement[],
-  remoteElements: readonly RemoteExcalidrawElement[],
+  localElements: readonly OrderedCanvasEditorElement[],
+  remoteElements: readonly RemoteCanvasEditorElement[],
   localAppState: AppState,
-): ReconciledExcalidrawElement[] => {
+): ReconciledCanvasEditorElement[] => {
   const localElementsMap = arrayToMap(localElements);
-  const reconciledElements: OrderedExcalidrawElement[] = [];
+  const reconciledElements: OrderedCanvasEditorElement[] = [];
   const added = new Set<string>();
 
   // process remote elements
@@ -114,5 +114,5 @@ export const reconcileElements = (
   // de-duplicate indices
   syncInvalidIndices(orderedElements);
 
-  return orderedElements as ReconciledExcalidrawElement[];
+  return orderedElements as ReconciledCanvasEditorElement[];
 };

@@ -8,7 +8,7 @@ import type { ShortcutName } from "../actions/shortcuts";
 import { getShortcutFromShortcutName } from "../actions/shortcuts";
 import type { Action } from "../actions/types";
 import type { ActionManager } from "../actions/manager";
-import { useExcalidrawAppState, useExcalidrawElements } from "./App";
+import { useCanvasEditorAppState, useCanvasEditorElements } from "./App";
 import React from "react";
 
 export type ContextMenuItem = typeof CONTEXT_MENU_SEPARATOR | Action;
@@ -27,8 +27,8 @@ export const CONTEXT_MENU_SEPARATOR = "separator";
 
 export const ContextMenu = React.memo(
   ({ actionManager, items, top, left, onClose }: ContextMenuProps) => {
-    const appState = useExcalidrawAppState();
-    const elements = useExcalidrawElements();
+    const appState = useCanvasEditorAppState();
+    const elements = useCanvasEditorElements();
 
     const filteredItems = items.reduce((acc: ContextMenuItem[], item) => {
       if (

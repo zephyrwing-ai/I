@@ -10,7 +10,7 @@ import { getContainerElement } from "../element/textElement";
 import { containsCJK } from "../element/textWrapping";
 import { ShapeCache } from "../scene/ShapeCache";
 import { getFontString, PromisePool, promiseTry } from "../utils";
-import { ExcalidrawFontFace } from "./ExcalidrawFontFace";
+import { CanvasEditorFontFace } from "./CanvasEditorFontFace";
 
 import { CascadiaFontFaces } from "./Cascadia";
 import { ComicShannsFontFaces } from "./ComicShanns";
@@ -25,8 +25,8 @@ import { XiaolaiFontFaces } from "./Xiaolai";
 
 import { FONT_METADATA, type FontMetadata } from "./FontMetadata";
 import type {
-  ExcalidrawElement,
-  ExcalidrawTextElement,
+  CanvasEditorElement,
+  CanvasEditorTextElement,
   FontFamilyValues,
 } from "../element/types";
 import type Scene from "../scene/Scene";
@@ -43,7 +43,7 @@ export class Fonts {
         number,
         {
           metadata: FontMetadata;
-          fontFaces: ExcalidrawFontFace[];
+          fontFaces: CanvasEditorFontFace[];
         }
       >
     | undefined;
@@ -151,7 +151,7 @@ export class Fonts {
    * Load font faces for passed elements - use when the scene is unavailable (i.e. export).
    */
   public static loadElementsFonts = async (
-    elements: readonly ExcalidrawElement[],
+    elements: readonly CanvasEditorElement[],
   ): Promise<FontFace[]> => {
     const fontFamilies = Fonts.getUniqueFamilies(elements);
     const charsPerFamily = Fonts.getCharsPerFamily(elements);
@@ -163,7 +163,7 @@ export class Fonts {
    * Generate CSS @font-face declarations for the given elements.
    */
   public static async generateFontFaceDeclarations(
-    elements: readonly ExcalidrawElement[],
+    elements: readonly CanvasEditorElement[],
   ) {
     const families = Fonts.getUniqueFamilies(elements);
     const charsPerFamily = Fonts.getCharsPerFamily(elements);
@@ -200,7 +200,7 @@ export class Fonts {
   }
 
   private static async loadFontFaces(
-    fontFamilies: Array<ExcalidrawTextElement["fontFamily"]>,
+    fontFamilies: Array<CanvasEditorTextElement["fontFamily"]>,
     charsPerFamily: Record<number, Set<string>>,
   ) {
     // add all registered font faces into the `document.fonts` (if not added already)
@@ -225,7 +225,7 @@ export class Fonts {
   }
 
   private static *fontFacesLoader(
-    fontFamilies: Array<ExcalidrawTextElement["fontFamily"]>,
+    fontFamilies: Array<CanvasEditorTextElement["fontFamily"]>,
     charsPerFamily: Record<number, Set<string>>,
   ): Generator<Promise<void | readonly [number, FontFace[]]>> {
     for (const [index, fontFamily] of fontFamilies.entries()) {
@@ -319,12 +319,12 @@ export class Fonts {
       | {
           registered: Map<
             number,
-            { metadata: FontMetadata; fontFaces: ExcalidrawFontFace[] }
+            { metadata: FontMetadata; fontFaces: CanvasEditorFontFace[] }
           >;
         },
     family: string,
     metadata: FontMetadata,
-    ...fontFacesDecriptors: ExcalidrawFontFaceDescriptor[]
+    ...fontFacesDecriptors: CanvasEditorFontFaceDescriptor[]
   ) {
     // TODO: likely we will need to abandon number value in order to support custom fonts
     const fontFamily =
@@ -338,7 +338,7 @@ export class Fonts {
         metadata,
         fontFaces: fontFacesDecriptors.map(
           ({ uri, descriptors }) =>
-            new ExcalidrawFontFace(family, uri, descriptors),
+            new CanvasEditorFontFace(family, uri, descriptors),
         ),
       });
     }
@@ -353,13 +353,13 @@ export class Fonts {
     const fonts = {
       registered: new Map<
         ValueOf<typeof FONT_FAMILY | typeof FONT_FAMILY_FALLBACKS>,
-        { metadata: FontMetadata; fontFaces: ExcalidrawFontFace[] }
+        { metadata: FontMetadata; fontFaces: CanvasEditorFontFace[] }
       >(),
     };
 
     const init = (
       family: keyof typeof FONT_FAMILY | keyof typeof FONT_FAMILY_FALLBACKS,
-      ...fontFacesDescriptors: ExcalidrawFontFaceDescriptor[]
+      ...fontFacesDescriptors: CanvasEditorFontFaceDescriptor[]
     ) => {
       const fontFamily =
         FONT_FAMILY[family as keyof typeof FONT_FAMILY] ??
@@ -396,8 +396,8 @@ export class Fonts {
    * Get all the unique font families for the given elements.
    */
   private static getUniqueFamilies(
-    elements: ReadonlyArray<ExcalidrawElement>,
-  ): Array<ExcalidrawTextElement["fontFamily"]> {
+    elements: ReadonlyArray<CanvasEditorElement>,
+  ): Array<CanvasEditorTextElement["fontFamily"]> {
     return Array.from(
       elements.reduce((families, element) => {
         if (isTextElement(element)) {
@@ -412,7 +412,7 @@ export class Fonts {
    * Get all the unique characters per font family for the given scene.
    */
   private static getCharsPerFamily(
-    elements: ReadonlyArray<ExcalidrawElement>,
+    elements: ReadonlyArray<CanvasEditorElement>,
   ): Record<number, Set<string>> {
     const charsPerFamily: Record<number, Set<string>> = {};
 
@@ -458,8 +458,8 @@ export class Fonts {
  * Calculates vertical offset for a text with alphabetic baseline.
  */
 export const getVerticalOffset = (
-  fontFamily: ExcalidrawTextElement["fontFamily"],
-  fontSize: ExcalidrawTextElement["fontSize"],
+  fontFamily: CanvasEditorTextElement["fontFamily"],
+  fontSize: CanvasEditorTextElement["fontSize"],
   lineHeightPx: number,
 ) => {
   const { unitsPerEm, ascender, descender } =
@@ -482,10 +482,10 @@ export const getLineHeight = (fontFamily: FontFamilyValues) => {
     Fonts.registered.get(fontFamily)?.metadata.metrics ||
     FONT_METADATA[FONT_FAMILY.Excalifont].metrics;
 
-  return lineHeight as ExcalidrawTextElement["lineHeight"];
+  return lineHeight as CanvasEditorTextElement["lineHeight"];
 };
 
-export interface ExcalidrawFontFaceDescriptor {
+export interface CanvasEditorFontFaceDescriptor {
   uri: string;
   descriptors?: FontFaceDescriptors;
 }

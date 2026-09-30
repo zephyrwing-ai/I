@@ -7,10 +7,10 @@ import {
 } from "@agent-studio/canvas-math";
 import { ellipse, ellipseDistanceFromPoint } from "@agent-studio/canvas-math/ellipse";
 import type {
-  ExcalidrawBindableElement,
-  ExcalidrawDiamondElement,
-  ExcalidrawEllipseElement,
-  ExcalidrawRectanguloidElement,
+  CanvasEditorBindableElement,
+  CanvasEditorDiamondElement,
+  CanvasEditorEllipseElement,
+  CanvasEditorRectanguloidElement,
 } from "./types";
 import {
   deconstructDiamondElement,
@@ -18,7 +18,7 @@ import {
 } from "./utils";
 
 export const distanceToBindableElement = (
-  element: ExcalidrawBindableElement,
+  element: CanvasEditorBindableElement,
   p: GlobalPoint,
 ): number => {
   switch (element.type) {
@@ -46,7 +46,7 @@ export const distanceToBindableElement = (
  * @returns The eucledian distance to the outline of the rectanguloid element
  */
 const distanceToRectanguloidElement = (
-  element: ExcalidrawRectanguloidElement,
+  element: CanvasEditorRectanguloidElement,
   p: GlobalPoint,
 ) => {
   const center = pointFrom<GlobalPoint>(
@@ -77,7 +77,7 @@ const distanceToRectanguloidElement = (
  * @returns The eucledian distance to the outline of the diamond
  */
 const distanceToDiamondElement = (
-  element: ExcalidrawDiamondElement,
+  element: CanvasEditorDiamondElement,
   p: GlobalPoint,
 ): number => {
   const center = pointFrom<GlobalPoint>(
@@ -108,7 +108,7 @@ const distanceToDiamondElement = (
  * @returns The eucledian distance to the outline of the ellipse
  */
 const distanceToEllipseElement = (
-  element: ExcalidrawEllipseElement,
+  element: CanvasEditorEllipseElement,
   p: GlobalPoint,
 ): number => {
   const center = pointFrom(

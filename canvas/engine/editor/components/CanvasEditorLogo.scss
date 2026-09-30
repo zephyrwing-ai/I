@@ -1,5 +1,5 @@
-.excalidraw {
-  .ExcalidrawLogo {
+.agent-canvas {
+  .CanvasEditorLogo {
     --logo-icon--xs: 2rem;
     --logo-text--xs: 1.5rem;
 
@@ -19,53 +19,53 @@
       flex: 0 0 auto;
     }
 
-    .ExcalidrawLogo-icon {
+    .CanvasEditorLogo-icon {
       width: auto;
       color: var(--color-logo-icon);
     }
 
-    .ExcalidrawLogo-text {
+    .CanvasEditorLogo-text {
       margin-left: 0.75rem;
       width: auto;
       color: var(--color-logo-text);
     }
 
     &.is-xs {
-      .ExcalidrawLogo-icon {
+      .CanvasEditorLogo-icon {
         height: var(--logo-icon--xs);
       }
 
-      .ExcalidrawLogo-text {
+      .CanvasEditorLogo-text {
         height: var(--logo-text--xs);
       }
     }
 
     &.is-small {
-      .ExcalidrawLogo-icon {
+      .CanvasEditorLogo-icon {
         height: var(--logo-icon--small);
       }
 
-      .ExcalidrawLogo-text {
+      .CanvasEditorLogo-text {
         height: var(--logo-text--small);
       }
     }
 
     &.is-normal {
-      .ExcalidrawLogo-icon {
+      .CanvasEditorLogo-icon {
         height: var(--logo-icon--normal);
       }
 
-      .ExcalidrawLogo-text {
+      .CanvasEditorLogo-text {
         height: var(--logo-text--normal);
       }
     }
 
     &.is-large {
-      .ExcalidrawLogo-icon {
+      .CanvasEditorLogo-icon {
         height: var(--logo-icon--large);
       }
 
-      .ExcalidrawLogo-text {
+      .CanvasEditorLogo-text {
         height: var(--logo-text--large);
       }
     }

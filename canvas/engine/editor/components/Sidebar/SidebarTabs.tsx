@@ -1,6 +1,6 @@
 import * as RadixTabs from "@radix-ui/react-tabs";
 import { useUIAppState } from "../../context/ui-appState";
-import { useExcalidrawSetAppState } from "../App";
+import { useCanvasEditorSetAppState } from "../App";
 
 export const SidebarTabs = ({
   children,
@@ -9,7 +9,7 @@ export const SidebarTabs = ({
   children: React.ReactNode;
 } & Omit<React.RefAttributes<HTMLDivElement>, "onSelect">) => {
   const appState = useUIAppState();
-  const setAppState = useExcalidrawSetAppState();
+  const setAppState = useCanvasEditorSetAppState();
 
   if (!appState.openSidebar) {
     return null;

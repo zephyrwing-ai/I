@@ -1,6 +1,6 @@
 import type {
-  ExcalidrawElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  NonDeletedCanvasEditorElement,
   NonDeleted,
 } from "./types";
 import { isInvisiblySmallElement } from "./sizeHelpers";
@@ -45,7 +45,7 @@ export {
   getDragOffsetXY,
   dragNewElement,
 } from "./dragElements";
-export { isTextElement, isExcalidrawElement } from "./typeChecks";
+export { isTextElement, isCanvasEditorElement } from "./typeChecks";
 export { redrawTextBoundingBox, getTextFromElements } from "./textElement";
 export {
   getPerfectElementSize,
@@ -58,14 +58,14 @@ export {
 /**
  * @deprecated unsafe, use hashElementsVersion instead
  */
-export const getSceneVersion = (elements: readonly ExcalidrawElement[]) =>
+export const getSceneVersion = (elements: readonly CanvasEditorElement[]) =>
   elements.reduce((acc, el) => acc + el.version, 0);
 
 /**
  * Hashes elements' versionNonce (using djb2 algo). Order of elements matters.
  */
 export const hashElementsVersion = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
 ): number => {
   let hash = 5381;
   for (let i = 0; i < elements.length; i++) {
@@ -85,23 +85,23 @@ export const hashString = (s: string): number => {
   return hash >>> 0; // Ensure unsigned 32-bit integer
 };
 
-export const getVisibleElements = (elements: readonly ExcalidrawElement[]) =>
+export const getVisibleElements = (elements: readonly CanvasEditorElement[]) =>
   elements.filter(
     (el) => !el.isDeleted && !isInvisiblySmallElement(el),
-  ) as readonly NonDeletedExcalidrawElement[];
+  ) as readonly NonDeletedCanvasEditorElement[];
 
-export const getNonDeletedElements = <T extends ExcalidrawElement>(
+export const getNonDeletedElements = <T extends CanvasEditorElement>(
   elements: readonly T[],
 ) =>
   elements.filter((element) => !element.isDeleted) as readonly NonDeleted<T>[];
 
-export const isNonDeletedElement = <T extends ExcalidrawElement>(
+export const isNonDeletedElement = <T extends CanvasEditorElement>(
   element: T,
 ): element is NonDeleted<T> => !element.isDeleted;
 
 const _clearElements = (
-  elements: readonly ExcalidrawElement[],
-): ExcalidrawElement[] =>
+  elements: readonly CanvasEditorElement[],
+): CanvasEditorElement[] =>
   getNonDeletedElements(elements).map((element) =>
     isLinearElementType(element.type)
       ? { ...element, lastCommittedPoint: null }
@@ -109,13 +109,13 @@ const _clearElements = (
   );
 
 export const clearElementsForDatabase = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
 ) => _clearElements(elements);
 
 export const clearElementsForExport = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
 ) => _clearElements(elements);
 
 export const clearElementsForLocalStorage = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
 ) => _clearElements(elements);

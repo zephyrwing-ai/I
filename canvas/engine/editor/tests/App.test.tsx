@@ -3,7 +3,7 @@ import * as StaticScene from "../renderer/staticScene";
 import { reseed } from "../random";
 import { render, queryByTestId, unmountComponent } from "../tests/test-utils";
 
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { vi } from "vitest";
 
 const renderStaticScene = vi.spyOn(StaticScene, "renderStaticScene");
@@ -34,10 +34,10 @@ describe("Test <App/>", () => {
       };
     };
 
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
     expect(
       queryByTestId(
-        document.querySelector(".excalidraw-modal-container")!,
+        document.querySelector(".agent-canvas-modal-container")!,
         "brave-measure-text-error",
       ),
     ).toMatchSnapshot();

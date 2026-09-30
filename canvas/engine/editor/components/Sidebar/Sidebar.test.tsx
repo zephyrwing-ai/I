@@ -1,6 +1,6 @@
 import React from "react";
 import { DEFAULT_SIDEBAR } from "../../constants";
-import { Excalidraw, Sidebar } from "../../index";
+import { CanvasEditor, Sidebar } from "../../index";
 import {
   act,
   fireEvent,
@@ -8,11 +8,11 @@ import {
   queryByTestId,
   render,
   waitFor,
-  withExcalidrawDimensions,
+  withCanvasEditorDimensions,
 } from "../../tests/test-utils";
 import { vi } from "vitest";
 import {
-  assertExcalidrawWithSidebar,
+  assertCanvasEditorWithSidebar,
   assertSidebarDockButton,
 } from "./siderbar.test.helpers";
 
@@ -28,13 +28,13 @@ describe("Sidebar", () => {
   describe("General behavior", () => {
     it("should render custom sidebar", async () => {
       const { container } = await render(
-        <Excalidraw
+        <CanvasEditor
           initialData={{ appState: { openSidebar: { name: "customSidebar" } } }}
         >
           <Sidebar name="customSidebar">
             <div id="test-sidebar-content">42</div>
           </Sidebar>
-        </Excalidraw>,
+        </CanvasEditor>,
       );
 
       const node = container.querySelector("#test-sidebar-content");
@@ -43,13 +43,13 @@ describe("Sidebar", () => {
 
     it("should render only one sidebar and prefer the custom one", async () => {
       const { container } = await render(
-        <Excalidraw
+        <CanvasEditor
           initialData={{ appState: { openSidebar: { name: "customSidebar" } } }}
         >
           <Sidebar name="customSidebar">
             <div id="test-sidebar-content">42</div>
           </Sidebar>
-        </Excalidraw>,
+        </CanvasEditor>,
       );
 
       await waitFor(() => {
@@ -63,13 +63,13 @@ describe("Sidebar", () => {
       });
     });
 
-    it("should toggle sidebar using excalidrawAPI.toggleSidebar()", async () => {
+    it("should toggle sidebar using canvasAPI.toggleSidebar()", async () => {
       const { container } = await render(
-        <Excalidraw>
+        <CanvasEditor>
           <Sidebar name="customSidebar">
             <div id="test-sidebar-content">42</div>
           </Sidebar>
-        </Excalidraw>,
+        </CanvasEditor>,
       );
 
       // sidebar isn't rendered initially
@@ -154,7 +154,7 @@ describe("Sidebar", () => {
   describe("<Sidebar.Header/>", () => {
     it("should render custom sidebar header", async () => {
       const { container } = await render(
-        <Excalidraw
+        <CanvasEditor
           initialData={{ appState: { openSidebar: { name: "customSidebar" } } }}
         >
           <Sidebar name="customSidebar">
@@ -162,7 +162,7 @@ describe("Sidebar", () => {
               <div id="test-sidebar-header-content">42</div>
             </Sidebar.Header>
           </Sidebar>
-        </Excalidraw>,
+        </CanvasEditor>,
       );
 
       const node = container.querySelector("#test-sidebar-header-content");
@@ -173,9 +173,9 @@ describe("Sidebar", () => {
     });
 
     it("should not render <Sidebar.Header> for custom sidebars by default", async () => {
-      const CustomExcalidraw = () => {
+      const CustomCanvasEditor = () => {
         return (
-          <Excalidraw
+          <CanvasEditor
             initialData={{
               appState: { openSidebar: { name: "customSidebar" } },
             }}
@@ -183,11 +183,11 @@ describe("Sidebar", () => {
             <Sidebar name="customSidebar" className="test-sidebar">
               hello
             </Sidebar>
-          </Excalidraw>
+          </CanvasEditor>
         );
       };
 
-      const { container } = await render(<CustomExcalidraw />);
+      const { container } = await render(<CustomCanvasEditor />);
 
       const sidebar = container.querySelector<HTMLElement>(".test-sidebar");
       expect(sidebar).not.toBe(null);
@@ -197,9 +197,9 @@ describe("Sidebar", () => {
 
     it("<Sidebar.Header> should render close button", async () => {
       const onStateChange = vi.fn();
-      const CustomExcalidraw = () => {
+      const CustomCanvasEditor = () => {
         return (
-          <Excalidraw
+          <CanvasEditor
             initialData={{
               appState: { openSidebar: { name: "customSidebar" } },
             }}
@@ -211,11 +211,11 @@ describe("Sidebar", () => {
             >
               <Sidebar.Header />
             </Sidebar>
-          </Excalidraw>
+          </CanvasEditor>
         );
       };
 
-      const { container } = await render(<CustomExcalidraw />);
+      const { container } = await render(<CustomCanvasEditor />);
 
       // initial open
       expect(onStateChange).toHaveBeenCalledWith({ name: "customSidebar" });
@@ -237,7 +237,7 @@ describe("Sidebar", () => {
 
   describe("Docking behavior", () => {
     it("shouldn't be user-dockable if `onDock` not supplied", async () => {
-      await assertExcalidrawWithSidebar(
+      await assertCanvasEditorWithSidebar(
         <Sidebar name="customSidebar">
           <Sidebar.Header />
         </Sidebar>,
@@ -249,7 +249,7 @@ describe("Sidebar", () => {
     });
 
     it("shouldn't be user-dockable if `onDock` not supplied & `docked={true}`", async () => {
-      await assertExcalidrawWithSidebar(
+      await assertCanvasEditorWithSidebar(
         <Sidebar name="customSidebar" docked={true}>
           <Sidebar.Header />
         </Sidebar>,
@@ -261,7 +261,7 @@ describe("Sidebar", () => {
     });
 
     it("shouldn't be user-dockable if `onDock` not supplied & docked={false}`", async () => {
-      await assertExcalidrawWithSidebar(
+      await assertCanvasEditorWithSidebar(
         <Sidebar name="customSidebar" docked={false}>
           <Sidebar.Header />
         </Sidebar>,
@@ -274,7 +274,7 @@ describe("Sidebar", () => {
 
     it("should be user-dockable when both `onDock` and `docked` supplied", async () => {
       await render(
-        <Excalidraw
+        <CanvasEditor
           initialData={{ appState: { openSidebar: { name: "customSidebar" } } }}
         >
           <Sidebar
@@ -285,10 +285,10 @@ describe("Sidebar", () => {
           >
             <Sidebar.Header />
           </Sidebar>
-        </Excalidraw>,
+        </CanvasEditor>,
       );
 
-      await withExcalidrawDimensions(
+      await withCanvasEditorDimensions(
         { width: 1920, height: 1080 },
         async () => {
           await assertSidebarDockButton(true);
@@ -301,7 +301,7 @@ describe("Sidebar", () => {
       const mock = jest.spyOn(console, "warn").mockImplementation(() => {});
 
       await render(
-        <Excalidraw
+        <CanvasEditor
           initialData={{ appState: { openSidebar: { name: "customSidebar" } } }}
         >
           <Sidebar
@@ -311,10 +311,10 @@ describe("Sidebar", () => {
           >
             <Sidebar.Header />
           </Sidebar>
-        </Excalidraw>,
+        </CanvasEditor>,
       );
 
-      await withExcalidrawDimensions(
+      await withCanvasEditorDimensions(
         { width: 1920, height: 1080 },
         async () => {
           await assertSidebarDockButton(false);
@@ -328,17 +328,17 @@ describe("Sidebar", () => {
   describe("Sidebar.tab", () => {
     it("should toggle sidebars tabs correctly", async () => {
       const { container } = await render(
-        <Excalidraw>
+        <CanvasEditor>
           <Sidebar name="custom" docked>
             <Sidebar.Tabs>
               <Sidebar.Tab tab="library">Library</Sidebar.Tab>
               <Sidebar.Tab tab="comments">Comments</Sidebar.Tab>
             </Sidebar.Tabs>
           </Sidebar>
-        </Excalidraw>,
+        </CanvasEditor>,
       );
 
-      await withExcalidrawDimensions(
+      await withCanvasEditorDimensions(
         { width: 1920, height: 1080 },
         async () => {
           expect(

@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { focusNearestParent } from "../utils";
 
 import "./ProjectName.scss";
-import { useExcalidrawContainer } from "./App";
+import { useCanvasEditorContainer } from "./App";
 import { KEYS } from "../keys";
 
 type Props = {
@@ -15,7 +15,7 @@ type Props = {
 };
 
 export const ProjectName = (props: Props) => {
-  const { id } = useExcalidrawContainer();
+  const { id } = useCanvasEditorContainer();
   const [fileName, setFileName] = useState<string>(props.value);
 
   const handleBlur = (event: any) => {

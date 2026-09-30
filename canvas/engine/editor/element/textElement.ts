@@ -1,12 +1,12 @@
 import { getFontString, arrayToMap } from "../utils";
 import type {
   ElementsMap,
-  ExcalidrawElement,
-  ExcalidrawElementType,
-  ExcalidrawTextContainer,
-  ExcalidrawTextElement,
-  ExcalidrawTextElementWithContainer,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  CanvasEditorElementType,
+  CanvasEditorTextContainer,
+  CanvasEditorTextElement,
+  CanvasEditorTextElementWithContainer,
+  NonDeletedCanvasEditorElement,
 } from "./types";
 import { mutateElement } from "./mutateElement";
 import {
@@ -31,8 +31,8 @@ import type { ExtractSetType } from "../utility-types";
 import { measureText } from "./textMeasurements";
 
 export const redrawTextBoundingBox = (
-  textElement: ExcalidrawTextElement,
-  container: ExcalidrawElement | null,
+  textElement: CanvasEditorTextElement,
+  container: CanvasEditorElement | null,
   elementsMap: ElementsMap,
   informMutation = true,
 ) => {
@@ -74,7 +74,7 @@ export const redrawTextBoundingBox = (
   if (container) {
     const maxContainerHeight = getBoundTextMaxHeight(
       container,
-      textElement as ExcalidrawTextElementWithContainer,
+      textElement as CanvasEditorTextElementWithContainer,
     );
     const maxContainerWidth = getBoundTextMaxWidth(container, textElement);
 
@@ -96,7 +96,7 @@ export const redrawTextBoundingBox = (
     const updatedTextElement = {
       ...textElement,
       ...boundTextUpdates,
-    } as ExcalidrawTextElementWithContainer;
+    } as CanvasEditorTextElementWithContainer;
     const { x, y } = computeBoundTextPosition(
       container,
       updatedTextElement,
@@ -110,13 +110,13 @@ export const redrawTextBoundingBox = (
 };
 
 export const bindTextToShapeAfterDuplication = (
-  newElements: ExcalidrawElement[],
-  oldElements: ExcalidrawElement[],
-  oldIdToDuplicatedId: Map<ExcalidrawElement["id"], ExcalidrawElement["id"]>,
+  newElements: CanvasEditorElement[],
+  oldElements: CanvasEditorElement[],
+  oldIdToDuplicatedId: Map<CanvasEditorElement["id"], CanvasEditorElement["id"]>,
 ): void => {
   const newElementsMap = arrayToMap(newElements) as Map<
-    ExcalidrawElement["id"],
-    ExcalidrawElement
+    CanvasEditorElement["id"],
+    CanvasEditorElement
   >;
   oldElements.forEach((element) => {
     const newElementId = oldIdToDuplicatedId.get(element.id) as string;
@@ -152,7 +152,7 @@ export const bindTextToShapeAfterDuplication = (
 };
 
 export const handleBindTextResize = (
-  container: NonDeletedExcalidrawElement,
+  container: NonDeletedCanvasEditorElement,
   elementsMap: ElementsMap,
   transformHandleType: MaybeTransformHandleType,
   shouldMaintainAspectRatio = false,
@@ -231,8 +231,8 @@ export const handleBindTextResize = (
 };
 
 export const computeBoundTextPosition = (
-  container: ExcalidrawElement,
-  boundTextElement: ExcalidrawTextElementWithContainer,
+  container: CanvasEditorElement,
+  boundTextElement: CanvasEditorTextElementWithContainer,
   elementsMap: ElementsMap,
 ) => {
   if (isArrowElement(container)) {
@@ -268,14 +268,14 @@ export const computeBoundTextPosition = (
   return { x, y };
 };
 
-export const getBoundTextElementId = (container: ExcalidrawElement | null) => {
+export const getBoundTextElementId = (container: CanvasEditorElement | null) => {
   return container?.boundElements?.length
     ? container?.boundElements?.find((ele) => ele.type === "text")?.id || null
     : null;
 };
 
 export const getBoundTextElement = (
-  element: ExcalidrawElement | null,
+  element: CanvasEditorElement | null,
   elementsMap: ElementsMap,
 ) => {
   if (!element) {
@@ -285,27 +285,27 @@ export const getBoundTextElement = (
 
   if (boundTextElementId) {
     return (elementsMap.get(boundTextElementId) ||
-      null) as ExcalidrawTextElementWithContainer | null;
+      null) as CanvasEditorTextElementWithContainer | null;
   }
   return null;
 };
 
 export const getContainerElement = (
-  element: ExcalidrawTextElement | null,
+  element: CanvasEditorTextElement | null,
   elementsMap: ElementsMap,
-): ExcalidrawTextContainer | null => {
+): CanvasEditorTextContainer | null => {
   if (!element) {
     return null;
   }
   if (element.containerId) {
     return (elementsMap.get(element.containerId) ||
-      null) as ExcalidrawTextContainer | null;
+      null) as CanvasEditorTextContainer | null;
   }
   return null;
 };
 
 export const getContainerCenter = (
-  container: ExcalidrawElement,
+  container: CanvasEditorElement,
   appState: AppState,
   elementsMap: ElementsMap,
 ) => {
@@ -346,7 +346,7 @@ export const getContainerCenter = (
   return { x: midSegmentMidpoint[0], y: midSegmentMidpoint[1] };
 };
 
-export const getContainerCoords = (container: NonDeletedExcalidrawElement) => {
+export const getContainerCoords = (container: NonDeletedCanvasEditorElement) => {
   let offsetX = BOUND_TEXT_PADDING;
   let offsetY = BOUND_TEXT_PADDING;
 
@@ -367,8 +367,8 @@ export const getContainerCoords = (container: NonDeletedExcalidrawElement) => {
 };
 
 export const getTextElementAngle = (
-  textElement: ExcalidrawTextElement,
-  container: ExcalidrawTextContainer | null,
+  textElement: CanvasEditorTextElement,
+  container: CanvasEditorTextContainer | null,
 ) => {
   if (!container || isArrowElement(container)) {
     return textElement.angle;
@@ -377,8 +377,8 @@ export const getTextElementAngle = (
 };
 
 export const getBoundTextElementPosition = (
-  container: ExcalidrawElement,
-  boundTextElement: ExcalidrawTextElementWithContainer,
+  container: CanvasEditorElement,
+  boundTextElement: CanvasEditorTextElementWithContainer,
   elementsMap: ElementsMap,
 ) => {
   if (isArrowElement(container)) {
@@ -391,7 +391,7 @@ export const getBoundTextElementPosition = (
 };
 
 export const shouldAllowVerticalAlign = (
-  selectedElements: NonDeletedExcalidrawElement[],
+  selectedElements: NonDeletedCanvasEditorElement[],
   elementsMap: ElementsMap,
 ) => {
   return selectedElements.some((element) => {
@@ -407,7 +407,7 @@ export const shouldAllowVerticalAlign = (
 };
 
 export const suppportsHorizontalAlign = (
-  selectedElements: NonDeletedExcalidrawElement[],
+  selectedElements: NonDeletedCanvasEditorElement[],
   elementsMap: ElementsMap,
 ) => {
   return selectedElements.some((element) => {
@@ -431,7 +431,7 @@ const VALID_CONTAINER_TYPES = new Set([
 ]);
 
 export const isValidTextContainer = (element: {
-  type: ExcalidrawElementType;
+  type: CanvasEditorElementType;
 }) => VALID_CONTAINER_TYPES.has(element.type);
 
 export const computeContainerDimensionForBoundText = (
@@ -454,8 +454,8 @@ export const computeContainerDimensionForBoundText = (
 };
 
 export const getBoundTextMaxWidth = (
-  container: ExcalidrawElement,
-  boundTextElement: ExcalidrawTextElement | null,
+  container: CanvasEditorElement,
+  boundTextElement: CanvasEditorTextElement | null,
 ) => {
   const { width } = container;
   if (isArrowElement(container)) {
@@ -479,8 +479,8 @@ export const getBoundTextMaxWidth = (
 };
 
 export const getBoundTextMaxHeight = (
-  container: ExcalidrawElement,
-  boundTextElement: ExcalidrawTextElementWithContainer,
+  container: CanvasEditorElement,
+  boundTextElement: CanvasEditorTextElementWithContainer,
 ) => {
   const { height } = container;
   if (isArrowElement(container)) {
@@ -506,7 +506,7 @@ export const getBoundTextMaxHeight = (
 
 /** retrieves text from text elements and concatenates to a single string */
 export const getTextFromElements = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   separator = "\n\n",
 ) => {
   const text = elements

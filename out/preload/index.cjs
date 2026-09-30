@@ -2,6 +2,7 @@
 const electron = require("electron");
 const IPC = {
   run: "agent:run",
+  steer: "agent:steer",
   stop: "agent:stop",
   event: "agent:event",
   loadHistoryPage: "history:load-page",
@@ -18,11 +19,15 @@ const IPC = {
   loadCanvasDocument: "canvas:load-document",
   saveCanvasDocument: "canvas:save-document",
   prepareCanvasContext: "canvas:prepare-context",
+  canvasEditRequest: "canvas:edit-request",
+  canvasEditCancel: "canvas:edit-cancel",
+  canvasEditResult: "canvas:edit-result",
   previewOutputFile: "output-files:preview",
   openOutputFile: "output-files:open"
 };
 const api = {
   run: (req) => electron.ipcRenderer.invoke(IPC.run, req),
+  steer: (req) => electron.ipcRenderer.invoke(IPC.steer, req),
   stop: () => electron.ipcRenderer.send(IPC.stop),
   loadHistoryPage: (request) => electron.ipcRenderer.invoke(IPC.loadHistoryPage, request),
   getActiveProject: () => electron.ipcRenderer.invoke(IPC.getActiveProject),
@@ -40,6 +45,19 @@ const api = {
   loadCanvasDocument: (projectId) => electron.ipcRenderer.invoke(IPC.loadCanvasDocument, projectId),
   saveCanvasDocument: (request) => electron.ipcRenderer.invoke(IPC.saveCanvasDocument, request),
   prepareCanvasContext: (input) => electron.ipcRenderer.invoke(IPC.prepareCanvasContext, input),
+  onCanvasEditRequest: (cb) => {
+    const listener = (_event, request) => cb(request);
+    electron.ipcRenderer.on(IPC.canvasEditRequest, listener);
+    return () => electron.ipcRenderer.removeListener(IPC.canvasEditRequest, listener);
+  },
+  onCanvasEditCancel: (cb) => {
+    const listener = (_event, cancel) => cb(cancel);
+    electron.ipcRenderer.on(IPC.canvasEditCancel, listener);
+    return () => electron.ipcRenderer.removeListener(IPC.canvasEditCancel, listener);
+  },
+  completeCanvasEdit: (result) => {
+    electron.ipcRenderer.send(IPC.canvasEditResult, result);
+  },
   previewOutputFile: (runId, fileId) => electron.ipcRenderer.invoke(IPC.previewOutputFile, runId, fileId),
   openOutputFile: (runId, fileId) => electron.ipcRenderer.invoke(IPC.openOutputFile, runId, fileId),
   onEvent: (cb) => {

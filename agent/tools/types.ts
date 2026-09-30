@@ -27,6 +27,8 @@ export type ToolRecoveryResult =
 export interface ToolRecoverySpec {
   version: string;
   mode: ToolRecoveryMode;
+  /** Whether a planned invocation from an earlier run may execute on recovery. */
+  resumePlanned?: boolean;
   prepare?(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolCheckpoint | undefined>;
   reconcile?(
     input: Record<string, unknown>,

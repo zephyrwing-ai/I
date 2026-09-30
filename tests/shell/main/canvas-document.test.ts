@@ -8,6 +8,10 @@ import { CanvasDocumentStore } from "../../../canvas/persistence/CanvasDocumentS
 import { CanvasContextRegistry } from "../../../canvas/context/CanvasContextRegistry.js";
 
 const image = "data:image/png;base64,AA==";
+const selectionLocation = {
+  coordinateSpace: "scene" as const,
+  selectionBounds: { x: -10.5, y: 20.25, width: 95.75, height: 0 },
+};
 
 function document(text = "Canvas note"): CanvasDocument {
   return {
@@ -106,6 +110,7 @@ test("CanvasContextRegistry freezes selected JSON without writing a scene", asyn
   try {
     const registry = new CanvasContextRegistry();
     const descriptor = await registry.prepare({
+      ...selectionLocation,
       projectId: "project-a",
       scope: "selection",
       selectedElementIds: ["text-1"],
@@ -117,6 +122,7 @@ test("CanvasContextRegistry freezes selected JSON without writing a scene", asyn
 
     const [context] = registry.peekMany([descriptor.contextId], "project-a");
     assert.equal(JSON.parse(context.text).elements[0].text, "Canvas note");
+    assert.deepEqual(JSON.parse(context.text).canvasContext, selectionLocation);
     assert.equal(registry.peekMany([descriptor.contextId], "project-a").length, 1);
     assert.throws(() => registry.peekMany([descriptor.contextId], "project-b"), /another project/);
     registry.consumeMany([descriptor.contextId]);
@@ -133,6 +139,7 @@ test("CanvasContextRegistry validates selection identity and keeps image binary 
     { "image-1": { id: "image-1", mimeType: "image/png", dataURL: image } },
   );
   const descriptor = await registry.prepare({
+    ...selectionLocation,
     projectId: null,
     scope: "selection",
     selectedElementIds: ["image-element"],
@@ -146,6 +153,7 @@ test("CanvasContextRegistry validates selection identity and keeps image binary 
 
   await assert.rejects(
     registry.prepare({
+      ...selectionLocation,
       projectId: null,
       scope: "selection",
       selectedElementIds: ["another-element"],
@@ -155,6 +163,7 @@ test("CanvasContextRegistry validates selection identity and keeps image binary 
   );
   await assert.rejects(
     registry.prepare({
+      ...selectionLocation,
       projectId: null,
       scope: "document" as CanvasContextInput["scope"],
       selectedElementIds: [],
@@ -164,6 +173,7 @@ test("CanvasContextRegistry validates selection identity and keeps image binary 
   );
   await assert.rejects(
     registry.prepare({
+      ...selectionLocation,
       projectId: null,
       scope: "selection",
       selectedElementIds: ["text-1"],
@@ -171,5 +181,16 @@ test("CanvasContextRegistry validates selection identity and keeps image binary 
       visual: { mediaType: "image/png", dataURL: image },
     }),
     /visual snapshot is invalid/,
+  );
+  await assert.rejects(
+    registry.prepare({
+      ...selectionLocation,
+      selectionBounds: { x: 0, y: 0, width: -1, height: 20 },
+      projectId: null,
+      scope: "selection",
+      selectedElementIds: ["image-element"],
+      serializedJSON,
+    }),
+    /selection bounds are invalid/,
   );
 });

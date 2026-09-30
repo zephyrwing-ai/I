@@ -3,7 +3,7 @@ export const Paragraph = (props: {
   style?: React.CSSProperties;
 }) => {
   return (
-    <p className="excalidraw__paragraph" style={props.style}>
+    <p className="agent-canvas__paragraph" style={props.style}>
       {props.children}
     </p>
   );

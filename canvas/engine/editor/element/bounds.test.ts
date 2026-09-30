@@ -3,7 +3,7 @@ import { pointFrom } from "@agent-studio/canvas-math";
 import { ROUNDNESS } from "../constants";
 import { arrayToMap } from "../utils";
 import { getElementAbsoluteCoords, getElementBounds } from "./bounds";
-import type { ExcalidrawElement, ExcalidrawLinearElement } from "./types";
+import type { CanvasEditorElement, CanvasEditorLinearElement } from "./types";
 
 const _ce = ({
   x,
@@ -34,7 +34,7 @@ const _ce = ({
     width: w,
     height: h,
     angle: a,
-  } as ExcalidrawElement);
+  } as CanvasEditorElement);
 
 describe("getElementAbsoluteCoords", () => {
   it("test x1 coordinate", () => {
@@ -129,7 +129,7 @@ describe("getElementBounds", () => {
         pointFrom<LocalPoint>(67.33984375, 92.48828125),
         pointFrom<LocalPoint>(-102.7890625, 52.15625),
       ],
-    } as ExcalidrawLinearElement;
+    } as CanvasEditorLinearElement;
 
     const [x1, y1, x2, y2] = getElementBounds(element, arrayToMap([element]));
     expect(x1).toEqual(360.3176068760539);

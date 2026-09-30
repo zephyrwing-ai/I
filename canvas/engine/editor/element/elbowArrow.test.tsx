@@ -10,11 +10,11 @@ import {
   render,
 } from "../tests/test-utils";
 import { bindLinearElement } from "./binding";
-import { Excalidraw, mutateElement } from "../index";
+import { CanvasEditor, mutateElement } from "../index";
 import type {
-  ExcalidrawArrowElement,
-  ExcalidrawBindableElement,
-  ExcalidrawElbowArrowElement,
+  CanvasEditorArrowElement,
+  CanvasEditorBindableElement,
+  CanvasEditorElbowArrowElement,
 } from "./types";
 import { ARROW_TYPE } from "../constants";
 import "../../utils/test-utils";
@@ -30,7 +30,7 @@ const mouse = new Pointer("mouse");
 describe("elbow arrow segment move", () => {
   beforeEach(async () => {
     localStorage.clear();
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
   });
 
   it("can move the second segment of a fully connected elbow arrow", () => {
@@ -64,7 +64,7 @@ describe("elbow arrow segment move", () => {
 
     const arrow = h.scene.getSelectedElements(
       h.state,
-    )[0] as ExcalidrawElbowArrowElement;
+    )[0] as CanvasEditorElbowArrowElement;
 
     expect(h.state.selectedElementIds).toEqual({ [arrow.id]: true });
     expect(arrow.fixedSegments?.length).toBe(1);
@@ -106,7 +106,7 @@ describe("elbow arrow segment move", () => {
 
     const arrow = h.scene.getSelectedElements(
       h.state,
-    )[0] as ExcalidrawArrowElement;
+    )[0] as CanvasEditorArrowElement;
 
     expect(arrow.points).toCloselyEqualPoints([
       [0, 0],
@@ -134,7 +134,7 @@ describe("elbow arrow routing", () => {
     const arrow = API.createElement({
       type: "arrow",
       elbowed: true,
-    }) as ExcalidrawElbowArrowElement;
+    }) as CanvasEditorElbowArrowElement;
     scene.insertElement(arrow);
     mutateElement(arrow, {
       points: [
@@ -161,14 +161,14 @@ describe("elbow arrow routing", () => {
       y: -150,
       width: 100,
       height: 100,
-    }) as ExcalidrawBindableElement;
+    }) as CanvasEditorBindableElement;
     const rectangle2 = API.createElement({
       type: "rectangle",
       x: 50,
       y: 50,
       width: 100,
       height: 100,
-    }) as ExcalidrawBindableElement;
+    }) as CanvasEditorBindableElement;
     const arrow = API.createElement({
       type: "arrow",
       elbowed: true,
@@ -177,7 +177,7 @@ describe("elbow arrow routing", () => {
       width: 90,
       height: 200,
       points: [pointFrom(0, 0), pointFrom(90, 200)],
-    }) as ExcalidrawElbowArrowElement;
+    }) as CanvasEditorElbowArrowElement;
     scene.insertElement(rectangle1);
     scene.insertElement(rectangle2);
     scene.insertElement(arrow);
@@ -204,7 +204,7 @@ describe("elbow arrow routing", () => {
 describe("elbow arrow ui", () => {
   beforeEach(async () => {
     localStorage.clear();
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
 
     fireEvent.contextMenu(GlobalTestState.interactiveCanvas, {
       button: 2,
@@ -242,7 +242,7 @@ describe("elbow arrow ui", () => {
 
     const arrow = h.scene.getSelectedElements(
       h.state,
-    )[0] as ExcalidrawArrowElement;
+    )[0] as CanvasEditorArrowElement;
 
     expect(arrow.type).toBe("arrow");
     expect(arrow.elbowed).toBe(true);
@@ -279,7 +279,7 @@ describe("elbow arrow ui", () => {
 
     const arrow = h.scene.getSelectedElements(
       h.state,
-    )[0] as ExcalidrawArrowElement;
+    )[0] as CanvasEditorArrowElement;
 
     mouse.click(51, 51);
 
@@ -321,7 +321,7 @@ describe("elbow arrow ui", () => {
 
     const arrow = h.scene.getSelectedElements(
       h.state,
-    )[0] as ExcalidrawArrowElement;
+    )[0] as CanvasEditorArrowElement;
     const originalArrowId = arrow.id;
 
     expect(arrow.startBinding).not.toBe(null);
@@ -339,7 +339,7 @@ describe("elbow arrow ui", () => {
 
     const duplicatedArrow = h.scene.getSelectedElements(
       h.state,
-    )[2] as ExcalidrawArrowElement;
+    )[2] as CanvasEditorArrowElement;
 
     expect(duplicatedArrow.id).not.toBe(originalArrowId);
     expect(duplicatedArrow.type).toBe("arrow");
@@ -379,7 +379,7 @@ describe("elbow arrow ui", () => {
 
     const arrow = h.scene.getSelectedElements(
       h.state,
-    )[0] as ExcalidrawArrowElement;
+    )[0] as CanvasEditorArrowElement;
     const originalArrowId = arrow.id;
 
     expect(arrow.startBinding).not.toBe(null);
@@ -393,7 +393,7 @@ describe("elbow arrow ui", () => {
 
     const duplicatedArrow = h.scene.getSelectedElements(
       h.state,
-    )[0] as ExcalidrawArrowElement;
+    )[0] as CanvasEditorArrowElement;
 
     expect(duplicatedArrow.id).not.toBe(originalArrowId);
     expect(duplicatedArrow.type).toBe("arrow");

@@ -1,6 +1,6 @@
 import React from "react";
 import { act, getCloneByOrigId, render, unmountComponent } from "./test-utils";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { reseed } from "../random";
 import {
   actionSendBackward,
@@ -13,9 +13,9 @@ import type { AppState } from "../types";
 import { API } from "./helpers/api";
 import { selectGroupsForSelectedElements } from "../groups";
 import type {
-  ExcalidrawElement,
-  ExcalidrawFrameElement,
-  ExcalidrawSelectionElement,
+  CanvasEditorElement,
+  CanvasEditorFrameElement,
+  CanvasEditorSelectionElement,
 } from "../element/types";
 
 unmountComponent();
@@ -27,15 +27,15 @@ beforeEach(() => {
 
 const { h } = window;
 
-type ExcalidrawElementType = Exclude<
-  ExcalidrawElement,
-  ExcalidrawSelectionElement
+type CanvasEditorElementType = Exclude<
+  CanvasEditorElement,
+  CanvasEditorSelectionElement
 >["type"];
 
 const populateElements = (
   elements: {
     id: string;
-    type?: ExcalidrawElementType;
+    type?: CanvasEditorElementType;
     isDeleted?: boolean;
     isSelected?: boolean;
     groupIds?: string[];
@@ -44,8 +44,8 @@ const populateElements = (
     width?: number;
     height?: number;
     containerId?: string;
-    frameId?: ExcalidrawFrameElement["id"];
-    index?: ExcalidrawElement["index"];
+    frameId?: CanvasEditorFrameElement["id"];
+    index?: CanvasEditorElement["index"];
   }[],
   appState?: Partial<AppState>,
 ) => {
@@ -135,8 +135,8 @@ const assertZindex = ({
     isSelected?: true;
     groupIds?: string[];
     containerId?: string;
-    frameId?: ExcalidrawFrameElement["id"];
-    type?: ExcalidrawElementType;
+    frameId?: CanvasEditorFrameElement["id"];
+    type?: CanvasEditorElementType;
   }[];
   appState?: Partial<AppState>;
   operations: [Actions, string[]][];
@@ -151,7 +151,7 @@ const assertZindex = ({
 
 describe("z-index manipulation", () => {
   beforeEach(async () => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
   });
 
   it("send back", () => {
@@ -1221,7 +1221,7 @@ describe("z-index manipulation", () => {
 
 describe("z-indexing with frames", () => {
   beforeEach(async () => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
   });
 
   // naming scheme:

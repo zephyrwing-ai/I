@@ -3,7 +3,7 @@ import "./ToolIcon.scss";
 import type { CSSProperties } from "react";
 import React, { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { useExcalidrawContainer } from "./App";
+import { useCanvasEditorContainer } from "./App";
 import { AbortError } from "../errors";
 import Spinner from "./Spinner";
 import type { PointerType } from "../element/types";
@@ -65,7 +65,7 @@ export const ToolButton = React.forwardRef(
     }: ToolButtonProps,
     ref,
   ) => {
-    const { id: excalId } = useExcalidrawContainer();
+    const { id: excalId } = useCanvasEditorContainer();
     const innerRef = React.useRef(null);
     React.useImperativeHandle(ref, () => innerRef.current);
     const sizeCn = `ToolIcon_size_${size}`;

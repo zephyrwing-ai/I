@@ -25,32 +25,32 @@
 .user-message-row { width: 100%; margin: 0 0 28px; display: flex; justify-content: flex-end; }
 .user-message-group { width: fit-content; display: flex; flex-direction: column; align-items: flex-end; max-width: 76%; }
 .user-message { width: fit-content; max-width: 100%; padding: 8px 14px; border-radius: 16px; background: var(--surface-bubble); color: var(--text); font-size: 14px; line-height: 24px; letter-spacing: 0.02em; white-space: pre-wrap; word-break: break-word; }
-
-/* ===== 过程块：Working for 折叠行 ===== */
-.run-process { margin: 0; }
-.run-fold { width: 100%; min-height: 32px; padding: 0 0 4px; border: 0; background: transparent; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
-.turn-state { color: var(--text-muted); font-size: 14px; line-height: 20px; letter-spacing: 0.02em; }
-/* 运行中扫光（减速至 4.2s） */
-.turn-state.working { color: transparent; background: linear-gradient(100deg, var(--text-muted) 42%, var(--surface) 50%, var(--text-muted) 58%); background-size: 280% 100%; background-position: 140% 0; animation: turn-shimmer 4.2s linear infinite; -webkit-background-clip: text; background-clip: text; }
-@keyframes turn-shimmer { to { background-position: -140% 0; } }
+.user-message-interrupted { margin-top: 5px; display: flex; align-items: center; gap: 8px; color: var(--danger); font-size: 11px; line-height: 20px; }
+.user-message-interrupted button { padding: 0; border: 0; background: transparent; color: var(--text-secondary); font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.user-message-interrupted button:hover { color: var(--text); }
 
 /* 15×15 折叠箭头：收起指右，展开转 90° 指下 */
 .chevron { flex: 0 0 auto; color: var(--text-muted); transition: transform 180ms var(--ease-standard); }
 .chevron.is-expanded { transform: rotate(90deg); }
 
-/* 展开/收起动画：grid-template-rows 0fr → 1fr（同 provider-model-collapse 模式） */
-.run-detail { display: grid; grid-template-rows: 0fr; opacity: 0; transform: translateY(-2px); transition: grid-template-rows 240ms var(--ease-standard), opacity 200ms ease, transform 240ms var(--ease-standard); }
-.run-detail.is-open { grid-template-rows: 1fr; opacity: 1; transform: translateY(0); }
-.run-detail-clip { min-height: 0; overflow: hidden; }
-
-/* 折叠内容：思考块（reasoning 通道）+ 过程文本 + 回合动作折叠，直接堆叠 */
-.fold-turn { min-width: 0; }
-.fold-turn + .fold-turn { margin-top: 8px; }
-/* 思考块：reasoning 通道正文，无标签直接堆叠；字样与用户消息一致（14px/24px 行高、0.02em 字距）；结构由 .markdown 接管 */
+/* Run 活动行统一承载同一 steer 区间内的 reasoning 与工具细节。 */
+.run-work { min-width: 0; }
+.run-work-toggle { width: fit-content; min-height: 26px; padding: 0; border: 0; background: transparent; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 8px; font-size: 14px; line-height: 22px; cursor: pointer; }
+.run-work-toggle:hover { color: var(--text); }
+.run-work-label { min-height: 26px; color: var(--text-muted); font-size: 14px; line-height: 22px; }
+.run-work .chevron { opacity: 0; transition: opacity 120ms var(--ease-standard), transform 180ms var(--ease-standard); }
+.run-work-toggle:hover .chevron,
+.run-work-toggle:focus-visible .chevron,
+.run-work.is-open .chevron { opacity: 1; }
+.run-work-detail { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 200ms var(--ease-standard), opacity 180ms ease; }
+.run-work.is-open .run-work-detail { grid-template-rows: 1fr; opacity: 1; }
+.run-work-clip { min-height: 0; max-height: 320px; overflow: auto; }
+.run-work-turn + .run-work-turn { margin-top: 6px; }
+.work-intermediate-text { margin-top: 6px; color: var(--text-secondary); font-size: 14px; line-height: 24px; word-break: break-word; }
 .think-block { width: 100%; max-width: none; }
 .think-text { margin: 0; color: var(--text); font-size: 14px; line-height: 24px; letter-spacing: 0.02em; word-break: break-word; }
-.think-block + .model-text,
-.think-block + .turn-action { margin-top: 6px; } /* 思考块 ↔ 回合折叠行：视觉 17px */
+.run-work + .model-text,
+.run-work-label + .model-text { margin-top: 8px; }
 .model-text { width: 100%; max-width: none; margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 24px; word-break: break-word; }
 
 /* ===== markdown 结构层：基础块间距 8px（与思考块一致）；结构块上下 12px 加宽；结构元素小步定义，自动适配亮暗主题 ===== */
@@ -84,7 +84,7 @@
 .md-table-wrap, .markdown hr { margin-top: 12px; margin-bottom: 12px; }
 
 /* 最终答案：作为独立 MessageBlock 进入阅读流，与消息流左对齐、右侧留白；文字 14px / 24px 行高、阅读黑 #3B352B、0.02em 字距 */
-.final-answer { margin: 14px 0 0; font-size: 14px; line-height: 24px; color: var(--text-reading); letter-spacing: 0.02em; }
+.final-answer { margin: 0; font-size: 14px; line-height: 24px; color: var(--text-reading); letter-spacing: 0.02em; }
 
 /* ===== 时间戳与复制行：13px 时间 + 14×14 复制/Check 图标；用户消息右对齐、模型消息左对齐，距消息下缘 8px；默认隐藏，悬停/聚焦消息区域时淡入 ===== */
 .model-message { width: 100%; display: flex; flex-direction: column; }
@@ -95,9 +95,7 @@
 .user-message-group:focus-within .message-meta,
 .model-message:hover .message-meta,
 .model-message:focus-within .message-meta { opacity: 1; }
-.message-virtual-block.block-process { margin-bottom: 28px; }
-.message-virtual-block.block-process.has-following-answer { margin-bottom: 14px; }
-.message-virtual-block.block-assistant .final-answer { margin-top: 0; }
+.message-virtual-block.block-assistant { margin-bottom: 28px; }
 .message-time { color: var(--text-muted); font-size: 13px; line-height: 20px; }
 .message-copy { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); display: grid; place-items: center; transition: color 120ms var(--ease-standard); }
 .message-copy:hover { color: var(--text); }
@@ -157,6 +155,5 @@
 .ghost-btn:hover { border-color: var(--accent); }
 
 @media (prefers-reduced-motion: reduce) {
-  .turn-state.working { color: var(--text-muted); background: none; animation: none; }
-  .run-detail, .turn-action-detail, .tool-detail, .chevron, .tool-row .chevron, .turn-action .chevron, .message-copy { transition: none; }
+  .run-work-detail, .turn-action-detail, .tool-detail, .chevron, .run-work .chevron, .tool-row .chevron, .turn-action .chevron, .message-copy { transition: none; }
 }

@@ -27,9 +27,9 @@ export interface TurnState {
   assistantContent: string;
   /** 模型消息时间；历史记录使用 assistant entry 的最终更新时间。 */
   assistantAt?: number;
-  /** 从用户提交到助手消息完成的持久化耗时，单位毫秒。 */
+  /** 最终助手消息持久化的 run 总耗时，单位毫秒。 */
   assistantDurationMs?: number;
-  /** 思考内容（reasoningDelta 增量累加）；展示在 worked for 折叠内。 */
+  /** 思考内容（reasoningDelta 增量累加）；展示在该助手消息内。 */
   reasoningContent: string;
   finalContent?: string;
   stopReason?: string;
@@ -37,16 +37,31 @@ export interface TurnState {
   tools: Record<string, ToolState>;
 }
 
+export interface UserInputState {
+  inputId: string;
+  task: string;
+  at: number;
+  status: "accepted" | "applied" | "interrupted";
+  acceptOrder?: number;
+}
+
+export type MessageTimelineItem =
+  | { kind: "user"; inputId: string }
+  | { kind: "assistant"; turnId: string };
+
 export interface RunState {
   runId: string;
-  /** 本次运行的用户任务；每次发送创建新 run，消息流按 run 累积回显。 */
-  task?: string;
-  /** 任务发送时间（Renderer 侧观察；事件不带时间戳，reducer 只保存动作携带的观察值）。 */
-  taskAt?: number;
+  projectId: string | null;
+  source?: "live";
+  inputs: Record<string, UserInputState>;
+  pendingInputIds: string[];
+  timeline: MessageTimelineItem[];
   startedAt?: string;
+  finalTurnId?: string;
+  finalDurationMs?: number;
+  unappliedInputIds?: string[];
   status: AppStatus;
   error?: string;
-  turnOrder: string[];
   turns: Record<string, TurnState>;
   outputFileOrder: string[];
   outputFiles: Record<string, OutputFileDescriptor>;
@@ -64,7 +79,9 @@ export interface AgentState {
 
 export type AgentAction =
   | { type: "runRequested" }
-  | { type: "runAccepted"; runId: string; task: string; taskAt: number }
+  | { type: "runAccepted"; runId: string; projectId: string | null; inputId: string; task: string; taskAt: number }
+  | { type: "steerAccepted"; runId: string; projectId: string | null; inputId: string; task: string; acceptOrder: number; acceptedAt: number }
+  | { type: "steerRejected"; error: string }
   | { type: "runRejected"; error: string }
   | { type: "stopRequested" }
   | { type: "historyScopeLoadStarted"; projectId: string | null; generation: number }
@@ -83,13 +100,15 @@ export const initialAgentState: AgentState = {
   history: initialHistoryState,
 };
 
-function createRun(runId: string, task: string, taskAt: number): RunState {
+function createRun(runId: string, projectId: string | null, task: string, taskAt: number, inputId: string): RunState {
   return {
     runId,
-    task,
-    taskAt,
+    projectId,
+    source: "live",
+    inputs: { [inputId]: { inputId, task, at: taskAt, status: "applied" } },
+    pendingInputIds: [],
+    timeline: [{ kind: "user", inputId }],
     status: "running",
-    turnOrder: [],
     turns: {},
     outputFileOrder: [],
     outputFiles: {},
@@ -114,7 +133,7 @@ function ensureTurn(run: RunState, turnId: string, turnOrdinal = 0): RunState {
   if (run.turns[turnId]) return run;
   return {
     ...run,
-    turnOrder: [...run.turnOrder, turnId],
+    timeline: [...run.timeline, { kind: "assistant", turnId }],
     turns: {
       ...run.turns,
       [turnId]: {
@@ -128,6 +147,43 @@ function ensureTurn(run: RunState, turnId: string, turnOrdinal = 0): RunState {
       },
     },
   };
+}
+
+function timelineHasInput(run: RunState, inputId: string): boolean {
+  return run.timeline.some((item) => item.kind === "user" && item.inputId === inputId);
+}
+
+/** ACKs may resolve out of order; accepted inputs occupy the tail in Main's FIFO order. */
+function insertAcceptedInput(run: RunState, inputId: string, acceptOrder: number): MessageTimelineItem[] {
+  if (timelineHasInput(run, inputId)) return run.timeline;
+  const timeline = [...run.timeline];
+  let insertAt = timeline.length;
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    const item = timeline[index];
+    if (item.kind === "assistant") break;
+    if (run.pendingInputIds.includes(item.inputId)
+      && (run.inputs[item.inputId]?.acceptOrder ?? Number.NEGATIVE_INFINITY) > acceptOrder) {
+      insertAt = index;
+    }
+  }
+  timeline.splice(insertAt, 0, { kind: "user", inputId });
+  return timeline;
+}
+
+/** The application event fixes batch order even when its ACKs arrive later. */
+function placeAppliedInputs(run: RunState, inputIds: string[]): MessageTimelineItem[] {
+  const positions = inputIds.map((inputId) => run.timeline.findIndex(
+    (item) => item.kind === "user" && item.inputId === inputId,
+  ));
+  if (positions[0] >= 0 && positions.every((position, index) => position === positions[0] + index)) {
+    return run.timeline;
+  }
+  const ids = new Set(inputIds);
+  const first = run.timeline.findIndex((item) => item.kind === "user" && ids.has(item.inputId));
+  const timeline = run.timeline.filter((item) => item.kind !== "user" || !ids.has(item.inputId));
+  const insertAt = first < 0 ? timeline.length : Math.min(first, timeline.length);
+  timeline.splice(insertAt, 0, ...inputIds.map((inputId): MessageTimelineItem => ({ kind: "user", inputId })));
+  return timeline;
 }
 
 function updateTurn(run: RunState, turnId: string, update: (turn: TurnState) => TurnState): RunState {
@@ -162,7 +218,7 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
 
     case "runAccepted": {
       const existing = state.runs[action.runId];
-      const run = existing ?? createRun(action.runId, action.task, action.taskAt);
+      const run = existing ?? createRun(action.runId, action.projectId, action.task, action.taskAt, action.inputId);
       return {
         ...state,
         status: "running",
@@ -172,6 +228,45 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
         runOrder: existing ? state.runOrder : [...state.runOrder, action.runId],
       };
     }
+
+    case "steerAccepted": {
+      const run = state.runs[action.runId];
+      if (!run || run.projectId !== action.projectId) return state;
+      const existing = run.inputs[action.inputId];
+      if (existing) return state;
+      const applied = timelineHasInput(run, action.inputId);
+      const interrupted = run.unappliedInputIds?.includes(action.inputId) ?? false;
+      const pendingInputIds = applied || interrupted ? run.pendingInputIds : [...run.pendingInputIds, action.inputId]
+        .sort((left, right) => (
+          (left === action.inputId ? action.acceptOrder : run.inputs[left].acceptOrder ?? 0)
+          - (right === action.inputId ? action.acceptOrder : run.inputs[right].acceptOrder ?? 0)
+        ));
+      return {
+        ...state,
+        error: null,
+        runs: {
+          ...state.runs,
+          [run.runId]: {
+            ...run,
+            pendingInputIds,
+            timeline: insertAcceptedInput(run, action.inputId, action.acceptOrder),
+            inputs: {
+              ...run.inputs,
+              [action.inputId]: {
+                inputId: action.inputId,
+                task: action.task,
+                at: action.acceptedAt,
+                acceptOrder: action.acceptOrder,
+                status: interrupted ? "interrupted" : applied ? "applied" : "accepted",
+              },
+            },
+          },
+        },
+      };
+    }
+
+    case "steerRejected":
+      return { ...state, error: action.error };
 
     case "runRejected":
       return { ...state, status: "failed", currentRunId: null, error: action.error };
@@ -224,8 +319,12 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
     case "olderHistoryLoaded": {
       if (action.generation !== state.history.requestGeneration || action.page.projectId !== state.history.projectId) return state;
       const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
-      const projected = mergePersistedEntries(state, action.page.entries);
-      return { ...state, history, runs: projected.runs, runOrder: projected.runOrder };
+      const projected = mergePersistedEntries({ runs: {}, runOrder: [] }, history.entryOrder.map((id) => history.entriesById[id]));
+      const liveRuns = Object.values(state.runs).filter((run) => run.source === "live");
+      const runs = { ...projected.runs };
+      for (const run of liveRuns) runs[run.runId] = run;
+      const runOrder = [...projected.runOrder, ...liveRuns.map((run) => run.runId).filter((id) => !projected.runs[id])];
+      return { ...state, history, runs, runOrder };
     }
 
     case "historyLoadFailed":
@@ -251,6 +350,23 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
       if (event.type === "runStarted") {
         if (state.currentRunId !== event.runId) return state;
         return withCurrentRun(state, (run) => ({ ...run, startedAt: event.startedAt }));
+      }
+
+      if (event.type === "inputsApplied") {
+        if (!event.inputIds.length) return state;
+        return withCurrentRun(state, (run) => {
+          const appliedIds = new Set(event.inputIds);
+          const inputs = { ...run.inputs };
+          for (const id of event.inputIds) {
+            if (inputs[id]) inputs[id] = { ...inputs[id], status: "applied" };
+          }
+          return {
+            ...run,
+            inputs,
+            pendingInputIds: run.pendingInputIds.filter((id) => !appliedIds.has(id)),
+            timeline: placeAppliedInputs(run, event.inputIds),
+          };
+        });
       }
 
       if (event.type === "turnStarted") {
@@ -290,12 +406,23 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
       if (event.type === "assistantCompleted") {
         return withCurrentRun(state, (run) => {
           const next = ensureTurn(run, event.turnId);
-          return updateTurn(next, event.turnId, (turn) => ({
-            ...turn,
-            assistantContent: event.content,
-            finalContent: event.content,
-            stopReason: event.stopReason,
-          }));
+          return updateTurn(next, event.turnId, (turn) => {
+            const tools = { ...turn.tools };
+            const toolOrder = [...turn.toolOrder];
+            for (const call of event.toolCalls) {
+              if (tools[call.id]) continue;
+              tools[call.id] = { toolCallId: call.id, name: call.name, input: call.input, status: "running" };
+              toolOrder.push(call.id);
+            }
+            return {
+              ...turn,
+              assistantContent: event.content,
+              finalContent: event.content,
+              stopReason: event.stopReason,
+              tools,
+              toolOrder,
+            };
+          });
         });
       }
 
@@ -362,6 +489,9 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
         });
       }
 
+      const run = state.runs[event.runId];
+      const unappliedInputIds = [...new Set([...run.pendingInputIds, ...(event.unappliedInputIds ?? [])])];
+      const missingInputIds = unappliedInputIds.filter((id) => !timelineHasInput(run, id));
       return {
         ...state,
         status: event.status,
@@ -370,10 +500,18 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
         runs: {
           ...state.runs,
           [event.runId]: {
-            ...state.runs[event.runId],
+            ...run,
             status: event.status,
             error: event.error?.message,
             turnCount: event.turnCount,
+            finalTurnId: event.status === "completed" ? event.finalTurnId : undefined,
+            finalDurationMs: event.finalDurationMs,
+            unappliedInputIds,
+            timeline: [...run.timeline, ...missingInputIds.map((inputId): MessageTimelineItem => ({ kind: "user", inputId }))],
+            inputs: Object.fromEntries(Object.entries(run.inputs).map(([id, input]) => [
+              id,
+              unappliedInputIds.includes(id) ? { ...input, status: "interrupted" } : input,
+            ])),
           },
         },
       };

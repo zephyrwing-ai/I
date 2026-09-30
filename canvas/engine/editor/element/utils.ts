@@ -13,8 +13,8 @@ import {
 } from "@agent-studio/canvas-math";
 import { getCornerRadius } from "../shapes";
 import type {
-  ExcalidrawDiamondElement,
-  ExcalidrawRectanguloidElement,
+  CanvasEditorDiamondElement,
+  CanvasEditorRectanguloidElement,
 } from "./types";
 
 /**
@@ -26,7 +26,7 @@ import type {
  * @returns Tuple of line segments (0) and curves (1)
  */
 export function deconstructRectanguloidElement(
-  element: ExcalidrawRectanguloidElement,
+  element: CanvasEditorRectanguloidElement,
   offset: number = 0,
 ): [LineSegment<GlobalPoint>[], Curve<GlobalPoint>[]] {
   const roundness = getCornerRadius(
@@ -212,7 +212,7 @@ export function deconstructRectanguloidElement(
  * @returns Tuple of line segments (0) and curves (1)
  */
 export function deconstructDiamondElement(
-  element: ExcalidrawDiamondElement,
+  element: CanvasEditorDiamondElement,
   offset: number = 0,
 ): [LineSegment<GlobalPoint>[], Curve<GlobalPoint>[]] {
   const [topX, topY, rightX, rightY, bottomX, bottomY, leftX, leftY] =

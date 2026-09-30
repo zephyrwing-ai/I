@@ -1,4 +1,4 @@
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import {
   act,
   assertElements,
@@ -14,7 +14,7 @@ const { h } = window;
 
 describe("actionDuplicateSelection", () => {
   beforeEach(async () => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
   });
 
   describe("duplicating frames", () => {

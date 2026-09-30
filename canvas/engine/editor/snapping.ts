@@ -18,8 +18,8 @@ import type { MaybeTransformHandleType } from "./element/transformHandles";
 import { isBoundToContainer, isFrameLikeElement } from "./element/typeChecks";
 import type {
   ElementsMap,
-  ExcalidrawElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  NonDeletedCanvasEditorElement,
 } from "./element/types";
 import { getMaximumGroups } from "./groups";
 import { KEYS } from "./keys";
@@ -162,7 +162,7 @@ export const isSnappingEnabled = ({
 }: {
   app: AppClassProperties;
   event: KeyboardModifiersObject;
-  selectedElements: NonDeletedExcalidrawElement[];
+  selectedElements: NonDeletedCanvasEditorElement[];
 }) => {
   if (event) {
     return (
@@ -185,7 +185,7 @@ export const areRoughlyEqual = (a: number, b: number, precision = 0.01) => {
 };
 
 export const getElementsCorners = (
-  elements: ExcalidrawElement[],
+  elements: CanvasEditorElement[],
   elementsMap: ElementsMap,
   {
     omitCenter,
@@ -302,8 +302,8 @@ export const getElementsCorners = (
 };
 
 const getReferenceElements = (
-  elements: readonly NonDeletedExcalidrawElement[],
-  selectedElements: NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
+  selectedElements: NonDeletedCanvasEditorElement[],
   appState: AppState,
   elementsMap: ElementsMap,
 ) => {
@@ -322,12 +322,12 @@ const getReferenceElements = (
 };
 
 export const getVisibleGaps = (
-  elements: readonly NonDeletedExcalidrawElement[],
-  selectedElements: ExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
+  selectedElements: CanvasEditorElement[],
   appState: AppState,
   elementsMap: ElementsMap,
 ) => {
-  const referenceElements: ExcalidrawElement[] = getReferenceElements(
+  const referenceElements: CanvasEditorElement[] = getReferenceElements(
     elements,
     selectedElements,
     appState,
@@ -440,7 +440,7 @@ export const getVisibleGaps = (
 };
 
 const getGapSnaps = (
-  selectedElements: ExcalidrawElement[],
+  selectedElements: CanvasEditorElement[],
   dragOffset: Vector2D,
   app: AppClassProperties,
   event: KeyboardModifiersObject,
@@ -610,8 +610,8 @@ const getGapSnaps = (
 };
 
 export const getReferenceSnapPoints = (
-  elements: readonly NonDeletedExcalidrawElement[],
-  selectedElements: ExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
+  selectedElements: CanvasEditorElement[],
   appState: AppState,
   elementsMap: ElementsMap,
 ) => {
@@ -630,7 +630,7 @@ export const getReferenceSnapPoints = (
 };
 
 const getPointSnaps = (
-  selectedElements: ExcalidrawElement[],
+  selectedElements: CanvasEditorElement[],
   selectionSnapPoints: GlobalPoint[],
   app: AppClassProperties,
   event: KeyboardModifiersObject,
@@ -686,7 +686,7 @@ const getPointSnaps = (
 };
 
 export const snapDraggedElements = (
-  elements: ExcalidrawElement[],
+  elements: CanvasEditorElement[],
   dragOffset: Vector2D,
   app: AppClassProperties,
   event: KeyboardModifiersObject,
@@ -909,7 +909,7 @@ const dedupeGapSnapLines = (gapSnapLines: GapSnapLine[]) => {
 };
 
 const createGapSnapLines = (
-  selectedElements: ExcalidrawElement[],
+  selectedElements: CanvasEditorElement[],
   dragOffset: Vector2D,
   gapSnaps: GapSnap[],
 ): GapSnapLine[] => {
@@ -1103,9 +1103,9 @@ const createGapSnapLines = (
 
 export const snapResizingElements = (
   // use the latest elements to create snap lines
-  selectedElements: ExcalidrawElement[],
+  selectedElements: CanvasEditorElement[],
   // while using the original elements to appy dragOffset to calculate snaps
-  selectedOriginalElements: ExcalidrawElement[],
+  selectedOriginalElements: CanvasEditorElement[],
   app: AppClassProperties,
   event: KeyboardModifiersObject,
   dragOffset: Vector2D,
@@ -1240,7 +1240,7 @@ export const snapResizingElements = (
 };
 
 export const snapNewElement = (
-  newElement: ExcalidrawElement,
+  newElement: CanvasEditorElement,
   app: AppClassProperties,
   event: KeyboardModifiersObject,
   origin: Vector2D,
@@ -1312,7 +1312,7 @@ export const snapNewElement = (
 };
 
 export const getSnapLinesAtPointer = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   app: AppClassProperties,
   pointer: Vector2D,
   event: KeyboardModifiersObject,

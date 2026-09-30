@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, memo } from "react";
 import { getCommonBounds } from "../../element/bounds";
-import type { NonDeletedExcalidrawElement } from "../../element/types";
+import type { NonDeletedCanvasEditorElement } from "../../element/types";
 import { t } from "../../i18n";
 import type {
   AppClassProperties,
   AppState,
-  ExcalidrawProps,
+  CanvasEditorProps,
 } from "../../types";
 import { CloseIcon } from "../icons";
 import { Island } from "../Island";
@@ -20,7 +20,7 @@ import MultiFontSize from "./MultiFontSize";
 import Position from "./Position";
 import MultiPosition from "./MultiPosition";
 import Collapsible from "./Collapsible";
-import { useExcalidrawAppState, useExcalidrawSetAppState } from "../App";
+import { useCanvasEditorAppState, useCanvasEditorSetAppState } from "../App";
 import { getAtomicUnits } from "./utils";
 import { STATS_PANELS } from "../../constants";
 import { isElbowArrow, isImageElement } from "../../element/typeChecks";
@@ -36,13 +36,13 @@ import { frameAndChildrenSelectedTogether } from "../../frame";
 interface StatsProps {
   app: AppClassProperties;
   onClose: () => void;
-  renderCustomStats: ExcalidrawProps["renderCustomStats"];
+  renderCustomStats: CanvasEditorProps["renderCustomStats"];
 }
 
 const STATS_TIMEOUT = 50;
 
 export const Stats = (props: StatsProps) => {
-  const appState = useExcalidrawAppState();
+  const appState = useCanvasEditorAppState();
   const sceneNonce = props.app.scene.getSceneNonce() || 1;
   const selectedElements = props.app.scene.getSelectedElements({
     selectedElementIds: appState.selectedElementIds,
@@ -116,14 +116,14 @@ export const StatsInner = memo(
     gridModeEnabled,
   }: StatsProps & {
     sceneNonce: number;
-    selectedElements: readonly NonDeletedExcalidrawElement[];
+    selectedElements: readonly NonDeletedCanvasEditorElement[];
     appState: AppState;
     gridModeEnabled: boolean;
   }) => {
     const scene = app.scene;
     const elements = scene.getNonDeletedElements();
     const elementsMap = scene.getNonDeletedElementsMap();
-    const setAppState = useExcalidrawSetAppState();
+    const setAppState = useCanvasEditorSetAppState();
 
     const singleElement =
       selectedElements.length === 1 ? selectedElements[0] : null;
@@ -148,7 +148,7 @@ export const StatsInner = memo(
 
     const throttledSetSceneDimension = useMemo(
       () =>
-        throttle((elements: readonly NonDeletedExcalidrawElement[]) => {
+        throttle((elements: readonly NonDeletedCanvasEditorElement[]) => {
           const boundingBox = getCommonBounds(elements);
           setSceneDimension({
             width: Math.round(boundingBox[2]) - Math.round(boundingBox[0]),

@@ -1,6 +1,6 @@
 import React from "react";
 import { fireEvent, render } from "./test-utils";
-import { Excalidraw, isLinearElement } from "../index";
+import { CanvasEditor, isLinearElement } from "../index";
 import { UI, Pointer, Keyboard } from "./helpers/ui";
 import { getTransformHandles } from "../element/transformHandles";
 import { API } from "./helpers/api";
@@ -15,7 +15,7 @@ const mouse = new Pointer("mouse");
 
 describe("element binding", () => {
   beforeEach(async () => {
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
   });
 
   it("should create valid binding if duplicate start/end points", async () => {
@@ -242,7 +242,7 @@ describe("element binding", () => {
     mouse.clickAt(text.x + 50, text.y + 50);
 
     const editor = document.querySelector(
-      ".excalidraw-textEditorContainer > textarea",
+      ".agent-canvas-textEditorContainer > textarea",
     ) as HTMLTextAreaElement;
 
     expect(editor).not.toBe(null);
@@ -251,7 +251,7 @@ describe("element binding", () => {
     fireEvent.keyDown(editor, { key: KEYS.ESCAPE });
 
     expect(
-      document.querySelector(".excalidraw-textEditorContainer > textarea"),
+      document.querySelector(".agent-canvas-textEditorContainer > textarea"),
     ).toBe(null);
     expect(arrow.endBinding).toBe(null);
   });
@@ -283,7 +283,7 @@ describe("element binding", () => {
 
     mouse.clickAt(text.x + 50, text.y + 50);
     const editor = document.querySelector(
-      ".excalidraw-textEditorContainer > textarea",
+      ".agent-canvas-textEditorContainer > textarea",
     ) as HTMLTextAreaElement;
 
     expect(editor).not.toBe(null);
@@ -292,7 +292,7 @@ describe("element binding", () => {
     fireEvent.keyDown(editor, { key: KEYS.ESCAPE });
 
     expect(
-      document.querySelector(".excalidraw-textEditorContainer > textarea"),
+      document.querySelector(".agent-canvas-textEditorContainer > textarea"),
     ).toBe(null);
     expect(arrow.endBinding?.elementId).toBe(text.id);
   });

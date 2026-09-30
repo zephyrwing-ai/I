@@ -1,10 +1,10 @@
 import { API } from "../tests/helpers/api";
 import { mutateElement } from "./mutateElement";
 import { normalizeElementOrder } from "./sortElements";
-import type { ExcalidrawElement } from "./types";
+import type { CanvasEditorElement } from "./types";
 
 const assertOrder = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   expectedOrder: string[],
 ) => {
   const actualOrder = elements.map((element) => element.id);
@@ -368,7 +368,7 @@ describe("normalizeElementsOrder", () => {
   // should take around <100ms for 10K iterations (@dwelle's PC 22-05-25)
   it.skip("normalizeElementsOrder() perf", () => {
     const makeElements = (iterations: number) => {
-      const elements: ExcalidrawElement[] = [];
+      const elements: CanvasEditorElement[] = [];
       while (iterations--) {
         const container = API.createElement({
           type: "rectangle",

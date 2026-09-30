@@ -86,17 +86,17 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
   }, [open]);
 
   useEffect(() => {
-    if (!canvasCanRelease) {
-      if (canvasReleaseTimerRef.current !== null) window.clearTimeout(canvasReleaseTimerRef.current);
-      canvasReleaseTimerRef.current = null;
-      return;
-    }
     if (open && activePanel === "canvas") {
       if (canvasReleaseTimerRef.current !== null) {
         window.clearTimeout(canvasReleaseTimerRef.current);
         canvasReleaseTimerRef.current = null;
       }
       setCanvasMounted(true);
+      return;
+    }
+    if (!canvasCanRelease) {
+      if (canvasReleaseTimerRef.current !== null) window.clearTimeout(canvasReleaseTimerRef.current);
+      canvasReleaseTimerRef.current = null;
       return;
     }
 

@@ -1,5 +1,5 @@
 import type { AppProps, AppState } from "./types";
-import type { ExcalidrawElement, FontFamilyValues } from "./element/types";
+import type { CanvasEditorElement, FontFamilyValues } from "./element/types";
 import { COLOR_PALETTE } from "./colors";
 
 export const isDarwin = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
@@ -23,7 +23,7 @@ export const isBrave = () =>
 export const supportsResizeObserver =
   typeof window !== "undefined" && "ResizeObserver" in window;
 
-export const APP_NAME = "Excalidraw";
+export const APP_NAME = "CanvasEditor";
 
 // distance when creating text before it's considered `autoResize: false`
 // we're using higher threshold so that clicks that end up being drags
@@ -90,7 +90,7 @@ export enum EVENT {
   VISIBILITY_CHANGE = "visibilitychange",
   SCROLL = "scroll",
   // custom events
-  EXCALIDRAW_LINK = "excalidraw-link",
+  CANVAS_LINK = "excalidraw-link",
   MENU_ITEM_SELECT = "menu.itemSelect",
   MESSAGE = "message",
   FULLSCREENCHANGE = "fullscreenchange",
@@ -160,13 +160,13 @@ export const THEME = {
 } as const;
 
 export const FRAME_STYLE = {
-  strokeColor: "#bbb" as ExcalidrawElement["strokeColor"],
-  strokeWidth: 2 as ExcalidrawElement["strokeWidth"],
-  strokeStyle: "solid" as ExcalidrawElement["strokeStyle"],
-  fillStyle: "solid" as ExcalidrawElement["fillStyle"],
-  roughness: 0 as ExcalidrawElement["roughness"],
-  roundness: null as ExcalidrawElement["roundness"],
-  backgroundColor: "transparent" as ExcalidrawElement["backgroundColor"],
+  strokeColor: "#bbb" as CanvasEditorElement["strokeColor"],
+  strokeWidth: 2 as CanvasEditorElement["strokeWidth"],
+  strokeStyle: "solid" as CanvasEditorElement["strokeStyle"],
+  fillStyle: "solid" as CanvasEditorElement["fillStyle"],
+  roughness: 0 as CanvasEditorElement["roughness"],
+  roundness: null as CanvasEditorElement["roundness"],
+  backgroundColor: "transparent" as CanvasEditorElement["backgroundColor"],
   radius: 8,
   nameOffsetY: 3,
   nameColorLightTheme: "#999999",
@@ -216,12 +216,9 @@ export const MIME_TYPES = {
   text: "text/plain",
   html: "text/html",
   json: "application/json",
-  // excalidraw data
-  excalidraw: "application/vnd.excalidraw+json",
-  excalidrawlib: "application/vnd.excalidrawlib+json",
-  // image-encoded excalidraw data
-  "excalidraw.svg": "image/svg+xml",
-  "excalidraw.png": "image/png",
+  // Canvas data. MIME values remain compatible with existing files and clipboard payloads.
+  canvas: "application/vnd.excalidraw+json",
+  canvaslib: "application/vnd.excalidrawlib+json",
   // binary
   binary: "application/octet-stream",
   // image
@@ -241,14 +238,14 @@ export const EXPORT_IMAGE_TYPES = {
 } as const;
 
 export const EXPORT_DATA_TYPES = {
-  excalidraw: "excalidraw",
-  excalidrawClipboard: "excalidraw/clipboard",
-  excalidrawLibrary: "excalidrawlib",
-  excalidrawClipboardWithAPI: "excalidraw-api/clipboard",
+  canvas: "excalidraw",
+  canvasClipboard: "excalidraw/clipboard",
+  canvasLibrary: "excalidrawlib",
+  canvasClipboardWithAPI: "excalidraw-api/clipboard",
 } as const;
 
 export const EXPORT_SOURCE =
-  window.EXCALIDRAW_EXPORT_SOURCE || window.location.origin;
+  window.AGENT_CANVAS_EXPORT_SOURCE || window.location.origin;
 
 // time in milliseconds
 export const IMAGE_RENDER_TIMEOUT = 500;
@@ -315,8 +312,8 @@ export const SVG_NS = "http://www.w3.org/2000/svg";
 export const ENCRYPTION_KEY_BITS = 128;
 
 export const VERSIONS = {
-  excalidraw: 2,
-  excalidrawLibrary: 2,
+  canvas: 2,
+  canvasLibrary: 2,
 } as const;
 
 export const BOUND_TEXT_PADDING = 5;
@@ -376,14 +373,14 @@ export const STROKE_WIDTH = {
 } as const;
 
 export const DEFAULT_ELEMENT_PROPS: {
-  strokeColor: ExcalidrawElement["strokeColor"];
-  backgroundColor: ExcalidrawElement["backgroundColor"];
-  fillStyle: ExcalidrawElement["fillStyle"];
-  strokeWidth: ExcalidrawElement["strokeWidth"];
-  strokeStyle: ExcalidrawElement["strokeStyle"];
-  roughness: ExcalidrawElement["roughness"];
-  opacity: ExcalidrawElement["opacity"];
-  locked: ExcalidrawElement["locked"];
+  strokeColor: CanvasEditorElement["strokeColor"];
+  backgroundColor: CanvasEditorElement["backgroundColor"];
+  fillStyle: CanvasEditorElement["fillStyle"];
+  strokeWidth: CanvasEditorElement["strokeWidth"];
+  strokeStyle: CanvasEditorElement["strokeStyle"];
+  roughness: CanvasEditorElement["roughness"];
+  opacity: CanvasEditorElement["opacity"];
+  locked: CanvasEditorElement["locked"];
 } = {
   strokeColor: COLOR_PALETTE.black,
   backgroundColor: COLOR_PALETTE.transparent,

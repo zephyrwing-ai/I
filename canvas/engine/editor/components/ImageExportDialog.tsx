@@ -20,7 +20,7 @@ import {
 
 import { canvasToBlob } from "../data/blob";
 import { nativeFileSystemSupported } from "../data/filesystem";
-import type { NonDeletedExcalidrawElement } from "../element/types";
+import type { NonDeletedCanvasEditorElement } from "../element/types";
 import { t } from "../i18n";
 import { isSomeElementSelected } from "../scene";
 import { exportToCanvas } from "@agent-studio/canvas-utils/export";
@@ -54,7 +54,7 @@ export const ErrorCanvasPreview = () => {
 
 type ImageExportModalProps = {
   appStateSnapshot: Readonly<UIAppState>;
-  elementsSnapshot: readonly NonDeletedExcalidrawElement[];
+  elementsSnapshot: readonly NonDeletedCanvasEditorElement[];
   files: BinaryFiles;
   actionManager: ActionManager;
   onExportImage: AppClassProperties["onExportImage"];
@@ -376,7 +376,7 @@ export const ImageExportDialog = ({
   name,
 }: {
   appState: UIAppState;
-  elements: readonly NonDeletedExcalidrawElement[];
+  elements: readonly NonDeletedCanvasEditorElement[];
   files: BinaryFiles;
   actionManager: ActionManager;
   onExportImage: AppClassProperties["onExportImage"];

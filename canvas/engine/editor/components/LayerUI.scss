@@ -1,19 +1,23 @@
 @import "open-color/open-color";
 @import "../css/variables.module.scss";
 
-.excalidraw {
+.agent-canvas {
   .layer-ui__wrapper.animate {
     transition: width 0.1s ease-in-out;
   }
   .layer-ui__wrapper {
-    // when the rightside sidebar is docked, we need to resize the UI by its
-    // width, making the nested UI content shift to the left. To do this,
-    // we need the UI container to actually have dimensions set, but
-    // then we also need to disable pointer events else the canvas below
-    // wouldn't be interactive.
     position: absolute;
+    inset: 0;
+    box-sizing: border-box;
     width: 100%;
     height: 100%;
+    display: grid;
+    grid-template-columns: max-content minmax(max-content, 1fr);
+    grid-template-rows: 1fr max-content;
+    column-gap: 1rem;
+    align-items: end;
+    padding: 1rem;
+    padding-bottom: calc(1rem + var(--sab, 0px));
     pointer-events: none;
     z-index: var(--zIndex-layerUI);
 
@@ -30,7 +34,7 @@
     }
 
     &__footer {
-      width: 100%;
+      width: max-content;
 
       &-right {
         z-index: 100;

@@ -1,10 +1,10 @@
 import React from "react";
-import { Excalidraw } from "../..";
+import { CanvasEditor } from "../..";
 import {
   GlobalTestState,
   queryByTestId,
   render,
-  withExcalidrawDimensions,
+  withCanvasEditorDimensions,
 } from "../../tests/test-utils";
 
 export const assertSidebarDockButton = async <T extends boolean>(
@@ -28,15 +28,15 @@ export const assertSidebarDockButton = async <T extends boolean>(
   return { dockButton: null, sidebar: sidebar! } as any;
 };
 
-export const assertExcalidrawWithSidebar = async (
+export const assertCanvasEditorWithSidebar = async (
   sidebar: React.ReactNode,
   name: string,
   test: () => void,
 ) => {
   await render(
-    <Excalidraw initialData={{ appState: { openSidebar: { name } } }}>
+    <CanvasEditor initialData={{ appState: { openSidebar: { name } } }}>
       {sidebar}
-    </Excalidraw>,
+    </CanvasEditor>,
   );
-  await withExcalidrawDimensions({ width: 1920, height: 1080 }, test);
+  await withCanvasEditorDimensions({ width: 1920, height: 1080 }, test);
 };

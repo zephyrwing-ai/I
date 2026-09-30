@@ -11,7 +11,7 @@ import {
 import { ToolButton } from "../components/ToolButton";
 import { getNonDeletedElements } from "../element";
 import { isFrameLikeElement } from "../element/typeChecks";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import { updateFrameMembershipOfSelectedElements } from "../frame";
 import { t } from "../i18n";
 import { KEYS } from "../keys";
@@ -34,7 +34,7 @@ export const alignActionsPredicate = (
 };
 
 const alignSelectedElements = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: Readonly<AppState>,
   app: AppClassProperties,
   alignment: Alignment,

@@ -1,14 +1,14 @@
 import React from "react";
 import { fireEvent, GlobalTestState, render } from "./test-utils";
-import { Excalidraw, Footer } from "../index";
+import { CanvasEditor, Footer } from "../index";
 import { queryByText } from "@testing-library/react";
 
 const { h } = window;
 
-describe("<Excalidraw/>", () => {
+describe("<CanvasEditor/>", () => {
   describe("Test zenModeEnabled prop", () => {
     it('should show exit zen mode button and context-menu option when zenModeEnabled is "undefined"', async () => {
-      const { container } = await render(<Excalidraw />);
+      const { container } = await render(<CanvasEditor />);
       expect(
         container.getElementsByClassName("disable-zen-mode--visible").length,
       ).toBe(0);
@@ -28,7 +28,7 @@ describe("<Excalidraw/>", () => {
     });
 
     it("should not show the exit button or context-menu option when zen mode is fixed on", async () => {
-      const { container } = await render(<Excalidraw zenModeEnabled={true} />);
+      const { container } = await render(<CanvasEditor zenModeEnabled={true} />);
       expect(
         container.getElementsByClassName("disable-zen-mode--visible").length,
       ).toBe(0);
@@ -50,18 +50,18 @@ describe("<Excalidraw/>", () => {
 
   it("renders a custom footer only when Footer is passed as children", async () => {
     let { container } = await render(
-      <Excalidraw>
+      <CanvasEditor>
         <div>This is a custom footer</div>
-      </Excalidraw>,
+      </CanvasEditor>,
     );
     expect(container.querySelector(".footer-center")).toBe(null);
 
     ({ container } = await render(
-      <Excalidraw>
+      <CanvasEditor>
         <Footer>
           <div>This is a custom footer</div>
         </Footer>
-      </Excalidraw>,
+      </CanvasEditor>,
     ));
     expect(container.querySelector(".footer-center")).toMatchInlineSnapshot(
       `
@@ -78,7 +78,7 @@ describe("<Excalidraw/>", () => {
 
   describe("Test gridModeEnabled prop", () => {
     it('shows the grid context-menu action when gridModeEnabled is "undefined"', async () => {
-      await render(<Excalidraw />);
+      await render(<CanvasEditor />);
       expect(h.state.gridModeEnabled).toBe(false);
 
       fireEvent.contextMenu(GlobalTestState.interactiveCanvas, {
@@ -92,7 +92,7 @@ describe("<Excalidraw/>", () => {
     });
 
     it('omits the grid context-menu action when gridModeEnabled is explicitly "false"', async () => {
-      await render(<Excalidraw gridModeEnabled={false} />);
+      await render(<CanvasEditor gridModeEnabled={false} />);
       expect(h.state.gridModeEnabled).toBe(false);
 
       fireEvent.contextMenu(GlobalTestState.interactiveCanvas, {
@@ -108,13 +108,13 @@ describe("<Excalidraw/>", () => {
 
   describe("Test autoFocus prop", () => {
     it("does not focus when autoFocus is false", async () => {
-      const { container } = await render(<Excalidraw />);
-      expect(container.querySelector(".excalidraw") === document.activeElement).toBe(false);
+      const { container } = await render(<CanvasEditor />);
+      expect(container.querySelector(".agent-canvas") === document.activeElement).toBe(false);
     });
 
     it("focuses when autoFocus is true", async () => {
-      const { container } = await render(<Excalidraw autoFocus={true} />);
-      expect(container.querySelector(".excalidraw") === document.activeElement).toBe(true);
+      const { container } = await render(<CanvasEditor autoFocus={true} />);
+      expect(container.querySelector(".agent-canvas") === document.activeElement).toBe(true);
     });
   });
 });

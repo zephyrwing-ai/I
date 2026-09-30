@@ -12,9 +12,9 @@ import {
 import { getNonDeletedElements } from "../element";
 import { isFrameLikeElement } from "../element/typeChecks";
 import type {
-  ExcalidrawElement,
-  ExcalidrawFrameLikeElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  CanvasEditorFrameLikeElement,
+  NonDeletedCanvasEditorElement,
 } from "../element/types";
 import { getElementsOverlappingFrame } from "../frame";
 import { t } from "../i18n";
@@ -31,12 +31,12 @@ import { serializeAsJSON } from "./json";
 export { loadFromBlob } from "./blob";
 export { loadFromJSON, saveAsJSON } from "./json";
 
-export type ExportedElements = readonly NonDeletedExcalidrawElement[] & {
+export type ExportedElements = readonly NonDeletedCanvasEditorElement[] & {
   _brand: "exportedElements";
 };
 
 export const prepareElementsForExport = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   { selectedElementIds }: Pick<AppState, "selectedElementIds">,
   exportSelectionOnly: boolean,
 ) => {
@@ -46,7 +46,7 @@ export const prepareElementsForExport = (
     exportSelectionOnly &&
     isSomeElementSelected(elements, { selectedElementIds });
 
-  let exportingFrame: ExcalidrawFrameLikeElement | null = null;
+  let exportingFrame: CanvasEditorFrameLikeElement | null = null;
   let exportedElements = isExportingSelection
     ? getSelectedElements(
         elements,
@@ -101,7 +101,7 @@ export const exportCanvas = async (
     /** filename, if applicable */
     name?: string;
     fileHandle?: FileSystemHandle | null;
-    exportingFrame: ExcalidrawFrameLikeElement | null;
+    exportingFrame: CanvasEditorFrameLikeElement | null;
   },
 ) => {
   if (elements.length === 0) {
@@ -130,7 +130,7 @@ export const exportCanvas = async (
         {
           description: "Export to SVG",
           name,
-          extension: appState.exportEmbedScene ? "excalidraw.svg" : "svg",
+          extension: "svg",
           mimeTypes: [IMAGE_MIME_TYPES.svg],
           fileHandle,
         },
@@ -170,7 +170,7 @@ export const exportCanvas = async (
     return fileSave(blob, {
       description: "Export to PNG",
       name,
-      extension: appState.exportEmbedScene ? "excalidraw.png" : "png",
+      extension: "png",
       mimeTypes: [IMAGE_MIME_TYPES.png],
       fileHandle,
     });

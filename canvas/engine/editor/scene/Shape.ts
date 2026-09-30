@@ -4,10 +4,10 @@ import type { RoughGenerator } from "roughjs/bin/generator";
 import { getDiamondPoints, getArrowheadPoints } from "../element";
 import type { ElementShapes } from "./types";
 import type {
-  ExcalidrawElement,
-  NonDeletedExcalidrawElement,
-  ExcalidrawSelectionElement,
-  ExcalidrawLinearElement,
+  CanvasEditorElement,
+  NonDeletedCanvasEditorElement,
+  CanvasEditorSelectionElement,
+  CanvasEditorLinearElement,
   Arrowhead,
 } from "../element/types";
 import { generateFreeDrawShape } from "../renderer/renderElement";
@@ -31,7 +31,7 @@ const getDashArrayDashed = (strokeWidth: number) => [8, 8 + strokeWidth];
 
 const getDashArrayDotted = (strokeWidth: number) => [1.5, 6 + strokeWidth];
 
-function adjustRoughness(element: ExcalidrawElement): number {
+function adjustRoughness(element: CanvasEditorElement): number {
   const roughness = element.roughness;
 
   const maxSize = Math.max(element.width, element.height);
@@ -55,7 +55,7 @@ function adjustRoughness(element: ExcalidrawElement): number {
 }
 
 export const generateRoughOptions = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   continuousPath = false,
 ): Options => {
   const options: Options = {
@@ -121,7 +121,7 @@ export const generateRoughOptions = (
 };
 
 const modifyIframeLikeForRoughOptions = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   isExporting: boolean,
   embedsValidationStatus: EmbedsValidationStatus | null,
 ) => {
@@ -154,7 +154,7 @@ const modifyIframeLikeForRoughOptions = (
 };
 
 const getArrowheadShapes = (
-  element: ExcalidrawLinearElement,
+  element: CanvasEditorLinearElement,
   shape: Drawable[],
   position: "start" | "end",
   arrowhead: Arrowhead,
@@ -304,7 +304,7 @@ const getArrowheadShapes = (
  * @private
  */
 export const _generateElementShape = (
-  element: Exclude<NonDeletedExcalidrawElement, ExcalidrawSelectionElement>,
+  element: Exclude<NonDeletedCanvasEditorElement, CanvasEditorSelectionElement>,
   generator: RoughGenerator,
   {
     isExporting,

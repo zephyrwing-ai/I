@@ -1,7 +1,7 @@
 import { getElementBounds } from "../element";
 import type {
   ElementsMap,
-  NonDeletedExcalidrawElement,
+  NonDeletedCanvasEditorElement,
 } from "../element/types";
 import type { PointerCoords } from "../types";
 
@@ -11,11 +11,11 @@ import type { PointerCoords } from "../types";
  * pointer frame; the returned target remains stable while the user pans.
  */
 export const getClosestElementToPoint = (
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   elementsMap: ElementsMap,
   point: PointerCoords,
-): NonDeletedExcalidrawElement | null => {
-  let closestElement: NonDeletedExcalidrawElement | null = null;
+): NonDeletedCanvasEditorElement | null => {
+  let closestElement: NonDeletedCanvasEditorElement | null = null;
   let closestDistance = Number.POSITIVE_INFINITY;
 
   for (const element of elements) {

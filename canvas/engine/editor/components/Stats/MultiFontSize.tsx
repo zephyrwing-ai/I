@@ -2,8 +2,8 @@ import { isTextElement, redrawTextBoundingBox } from "../../element";
 import { mutateElement } from "../../element/mutateElement";
 import { hasBoundTextElement } from "../../element/typeChecks";
 import type {
-  ExcalidrawElement,
-  ExcalidrawTextElement,
+  CanvasEditorElement,
+  CanvasEditorTextElement,
   NonDeletedSceneElementsMap,
 } from "../../element/types";
 import { isInGroup } from "../../groups";
@@ -16,7 +16,7 @@ import type { AppState } from "../../types";
 import { getBoundTextElement } from "../../element/textElement";
 
 interface MultiFontSizeProps {
-  elements: readonly ExcalidrawElement[];
+  elements: readonly CanvasEditorElement[];
   scene: Scene;
   elementsMap: NonDeletedSceneElementsMap;
   appState: AppState;
@@ -27,11 +27,11 @@ const MIN_FONT_SIZE = 4;
 const STEP_SIZE = 4;
 
 const getApplicableTextElements = (
-  elements: readonly (ExcalidrawElement | undefined)[],
+  elements: readonly (CanvasEditorElement | undefined)[],
   elementsMap: NonDeletedSceneElementsMap,
 ) =>
   elements.reduce(
-    (acc: ExcalidrawTextElement[], el) => {
+    (acc: CanvasEditorTextElement[], el) => {
       if (!el || isInGroup(el)) {
         return acc;
       }
@@ -55,7 +55,7 @@ const getApplicableTextElements = (
 
 const handleFontSizeChange: DragInputCallbackType<
   MultiFontSizeProps["property"],
-  ExcalidrawTextElement
+  CanvasEditorTextElement
 > = ({
   accumulatedChange,
   originalElements,
@@ -66,7 +66,7 @@ const handleFontSizeChange: DragInputCallbackType<
   const elementsMap = scene.getNonDeletedElementsMap();
   const latestTextElements = originalElements.map((el) =>
     elementsMap.get(el.id),
-  ) as ExcalidrawTextElement[];
+  ) as CanvasEditorTextElement[];
 
   let nextFontSize;
 
@@ -92,7 +92,7 @@ const handleFontSizeChange: DragInputCallbackType<
 
     scene.triggerUpdate();
   } else {
-    const originalTextElements = originalElements as ExcalidrawTextElement[];
+    const originalTextElements = originalElements as CanvasEditorTextElement[];
 
     for (let i = 0; i < latestTextElements.length; i++) {
       const latestElement = latestTextElements[i];

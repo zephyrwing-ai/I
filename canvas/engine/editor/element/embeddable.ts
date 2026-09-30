@@ -1,14 +1,14 @@
 import { register } from "../actions/register";
 import { FONT_FAMILY, VERTICAL_ALIGN } from "../constants";
-import type { ExcalidrawProps } from "../types";
+import type { CanvasEditorProps } from "../types";
 import { escapeDoubleQuotes, getFontString, updateActiveTool } from "../utils";
 import { setCursorForShape } from "../cursor";
 import { newTextElement } from "./newElement";
 import { wrapText } from "./textWrapping";
 import { isIframeElement } from "./typeChecks";
 import type {
-  ExcalidrawElement,
-  ExcalidrawIframeLikeElement,
+  CanvasEditorElement,
+  CanvasEditorIframeLikeElement,
   IframeData,
 } from "./types";
 import type { MarkRequired } from "../utility-types";
@@ -281,8 +281,8 @@ export const getEmbedLink = (
 };
 
 export const createPlaceholderEmbeddableLabel = (
-  element: ExcalidrawIframeLikeElement,
-): ExcalidrawElement => {
+  element: CanvasEditorIframeLikeElement,
+): CanvasEditorElement => {
   let text: string;
   if (isIframeElement(element)) {
     text = "IFrame element";
@@ -410,7 +410,7 @@ export const maybeParseEmbedSrc = (str: string): string => {
 
 export const embeddableURLValidator = (
   url: string | null | undefined,
-  validateEmbeddable: ExcalidrawProps["validateEmbeddable"],
+  validateEmbeddable: CanvasEditorProps["validateEmbeddable"],
 ): boolean => {
   if (!url) {
     return false;

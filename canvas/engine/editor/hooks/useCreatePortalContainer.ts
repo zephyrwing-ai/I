@@ -1,5 +1,5 @@
 import { useState, useLayoutEffect } from "react";
-import { useDevice, useExcalidrawContainer } from "../components/App";
+import { useDevice, useCanvasEditorContainer } from "../components/App";
 import { THEME } from "../constants";
 import { useUIAppState } from "../context/ui-appState";
 
@@ -12,20 +12,20 @@ export const useCreatePortalContainer = (opts?: {
   const device = useDevice();
   const { theme } = useUIAppState();
 
-  const { container: excalidrawContainer } = useExcalidrawContainer();
+  const { container: canvasContainer } = useCanvasEditorContainer();
 
   useLayoutEffect(() => {
     if (div) {
       div.className = "";
-      div.classList.add("excalidraw", ...(opts?.className?.split(/\s+/) || []));
-      div.classList.toggle("excalidraw--mobile", device.editor.isMobile);
+      div.classList.add("agent-canvas", ...(opts?.className?.split(/\s+/) || []));
+      div.classList.toggle("agent-canvas--mobile", device.editor.isMobile);
       div.classList.toggle("theme--dark", theme === THEME.DARK);
     }
   }, [div, theme, device.editor.isMobile, opts?.className]);
 
   useLayoutEffect(() => {
     const container = opts?.parentSelector
-      ? excalidrawContainer?.querySelector(opts.parentSelector)
+      ? canvasContainer?.querySelector(opts.parentSelector)
       : document.body;
 
     if (!container) {
@@ -41,7 +41,7 @@ export const useCreatePortalContainer = (opts?: {
     return () => {
       container.removeChild(div);
     };
-  }, [excalidrawContainer, opts?.parentSelector]);
+  }, [canvasContainer, opts?.parentSelector]);
 
   return div;
 };

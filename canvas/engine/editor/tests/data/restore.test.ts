@@ -1,9 +1,9 @@
 import * as restore from "../../data/restore";
 import type {
-  ExcalidrawElement,
-  ExcalidrawFreeDrawElement,
-  ExcalidrawLinearElement,
-  ExcalidrawTextElement,
+  CanvasEditorElement,
+  CanvasEditorFreeDrawElement,
+  CanvasEditorLinearElement,
+  CanvasEditorTextElement,
 } from "../../element/types";
 import * as sizeHelpers from "../../element/sizeHelpers";
 import { API } from "../helpers/api";
@@ -31,7 +31,7 @@ describe("restoreElements", () => {
   });
 
   it("should not call isInvisiblySmallElement when element is a selection element", () => {
-    const selectionEl = { type: "selection" } as ExcalidrawElement;
+    const selectionEl = { type: "selection" } as CanvasEditorElement;
     const restoreElements = restore.restoreElements([selectionEl], null);
     expect(restoreElements.length).toBe(0);
     expect(sizeHelpers.isInvisiblySmallElement).toBeCalledTimes(0);
@@ -69,7 +69,7 @@ describe("restoreElements", () => {
     const restoredText = restore.restoreElements(
       [textElement],
       null,
-    )[0] as ExcalidrawTextElement;
+    )[0] as CanvasEditorTextElement;
 
     expect(restoredText).toMatchSnapshot({
       seed: expect.any(Number),
@@ -92,7 +92,7 @@ describe("restoreElements", () => {
     const restoredText = restore.restoreElements(
       [textElement],
       null,
-    )[0] as ExcalidrawTextElement;
+    )[0] as CanvasEditorTextElement;
     expect(restoredText.isDeleted).toBe(true);
     expect(restoredText).toMatchSnapshot({
       seed: expect.any(Number),
@@ -110,7 +110,7 @@ describe("restoreElements", () => {
     const restoredFreedraw = restore.restoreElements(
       [freedrawElement],
       null,
-    )[0] as ExcalidrawFreeDrawElement;
+    )[0] as CanvasEditorFreeDrawElement;
 
     expect(restoredFreedraw).toMatchSnapshot({
       seed: expect.any(Number),
@@ -132,8 +132,8 @@ describe("restoreElements", () => {
       null,
     );
 
-    const restoredLine = restoredElements[0] as ExcalidrawLinearElement;
-    const restoredDraw = restoredElements[1] as ExcalidrawLinearElement;
+    const restoredLine = restoredElements[0] as CanvasEditorLinearElement;
+    const restoredDraw = restoredElements[1] as CanvasEditorLinearElement;
 
     expect(restoredLine).toMatchSnapshot({
       seed: expect.any(Number),
@@ -150,7 +150,7 @@ describe("restoreElements", () => {
 
     const restoredElements = restore.restoreElements([arrowElement], null);
 
-    const restoredArrow = restoredElements[0] as ExcalidrawLinearElement;
+    const restoredArrow = restoredElements[0] as CanvasEditorLinearElement;
 
     expect(restoredArrow).toMatchSnapshot({
       seed: expect.any(Number),
@@ -162,7 +162,7 @@ describe("restoreElements", () => {
     const arrowElement = API.createElement({ type: "arrow" });
     const restoredElements = restore.restoreElements([arrowElement], null);
 
-    const restoredArrow = restoredElements[0] as ExcalidrawLinearElement;
+    const restoredArrow = restoredElements[0] as CanvasEditorLinearElement;
 
     expect(arrowElement.endArrowhead).toBe(restoredArrow.endArrowhead);
   });
@@ -175,7 +175,7 @@ describe("restoreElements", () => {
 
     const restoredElements = restore.restoreElements([arrowElement], null);
 
-    const restoredArrow = restoredElements[0] as ExcalidrawLinearElement;
+    const restoredArrow = restoredElements[0] as CanvasEditorLinearElement;
 
     expect(restoredArrow.endArrowhead).toBe("arrow");
   });
@@ -197,7 +197,7 @@ describe("restoreElements", () => {
     const restoredLine = restore.restoreElements(
       [lineElement],
       null,
-    )[0] as ExcalidrawLinearElement;
+    )[0] as CanvasEditorLinearElement;
 
     expect(restoredLine.points).toMatchObject(expectedLinePoints);
   });
@@ -239,8 +239,8 @@ describe("restoreElements", () => {
       null,
     );
 
-    const restoredLine_0 = restoredElements[0] as ExcalidrawLinearElement;
-    const restoredLine_1 = restoredElements[1] as ExcalidrawLinearElement;
+    const restoredLine_0 = restoredElements[0] as CanvasEditorLinearElement;
+    const restoredLine_1 = restoredElements[1] as CanvasEditorLinearElement;
 
     expect(restoredLine_0.points).toMatchObject(pointsEl_0);
 
@@ -258,7 +258,7 @@ describe("restoreElements", () => {
   it("should restore correctly with rectangle, ellipse and diamond elements", () => {
     const types = ["rectangle", "ellipse", "diamond"];
 
-    const elements: ExcalidrawElement[] = [];
+    const elements: CanvasEditorElement[] = [];
     let idCount = 0;
     types.forEach((elType) => {
       idCount += 1;
@@ -416,10 +416,10 @@ describe("restoreAppState", () => {
     );
   });
 
-  it("when imported data state has a not allowed Excalidraw Element Types", () => {
+  it("when imported data state has a not allowed CanvasEditor Element Types", () => {
     const stubImportedAppState: any = getDefaultAppState();
 
-    stubImportedAppState.activeTool = "not allowed Excalidraw Element Types";
+    stubImportedAppState.activeTool = "not allowed CanvasEditor Element Types";
     const stubLocalAppState = getDefaultAppState();
 
     const restoredAppState = restore.restoreAppState(

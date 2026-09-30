@@ -1,7 +1,7 @@
 import { vi } from "vitest";
-import type { ExcalidrawElementSkeleton } from "./transform";
-import { convertToExcalidrawElements } from "./transform";
-import type { ExcalidrawArrowElement } from "../element/types";
+import type { CanvasEditorElementSkeleton } from "./transform";
+import { convertToCanvasEditorElements } from "./transform";
+import type { CanvasEditorArrowElement } from "../element/types";
 import { pointFrom } from "@agent-studio/canvas-math";
 
 const opts = { regenerateIds: false };
@@ -16,14 +16,14 @@ describe("Test Transform", () => {
         id: "rect-1",
       },
     ];
-    let data = convertToExcalidrawElements(
-      elements as ExcalidrawElementSkeleton[],
+    let data = convertToCanvasEditorElements(
+      elements as CanvasEditorElementSkeleton[],
     );
     expect(data.length).toBe(1);
     expect(data[0].id).toBe("id0");
 
-    data = convertToExcalidrawElements(
-      elements as ExcalidrawElementSkeleton[],
+    data = convertToCanvasEditorElements(
+      elements as CanvasEditorElementSkeleton[],
       opts,
     );
     expect(data[0].id).toBe("rect-1");
@@ -80,8 +80,8 @@ describe("Test Transform", () => {
       },
     ];
 
-    convertToExcalidrawElements(
-      elements as ExcalidrawElementSkeleton[],
+    convertToCanvasEditorElements(
+      elements as CanvasEditorElementSkeleton[],
       opts,
     ).forEach((ele) => {
       expect(ele).toMatchSnapshot({
@@ -109,8 +109,8 @@ describe("Test Transform", () => {
         strokeColor: "#5f3dc4",
       },
     ];
-    convertToExcalidrawElements(
-      elements as ExcalidrawElementSkeleton[],
+    convertToCanvasEditorElements(
+      elements as CanvasEditorElementSkeleton[],
       opts,
     ).forEach((ele) => {
       expect(ele).toMatchSnapshot({
@@ -151,14 +151,14 @@ describe("Test Transform", () => {
         strokeStyle: "dotted",
       },
     ];
-    const excalidrawElements = convertToExcalidrawElements(
-      elements as ExcalidrawElementSkeleton[],
+    const canvasElements = convertToCanvasEditorElements(
+      elements as CanvasEditorElementSkeleton[],
       opts,
     );
 
-    expect(excalidrawElements.length).toBe(4);
+    expect(canvasElements.length).toBe(4);
 
-    excalidrawElements.forEach((ele) => {
+    canvasElements.forEach((ele) => {
       expect(ele).toMatchSnapshot({
         seed: expect.any(Number),
         versionNonce: expect.any(Number),
@@ -234,14 +234,14 @@ describe("Test Transform", () => {
         },
       },
     ];
-    const excalidrawElements = convertToExcalidrawElements(
-      elements as ExcalidrawElementSkeleton[],
+    const canvasElements = convertToCanvasEditorElements(
+      elements as CanvasEditorElementSkeleton[],
       opts,
     );
 
-    expect(excalidrawElements.length).toBe(12);
+    expect(canvasElements.length).toBe(12);
 
-    excalidrawElements.forEach((ele) => {
+    canvasElements.forEach((ele) => {
       expect(ele).toMatchSnapshot({
         seed: expect.any(Number),
         versionNonce: expect.any(Number),
@@ -292,14 +292,14 @@ describe("Test Transform", () => {
         },
       },
     ];
-    const excalidrawElements = convertToExcalidrawElements(
-      elements as ExcalidrawElementSkeleton[],
+    const canvasElements = convertToCanvasEditorElements(
+      elements as CanvasEditorElementSkeleton[],
       opts,
     );
 
-    expect(excalidrawElements.length).toBe(8);
+    expect(canvasElements.length).toBe(8);
 
-    excalidrawElements.forEach((ele) => {
+    canvasElements.forEach((ele) => {
       expect(ele).toMatchSnapshot({
         seed: expect.any(Number),
         versionNonce: expect.any(Number),
@@ -309,7 +309,7 @@ describe("Test Transform", () => {
   });
 
   describe("Test Frames", () => {
-    const elements: ExcalidrawElementSkeleton[] = [
+    const elements: CanvasEditorElementSkeleton[] = [
       {
         type: "rectangle",
         x: 10,
@@ -333,7 +333,7 @@ describe("Test Transform", () => {
     ];
 
     it("should transform frames and update frame ids when regenerated", () => {
-      const elementsSkeleton: ExcalidrawElementSkeleton[] = [
+      const elementsSkeleton: CanvasEditorElementSkeleton[] = [
         ...elements,
         {
           type: "frame",
@@ -341,13 +341,13 @@ describe("Test Transform", () => {
           name: "My frame",
         },
       ];
-      const excalidrawElements = convertToExcalidrawElements(
+      const canvasElements = convertToCanvasEditorElements(
         elementsSkeleton,
         opts,
       );
-      expect(excalidrawElements.length).toBe(4);
+      expect(canvasElements.length).toBe(4);
 
-      excalidrawElements.forEach((ele) => {
+      canvasElements.forEach((ele) => {
         expect(ele).toMatchObject({
           seed: expect.any(Number),
           versionNonce: expect.any(Number),
@@ -357,7 +357,7 @@ describe("Test Transform", () => {
     });
 
     it("should consider user defined frame dimensions over calculated when provided", () => {
-      const elementsSkeleton: ExcalidrawElementSkeleton[] = [
+      const elementsSkeleton: CanvasEditorElementSkeleton[] = [
         ...elements,
         {
           type: "frame",
@@ -367,17 +367,17 @@ describe("Test Transform", () => {
           height: 100,
         },
       ];
-      const excalidrawElements = convertToExcalidrawElements(
+      const canvasElements = convertToCanvasEditorElements(
         elementsSkeleton,
         opts,
       );
-      const frame = excalidrawElements.find((ele) => ele.type === "frame")!;
+      const frame = canvasElements.find((ele) => ele.type === "frame")!;
       expect(frame.width).toBe(800);
       expect(frame.height).toBe(100);
     });
 
     it("should consider user defined frame coordinates calculated when provided", () => {
-      const elementsSkeleton: ExcalidrawElementSkeleton[] = [
+      const elementsSkeleton: CanvasEditorElementSkeleton[] = [
         ...elements,
         {
           type: "frame",
@@ -387,11 +387,11 @@ describe("Test Transform", () => {
           y: 300,
         },
       ];
-      const excalidrawElements = convertToExcalidrawElements(
+      const canvasElements = convertToCanvasEditorElements(
         elementsSkeleton,
         opts,
       );
-      const frame = excalidrawElements.find((ele) => ele.type === "frame")!;
+      const frame = canvasElements.find((ele) => ele.type === "frame")!;
       expect(frame.x).toBe(100);
       expect(frame.y).toBe(300);
     });
@@ -415,13 +415,13 @@ describe("Test Transform", () => {
           },
         },
       ];
-      const excalidrawElements = convertToExcalidrawElements(
-        elements as ExcalidrawElementSkeleton[],
+      const canvasElements = convertToCanvasEditorElements(
+        elements as CanvasEditorElementSkeleton[],
         opts,
       );
 
-      expect(excalidrawElements.length).toBe(4);
-      const [arrow, text, rectangle, ellipse] = excalidrawElements;
+      expect(canvasElements.length).toBe(4);
+      const [arrow, text, rectangle, ellipse] = canvasElements;
       expect(arrow).toMatchObject({
         type: "arrow",
         x: 255,
@@ -470,7 +470,7 @@ describe("Test Transform", () => {
         ],
       });
 
-      excalidrawElements.forEach((ele) => {
+      canvasElements.forEach((ele) => {
         expect(ele).toMatchSnapshot({
           seed: expect.any(Number),
           versionNonce: expect.any(Number),
@@ -499,13 +499,13 @@ describe("Test Transform", () => {
         },
       ];
 
-      const excalidrawElements = convertToExcalidrawElements(
-        elements as ExcalidrawElementSkeleton[],
+      const canvasElements = convertToCanvasEditorElements(
+        elements as CanvasEditorElementSkeleton[],
         opts,
       );
 
-      expect(excalidrawElements.length).toBe(4);
-      const [arrow, text1, text2, text3] = excalidrawElements;
+      expect(canvasElements.length).toBe(4);
+      const [arrow, text1, text2, text3] = canvasElements;
 
       expect(arrow).toMatchObject({
         type: "arrow",
@@ -555,7 +555,7 @@ describe("Test Transform", () => {
         ],
       });
 
-      excalidrawElements.forEach((ele) => {
+      canvasElements.forEach((ele) => {
         expect(ele).toMatchSnapshot({
           seed: expect.any(Number),
           versionNonce: expect.any(Number),
@@ -615,14 +615,14 @@ describe("Test Transform", () => {
         },
       ];
 
-      const excalidrawElements = convertToExcalidrawElements(
-        elements as ExcalidrawElementSkeleton[],
+      const canvasElements = convertToCanvasEditorElements(
+        elements as CanvasEditorElementSkeleton[],
         opts,
       );
 
-      expect(excalidrawElements.length).toBe(5);
+      expect(canvasElements.length).toBe(5);
 
-      excalidrawElements.forEach((ele) => {
+      canvasElements.forEach((ele) => {
         expect(ele).toMatchSnapshot({
           seed: expect.any(Number),
           versionNonce: expect.any(Number),
@@ -664,14 +664,14 @@ describe("Test Transform", () => {
         },
       ];
 
-      const excalidrawElements = convertToExcalidrawElements(
-        elements as ExcalidrawElementSkeleton[],
+      const canvasElements = convertToCanvasEditorElements(
+        elements as CanvasEditorElementSkeleton[],
         opts,
       );
 
-      expect(excalidrawElements.length).toBe(4);
+      expect(canvasElements.length).toBe(4);
 
-      excalidrawElements.forEach((ele) => {
+      canvasElements.forEach((ele) => {
         expect(ele).toMatchSnapshot({
           seed: expect.any(Number),
           versionNonce: expect.any(Number),
@@ -718,13 +718,13 @@ describe("Test Transform", () => {
         },
       ];
 
-      const excalidrawElements = convertToExcalidrawElements(
-        elements as ExcalidrawElementSkeleton[],
+      const canvasElements = convertToCanvasEditorElements(
+        elements as CanvasEditorElementSkeleton[],
         opts,
       );
 
-      expect(excalidrawElements.length).toBe(4);
-      const [, , arrow, text] = excalidrawElements;
+      expect(canvasElements.length).toBe(4);
+      const [, , arrow, text] = canvasElements;
       expect(arrow).toMatchObject({
         type: "arrow",
         x: 255,
@@ -769,13 +769,13 @@ describe("Test Transform", () => {
           backgroundColor: "#bac8ff",
         },
       ];
-      const excalidrawElements = convertToExcalidrawElements(
-        elements as ExcalidrawElementSkeleton[],
+      const canvasElements = convertToCanvasEditorElements(
+        elements as CanvasEditorElementSkeleton[],
         opts,
       );
-      expect(excalidrawElements.length).toBe(2);
-      const [arrow, rect] = excalidrawElements;
-      expect((arrow as ExcalidrawArrowElement).endBinding).toStrictEqual({
+      expect(canvasElements.length).toBe(2);
+      const [arrow, rect] = canvasElements;
+      expect((arrow as CanvasEditorArrowElement).endBinding).toStrictEqual({
         elementId: "rect-1",
         focus: -0,
         gap: 14,
@@ -812,13 +812,13 @@ describe("Test Transform", () => {
         height: 200,
       },
     ];
-    const excalidrawElements = convertToExcalidrawElements(
-      elements as ExcalidrawElementSkeleton[],
+    const canvasElements = convertToCanvasEditorElements(
+      elements as CanvasEditorElementSkeleton[],
       opts,
     );
 
-    expect(excalidrawElements.length).toBe(1);
-    expect(excalidrawElements[0]).toMatchSnapshot({
+    expect(canvasElements.length).toBe(1);
+    expect(canvasElements[0]).toMatchSnapshot({
       seed: expect.any(Number),
       versionNonce: expect.any(Number),
     });
@@ -836,8 +836,8 @@ describe("Test Transform", () => {
         customData: { createdBy: "user01" },
       },
     ];
-    const convertedElements = convertToExcalidrawElements(
-      rawData as ExcalidrawElementSkeleton[],
+    const convertedElements = convertToCanvasEditorElements(
+      rawData as CanvasEditorElementSkeleton[],
       opts,
     );
     expect(convertedElements[0].customData).toStrictEqual({
@@ -846,7 +846,7 @@ describe("Test Transform", () => {
   });
 
   it("should transform the elements correctly when linear elements have single point", () => {
-    const elements: ExcalidrawElementSkeleton[] = [
+    const elements: CanvasEditorElementSkeleton[] = [
       {
         id: "B",
         type: "rectangle",
@@ -957,9 +957,9 @@ describe("Test Transform", () => {
       },
     ];
 
-    const excalidrawElements = convertToExcalidrawElements(elements, opts);
-    expect(excalidrawElements.length).toBe(12);
-    excalidrawElements.forEach((ele) => {
+    const canvasElements = convertToCanvasEditorElements(elements, opts);
+    expect(canvasElements.length).toBe(12);
+    canvasElements.forEach((ele) => {
       expect(ele).toMatchSnapshot({
         seed: expect.any(Number),
         versionNonce: expect.any(Number),

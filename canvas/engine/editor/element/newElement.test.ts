@@ -3,7 +3,7 @@ import { mutateElement } from "./mutateElement";
 import { API } from "../tests/helpers/api";
 import { FONT_FAMILY, ROUNDNESS } from "../constants";
 import { isPrimitive } from "../utils";
-import type { ExcalidrawLinearElement } from "./types";
+import type { CanvasEditorLinearElement } from "./types";
 import type { LocalPoint } from "@agent-studio/canvas-math";
 import { pointFrom } from "@agent-studio/canvas-math";
 
@@ -188,7 +188,7 @@ describe("duplicating multiple elements", () => {
 
     const clonedArrows = clonedElements.filter(
       (e) => e.type === "arrow",
-    ) as ExcalidrawLinearElement[];
+    ) as CanvasEditorLinearElement[];
 
     const [clonedRectangle, clonedText1, , clonedArrow2, clonedArrowLabel] =
       clonedElements as any as typeof origElements;

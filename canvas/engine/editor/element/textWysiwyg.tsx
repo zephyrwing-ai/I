@@ -13,10 +13,10 @@ import {
 } from "./typeChecks";
 import { CLASSES, POINTER_BUTTON } from "../constants";
 import type {
-  ExcalidrawElement,
-  ExcalidrawLinearElement,
-  ExcalidrawTextElementWithContainer,
-  ExcalidrawTextElement,
+  CanvasEditorElement,
+  CanvasEditorLinearElement,
+  CanvasEditorTextElementWithContainer,
+  CanvasEditorTextElement,
 } from "./types";
 import type { AppState } from "../types";
 import { bumpVersion, mutateElement } from "./mutateElement";
@@ -70,11 +70,11 @@ export const textWysiwyg = ({
   getViewportCoords,
   element,
   canvas,
-  excalidrawContainer,
+  canvasContainer,
   app,
   autoSelect = true,
 }: {
-  id: ExcalidrawElement["id"];
+  id: CanvasEditorElement["id"];
   /**
    * textWysiwyg only deals with `originalText`
    *
@@ -84,14 +84,14 @@ export const textWysiwyg = ({
   onChange?: (nextOriginalText: string) => void;
   onSubmit: (data: { viaKeyboard: boolean; nextOriginalText: string }) => void;
   getViewportCoords: (x: number, y: number) => [number, number];
-  element: ExcalidrawTextElement;
+  element: CanvasEditorTextElement;
   canvas: HTMLCanvasElement;
-  excalidrawContainer: HTMLDivElement | null;
+  canvasContainer: HTMLDivElement | null;
   app: App;
   autoSelect?: boolean;
 }) => {
   const textPropertiesUpdated = (
-    updatedTextElement: ExcalidrawTextElement,
+    updatedTextElement: CanvasEditorTextElement,
     editable: HTMLTextAreaElement,
   ) => {
     if (!editable.style.fontFamily || !editable.style.fontSize) {
@@ -113,7 +113,7 @@ export const textWysiwyg = ({
   const updateWysiwygStyle = () => {
     const appState = app.state;
     const updatedTextElement =
-      Scene.getScene(element)?.getElement<ExcalidrawTextElement>(id);
+      Scene.getScene(element)?.getElement<CanvasEditorTextElement>(id);
 
     if (!updatedTextElement) {
       return;
@@ -142,7 +142,7 @@ export const textWysiwyg = ({
           const boundTextCoords =
             LinearElementEditor.getBoundTextElementPosition(
               container,
-              updatedTextElement as ExcalidrawTextElementWithContainer,
+              updatedTextElement as CanvasEditorTextElementWithContainer,
               elementsMap,
             );
           coordX = boundTextCoords.x;
@@ -173,7 +173,7 @@ export const textWysiwyg = ({
 
         maxHeight = getBoundTextMaxHeight(
           container,
-          updatedTextElement as ExcalidrawTextElementWithContainer,
+          updatedTextElement as CanvasEditorTextElementWithContainer,
         );
 
         // autogrow container height if text exceeds
@@ -200,7 +200,7 @@ export const textWysiwyg = ({
         } else {
           const { y } = computeBoundTextPosition(
             container,
-            updatedTextElement as ExcalidrawTextElementWithContainer,
+            updatedTextElement as CanvasEditorTextElementWithContainer,
             elementsMap,
           );
           coordY = y;
@@ -280,7 +280,7 @@ export const textWysiwyg = ({
   editable.dataset.type = "wysiwyg";
   // prevent line wrapping on Safari
   editable.wrap = "off";
-  editable.classList.add("excalidraw-wysiwyg");
+  editable.classList.add("agent-canvas-wysiwyg");
 
   let whiteSpace = "pre";
   let wordBreak = "normal";
@@ -508,7 +508,7 @@ export const textWysiwyg = ({
     cleanup();
     const updateElement = Scene.getScene(element)?.getElement(
       element.id,
-    ) as ExcalidrawTextElement;
+    ) as CanvasEditorTextElement;
     if (!updateElement) {
       return;
     }
@@ -536,7 +536,7 @@ export const textWysiwyg = ({
           boundElements: container.boundElements?.filter(
             (ele) =>
               !isTextElement(
-                ele as ExcalidrawTextElement | ExcalidrawLinearElement,
+                ele as CanvasEditorTextElement | CanvasEditorLinearElement,
               ),
           ),
         });
@@ -697,7 +697,7 @@ export const textWysiwyg = ({
     window.addEventListener("pointerdown", onPointerDown, { capture: true });
   });
   window.addEventListener("beforeunload", handleSubmit);
-  excalidrawContainer
-    ?.querySelector(".excalidraw-textEditorContainer")!
+  canvasContainer
+    ?.querySelector(".agent-canvas-textEditorContainer")!
     .appendChild(editable);
 };

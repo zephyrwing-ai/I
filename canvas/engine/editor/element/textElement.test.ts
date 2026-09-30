@@ -8,7 +8,7 @@ import {
   getBoundTextMaxHeight,
 } from "./textElement";
 import { detectLineHeight, getLineHeightInPx } from "./textMeasurements";
-import type { ExcalidrawTextElementWithContainer } from "./types";
+import type { CanvasEditorTextElementWithContainer } from "./types";
 
 describe("Test measureText", () => {
   describe("Test getContainerCoords", () => {
@@ -123,11 +123,11 @@ describe("Test measureText", () => {
       height: 175,
       fontSize: 20,
       fontFamily: 1,
-      text: "Excalidraw is a\nvirtual \nopensource \nwhiteboard for \nsketching \nhand-drawn like\ndiagrams",
+      text: "CanvasEditor is a\nvirtual \nopensource \nwhiteboard for \nsketching \nhand-drawn like\ndiagrams",
       textAlign: "center",
       verticalAlign: "middle",
       containerId: params.id,
-    }) as ExcalidrawTextElementWithContainer;
+    }) as CanvasEditorTextElementWithContainer;
 
     it("should return max height when container is rectangle", () => {
       const container = API.createElement({ type: "rectangle", ...params });
@@ -169,7 +169,7 @@ describe("Test measureText", () => {
 
 const textElement = API.createElement({
   type: "text",
-  text: "Excalidraw is a\nvirtual \nopensource \nwhiteboard for \nsketching \nhand-drawn like\ndiagrams",
+  text: "CanvasEditor is a\nvirtual \nopensource \nwhiteboard for \nsketching \nhand-drawn like\ndiagrams",
   fontSize: 20,
   fontFamily: 1,
   height: 175,

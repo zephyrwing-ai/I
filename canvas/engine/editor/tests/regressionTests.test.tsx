@@ -1,7 +1,7 @@
 import React from "react";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import { CODES, KEYS } from "../keys";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { reseed } from "../random";
 import * as StaticScene from "../renderer/staticScene";
 import { setDateTimeForTests } from "../utils";
@@ -53,7 +53,7 @@ beforeEach(async () => {
   finger1.reset();
   finger2.reset();
 
-  await render(<Excalidraw handleKeyboardGlobally={true} />);
+  await render(<CanvasEditor handleKeyboardGlobally={true} />);
   API.setAppState({ height: 768, width: 1024 });
 });
 
@@ -136,7 +136,7 @@ describe("regression tests", () => {
     [`5${KEYS.A}`, "arrow", true],
     [`6${KEYS.L}`, "line", true],
     [`7${KEYS.P}`, "freedraw", false],
-  ] as [string, ExcalidrawElement["type"], boolean][]) {
+  ] as [string, CanvasEditorElement["type"], boolean][]) {
     for (const key of keys) {
       it(`key ${key} selects ${shape} tool`, () => {
         Keyboard.keyPress(key);

@@ -1,10 +1,10 @@
 import type {
   ElementsMap,
-  ExcalidrawDiamondElement,
-  ExcalidrawElement,
-  ExcalidrawEllipseElement,
-  ExcalidrawRectangleElement,
-  ExcalidrawRectanguloidElement,
+  CanvasEditorDiamondElement,
+  CanvasEditorElement,
+  CanvasEditorEllipseElement,
+  CanvasEditorRectangleElement,
+  CanvasEditorRectanguloidElement,
 } from "./types";
 import { getElementBounds } from "./bounds";
 import type { FrameNameBounds } from "../types";
@@ -45,7 +45,7 @@ import {
   deconstructRectanguloidElement,
 } from "./utils";
 
-export const shouldTestInside = (element: ExcalidrawElement) => {
+export const shouldTestInside = (element: CanvasEditorElement) => {
   if (element.type === "arrow") {
     return false;
   }
@@ -70,7 +70,7 @@ export const shouldTestInside = (element: ExcalidrawElement) => {
 export type HitTestArgs<Point extends GlobalPoint | LocalPoint> = {
   x: number;
   y: number;
-  element: ExcalidrawElement;
+  element: CanvasEditorElement;
   shape: GeometricShape<Point>;
   threshold?: number;
   frameNameBound?: FrameNameBounds | null;
@@ -95,7 +95,7 @@ export const hitElementItself = <Point extends GlobalPoint | LocalPoint>({
   if (!hit && frameNameBound) {
     hit = isPointInShape(pointFrom(x, y), {
       type: "polygon",
-      data: getPolygonShape(frameNameBound as ExcalidrawRectangleElement)
+      data: getPolygonShape(frameNameBound as CanvasEditorRectangleElement)
         .data as Polygon<Point>,
     });
   }
@@ -106,7 +106,7 @@ export const hitElementItself = <Point extends GlobalPoint | LocalPoint>({
 export const hitElementBoundingBox = (
   x: number,
   y: number,
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   elementsMap: ElementsMap,
   tolerance = 0,
 ) => {
@@ -157,7 +157,7 @@ export const hitElementBoundText = <Point extends GlobalPoint | LocalPoint>(
  * @returns
  */
 export const intersectElementWithLineSegment = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   line: LineSegment<GlobalPoint>,
   offset: number = 0,
 ): GlobalPoint[] => {
@@ -180,7 +180,7 @@ export const intersectElementWithLineSegment = (
 };
 
 const intersectRectanguloidWithLineSegment = (
-  element: ExcalidrawRectanguloidElement,
+  element: CanvasEditorRectanguloidElement,
   l: LineSegment<GlobalPoint>,
   offset: number = 0,
 ): GlobalPoint[] => {
@@ -242,7 +242,7 @@ const intersectRectanguloidWithLineSegment = (
  * @returns
  */
 const intersectDiamondWithLineSegment = (
-  element: ExcalidrawDiamondElement,
+  element: CanvasEditorDiamondElement,
   l: LineSegment<GlobalPoint>,
   offset: number = 0,
 ): GlobalPoint[] => {
@@ -293,7 +293,7 @@ const intersectDiamondWithLineSegment = (
  * @returns
  */
 const intersectEllipseWithLineSegment = (
-  element: ExcalidrawEllipseElement,
+  element: CanvasEditorEllipseElement,
   l: LineSegment<GlobalPoint>,
   offset: number = 0,
 ): GlobalPoint[] => {

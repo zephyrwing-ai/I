@@ -1,16 +1,16 @@
 import type {
   NonDeleted,
-  ExcalidrawLinearElement,
-  ExcalidrawElement,
+  CanvasEditorLinearElement,
+  CanvasEditorElement,
   PointBinding,
-  ExcalidrawBindableElement,
-  ExcalidrawTextElementWithContainer,
+  CanvasEditorBindableElement,
+  CanvasEditorTextElementWithContainer,
   ElementsMap,
   NonDeletedSceneElementsMap,
   FixedPointBinding,
   SceneElementsMap,
   FixedSegment,
-  ExcalidrawElbowArrowElement,
+  CanvasEditorElbowArrowElement,
 } from "./types";
 import { getElementAbsoluteCoords, getLockedLinearCursorAlignSize } from ".";
 import type { Bounds } from "./bounds";
@@ -71,7 +71,7 @@ const editorMidPointsCache: {
   zoom: number | null;
 } = { version: null, points: [], zoom: null };
 export class LinearElementEditor {
-  public readonly elementId: ExcalidrawElement["id"] & {
+  public readonly elementId: CanvasEditorElement["id"] & {
     _brand: "excalidrawLinearElementId";
   };
   /** indices */
@@ -95,15 +95,15 @@ export class LinearElementEditor {
   public readonly lastUncommittedPoint: LocalPoint | null;
   public readonly pointerOffset: Readonly<{ x: number; y: number }>;
   public readonly startBindingElement:
-    | ExcalidrawBindableElement
+    | CanvasEditorBindableElement
     | null
     | "keep";
-  public readonly endBindingElement: ExcalidrawBindableElement | null | "keep";
+  public readonly endBindingElement: CanvasEditorBindableElement | null | "keep";
   public readonly hoverPointIndex: number;
   public readonly segmentMidPointHoveredCoords: GlobalPoint | null;
   public readonly elbowed: boolean;
 
-  constructor(element: NonDeleted<ExcalidrawLinearElement>) {
+  constructor(element: NonDeleted<CanvasEditorLinearElement>) {
     this.elementId = element.id as string & {
       _brand: "excalidrawLinearElementId";
     };
@@ -141,9 +141,9 @@ export class LinearElementEditor {
   static POINT_HANDLE_SIZE = 10;
   /**
    * @param id the `elementId` from the instance of this class (so that we can
-   *  statically guarantee this method returns an ExcalidrawLinearElement)
+   *  statically guarantee this method returns an CanvasEditorLinearElement)
    */
-  static getElement<T extends ExcalidrawLinearElement>(
+  static getElement<T extends CanvasEditorLinearElement>(
     id: InstanceType<typeof LinearElementEditor>["elementId"],
     elementsMap: ElementsMap,
   ): T | null {
@@ -223,7 +223,7 @@ export class LinearElementEditor {
     scenePointerX: number,
     scenePointerY: number,
     maybeSuggestBinding: (
-      element: NonDeleted<ExcalidrawLinearElement>,
+      element: NonDeleted<CanvasEditorLinearElement>,
       pointSceneCoords: { x: number; y: number }[],
     ) => void,
     linearElementEditor: LinearElementEditor,
@@ -481,7 +481,7 @@ export class LinearElementEditor {
   }
 
   static getEditorMidPoints = (
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     elementsMap: ElementsMap,
     appState: InteractiveCanvasAppState,
   ): typeof editorMidPointsCache["points"] => {
@@ -511,7 +511,7 @@ export class LinearElementEditor {
   };
 
   static updateEditorMidPointsCache = (
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     elementsMap: ElementsMap,
     appState: InteractiveCanvasAppState,
   ) => {
@@ -622,7 +622,7 @@ export class LinearElementEditor {
   };
 
   static isSegmentTooShort<P extends GlobalPoint | LocalPoint>(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     startPoint: P,
     endPoint: P,
     index: number,
@@ -648,7 +648,7 @@ export class LinearElementEditor {
   }
 
   static getSegmentMidPoint(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     startPoint: GlobalPoint,
     endPoint: GlobalPoint,
     endPointIndex: number,
@@ -721,7 +721,7 @@ export class LinearElementEditor {
     scene: Scene,
   ): {
     didAddPoint: boolean;
-    hitElement: NonDeleted<ExcalidrawElement> | null;
+    hitElement: NonDeleted<CanvasEditorElement> | null;
     linearElementEditor: LinearElementEditor | null;
   } {
     const appState = app.state;
@@ -971,7 +971,7 @@ export class LinearElementEditor {
 
   /** scene coords */
   static getPointGlobalCoordinates(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     p: LocalPoint,
     elementsMap: ElementsMap,
   ): GlobalPoint {
@@ -989,7 +989,7 @@ export class LinearElementEditor {
 
   /** scene coords */
   static getPointsGlobalCoordinates(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     elementsMap: ElementsMap,
   ): GlobalPoint[] {
     const [x1, y1, x2, y2] = getElementAbsoluteCoords(element, elementsMap);
@@ -1006,7 +1006,7 @@ export class LinearElementEditor {
   }
 
   static getPointAtIndexGlobalCoordinates(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
 
     indexMaybeFromEnd: number, // -1 for last element
     elementsMap: ElementsMap,
@@ -1031,7 +1031,7 @@ export class LinearElementEditor {
   }
 
   static pointFromAbsoluteCoords(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     absoluteCoords: GlobalPoint,
     elementsMap: ElementsMap,
   ): LocalPoint {
@@ -1055,7 +1055,7 @@ export class LinearElementEditor {
   }
 
   static getPointIndexUnderCursor(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     elementsMap: ElementsMap,
     zoom: AppState["zoom"],
     x: number,
@@ -1083,7 +1083,7 @@ export class LinearElementEditor {
   }
 
   static createPointAt(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     elementsMap: ElementsMap,
     scenePointerX: number,
     scenePointerY: number,
@@ -1107,7 +1107,7 @@ export class LinearElementEditor {
    * expected in various parts of the codebase. Also returns new x/y to account
    * for the potential normalization.
    */
-  static getNormalizedPoints(element: ExcalidrawLinearElement): {
+  static getNormalizedPoints(element: CanvasEditorLinearElement): {
     points: LocalPoint[];
     x: number;
     y: number;
@@ -1129,7 +1129,7 @@ export class LinearElementEditor {
   // element-mutating methods
   // ---------------------------------------------------------------------------
 
-  static normalizePoints(element: NonDeleted<ExcalidrawLinearElement>) {
+  static normalizePoints(element: NonDeleted<CanvasEditorLinearElement>) {
     mutateElement(element, LinearElementEditor.getNormalizedPoints(element));
   }
 
@@ -1208,7 +1208,7 @@ export class LinearElementEditor {
   }
 
   static deletePoints(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     pointIndices: readonly number[],
   ) {
     let offsetX = 0;
@@ -1243,7 +1243,7 @@ export class LinearElementEditor {
   }
 
   static addPoints(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     targetPoints: { point: LocalPoint }[],
   ) {
     const offsetX = 0;
@@ -1254,7 +1254,7 @@ export class LinearElementEditor {
   }
 
   static movePoints(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     targetPoints: { index: number; point: LocalPoint; isDragging?: boolean }[],
     otherUpdates?: {
       startBinding?: PointBinding | null;
@@ -1405,7 +1405,7 @@ export class LinearElementEditor {
   }
 
   private static _updatePoints(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     nextPoints: readonly LocalPoint[],
     offsetX: number,
     offsetY: number,
@@ -1468,7 +1468,7 @@ export class LinearElementEditor {
   }
 
   private static _getShiftLockedDelta(
-    element: NonDeleted<ExcalidrawLinearElement>,
+    element: NonDeleted<CanvasEditorLinearElement>,
     elementsMap: ElementsMap,
     referencePoint: LocalPoint,
     scenePointer: GlobalPoint,
@@ -1508,8 +1508,8 @@ export class LinearElementEditor {
   }
 
   static getBoundTextElementPosition = (
-    element: ExcalidrawLinearElement,
-    boundTextElement: ExcalidrawTextElementWithContainer,
+    element: CanvasEditorLinearElement,
+    boundTextElement: CanvasEditorTextElementWithContainer,
     elementsMap: ElementsMap,
   ): { x: number; y: number } => {
     const points = LinearElementEditor.getPointsGlobalCoordinates(
@@ -1556,10 +1556,10 @@ export class LinearElementEditor {
   };
 
   static getMinMaxXYWithBoundText = (
-    element: ExcalidrawLinearElement,
+    element: CanvasEditorLinearElement,
     elementsMap: ElementsMap,
     elementBounds: Bounds,
-    boundTextElement: ExcalidrawTextElementWithContainer,
+    boundTextElement: CanvasEditorTextElementWithContainer,
   ): [number, number, number, number, number, number] => {
     let [x1, y1, x2, y2] = elementBounds;
     const cx = (x1 + x2) / 2;
@@ -1660,7 +1660,7 @@ export class LinearElementEditor {
   };
 
   static getElementAbsoluteCoords = (
-    element: ExcalidrawLinearElement,
+    element: CanvasEditorLinearElement,
     elementsMap: ElementsMap,
     includeBoundText: boolean = false,
   ): [number, number, number, number, number, number] => {
@@ -1801,7 +1801,7 @@ export class LinearElementEditor {
   }
 
   static deleteFixedSegment(
-    element: ExcalidrawElbowArrowElement,
+    element: CanvasEditorElbowArrowElement,
     index: number,
   ): void {
     mutateElement(element, {

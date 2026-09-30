@@ -1,7 +1,7 @@
 import { newElementWith } from "./element/mutateElement";
 import { getMaximumGroups } from "./groups";
 import { getCommonBoundingBox } from "./element/bounds";
-import type { ElementsMap, ExcalidrawElement } from "./element/types";
+import type { ElementsMap, CanvasEditorElement } from "./element/types";
 
 export interface Distribution {
   space: "between";
@@ -9,10 +9,10 @@ export interface Distribution {
 }
 
 export const distributeElements = (
-  selectedElements: ExcalidrawElement[],
+  selectedElements: CanvasEditorElement[],
   elementsMap: ElementsMap,
   distribution: Distribution,
-): ExcalidrawElement[] => {
+): CanvasEditorElement[] => {
   const [start, mid, end, extent] =
     distribution.axis === "x"
       ? (["minX", "midX", "maxX", "width"] as const)

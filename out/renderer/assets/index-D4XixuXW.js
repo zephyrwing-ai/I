@@ -1,4 +1,4 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./index-aCo1Oxwf.js","./index-B0hAA_Nb.css"])))=>i.map(i=>d[i]);
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./index-CJqlXBvC.js","./index-B0hAA_Nb.css"])))=>i.map(i=>d[i]);
 function _mergeNamespaces(n, m) {
   for (var i = 0; i < m.length; i++) {
     const e = m[i];
@@ -7011,8 +7011,8 @@ var clientExports = requireClient();
 function Column({ children }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "column", children });
 }
-function selectAnswerTurn(run) {
-  const turns = run.turnOrder.map((turnId) => run.turns[turnId]).filter((turn) => Boolean(turn));
+function selectAnswerTurn(run, segment) {
+  const turns = segment.turnOrder.map((turnId) => run.turns[turnId]).filter((turn) => Boolean(turn));
   const finalTurn = [...turns].reverse().find(
     (turn) => turn.status === "completed" && turn.toolOrder.length === 0
   );
@@ -7024,18 +7024,38 @@ function buildMessageBlockRecords(state) {
     const run = state.runs[runId];
     if (!run) return [];
     const records = [];
-    if (run.task) records.push({ runId, blockId: `${runId}:task`, kind: "user", text: run.task });
-    records.push({ runId, blockId: `${runId}:process`, kind: "process" });
-    const answerTurn = selectAnswerTurn(run);
-    if (answerTurn?.assistantContent) {
+    const answeredSegmentId = [...run.segmentOrder].reverse().find((id) => Boolean(selectAnswerTurn(run, run.segments[id])?.assistantContent));
+    const addUser = (inputId, segmentId) => {
+      const input = run.inputs[inputId];
+      if (!input) return;
       records.push({
         runId,
-        turnId: answerTurn.turnId,
-        blockId: `${runId}:answer:${answerTurn.turnId}`,
-        kind: "assistant",
-        text: answerTurn.finalContent ?? answerTurn.assistantContent
+        segmentId,
+        inputId,
+        blockId: inputId,
+        kind: "user",
+        text: input.task
       });
+    };
+    for (const segmentId of run.segmentOrder) {
+      const segment = run.segments[segmentId];
+      if (!segment) continue;
+      for (const inputId of segment.inputIds) addUser(inputId, segmentId);
+      records.push({ runId, segmentId, blockId: `${segmentId}:process`, kind: "process" });
+      const answerTurn = selectAnswerTurn(run, segment);
+      if (answerTurn?.assistantContent) {
+        records.push({
+          runId,
+          segmentId,
+          turnId: answerTurn.turnId,
+          blockId: `${runId}:answer:${answerTurn.turnId}`,
+          kind: "assistant",
+          text: answerTurn.finalContent ?? answerTurn.assistantContent,
+          showDuration: segmentId === answeredSegmentId
+        });
+      }
     }
+    for (const inputId of run.pendingInputIds) addUser(inputId);
     return records;
   });
 }
@@ -20052,28 +20072,16 @@ function Chevron({ expanded }) {
 }
 function RunProcess({
   run,
-  runTiming
+  segment
 }) {
   const [open, setOpen] = reactExports.useState(false);
-  const working = runTiming !== void 0 && runTiming.completedAt === void 0;
-  const [now, setNow] = reactExports.useState(() => working && runTiming ? Date.now() : 0);
-  const answerTurn = selectAnswerTurn(run);
-  reactExports.useEffect(() => {
-    if (!working || !runTiming) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(timer);
-  }, [working, runTiming]);
-  const persistedDuration = answerTurn?.assistantDurationMs;
-  const totalElapsed = working && runTiming ? now - runTiming.startedAt : persistedDuration ?? (runTiming ? (runTiming.completedAt ?? now) - runTiming.startedAt : void 0);
-  const turns = run.turnOrder.map((turnId) => run.turns[turnId]).filter((turn) => Boolean(turn));
+  const working = run.source === "live" && run.activeSegmentId === segment.segmentId && (run.status === "running" || run.status === "stopping");
+  const answerTurn = selectAnswerTurn(run, segment);
+  const turns = segment.turnOrder.map((turnId) => run.turns[turnId]).filter((turn) => Boolean(turn));
   const retrying = turns.some((turn) => turn.status === "retrying");
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "run-process", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: "run-fold", "aria-expanded": open, onClick: () => setOpen((value) => !value), children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `turn-state${working ? " working" : ""}`, children: [
-        retrying ? "Retrying response" : working ? "Working for" : "Worked for",
-        totalElapsed !== void 0 && ` ${formatElapsed(totalElapsed)}`
-      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `turn-state${working ? " working" : ""}`, children: retrying ? "Retrying response" : working ? "Working" : "Process" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(Chevron, { expanded: open })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `run-detail${open ? " is-open" : ""}`, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "run-detail-clip", children: turns.map((turn) => {
@@ -20093,13 +20101,20 @@ function RunProcess({
 }
 function FinalAnswer({
   run,
-  runTiming,
+  turnId,
+  showDuration = false,
   active = false
 }) {
-  const answerTurn = selectAnswerTurn(run);
+  const answerTurn = run.turns[turnId];
   if (!answerTurn?.assistantContent) return null;
-  const messageAt = answerTurn.assistantAt ?? runTiming?.completedAt;
+  const messageAt = answerTurn.assistantAt;
+  const completed = run.status === "completed";
+  const duration = showDuration && completed ? run.finalDurationMs ?? answerTurn.assistantDurationMs : void 0;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `model-message${active ? " search-active" : ""}`, children: [
+    duration !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-duration", children: [
+      "Worked for ",
+      formatElapsed(duration)
+    ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(MarkdownText, { className: "model-text final-answer", text: answerTurn.assistantContent }),
     messageAt !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(MessageMeta, { time: messageAt, text: answerTurn.assistantContent, copyLabel: "Copy answer" })
   ] });
@@ -20399,11 +20414,13 @@ function useVirtualMessageWindow({
 const USER_MESSAGE_ESTIMATE = 88;
 const RUN_PROCESS_ESTIMATE = 140;
 const ASSISTANT_MESSAGE_ESTIMATE = 160;
-function buildMessageBlocks(order2, runs, runTimings, activeSearchBlockId = null) {
+function buildMessageBlocks(order2, runs, activeSearchBlockId = null, onResendInput) {
   return buildMessageBlockRecords({ runOrder: order2, runs }).flatMap((record) => {
     const run = runs[record.runId];
     if (!run) return [];
     if (record.kind === "user") {
+      const input = record.inputId ? run.inputs[record.inputId] : void 0;
+      if (!input) return [];
       const taskText = normalizePunctuation(record.text ?? "");
       return [{
         blockId: record.blockId,
@@ -20412,24 +20429,31 @@ function buildMessageBlocks(order2, runs, runTimings, activeSearchBlockId = null
         estimatedHeight: USER_MESSAGE_ESTIMATE,
         content: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "user-message-row", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "user-message-group", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `user-message${activeSearchBlockId === record.blockId ? " search-active" : ""}`, children: taskText }),
-          run.taskAt !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(MessageMeta, { time: run.taskAt, text: taskText })
+          input.status === "interrupted" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "user-message-interrupted", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Not applied" }),
+            onResendInput && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void onResendInput(record.runId, input.inputId), children: "Edit and resend" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(MessageMeta, { time: input.at, text: taskText })
         ] }) })
       }];
     }
     if (record.kind === "process") {
+      const segment = record.segmentId ? run.segments[record.segmentId] : void 0;
+      if (!segment) return [];
       return [{
         blockId: record.blockId,
         kind: record.kind,
         estimatedHeight: RUN_PROCESS_ESTIMATE,
-        content: /* @__PURE__ */ jsxRuntimeExports.jsx(RunProcess, { run, runTiming: runTimings[record.runId] })
+        content: /* @__PURE__ */ jsxRuntimeExports.jsx(RunProcess, { run, segment })
       }];
     }
+    if (!record.turnId) return [];
     return [{
       blockId: record.blockId,
       kind: record.kind,
       searchText: record.text,
       estimatedHeight: ASSISTANT_MESSAGE_ESTIMATE,
-      content: /* @__PURE__ */ jsxRuntimeExports.jsx(FinalAnswer, { run, runTiming: runTimings[record.runId], active: activeSearchBlockId === record.blockId })
+      content: /* @__PURE__ */ jsxRuntimeExports.jsx(FinalAnswer, { run, turnId: record.turnId, showDuration: record.showDuration, active: activeSearchBlockId === record.blockId })
     }];
   });
 }
@@ -20440,18 +20464,18 @@ const MessageStream = reactExports.forwardRef(function MessageStream2({
   historyReady = true,
   order: order2,
   runs,
-  runTimings,
   scrollRef,
   hasMore = false,
   loadingOlder = false,
   historyError = null,
   onLoadOlder,
-  activeSearchBlockId = null
+  activeSearchBlockId = null,
+  onResendInput
 }, ref) {
   const rootRef = reactExports.useRef(null);
   const blocks = reactExports.useMemo(
-    () => buildMessageBlocks(order2, runs, runTimings, activeSearchBlockId),
-    [activeSearchBlockId, order2, runTimings, runs]
+    () => buildMessageBlocks(order2, runs, activeSearchBlockId, onResendInput),
+    [activeSearchBlockId, onResendInput, order2, runs]
   );
   const { range, revealBlock } = useVirtualMessageWindow({
     items: blocks,
@@ -20789,6 +20813,19 @@ function isSendKey(key, shiftKey, composing) {
 }
 const MODEL_OPTION_STORAGE_KEY = "workbench.modelOptionId";
 const MODEL_PICKER_LAYOUT_STORAGE_KEY = "workbench.modelPickerLayout.v1";
+function selectComposerAction({
+  running,
+  stopping,
+  submitting,
+  activeRunId,
+  hasText
+}) {
+  if (stopping) return "stopping";
+  if (submitting) return "submitting";
+  if (!running) return "start";
+  if (!activeRunId) return "starting";
+  return hasText ? "steer" : "stop";
+}
 function restoreStoredModelOptionId(storedId, modelOptions) {
   const modelOptionId = storedId.trim();
   return modelOptions.some((model) => model.available && model.modelOptionId === modelOptionId) ? modelOptionId : "";
@@ -20810,15 +20847,18 @@ function parseStoredModelPickerPreference(serialized, legacyModelOptionId) {
   }
   return { modelOptionId: legacyId, displayName: "", width: null };
 }
-function Composer({ running, stopping, ready = true, modelOptions, modelLoading, onRun, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, onSelectProject = () => void 0, onClearProject = () => void 0, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }) {
+function Composer({ running, stopping, activeRunId = null, restoreDraft = null, ready = true, modelOptions, modelLoading, onRun, onSteer, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, onSelectProject = () => void 0, onClearProject = () => void 0, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }) {
   const [task, setTask] = reactExports.useState("");
+  const taskRevision = reactExports.useRef(0);
   const [attachments, setAttachments] = reactExports.useState([]);
+  const [submitting, setSubmitting] = reactExports.useState(false);
   const [modelOpen, setModelOpen] = reactExports.useState(false);
   const { selectedModelOptionId, selectModel, storedPreference } = useSelectedModelOption(modelOptions, modelLoading);
   const modelRootRef = reactExports.useRef(null);
   const modelTriggerRef = reactExports.useRef(null);
   const modelLabelRef = reactExports.useRef(null);
   const taskInputRef = reactExports.useRef(null);
+  const actionButtonRef = reactExports.useRef(null);
   const modelSelectionChangedRef = reactExports.useRef(false);
   const modelPickerPreferenceRef = reactExports.useRef(storedPreference);
   const [modelTriggerWidth, setModelTriggerWidth] = reactExports.useState(() => storedPreference.modelOptionId === selectedModelOptionId ? storedPreference.width : null);
@@ -20827,8 +20867,25 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
   const selectableModels = modelOptions.filter((option) => option.available);
   const cachedModelDisplayName = storedPreference.modelOptionId === selectedModelOptionId ? storedPreference.displayName : "";
   const modelDisplayName = selectedModel?.displayName ?? (cachedModelDisplayName || (modelLoading ? "Loading model…" : "Choose model"));
-  const canRun = ready && !running && task.trim() !== "" && Boolean(selectedModel?.available);
-  const disabledReason = !task.trim() ? "Enter a task" : !selectedModel?.available ? "Choose an available model" : null;
+  const hasText = task.trim() !== "";
+  const action = selectComposerAction({ running, stopping, submitting, activeRunId, hasText });
+  const stopAction = action === "stop" || action === "stopping";
+  const canSubmit = ready && hasText && (action === "start" ? Boolean(selectedModel?.available) : action === "steer" && Boolean(onSteer));
+  const disabledReason = !hasText ? "Enter a task" : action === "stopping" ? "Stopping run" : action === "starting" ? "Starting run" : action === "start" && !selectedModel?.available ? "Choose an available model" : null;
+  reactExports.useEffect(() => {
+    if (!restoreDraft) return;
+    taskRevision.current += 1;
+    setTask((current) => current ? `${current}
+${restoreDraft.text}` : restoreDraft.text);
+    const frame = requestAnimationFrame(() => {
+      const input = taskInputRef.current;
+      if (!input) return;
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+      input.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [restoreDraft]);
   reactExports.useLayoutEffect(() => {
     const trigger = modelTriggerRef.current;
     const label = modelLabelRef.current;
@@ -20896,32 +20953,52 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
       return [...byId.values()];
     });
   };
-  const submit = () => {
-    if (!canRun) return;
-    const request = {
-      task: task.trim(),
-      modelOptionId: selectedModelOptionId,
-      attachmentIds: attachments.map((attachment) => attachment.attachmentId),
-      canvasContextIds: canvasContexts.map((context) => context.contextId),
-      projectId: project.projectId
-    };
-    onRun(request);
-    setTask("");
-    setAttachments([]);
-    onClearCanvasContexts?.();
-    const input = taskInputRef.current;
-    if (input) {
-      input.style.height = "auto";
-      input.style.overflowY = "hidden";
+  const submit = async (source) => {
+    if (!canSubmit) return;
+    const restoreInputFocus = source === "button" || document.activeElement === taskInputRef.current;
+    const submittedTask = task.trim();
+    const submittedRevision = taskRevision.current;
+    const submittedAttachmentIds = attachments.map((attachment) => attachment.attachmentId);
+    const submittedCanvasContextIds = canvasContexts.map((context) => context.contextId);
+    setSubmitting(true);
+    try {
+      const accepted = running && activeRunId ? await onSteer({ runId: activeRunId, projectId: project.projectId, inputId: crypto.randomUUID(), task: submittedTask }) : await onRun({
+        task: submittedTask,
+        modelOptionId: selectedModelOptionId,
+        attachmentIds: submittedAttachmentIds,
+        canvasContextIds: submittedCanvasContextIds,
+        projectId: project.projectId
+      });
+      if (!accepted) return;
+      if (taskRevision.current === submittedRevision) {
+        setTask("");
+        const input = taskInputRef.current;
+        if (input) {
+          input.style.height = "auto";
+          input.style.overflowY = "hidden";
+        }
+      }
+      if (!running) {
+        const consumed = new Set(submittedAttachmentIds);
+        setAttachments((current) => current.filter((attachment) => !consumed.has(attachment.attachmentId)));
+        onClearCanvasContexts?.(submittedCanvasContextIds);
+      }
+      if (restoreInputFocus) requestAnimationFrame(() => {
+        const input = taskInputRef.current;
+        if (input && !input.disabled && (document.activeElement === document.body || document.activeElement === actionButtonRef.current)) input.focus();
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
   const onTaskKeyDown = (e) => {
     if (isSendKey(e.key, e.shiftKey, e.nativeEvent.isComposing)) {
       e.preventDefault();
-      submit();
+      void submit("keyboard");
     }
   };
   const updateTask = (element2) => {
+    taskRevision.current += 1;
     setTask(element2.value);
     element2.style.height = "auto";
     element2.style.height = `${Math.min(element2.scrollHeight, 180)}px`;
@@ -20976,7 +21053,7 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
           className: "task-input",
           placeholder: "What's up?",
           value: task,
-          disabled: running || !ready,
+          disabled: !ready || submitting,
           onChange: (event) => updateTask(event.currentTarget),
           onKeyDown: onTaskKeyDown,
           "aria-label": "Task"
@@ -21003,10 +21080,10 @@ function Composer({ running, stopping, ready = true, modelOptions, modelLoading,
               ] }, model.modelOptionId))
             ] })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: `send-stop-button ${running ? "is-stop" : "is-send"}`, onClick: running ? onStop : submit, disabled: running ? stopping : !canRun, "aria-label": running ? stopping ? "Stopping" : "Stop run" : "Send", title: running ? stopping ? "Stopping" : "Stop run" : ready ? disabledReason ?? "Send" : "Loading history", "aria-busy": stopping || void 0, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "send-stop-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: running ? "stop" : "arrow-up", width: 18, height: 18 }) }, running ? "stop" : "send") })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { ref: actionButtonRef, type: "button", className: `send-stop-button ${stopAction ? "is-stop" : "is-send"}`, onClick: stopAction ? onStop : () => void submit("button"), disabled: stopAction ? stopping : !canSubmit, "aria-label": stopAction ? stopping ? "Stopping" : "Stop run" : "Send", title: stopAction ? stopping ? "Stopping" : "Stop run" : ready ? disabledReason ?? "Send" : "Loading history", "aria-busy": stopping || submitting || void 0, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "send-stop-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: stopAction ? "stop" : "arrow-up", width: 18, height: 18 }) }, stopAction ? "stop" : "send") })
         ] })
       ] }),
-      !running && disabledReason && task.trim() && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "composer-hint", role: "status", children: disabledReason })
+      disabledReason && task.trim() && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "composer-hint", role: "status", children: disabledReason })
     ] })
   ] });
 }
@@ -21511,7 +21588,7 @@ function initialWidth() {
   const value = Number(localStorage.getItem(WIDTH_KEY));
   return Number.isFinite(value) && value > 0 ? value : OUTPUT_SIDEBAR_DEFAULT_WIDTH;
 }
-function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", canvas }) {
+function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", canvas, canvasCanRelease = true }) {
   const [phase, setPhase] = reactExports.useState(open ? "open" : "closed");
   const [canvasMounted, setCanvasMounted] = reactExports.useState(
     () => open && activePanel === "canvas"
@@ -21554,6 +21631,11 @@ function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", can
     });
   }, [open]);
   reactExports.useEffect(() => {
+    if (!canvasCanRelease) {
+      if (canvasReleaseTimerRef.current !== null) window.clearTimeout(canvasReleaseTimerRef.current);
+      canvasReleaseTimerRef.current = null;
+      return;
+    }
     if (open && activePanel === "canvas") {
       if (canvasReleaseTimerRef.current !== null) {
         window.clearTimeout(canvasReleaseTimerRef.current);
@@ -21569,7 +21651,7 @@ function OutputSidebar({ open, files, onOpenChange, activePanel = "outputs", can
       canvasReleaseTimerRef.current = null;
       setCanvasMounted(false);
     }, CANVAS_KEEP_ALIVE_MS);
-  }, [activePanel, canvasMounted, open]);
+  }, [activePanel, canvasCanRelease, canvasMounted, open]);
   reactExports.useEffect(() => {
     if (shellRef.current) shellRef.current.inert = phase === "closed";
   }, [phase]);
@@ -21818,24 +21900,43 @@ const __vitePreload = function preload(baseModule, deps, importerUrl) {
     return baseModule().catch(handlePreloadError);
   });
 };
+function shouldPersistCanvasChange(previousSceneVersion, sceneVersion, previousView, nextView) {
+  return sceneVersion === void 0 || sceneVersion !== previousSceneVersion || !samePersistedView(previousView, nextView);
+}
+function samePersistedView(currentState, nextState) {
+  if (!currentState) return false;
+  return currentState.theme === nextState.theme && currentState.viewBackgroundColor === nextState.viewBackgroundColor && currentState.gridSize === nextState.gridSize && currentState.gridStep === nextState.gridStep && currentState.zoom?.value === nextState.zoom?.value && currentState.scrollX === nextState.scrollX && currentState.scrollY === nextState.scrollY;
+}
 let canvasEditorPromise = null;
-let preloadedCanvasDocument = null;
+let loadedCanvasEditor = null;
+const preloadedCanvasDocuments = /* @__PURE__ */ new Map();
+function canvasScopeKey(projectId) {
+  return projectId ?? "__unprojected__";
+}
 function preloadCanvasEditor() {
-  canvasEditorPromise ??= __vitePreload(() => import("./index-aCo1Oxwf.js"), true ? __vite__mapDeps([0,1]) : void 0, import.meta.url).catch((error) => {
+  canvasEditorPromise ??= __vitePreload(() => import("./index-CJqlXBvC.js"), true ? __vite__mapDeps([0,1]) : void 0, import.meta.url).then((module) => {
+    loadedCanvasEditor = module;
+    return module;
+  }).catch((error) => {
     canvasEditorPromise = null;
+    loadedCanvasEditor = null;
     throw error;
   });
   return canvasEditorPromise;
 }
-function preloadCanvasDocument() {
-  preloadedCanvasDocument ??= window.agentAPI.loadCanvasDocument().catch((error) => {
-    preloadedCanvasDocument = null;
+function preloadCanvasDocument(projectId) {
+  const key = canvasScopeKey(projectId);
+  const existing = preloadedCanvasDocuments.get(key);
+  if (existing) return existing;
+  const pending = window.agentAPI.loadCanvasDocument(projectId).catch((error) => {
+    preloadedCanvasDocuments.delete(key);
     throw error;
   });
-  return preloadedCanvasDocument;
+  preloadedCanvasDocuments.set(key, pending);
+  return pending;
 }
 function resetPreloadedCanvasDocument() {
-  preloadedCanvasDocument = null;
+  preloadedCanvasDocuments.clear();
 }
 class CanvasRenderErrorBoundary extends reactExports.Component {
   constructor() {
@@ -21858,16 +21959,18 @@ class CanvasRenderErrorBoundary extends reactExports.Component {
     return this.props.children;
   }
 }
-function consumeCanvasDocument() {
-  const promise = preloadedCanvasDocument ?? window.agentAPI.loadCanvasDocument();
-  preloadedCanvasDocument = null;
+function consumeCanvasDocument(projectId) {
+  const key = canvasScopeKey(projectId);
+  const promise = preloadedCanvasDocuments.get(key) ?? window.agentAPI.loadCanvasDocument(projectId);
+  preloadedCanvasDocuments.delete(key);
   return promise;
 }
 const Excalidraw = reactExports.lazy(async () => {
   const module = await preloadCanvasEditor();
   return { default: module.Excalidraw };
 });
-function CanvasSurface({ onContextPrepared }) {
+const SELECTION_ACTION_HANDLE_GAP = 10;
+const CanvasSurface = reactExports.forwardRef(function CanvasSurface2({ projectId, onContextPrepared, onCanReleaseChange }, ref) {
   const [document2, setDocument] = reactExports.useState(null);
   const [api, setApi] = reactExports.useState(null);
   const [selectionActionPosition, setSelectionActionPosition] = reactExports.useState(null);
@@ -21877,7 +21980,15 @@ function CanvasSurface({ onContextPrepared }) {
   const [busy, setBusy] = reactExports.useState(false);
   const [savingJSON, setSavingJSON] = reactExports.useState(false);
   const [notice, setNotice] = reactExports.useState(null);
+  const [saveError, setSaveError] = reactExports.useState(null);
+  const [loadError, setLoadError] = reactExports.useState(null);
+  const [reloadVersion, setReloadVersion] = reactExports.useState(0);
   const sceneRef = reactExports.useRef(null);
+  const sceneProjectIdRef = reactExports.useRef(projectId);
+  const sceneGenerationRef = reactExports.useRef(0);
+  const savedGenerationRef = reactExports.useRef(0);
+  const lastSceneVersionRef = reactExports.useRef(void 0);
+  const apiRef = reactExports.useRef(null);
   const editorRef = reactExports.useRef(null);
   const selectionActionsRef = reactExports.useRef(null);
   const selectionPositionRequestRef = reactExports.useRef(0);
@@ -21886,33 +21997,103 @@ function CanvasSurface({ onContextPrepared }) {
   const pendingSelectionPositionRef = reactExports.useRef(null);
   const saveTimerRef = reactExports.useRef(null);
   const loadedRef = reactExports.useRef(false);
+  const canReleaseRef = reactExports.useRef(true);
+  const reportCanRelease = reactExports.useCallback((canRelease) => {
+    if (canReleaseRef.current === canRelease) return;
+    canReleaseRef.current = canRelease;
+    onCanReleaseChange?.(canRelease);
+  }, [onCanReleaseChange]);
+  const receiveAPI = reactExports.useCallback((next) => {
+    apiRef.current = next;
+    setApi(next);
+  }, []);
+  const persistSnapshot = reactExports.useCallback(async (scope, snapshot, generation) => {
+    if (sceneProjectIdRef.current === scope) setSaving(true);
+    try {
+      await window.agentAPI.saveCanvasDocument({ projectId: scope, document: snapshot });
+      if (sceneProjectIdRef.current !== scope) return;
+      savedGenerationRef.current = Math.max(savedGenerationRef.current, generation);
+      if (savedGenerationRef.current >= sceneGenerationRef.current) {
+        setSaving(false);
+        setSaveError(null);
+        reportCanRelease(true);
+      }
+    } catch (error) {
+      if (sceneProjectIdRef.current === scope) {
+        setSaving(false);
+        setSaveError(error instanceof Error ? error.message : "Unable to save the canvas.");
+        reportCanRelease(false);
+      }
+      throw error;
+    }
+  }, [reportCanRelease]);
+  const flush = reactExports.useCallback(async () => {
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const snapshot = sceneRef.current;
+    if (!loadedRef.current || !snapshot || sceneGenerationRef.current <= savedGenerationRef.current) return;
+    await persistSnapshot(sceneProjectIdRef.current, snapshot, sceneGenerationRef.current);
+  }, [persistSnapshot]);
+  reactExports.useImperativeHandle(ref, () => ({ flush }), [flush]);
   reactExports.useEffect(() => {
     let cancelled = false;
-    void consumeCanvasDocument().then((result) => {
+    let enableEditingFrame = null;
+    loadedRef.current = false;
+    setLoading(true);
+    setLoadError(null);
+    setSaving(false);
+    setSaveError(null);
+    setNotice(null);
+    setSelectedCount(0);
+    setSelectionActionPosition(null);
+    if (apiRef.current && sceneProjectIdRef.current !== projectId) {
+      apiRef.current.replaceScene({ elements: [], appState: {}, files: {} });
+    }
+    void consumeCanvasDocument(projectId).then((result) => {
       if (cancelled) return;
+      const softwareBackground = window.getComputedStyle(window.document.documentElement).getPropertyValue("--bg").trim() || "#f7f3ee";
+      const nextAppState = { ...result.document.appState, viewBackgroundColor: softwareBackground };
+      if (apiRef.current) {
+        apiRef.current.replaceScene({
+          elements: result.document.elements,
+          appState: nextAppState,
+          files: result.document.files
+        });
+      }
       setDocument(result.document);
       sceneRef.current = result.document;
-      loadedRef.current = true;
+      sceneProjectIdRef.current = projectId;
+      sceneGenerationRef.current = 0;
+      savedGenerationRef.current = 0;
+      lastSceneVersionRef.current = apiRef.current?.getSceneVersion();
+      reportCanRelease(true);
       setLoading(false);
+      enableEditingFrame = window.requestAnimationFrame(() => {
+        if (!cancelled) loadedRef.current = true;
+      });
     }).catch((error) => {
       if (cancelled) return;
-      setNotice(error instanceof Error ? error.message : "Unable to load the canvas.");
-      setDocument(emptyDocument());
-      sceneRef.current = emptyDocument();
-      loadedRef.current = true;
+      setLoadError(error instanceof Error ? error.message : "Unable to load the canvas.");
       setLoading(false);
     });
     return () => {
       cancelled = true;
+      loadedRef.current = false;
+      if (enableEditingFrame !== null) window.cancelAnimationFrame(enableEditingFrame);
       selectionPositionRequestRef.current += 1;
       pendingSelectionPositionRef.current = null;
       if (selectionPositionFrameRef.current !== null) {
         window.cancelAnimationFrame(selectionPositionFrameRef.current);
       }
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
-      if (loadedRef.current && sceneRef.current) void window.agentAPI.saveCanvasDocument(sceneRef.current);
+      saveTimerRef.current = null;
+      if (sceneRef.current && sceneGenerationRef.current > savedGenerationRef.current) {
+        void persistSnapshot(sceneProjectIdRef.current, sceneRef.current, sceneGenerationRef.current).catch(() => void 0);
+      }
     };
-  }, []);
+  }, [persistSnapshot, projectId, reloadVersion, reportCanRelease]);
   const initialData = reactExports.useMemo(() => {
     if (!document2) return null;
     const softwareBackground = window.getComputedStyle(window.document.documentElement).getPropertyValue("--bg").trim() || "#f7f3ee";
@@ -21934,16 +22115,15 @@ function CanvasSurface({ onContextPrepared }) {
   }), []);
   const scheduleSave = reactExports.useCallback((next) => {
     sceneRef.current = next;
+    reportCanRelease(false);
+    const scope = sceneProjectIdRef.current;
+    const generation = ++sceneGenerationRef.current;
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
       saveTimerRef.current = null;
-      setSaving(true);
-      void window.agentAPI.saveCanvasDocument(next).then(() => setSaving(false)).catch((error) => {
-        setSaving(false);
-        setNotice(error instanceof Error ? error.message : "Unable to save the canvas.");
-      });
+      void persistSnapshot(scope, next, generation).catch(() => void 0);
     }, 450);
-  }, []);
+  }, [persistSnapshot, reportCanRelease]);
   const scheduleSelectionPosition = reactExports.useCallback(() => {
     if (selectionPositionFrameRef.current !== null || selectionPositionWorkInFlightRef.current || !pendingSelectionPositionRef.current) {
       return;
@@ -21971,7 +22151,9 @@ function CanvasSurface({ onContextPrepared }) {
         );
         const upperAnchor = transformPoint(minY);
         const lowerAnchor = transformPoint(maxY);
-        const placeBelow = upperAnchor.y - editorBounds.top < 96;
+        const actionHeight = selectionActionsRef.current?.offsetHeight ?? 36;
+        const rotationClearance = editor.getRotationHandleTopOffset("mouse") + SELECTION_ACTION_HANDLE_GAP;
+        const placeBelow = upperAnchor.y - editorBounds.top - rotationClearance - actionHeight < 58;
         const anchor = placeBelow ? lowerAnchor : upperAnchor;
         const actionMargin = Math.min(
           editorBounds.width / 2,
@@ -21982,10 +22164,10 @@ function CanvasSurface({ onContextPrepared }) {
           Math.min(editorBounds.width - actionMargin, anchor.x - editorBounds.left)
         );
         const top = Math.max(
-          58,
+          placeBelow ? 58 : 58 + actionHeight,
           Math.min(
             editorBounds.height - 140,
-            anchor.y - editorBounds.top + (placeBelow ? 10 : -10)
+            anchor.y - editorBounds.top + (placeBelow ? 10 : -rotationClearance)
           )
         );
         const nextPosition = { left, top, placement: placeBelow ? "below" : "above" };
@@ -22004,7 +22186,7 @@ function CanvasSurface({ onContextPrepared }) {
     });
   }, []);
   const handleChange = reactExports.useCallback((elements, appState, files) => {
-    if (!loadedRef.current) return;
+    if (!loadedRef.current || sceneProjectIdRef.current !== projectId) return;
     const selectedIds = Object.keys(appState.selectedElementIds ?? {});
     setSelectedCount(selectedIds.length);
     const request = ++selectionPositionRequestRef.current;
@@ -22033,14 +22215,26 @@ function CanvasSurface({ onContextPrepared }) {
       };
       scheduleSelectionPosition();
     }
-    scheduleSave({
+    const nextAppState = pickPersistedAppState(appState);
+    const sceneVersion = apiRef.current?.getSceneVersion();
+    const shouldSave = shouldPersistCanvasChange(
+      lastSceneVersionRef.current,
+      sceneVersion,
+      sceneRef.current?.appState,
+      nextAppState
+    );
+    lastSceneVersionRef.current = sceneVersion;
+    if (!shouldSave) return;
+    const nextDocument = {
       elements: [...elements],
-      appState: pickPersistedAppState(appState),
+      appState: nextAppState,
       files
-    });
-  }, [scheduleSave, scheduleSelectionPosition]);
+    };
+    scheduleSave(nextDocument);
+  }, [projectId, scheduleSave, scheduleSelectionPosition]);
   const prepareSelectionContext = async () => {
-    if (!api || !sceneRef.current || busy) return;
+    if (!api || !loadedRef.current || busy) return;
+    const capturedProjectId = sceneProjectIdRef.current;
     const allElements = api.getSceneElements();
     const selectedIds = Object.keys(api.getAppState().selectedElementIds ?? {});
     if (selectedIds.length === 0) {
@@ -22051,26 +22245,49 @@ function CanvasSurface({ onContextPrepared }) {
     setNotice(null);
     try {
       const selectedIdSet = new Set(selectedIds);
-      const selected = allElements.filter((element2) => selectedIdSet.has(element2.id));
-      const excalidraw = await __vitePreload(() => import("./index-aCo1Oxwf.js"), true ? __vite__mapDeps([0,1]) : void 0, import.meta.url);
-      const blob = await excalidraw.exportToBlob({
-        elements: selected,
-        appState: api.getAppState(),
-        files: api.getFiles(),
-        mimeType: "image/png",
-        exportPadding: 24
-      });
-      const dataURL = await blobToDataURL(blob);
+      const selected = allElements.filter((element2) => selectedIdSet.has(element2.id) && !element2.isDeleted);
+      const editor = loadedCanvasEditor;
+      if (!editor) throw new Error("Canvas editor is still loading.");
+      const [minX, minY, maxX, maxY] = editor.getCommonBounds(
+        selected,
+        new Map(allElements.map((element2) => [element2.id, element2]))
+      );
+      const selectionBounds = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+      const files = api.getFiles();
+      const selectedFiles = {};
+      for (const element2 of selected) {
+        const fileId = typeof element2.fileId === "string" ? element2.fileId : null;
+        if (element2.type !== "image" || !fileId || !files[fileId]) continue;
+        const { dataURL: _dataURL, ...metadata } = files[fileId];
+        selectedFiles[fileId] = metadata;
+      }
+      const serializedJSON = editor.serializeAsJSON(selected, api.getAppState(), selectedFiles, "local");
+      let visual;
+      if (selected.some((element2) => element2.type === "image")) {
+        const blob = await editor.exportToBlob({
+          elements: selected,
+          appState: api.getAppState(),
+          files,
+          mimeType: "image/png",
+          exportPadding: 24
+        });
+        visual = { mediaType: "image/png", dataURL: await blobToDataURL(blob) };
+      }
+      if (sceneProjectIdRef.current !== capturedProjectId || !loadedRef.current) return;
       const descriptor = await window.agentAPI.prepareCanvasContext({
-        document: sceneRef.current,
+        projectId: capturedProjectId,
         scope: "selection",
         selectedElementIds: selectedIds,
-        visual: { mediaType: "image/png", dataURL }
+        serializedJSON,
+        coordinateSpace: "scene",
+        selectionBounds,
+        ...visual ? { visual } : {}
       });
-      onContextPrepared(descriptor);
-      setNotice(`${descriptor.label} ready for the next message.`);
+      if (sceneProjectIdRef.current === capturedProjectId && loadedRef.current) onContextPrepared(descriptor);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Unable to prepare the canvas context.");
+      if (sceneProjectIdRef.current === capturedProjectId) {
+        setNotice(error instanceof Error ? error.message : "Unable to prepare the canvas context.");
+      }
     } finally {
       setBusy(false);
     }
@@ -22080,7 +22297,7 @@ function CanvasSurface({ onContextPrepared }) {
     setSavingJSON(true);
     setNotice(null);
     try {
-      const editor = await __vitePreload(() => import("./index-aCo1Oxwf.js"), true ? __vite__mapDeps([0,1]) : void 0, import.meta.url);
+      const editor = await __vitePreload(() => import("./index-CJqlXBvC.js"), true ? __vite__mapDeps([0,1]) : void 0, import.meta.url);
       const { fileHandle } = await editor.saveAsJSON(
         api.getSceneElements(),
         api.getAppState(),
@@ -22101,11 +22318,11 @@ function CanvasSurface({ onContextPrepared }) {
     api?.updateScene({ appState: { openDialog: { name: "imageExport" } } });
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "canvas-panel", "aria-label": "Canvas workspace", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "canvas-panel-editor", ref: editorRef, children: [
-    loading || !initialData ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-state", children: "Loading canvas…" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(CanvasRenderErrorBoundary, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(reactExports.Suspense, { fallback: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-state", children: "Loading drawing tools…" }), children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+    initialData && /* @__PURE__ */ jsxRuntimeExports.jsx(CanvasRenderErrorBoundary, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(reactExports.Suspense, { fallback: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-state", children: "Loading drawing tools…" }), children: /* @__PURE__ */ jsxRuntimeExports.jsx(
       Excalidraw,
       {
         initialData,
-        excalidrawAPI: setApi,
+        excalidrawAPI: receiveAPI,
         onChange: handleChange,
         handleKeyboardGlobally: false,
         aiEnabled: false,
@@ -22114,7 +22331,11 @@ function CanvasSurface({ onContextPrepared }) {
         autoFocus: false
       }
     ) }) }),
-    selectionActionPosition && selectedCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    (loading || loadError) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "canvas-panel-state canvas-panel-loading", role: loadError ? "alert" : "status", children: loadError ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: loadError }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setReloadVersion((current) => current + 1), children: "Retry" })
+    ] }) : "Loading canvas…" }),
+    !loading && !loadError && selectionActionPosition && selectedCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "div",
       {
         ref: selectionActionsRef,
@@ -22131,9 +22352,12 @@ function CanvasSurface({ onContextPrepared }) {
         ]
       }
     ),
-    (saving || notice) && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "canvas-panel-status", "aria-live": "polite", children: saving ? "Saving…" : notice })
+    (saving || saveError || notice) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `canvas-panel-status${saveError ? " has-action" : ""}`, "aria-live": "polite", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: saving ? "Saving…" : saveError ?? notice }),
+      saveError && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => void flush().catch(() => void 0), children: "Retry" })
+    ] })
   ] }) });
-}
+});
 function pickPersistedAppState(appState) {
   return {
     theme: appState.theme,
@@ -22144,9 +22368,6 @@ function pickPersistedAppState(appState) {
     scrollX: appState.scrollX,
     scrollY: appState.scrollY
   };
-}
-function emptyDocument() {
-  return { elements: [], appState: {}, files: {} };
 }
 function blobToDataURL(blob) {
   return new Promise((resolve, reject) => {
@@ -22432,12 +22653,16 @@ function mergeHistoryEntries(state, entries, page) {
     error: null
   };
 }
-function newRun(runId, task, taskAt) {
+function newRun(entry) {
   return {
-    runId,
-    task,
-    taskAt,
+    runId: entry.runId,
+    projectId: entry.projectId,
     status: "completed",
+    inputs: {},
+    pendingInputIds: [],
+    segmentOrder: [],
+    segments: {},
+    activeSegmentId: "",
     turnOrder: [],
     turns: {},
     outputFileOrder: [],
@@ -22452,41 +22677,72 @@ function toolResult(message) {
     truncated: false
   };
 }
+function appendSegment(run, inputId) {
+  const segmentId = inputId ? `${run.runId}:segment:${inputId}` : `${run.runId}:segment:partial`;
+  const segment = run.segments[segmentId] ?? { segmentId, inputIds: [], turnOrder: [] };
+  if (!run.segments[segmentId]) {
+    run.segmentOrder.push(segmentId);
+    run.segments[segmentId] = segment;
+  }
+  run.activeSegmentId = segmentId;
+  return segment;
+}
 function ensureTurn$1(run, entry) {
   const turnId = entry.turnId ?? `${entry.entryId}:turn`;
   const existing = run.turns[turnId];
   if (existing) return existing;
+  const segment = run.segments[run.activeSegmentId] ?? appendSegment(run, null);
   const turn = {
     turnId,
     turnOrdinal: run.turnOrder.length + 1,
-    status: entry.status === "failed" ? "failed" : "completed",
+    status: entry.status === "failed" || entry.status === "interrupted" ? "failed" : "completed",
     assistantContent: "",
     reasoningContent: "",
     toolOrder: [],
     tools: {}
   };
+  segment.turnOrder.push(turnId);
   run.turnOrder.push(turnId);
   run.turns[turnId] = turn;
   return turn;
 }
-function mergePersistedEntries(state, entries) {
-  const runs = { ...state.runs };
-  const runOrder = [...state.runOrder];
+function mergePersistedEntries(_state, entries) {
+  const runs = {};
+  const runOrder = [];
   const sorted = [...entries].sort((left, right) => left.entryOrder - right.entryOrder);
   for (const entry of sorted) {
     let run = runs[entry.runId];
     if (!run) {
-      run = newRun(entry.runId);
+      run = newRun(entry);
       runs[entry.runId] = run;
       runOrder.push(entry.runId);
     }
     if (entry.type === "user_message") {
-      run.task = entry.payload.content;
-      run.taskAt = entry.createdAt;
+      if (entry.status === "interrupted") {
+        run.pendingInputIds.push(entry.entryId);
+        run.inputs[entry.entryId] = {
+          inputId: entry.entryId,
+          task: entry.payload.content,
+          at: entry.createdAt,
+          status: "interrupted"
+        };
+        continue;
+      }
+      const lastId = run.segmentOrder[run.segmentOrder.length - 1];
+      const last = lastId ? run.segments[lastId] : void 0;
+      const segment = last && last.turnOrder.length === 0 ? last : appendSegment(run, entry.entryId);
+      if (!segment.inputIds.includes(entry.entryId)) segment.inputIds.push(entry.entryId);
+      run.inputs[entry.entryId] = {
+        inputId: entry.entryId,
+        task: entry.payload.content,
+        at: entry.createdAt,
+        status: "applied"
+      };
       continue;
     }
     const turn = ensureTurn$1(run, entry);
     if (entry.status === "failed") run.status = "failed";
+    else if (entry.status === "interrupted" && run.status !== "failed") run.status = "cancelled";
     if (entry.type === "assistant_message") {
       turn.assistantContent = entry.payload.content;
       turn.assistantAt = entry.updatedAt;
@@ -22497,12 +22753,7 @@ function mergePersistedEntries(state, entries) {
       for (const call of entry.payload.toolCalls ?? []) {
         if (turn.tools[call.id]) continue;
         turn.toolOrder.push(call.id);
-        turn.tools[call.id] = {
-          toolCallId: call.id,
-          name: call.name,
-          input: call.input,
-          status: "running"
-        };
+        turn.tools[call.id] = { toolCallId: call.id, name: call.name, input: call.input, status: "running" };
       }
     } else if (entry.toolCallId) {
       const existing = turn.tools[entry.toolCallId];
@@ -22517,7 +22768,6 @@ function mergePersistedEntries(state, entries) {
       turn.tools[entry.toolCallId] = tool;
     }
   }
-  runOrder.sort((left, right) => (runs[left]?.taskAt ?? 0) - (runs[right]?.taskAt ?? 0));
   return { runs, runOrder };
 }
 const initialAgentState = {
@@ -22528,11 +22778,18 @@ const initialAgentState = {
   error: null,
   history: initialHistoryState
 };
-function createRun(runId, task, taskAt) {
+function createRun(runId, projectId, task, taskAt) {
+  const inputId = `${runId}:task`;
+  const segmentId = `${runId}:segment:initial`;
   return {
     runId,
-    task,
-    taskAt,
+    projectId,
+    source: "live",
+    inputs: { [inputId]: { inputId, task, at: taskAt, status: "applied" } },
+    pendingInputIds: [],
+    segmentOrder: [segmentId],
+    segments: { [segmentId]: { segmentId, inputIds: [inputId], turnOrder: [] } },
+    activeSegmentId: segmentId,
     status: "running",
     turnOrder: [],
     turns: {},
@@ -22551,9 +22808,14 @@ function withCurrentRun(state, update) {
 }
 function ensureTurn(run, turnId, turnOrdinal = 0) {
   if (run.turns[turnId]) return run;
+  const segment = run.segments[run.activeSegmentId];
   return {
     ...run,
     turnOrder: [...run.turnOrder, turnId],
+    segments: {
+      ...run.segments,
+      [segment.segmentId]: { ...segment, turnOrder: [...segment.turnOrder, turnId] }
+    },
     turns: {
       ...run.turns,
       [turnId]: {
@@ -22593,7 +22855,7 @@ function agentReducer(state, action) {
       } : state;
     case "runAccepted": {
       const existing = state.runs[action.runId];
-      const run = existing ?? createRun(action.runId, action.task, action.taskAt);
+      const run = existing ?? createRun(action.runId, action.projectId, action.task, action.taskAt);
       return {
         ...state,
         status: "running",
@@ -22603,6 +22865,38 @@ function agentReducer(state, action) {
         runOrder: existing ? state.runOrder : [...state.runOrder, action.runId]
       };
     }
+    case "steerAccepted": {
+      const run = state.runs[action.runId];
+      if (!run || run.projectId !== action.projectId) return state;
+      const existing = run.inputs[action.inputId];
+      if (existing) return state;
+      const applied = run.segmentOrder.some((id) => run.segments[id].inputIds.includes(action.inputId));
+      const pendingInputIds = applied ? run.pendingInputIds : [...run.pendingInputIds, action.inputId].sort((left, right) => (left === action.inputId ? action.acceptOrder : run.inputs[left].acceptOrder ?? 0) - (right === action.inputId ? action.acceptOrder : run.inputs[right].acceptOrder ?? 0));
+      const interrupted = run.unappliedInputIds?.includes(action.inputId) ?? false;
+      return {
+        ...state,
+        error: null,
+        runs: {
+          ...state.runs,
+          [run.runId]: {
+            ...run,
+            pendingInputIds,
+            inputs: {
+              ...run.inputs,
+              [action.inputId]: {
+                inputId: action.inputId,
+                task: action.task,
+                at: action.acceptedAt,
+                acceptOrder: action.acceptOrder,
+                status: interrupted ? "interrupted" : applied ? "applied" : "accepted"
+              }
+            }
+          }
+        }
+      };
+    }
+    case "steerRejected":
+      return { ...state, error: action.error };
     case "runRejected":
       return { ...state, status: "failed", currentRunId: null, error: action.error };
     case "historyScopeLoadStarted":
@@ -22636,7 +22930,7 @@ function agentReducer(state, action) {
     case "historyHydrated": {
       if (action.generation !== state.history.requestGeneration || action.page.projectId !== state.history.projectId) return state;
       const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
-      const projected = mergePersistedEntries({ runs: {}, runOrder: [] }, action.page.entries);
+      const projected = mergePersistedEntries({}, action.page.entries);
       return {
         ...state,
         history: { ...history, hydrationVersion: state.history.hydrationVersion + 1 },
@@ -22650,8 +22944,12 @@ function agentReducer(state, action) {
     case "olderHistoryLoaded": {
       if (action.generation !== state.history.requestGeneration || action.page.projectId !== state.history.projectId) return state;
       const history = mergeHistoryEntries(state.history, action.page.entries, action.page);
-      const projected = mergePersistedEntries(state, action.page.entries);
-      return { ...state, history, runs: projected.runs, runOrder: projected.runOrder };
+      const projected = mergePersistedEntries({}, history.entryOrder.map((id) => history.entriesById[id]));
+      const liveRuns = Object.values(state.runs).filter((run) => run.source === "live");
+      const runs = { ...projected.runs };
+      for (const run of liveRuns) runs[run.runId] = run;
+      const runOrder = [...projected.runOrder, ...liveRuns.map((run) => run.runId).filter((id) => !projected.runs[id])];
+      return { ...state, history, runs, runOrder };
     }
     case "historyLoadFailed":
       if (action.generation !== state.history.requestGeneration) return state;
@@ -22670,17 +22968,47 @@ function agentReducer(state, action) {
       if (event.type !== "runStarted" && !belongsToCurrentRun(state, event.runId)) return state;
       if (event.type === "runStarted") {
         if (state.currentRunId !== event.runId) return state;
-        return withCurrentRun(state, (run) => ({ ...run, startedAt: event.startedAt }));
+        return withCurrentRun(state, (run2) => ({
+          ...run2,
+          startedAt: event.startedAt,
+          segments: {
+            ...run2.segments,
+            [run2.activeSegmentId]: { ...run2.segments[run2.activeSegmentId], startedAt: Date.parse(event.startedAt) }
+          }
+        }));
+      }
+      if (event.type === "inputsApplied") {
+        if (!event.inputIds.length) return state;
+        return withCurrentRun(state, (run2) => {
+          const segmentId = `${run2.runId}:segment:${event.inputIds[0]}`;
+          if (run2.segments[segmentId]) return run2;
+          const appliedIds = new Set(event.inputIds);
+          const inputs = { ...run2.inputs };
+          for (const id of event.inputIds) {
+            if (inputs[id]) inputs[id] = { ...inputs[id], status: "applied" };
+          }
+          return {
+            ...run2,
+            inputs,
+            pendingInputIds: run2.pendingInputIds.filter((id) => !appliedIds.has(id)),
+            segmentOrder: [...run2.segmentOrder, segmentId],
+            segments: {
+              ...run2.segments,
+              [segmentId]: { segmentId, inputIds: [...event.inputIds], turnOrder: [], startedAt: event.startedAt }
+            },
+            activeSegmentId: segmentId
+          };
+        });
       }
       if (event.type === "turnStarted") {
-        return withCurrentRun(state, (run) => {
-          const next = ensureTurn(run, event.turnId, event.turnOrdinal);
+        return withCurrentRun(state, (run2) => {
+          const next = ensureTurn(run2, event.turnId, event.turnOrdinal);
           return updateTurn(next, event.turnId, (turn) => ({ ...turn, turnOrdinal: event.turnOrdinal, status: "running" }));
         });
       }
       if (event.type === "assistantDelta") {
-        return withCurrentRun(state, (run) => {
-          const next = ensureTurn(run, event.turnId);
+        return withCurrentRun(state, (run2) => {
+          const next = ensureTurn(run2, event.turnId);
           return updateTurn(next, event.turnId, (turn) => ({
             ...turn,
             assistantContent: turn.assistantContent + event.delta
@@ -22688,8 +23016,8 @@ function agentReducer(state, action) {
         });
       }
       if (event.type === "reasoningDelta") {
-        return withCurrentRun(state, (run) => {
-          const next = ensureTurn(run, event.turnId);
+        return withCurrentRun(state, (run2) => {
+          const next = ensureTurn(run2, event.turnId);
           return updateTurn(next, event.turnId, (turn) => ({
             ...turn,
             reasoningContent: turn.reasoningContent + event.delta
@@ -22697,25 +23025,36 @@ function agentReducer(state, action) {
         });
       }
       if (event.type === "turnRetrying") {
-        return withCurrentRun(state, (run) => {
-          const next = ensureTurn(run, event.turnId);
+        return withCurrentRun(state, (run2) => {
+          const next = ensureTurn(run2, event.turnId);
           return updateTurn(next, event.turnId, (turn) => ({ ...turn, status: "retrying" }));
         });
       }
       if (event.type === "assistantCompleted") {
-        return withCurrentRun(state, (run) => {
-          const next = ensureTurn(run, event.turnId);
-          return updateTurn(next, event.turnId, (turn) => ({
-            ...turn,
-            assistantContent: event.content,
-            finalContent: event.content,
-            stopReason: event.stopReason
-          }));
+        return withCurrentRun(state, (run2) => {
+          const next = ensureTurn(run2, event.turnId);
+          return updateTurn(next, event.turnId, (turn) => {
+            const tools = { ...turn.tools };
+            const toolOrder = [...turn.toolOrder];
+            for (const call of event.toolCalls) {
+              if (tools[call.id]) continue;
+              tools[call.id] = { toolCallId: call.id, name: call.name, input: call.input, status: "running" };
+              toolOrder.push(call.id);
+            }
+            return {
+              ...turn,
+              assistantContent: event.content,
+              finalContent: event.content,
+              stopReason: event.stopReason,
+              tools,
+              toolOrder
+            };
+          });
         });
       }
       if (event.type === "toolStarted") {
-        return withCurrentRun(state, (run) => {
-          const next = ensureTurn(run, event.turnId);
+        return withCurrentRun(state, (run2) => {
+          const next = ensureTurn(run2, event.turnId);
           return updateTurn(next, event.turnId, (turn) => {
             const existing = turn.tools[event.toolCallId];
             const tool = {
@@ -22734,8 +23073,8 @@ function agentReducer(state, action) {
         });
       }
       if (event.type === "toolCompleted") {
-        return withCurrentRun(state, (run) => {
-          const next = ensureTurn(run, event.turnId);
+        return withCurrentRun(state, (run2) => {
+          const next = ensureTurn(run2, event.turnId);
           return updateTurn(next, event.turnId, (turn) => {
             const existing = turn.tools[event.toolCallId];
             const tool = {
@@ -22754,19 +23093,21 @@ function agentReducer(state, action) {
         });
       }
       if (event.type === "turnCompleted") {
-        return withCurrentRun(state, (run) => updateTurn(run, event.turnId, (turn) => ({ ...turn, status: "completed" })));
+        return withCurrentRun(state, (run2) => updateTurn(run2, event.turnId, (turn) => ({ ...turn, status: "completed" })));
       }
       if (event.type === "outputFileRegistered") {
-        return withCurrentRun(state, (run) => {
-          const existing = run.outputFiles[event.file.fileId];
+        return withCurrentRun(state, (run2) => {
+          const existing = run2.outputFiles[event.file.fileId];
           const outputFiles = {
-            ...run.outputFiles,
+            ...run2.outputFiles,
             [event.file.fileId]: event.file
           };
-          const outputFileOrder = [...existing ? run.outputFileOrder : [...run.outputFileOrder, event.file.fileId]].sort((leftId, rightId) => outputFiles[rightId].updatedAt.localeCompare(outputFiles[leftId].updatedAt));
-          return { ...run, outputFiles, outputFileOrder };
+          const outputFileOrder = [...existing ? run2.outputFileOrder : [...run2.outputFileOrder, event.file.fileId]].sort((leftId, rightId) => outputFiles[rightId].updatedAt.localeCompare(outputFiles[leftId].updatedAt));
+          return { ...run2, outputFiles, outputFileOrder };
         });
       }
+      const run = state.runs[event.runId];
+      const unappliedInputIds = [.../* @__PURE__ */ new Set([...run.pendingInputIds, ...event.unappliedInputIds ?? []])];
       return {
         ...state,
         status: event.status,
@@ -22775,10 +23116,16 @@ function agentReducer(state, action) {
         runs: {
           ...state.runs,
           [event.runId]: {
-            ...state.runs[event.runId],
+            ...run,
             status: event.status,
             error: event.error?.message,
-            turnCount: event.turnCount
+            turnCount: event.turnCount,
+            finalDurationMs: event.finalDurationMs,
+            unappliedInputIds,
+            inputs: Object.fromEntries(Object.entries(run.inputs).map(([id, input]) => [
+              id,
+              unappliedInputIds.includes(id) ? { ...input, status: "interrupted" } : input
+            ]))
           }
         }
       };
@@ -22820,13 +23167,16 @@ function App() {
   const [configOpen, setConfigOpen] = reactExports.useState(false);
   const [sidebarPanel, setSidebarPanel] = reactExports.useState(null);
   const [canvasContexts, setCanvasContexts] = reactExports.useState([]);
+  const [canvasCanRelease, setCanvasCanRelease] = reactExports.useState(true);
   const [project, setProject] = reactExports.useState({ projectId: null, displayName: "Choose folder", canonicalPath: null });
+  const canvasSurfaceRef = reactExports.useRef(null);
+  const projectRequestEpochRef = reactExports.useRef(0);
   const [searchOpen, setSearchOpen] = reactExports.useState(false);
+  const [restoreDraft, setRestoreDraft] = reactExports.useState(null);
   const eventQueue = reactExports.useRef([]);
   const hydrationEventQueue = reactExports.useRef([]);
   const historyReadyRef = reactExports.useRef(false);
   const eventFrame = reactExports.useRef(null);
-  const runTimings = reactExports.useRef({});
   const streamRef = reactExports.useRef(null);
   const composerRef = reactExports.useRef(null);
   const [composerHeight, setComposerHeight] = reactExports.useState(0);
@@ -22854,14 +23204,7 @@ function App() {
         const queued = eventQueue.current;
         eventQueue.current = [];
         eventFrame.current = null;
-        const now = Date.now();
         queued.forEach((queuedEvent) => {
-          if (queuedEvent.type === "runStarted") {
-            runTimings.current[queuedEvent.runId] = { startedAt: now };
-          } else if (queuedEvent.type === "runCompleted") {
-            const timing = runTimings.current[queuedEvent.runId];
-            runTimings.current[queuedEvent.runId] = timing ? { ...timing, completedAt: now } : { startedAt: now, completedAt: now };
-          }
           dispatch({ type: "event", event: queuedEvent });
         });
       });
@@ -22878,9 +23221,11 @@ function App() {
   const showEmptyState = history.hydrated && state.runOrder.length === 0 && !history.loadingOlder && !history.error;
   reactExports.useEffect(() => {
     void preloadCanvasEditor().catch(() => void 0);
+    const requestEpoch = projectRequestEpochRef.current;
     void window.agentAPI.getActiveProject().then((activeProject) => {
+      if (requestEpoch !== projectRequestEpochRef.current) return;
       setProject(activeProject);
-      void preloadCanvasDocument().catch(() => void 0);
+      void preloadCanvasDocument(activeProject.projectId).catch(() => void 0);
     }).catch(() => void 0);
   }, []);
   reactExports.useEffect(() => {
@@ -22944,12 +23289,36 @@ function App() {
   }, [search2.clear, searchOpen]);
   const handleRun = async (req) => {
     dispatch({ type: "runRequested" });
-    const ack = await window.agentAPI.run(req);
-    if (!ack.ok) {
-      dispatch({ type: "runRejected", error: ack.error });
-      return;
+    try {
+      const ack = await window.agentAPI.run(req);
+      if (!ack.ok) {
+        dispatch({ type: "runRejected", error: ack.error });
+        return false;
+      }
+      dispatch({ type: "runAccepted", runId: ack.runId, projectId: req.projectId ?? null, task: req.task, taskAt: Date.now() });
+      return true;
+    } catch (error) {
+      dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
+      return false;
     }
-    dispatch({ type: "runAccepted", runId: ack.runId, task: req.task, taskAt: Date.now() });
+  };
+  const handleSteer = async (req) => {
+    try {
+      const ack = await window.agentAPI.steer(req);
+      if (!ack.ok) {
+        dispatch({ type: "steerRejected", error: ack.error });
+        return false;
+      }
+      dispatch({ type: "steerAccepted", runId: ack.runId, projectId: ack.projectId, inputId: ack.inputId, task: req.task, acceptOrder: ack.acceptOrder, acceptedAt: ack.acceptedAt });
+      return true;
+    } catch (error) {
+      dispatch({ type: "steerRejected", error: error instanceof Error ? error.message : String(error) });
+      return false;
+    }
+  };
+  const handleResendInput = (runId, inputId) => {
+    const input = state.runs[runId]?.inputs[inputId];
+    if (input?.status === "interrupted") setRestoreDraft({ id: crypto.randomUUID(), text: input.task });
   };
   const handleStop = () => {
     dispatch({ type: "stopRequested" });
@@ -22958,11 +23327,14 @@ function App() {
   const handleSelectProject = async () => {
     if (running) return;
     try {
+      projectRequestEpochRef.current += 1;
+      await canvasSurfaceRef.current?.flush();
       resetPreloadedCanvasDocument();
       const selected = await window.agentAPI.selectProject();
       if (!selected) return;
       setProject(selected);
-      void preloadCanvasDocument().catch(() => void 0);
+      setCanvasContexts([]);
+      void preloadCanvasDocument(selected.projectId).catch(() => void 0);
       await history.reload(selected.projectId);
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
@@ -22971,10 +23343,13 @@ function App() {
   const handleClearProject = async () => {
     if (running) return;
     try {
+      projectRequestEpochRef.current += 1;
+      await canvasSurfaceRef.current?.flush();
       resetPreloadedCanvasDocument();
       const cleared = await window.agentAPI.clearProject();
       setProject(cleared);
-      void preloadCanvasDocument().catch(() => void 0);
+      setCanvasContexts([]);
+      void preloadCanvasDocument(cleared.projectId).catch(() => void 0);
       await history.reload(cleared.projectId);
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
@@ -23026,13 +23401,13 @@ function App() {
             historyReady: history.hydrated,
             order: state.runOrder,
             runs: state.runs,
-            runTimings: runTimings.current,
             scrollRef: streamRef,
             hasMore: history.hasMore,
             loadingOlder: history.loadingOlder,
             historyError: history.error,
             onLoadOlder: history.loadOlder,
-            activeSearchBlockId: search2.activeBlockId
+            activeSearchBlockId: search2.activeBlockId,
+            onResendInput: handleResendInput
           }
         ),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: composerHeight } })
@@ -23043,6 +23418,8 @@ function App() {
         {
           running,
           stopping,
+          activeRunId: running ? state.currentRunId : null,
+          restoreDraft,
           ready: history.hydrated,
           modelOptions: catalog.modelOptions,
           modelLoading: catalog.loading,
@@ -23050,10 +23427,14 @@ function App() {
           onSelectProject: () => void handleSelectProject(),
           onClearProject: () => void handleClearProject(),
           onRun: handleRun,
+          onSteer: handleSteer,
           onStop: handleStop,
           canvasContexts,
           onRemoveCanvasContext: (contextId) => setCanvasContexts((current) => current.filter((context) => context.contextId !== contextId)),
-          onClearCanvasContexts: () => setCanvasContexts([])
+          onClearCanvasContexts: (contextIds) => {
+            const consumed = new Set(contextIds);
+            setCanvasContexts((current) => current.filter((context) => !consumed.has(context.contextId)));
+          }
         }
       ) })
     ] }) }) }),
@@ -23063,10 +23444,13 @@ function App() {
         open: sidebarPanel !== null,
         activePanel: sidebarPanel ?? "outputs",
         files: outputFiles,
+        canvasCanRelease,
         onOpenChange: (open) => {
           if (!open) setSidebarPanel(null);
         },
-        canvas: /* @__PURE__ */ jsxRuntimeExports.jsx(CanvasSurface, { onContextPrepared: (descriptor) => setCanvasContexts((current) => [...current, descriptor]) })
+        canvas: /* @__PURE__ */ jsxRuntimeExports.jsx(CanvasSurface, { ref: canvasSurfaceRef, projectId: project.projectId, onContextPrepared: (descriptor) => {
+          if (descriptor.projectId === project.projectId) setCanvasContexts((current) => [...current, descriptor]);
+        }, onCanReleaseChange: setCanvasCanRelease })
       }
     ),
     settingsPanel.mounted && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: settingsPanel.panelRef, className: `config-floating phase-${settingsPanel.phase}`, onTransitionEnd: settingsPanel.onTransitionEnd, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ConfigPanel, { profiles: catalog.profiles, loading: catalog.loading, error: catalog.error, disabled: running, onClose: () => setConfigOpen(false), onRefresh: catalog.refresh }) })

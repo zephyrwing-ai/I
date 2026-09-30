@@ -14,7 +14,7 @@ import * as toolQueries from "./queries/toolQueries";
 import type { ImportedDataState } from "../data/types";
 import { STORAGE_KEYS } from "../../../editor-app/app_constants";
 import { getSelectedElements } from "../scene/selection";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import { UI } from "./helpers/ui";
 import ansi from "ansicolor";
 import { ORIG_ID } from "../constants";
@@ -50,7 +50,7 @@ const renderApp: TestRenderFn = async (ui, options) => {
   GlobalTestState.renderResult = renderResult;
 
   Object.defineProperty(GlobalTestState, "canvas", {
-    // must be a getter because at the time of ExcalidrawApp render the
+    // must be a getter because at the time of CanvasEditorApp render the
     // child App component isn't likely mounted yet (and thus canvas not
     // present in DOM)
     get() {
@@ -59,7 +59,7 @@ const renderApp: TestRenderFn = async (ui, options) => {
   });
 
   Object.defineProperty(GlobalTestState, "interactiveCanvas", {
-    // must be a getter because at the time of ExcalidrawApp render the
+    // must be a getter because at the time of CanvasEditorApp render the
     // child App component isn't likely mounted yet (and thus canvas not
     // present in DOM)
     get() {
@@ -174,7 +174,7 @@ export const mockBoundingClientRect = (
   });
 };
 
-export const withExcalidrawDimensions = async (
+export const withCanvasEditorDimensions = async (
   dimensions: { width: number; height: number },
   cb: () => void,
 ) => {
@@ -206,9 +206,9 @@ export const restoreOriginalGetBoundingClientRect = () => {
 
 export const assertSelectedElements = (
   ...elements: (
-    | (ExcalidrawElement["id"] | ExcalidrawElement)[]
-    | ExcalidrawElement["id"]
-    | ExcalidrawElement
+    | (CanvasEditorElement["id"] | CanvasEditorElement)[]
+    | CanvasEditorElement["id"]
+    | CanvasEditorElement
   )[]
 ) => {
   const { h } = window;
@@ -278,9 +278,9 @@ expect.addSnapshotSerializer({
 });
 
 export const getCloneByOrigId = <T extends boolean = false>(
-  origId: ExcalidrawElement["id"],
+  origId: CanvasEditorElement["id"],
   returnNullIfNotExists: T = false as T,
-): T extends true ? ExcalidrawElement | null : ExcalidrawElement => {
+): T extends true ? CanvasEditorElement | null : CanvasEditorElement => {
   const clonedElement = window.h.elements?.find(
     (el) => (el as any)[ORIG_ID] === origId,
   );
@@ -290,7 +290,7 @@ export const getCloneByOrigId = <T extends boolean = false>(
   if (returnNullIfNotExists !== true) {
     throw new Error(`cloned element not found for origId: ${origId}`);
   }
-  return null as T extends true ? ExcalidrawElement | null : ExcalidrawElement;
+  return null as T extends true ? CanvasEditorElement | null : CanvasEditorElement;
 };
 
 /**
@@ -304,15 +304,15 @@ export const getCloneByOrigId = <T extends boolean = false>(
  * If you need to refer to cloned element properties, you can use
  * `getCloneByOrigId()`, e.g.: `{ frameId: getCloneByOrigId(origFrame.id)?.id }`
  */
-export const assertElements = <T extends AllPossibleKeys<ExcalidrawElement>>(
-  actualElements: readonly ExcalidrawElement[],
+export const assertElements = <T extends AllPossibleKeys<CanvasEditorElement>>(
+  actualElements: readonly CanvasEditorElement[],
   /** array order matters */
   expectedElements: (Partial<Record<T, any>> & {
     /** meta, will be stripped for element attribute checks */
     selected?: true;
   } & (
       | {
-          id: ExcalidrawElement["id"];
+          id: CanvasEditorElement["id"];
         }
       | { [ORIG_ID]?: string }
     ))[],
@@ -320,7 +320,7 @@ export const assertElements = <T extends AllPossibleKeys<ExcalidrawElement>>(
   const h = window.h;
 
   const expectedElementsWithIds: (typeof expectedElements[number] & {
-    id: ExcalidrawElement["id"];
+    id: CanvasEditorElement["id"];
   })[] = expectedElements.map((el) => {
     if ("id" in el) {
       return el;
@@ -340,7 +340,7 @@ export const assertElements = <T extends AllPossibleKeys<ExcalidrawElement>>(
   const map_expectedElements = arrayToMap(expectedElementsWithIds);
 
   const selectedElementIds = expectedElementsWithIds.reduce(
-    (acc: Record<ExcalidrawElement["id"], true>, el) => {
+    (acc: Record<CanvasEditorElement["id"], true>, el) => {
       if (el.selected) {
         acc[el.id] = true;
       }

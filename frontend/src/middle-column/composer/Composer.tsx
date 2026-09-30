@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { CanvasContextDescriptor, InputAttachmentDescriptor, ModelOption, ProjectDescriptor, RunRequest } from "../../../../shell/shared/ipc";
+import type { CanvasContextDescriptor, InputAttachmentDescriptor, ModelOption, ProjectDescriptor, RunRequest, SteerRequest } from "../../../../shell/shared/ipc";
 import { Icon } from "../../components/Icon";
 import { isSendKey } from "./sendKey";
 import "./Composer.css";
@@ -13,20 +13,45 @@ export interface StoredModelPickerPreference {
   width: number | null;
 }
 
+export type ComposerAction = "start" | "starting" | "steer" | "stop" | "submitting" | "stopping";
+
+export function selectComposerAction({
+  running,
+  stopping,
+  submitting,
+  activeRunId,
+  hasText,
+}: {
+  running: boolean;
+  stopping: boolean;
+  submitting: boolean;
+  activeRunId: string | null;
+  hasText: boolean;
+}): ComposerAction {
+  if (stopping) return "stopping";
+  if (submitting) return "submitting";
+  if (!running) return "start";
+  if (!activeRunId) return "starting";
+  return hasText ? "steer" : "stop";
+}
+
 interface ComposerProps {
   running: boolean;
   stopping: boolean;
+  activeRunId?: string | null;
+  restoreDraft?: { id: string; text: string } | null;
   ready?: boolean;
   modelOptions: ModelOption[];
   modelLoading: boolean;
   onRun: (req: RunRequest) => Promise<boolean>;
+  onSteer?: (req: SteerRequest) => Promise<boolean>;
   onStop: () => void;
   project?: ProjectDescriptor;
   onSelectProject?: () => void;
   onClearProject?: () => void;
   canvasContexts?: CanvasContextDescriptor[];
   onRemoveCanvasContext?: (contextId: string) => void;
-  onClearCanvasContexts?: () => void;
+  onClearCanvasContexts?: (contextIds: string[]) => void;
 }
 
 /** 只有最近一次模型发现仍返回的模型才能成为 Composer 的已恢复选择。 */
@@ -59,8 +84,9 @@ export function parseStoredModelPickerPreference(serialized: string | null, lega
 }
 
 /** 对话框列：输入框 + 附件 + 模型选择 + 发送/停止。位于中间列（Column）的 auto 行。 */
-export function Composer({ running, stopping, ready = true, modelOptions, modelLoading, onRun, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, onSelectProject = () => undefined, onClearProject = () => undefined, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
+export function Composer({ running, stopping, activeRunId = null, restoreDraft = null, ready = true, modelOptions, modelLoading, onRun, onSteer, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, onSelectProject = () => undefined, onClearProject = () => undefined, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
   const [task, setTask] = useState("");
+  const taskRevision = useRef(0);
   const [attachments, setAttachments] = useState<InputAttachmentDescriptor[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -69,6 +95,7 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
   const modelTriggerRef = useRef<HTMLButtonElement>(null);
   const modelLabelRef = useRef<HTMLSpanElement>(null);
   const taskInputRef = useRef<HTMLTextAreaElement>(null);
+  const actionButtonRef = useRef<HTMLButtonElement>(null);
   const modelSelectionChangedRef = useRef(false);
   const modelPickerPreferenceRef = useRef(storedPreference);
   const [modelTriggerWidth, setModelTriggerWidth] = useState<number | null>(() => (
@@ -83,12 +110,33 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
   const modelDisplayName = selectedModel?.displayName
     ?? (cachedModelDisplayName || (modelLoading ? "Loading model…" : "Choose model"));
 
-  const canRun = ready && !running && !submitting && task.trim() !== "" && Boolean(selectedModel?.available);
-  const disabledReason = !task.trim()
+  const hasText = task.trim() !== "";
+  const action = selectComposerAction({ running, stopping, submitting, activeRunId, hasText });
+  const stopAction = action === "stop" || action === "stopping";
+  const canSubmit = ready && hasText && (action === "start"
+    ? Boolean(selectedModel?.available)
+    : action === "steer" && Boolean(onSteer));
+  const disabledReason = !hasText
     ? "Enter a task"
-    : !selectedModel?.available
+    : action === "stopping" ? "Stopping run"
+    : action === "starting" ? "Starting run"
+    : action === "start" && !selectedModel?.available
       ? "Choose an available model"
       : null;
+
+  useEffect(() => {
+    if (!restoreDraft) return;
+    taskRevision.current += 1;
+    setTask((current) => current ? `${current}\n${restoreDraft.text}` : restoreDraft.text);
+    const frame = requestAnimationFrame(() => {
+      const input = taskInputRef.current;
+      if (!input) return;
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+      input.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [restoreDraft]);
 
   /**
    * 启动时优先使用已缓存的布局快照；只有缓存缺失、模型名称变化或用户切换模型时才重新测量。
@@ -182,27 +230,42 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
     });
   };
 
-  const submit = async (): Promise<void> => {
-    if (!canRun) return;
-    const request = {
-      task: task.trim(),
-      modelOptionId: selectedModelOptionId,
-      attachmentIds: attachments.map((attachment) => attachment.attachmentId),
-      canvasContextIds: canvasContexts.map((context) => context.contextId),
-      projectId: project.projectId,
-    } satisfies RunRequest;
+  const submit = async (source: "button" | "keyboard"): Promise<void> => {
+    if (!canSubmit) return;
+    const restoreInputFocus = source === "button" || document.activeElement === taskInputRef.current;
+    const submittedTask = task.trim();
+    const submittedRevision = taskRevision.current;
+    const submittedAttachmentIds = attachments.map((attachment) => attachment.attachmentId);
+    const submittedCanvasContextIds = canvasContexts.map((context) => context.contextId);
     setSubmitting(true);
     try {
-      const accepted = await onRun(request);
+      const accepted = running && activeRunId
+        ? await onSteer!({ runId: activeRunId, projectId: project.projectId, inputId: crypto.randomUUID(), task: submittedTask })
+        : await onRun({
+            task: submittedTask,
+            modelOptionId: selectedModelOptionId,
+            attachmentIds: submittedAttachmentIds,
+            canvasContextIds: submittedCanvasContextIds,
+            projectId: project.projectId,
+          } satisfies RunRequest);
       if (!accepted) return;
-      setTask("");
-      setAttachments([]);
-      onClearCanvasContexts?.();
-      const input = taskInputRef.current;
-      if (input) {
-        input.style.height = "auto";
-        input.style.overflowY = "hidden";
+      if (taskRevision.current === submittedRevision) {
+        setTask("");
+        const input = taskInputRef.current;
+        if (input) {
+          input.style.height = "auto";
+          input.style.overflowY = "hidden";
+        }
       }
+      if (!running) {
+        const consumed = new Set(submittedAttachmentIds);
+        setAttachments((current) => current.filter((attachment) => !consumed.has(attachment.attachmentId)));
+        onClearCanvasContexts?.(submittedCanvasContextIds);
+      }
+      if (restoreInputFocus) requestAnimationFrame(() => {
+        const input = taskInputRef.current;
+        if (input && !input.disabled && (document.activeElement === document.body || document.activeElement === actionButtonRef.current)) input.focus();
+      });
     } finally {
       setSubmitting(false);
     }
@@ -213,11 +276,12 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
     // 原生事件携带 isComposing，合成事件类型未声明该字段。
     if (isSendKey(e.key, e.shiftKey, e.nativeEvent.isComposing)) {
       e.preventDefault();
-      void submit();
+      void submit("keyboard");
     }
   };
 
   const updateTask = (element: HTMLTextAreaElement): void => {
+    taskRevision.current += 1;
     setTask(element.value);
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, 180)}px`;
@@ -275,7 +339,7 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
           className="task-input"
           placeholder="What's up?"
           value={task}
-          disabled={running || !ready}
+          disabled={!ready || submitting}
           onChange={(event) => updateTask(event.currentTarget)}
           onKeyDown={onTaskKeyDown}
           aria-label="Task"
@@ -308,12 +372,12 @@ export function Composer({ running, stopping, ready = true, modelOptions, modelL
               )}
             </div>
 
-            <button type="button" className={`send-stop-button ${running ? "is-stop" : "is-send"}`} onClick={running ? onStop : () => void submit()} disabled={running ? stopping : !canRun} aria-label={running ? (stopping ? "Stopping" : "Stop run") : "Send"} title={running ? (stopping ? "Stopping" : "Stop run") : (ready ? (disabledReason ?? "Send") : "Loading history")} aria-busy={stopping || submitting || undefined}>
-              <span className="send-stop-icon" key={running ? "stop" : "send"}><Icon name={running ? "stop" : "arrow-up"} width={18} height={18} /></span>
+            <button ref={actionButtonRef} type="button" className={`send-stop-button ${stopAction ? "is-stop" : "is-send"}`} onClick={stopAction ? onStop : () => void submit("button")} disabled={stopAction ? stopping : !canSubmit} aria-label={stopAction ? (stopping ? "Stopping" : "Stop run") : "Send"} title={stopAction ? (stopping ? "Stopping" : "Stop run") : (ready ? (disabledReason ?? "Send") : "Loading history")} aria-busy={stopping || submitting || undefined}>
+              <span className="send-stop-icon" key={stopAction ? "stop" : "send"}><Icon name={stopAction ? "stop" : "arrow-up"} width={18} height={18} /></span>
             </button>
           </div>
         </div>
-        {!running && disabledReason && task.trim() && <span className="composer-hint" role="status">{disabledReason}</span>}
+        {disabledReason && task.trim() && <span className="composer-hint" role="status">{disabledReason}</span>}
       </div>
     </footer>
   );

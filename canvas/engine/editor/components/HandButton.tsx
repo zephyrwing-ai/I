@@ -5,15 +5,14 @@ import { ToolButton } from "./ToolButton";
 import { handIcon } from "./icons";
 import { KEYS } from "../keys";
 
-type LockIconProps = {
+type HandButtonProps = {
   title?: string;
   name?: string;
   checked: boolean;
   onChange?(): void;
-  isMobile?: boolean;
 };
 
-export const HandButton = (props: LockIconProps) => {
+export const HandButton = (props: HandButtonProps) => {
   return (
     <ToolButton
       className={clsx("Shape", { fillable: false })}
@@ -22,7 +21,6 @@ export const HandButton = (props: LockIconProps) => {
       name="editor-current-shape"
       checked={props.checked}
       title={`${props.title} — H`}
-      keyBindingLabel={!props.isMobile ? KEYS.H.toLocaleUpperCase() : undefined}
       aria-label={`${props.title} — H`}
       aria-keyshortcuts={KEYS.H}
       data-testid={`toolbar-hand`}

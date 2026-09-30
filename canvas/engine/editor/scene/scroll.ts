@@ -1,5 +1,5 @@
 import type { AppState, Offsets, PointerCoords, Zoom } from "../types";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import {
   getCommonBounds,
   getClosestElementBounds,
@@ -57,7 +57,7 @@ export const centerScrollOn = ({
 };
 
 export const calculateScrollCenter = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: AppState,
 ): { scrollX: number; scrollY: number } => {
   elements = getVisibleElements(elements);

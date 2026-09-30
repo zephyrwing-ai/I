@@ -63,6 +63,26 @@ export interface HistoryEntry {
   durationMs: number | null;
 }
 
+export type PendingRunInputState = "accepted" | "applied" | "unapplied";
+
+export interface PendingRunInput {
+  inputId: string;
+  projectId: HistoryScope;
+  runId: string;
+  content: string;
+  acceptOrder: number;
+  state: PendingRunInputState;
+  acceptedAt: number;
+  appliedAt: number | null;
+  terminalReason: string | null;
+}
+
+export interface AcceptRunInputInput {
+  inputId: string;
+  runId: string;
+  content: string;
+}
+
 export interface AppendEntryInput {
   id: string;
   type: EntryType;
@@ -90,6 +110,8 @@ export interface EntryPatch {
 
 export interface MessageCommitContext {
   runId: string;
+  /** Main-generated ID shared with the live Renderer message block. */
+  entryId?: string;
 }
 
 export interface TurnCommitContext extends MessageCommitContext {
@@ -172,6 +194,12 @@ export interface HistoryRepository {
   listEntries(projectId: HistoryScope, cursor?: number, limit?: number): Promise<HistoryEntry[]>;
   listLatestEntries(projectId: HistoryScope, limit: number): Promise<HistoryEntry[]>;
   listEntriesBefore(projectId: HistoryScope, beforeOrder: number, limit: number): Promise<HistoryEntry[]>;
+  acceptRunInput(projectId: HistoryScope, input: AcceptRunInputInput): Promise<PendingRunInput>;
+  listAcceptedRunInputs(projectId: HistoryScope, runId: string): Promise<PendingRunInput[]>;
+  applyRunInputs(projectId: HistoryScope, runId: string, inputIds: string[]): Promise<HistoryEntry[]>;
+  abandonRunInputs(projectId: HistoryScope, runId: string, reason: string): Promise<HistoryEntry[]>;
+  recoverAcceptedRunInputs(reason: string): Promise<HistoryEntry[]>;
+  finalizeAnswerDuration(projectId: HistoryScope, turnId: string, durationMs: number): Promise<void>;
   registerToolInvocation(input: CreateToolInvocationInput): Promise<ToolInvocationRecord>;
   beginToolAttempt(invocationId: string): Promise<ToolInvocationRecord>;
   saveToolOutcome(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord>;
@@ -193,6 +221,11 @@ export interface HistoryRecorder {
   snapshot(): ModelMessage[];
   getAssistantEntryId?(turnId: string): Promise<string | null>;
   commitUser(message: ModelMessage, context: MessageCommitContext): Promise<void>;
+  acceptRunInput(input: AcceptRunInputInput): Promise<PendingRunInput>;
+  listAcceptedRunInputs(runId: string): Promise<PendingRunInput[]>;
+  applyRunInputs(runId: string, inputIds: string[]): Promise<HistoryEntry[]>;
+  abandonRunInputs(runId: string, reason: string): Promise<HistoryEntry[]>;
+  finalizeAnswerDuration(turnId: string, durationMs: number): Promise<void>;
   recordAssistantDelta(kind: AssistantDeltaKind, delta: string, context: TurnCommitContext): void;
   finishAssistantAttempt(
     context: TurnCommitContext,

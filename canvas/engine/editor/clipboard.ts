@@ -1,6 +1,6 @@
 import type {
-  ExcalidrawElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  NonDeletedCanvasEditorElement,
 } from "./element/types";
 import type { BinaryFiles } from "./types";
 import type { Spreadsheet } from "./charts";
@@ -19,11 +19,11 @@ import { mutateElement } from "./element/mutateElement";
 import { getContainingFrame } from "./frame";
 import { arrayToMap, isMemberOf, isPromiseLike } from "./utils";
 import { createFile, isSupportedImageFileType } from "./data/blob";
-import { ExcalidrawError } from "./errors";
+import { CanvasEditorError } from "./errors";
 
 type ElementsClipboard = {
-  type: typeof EXPORT_DATA_TYPES.excalidrawClipboard;
-  elements: readonly NonDeletedExcalidrawElement[];
+  type: typeof EXPORT_DATA_TYPES.canvasClipboard;
+  elements: readonly NonDeletedCanvasEditorElement[];
   files: BinaryFiles | undefined;
 };
 
@@ -31,7 +31,7 @@ export type PastedMixedContent = { type: "text" | "imageUrl"; value: string }[];
 
 export interface ClipboardData {
   spreadsheet?: Spreadsheet;
-  elements?: readonly ExcalidrawElement[];
+  elements?: readonly CanvasEditorElement[];
   files?: BinaryFiles;
   text?: string;
   mixedContent?: PastedMixedContent;
@@ -59,12 +59,12 @@ export const probablySupportsClipboardBlob =
 
 const clipboardContainsElements = (
   contents: any,
-): contents is { elements: ExcalidrawElement[]; files?: BinaryFiles } => {
+): contents is { elements: CanvasEditorElement[]; files?: BinaryFiles } => {
   if (
     [
-      EXPORT_DATA_TYPES.excalidraw,
-      EXPORT_DATA_TYPES.excalidrawClipboard,
-      EXPORT_DATA_TYPES.excalidrawClipboardWithAPI,
+      EXPORT_DATA_TYPES.canvas,
+      EXPORT_DATA_TYPES.canvasClipboard,
+      EXPORT_DATA_TYPES.canvasClipboardWithAPI,
     ].includes(contents?.type) &&
     Array.isArray(contents.elements)
   ) {
@@ -130,7 +130,7 @@ export const serializeAsClipboardJSON = ({
   elements,
   files,
 }: {
-  elements: readonly NonDeletedExcalidrawElement[];
+  elements: readonly NonDeletedCanvasEditorElement[];
   files: BinaryFiles | null;
 }) => {
   const elementsMap = arrayToMap(elements);
@@ -157,7 +157,7 @@ export const serializeAsClipboardJSON = ({
 
   // select bound text elements when copying
   const contents: ElementsClipboard = {
-    type: EXPORT_DATA_TYPES.excalidrawClipboard,
+    type: EXPORT_DATA_TYPES.canvasClipboard,
     elements: elements.map((element) => {
       if (
         getContainingFrame(element, elementsMap) &&
@@ -179,7 +179,7 @@ export const serializeAsClipboardJSON = ({
 };
 
 export const copyToClipboard = async (
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   files: BinaryFiles | null,
   /** supply if available to make the operation more certain to succeed */
   clipboardEvent?: ClipboardEvent | null,
@@ -300,11 +300,11 @@ export const readSystemClipboard = async () => {
           const file = createFile(imageBlob, type, undefined);
           types[type] = file;
         } else {
-          throw new ExcalidrawError(`Unsupported clipboard type: ${type}`);
+          throw new CanvasEditorError(`Unsupported clipboard type: ${type}`);
         }
       } catch (error: any) {
         console.warn(
-          error instanceof ExcalidrawError
+          error instanceof CanvasEditorError
             ? error.message
             : `Cannot retrieve ${type} from clipboardItem: ${error.message}`,
         );
@@ -388,7 +388,7 @@ export const parseClipboard = async (
   try {
     const systemClipboardData = JSON.parse(parsedEventData.value);
     const programmaticAPI =
-      systemClipboardData.type === EXPORT_DATA_TYPES.excalidrawClipboardWithAPI;
+      systemClipboardData.type === EXPORT_DATA_TYPES.canvasClipboardWithAPI;
     if (clipboardContainsElements(systemClipboardData)) {
       return {
         elements: systemClipboardData.elements,

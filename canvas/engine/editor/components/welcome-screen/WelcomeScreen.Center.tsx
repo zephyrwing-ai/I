@@ -2,7 +2,7 @@ import type { JSX } from "react";
 import { t } from "../../i18n";
 import { useDevice } from "../App";
 import { useTunnels } from "../../context/tunnels";
-import { ExcalidrawLogo } from "../ExcalidrawLogo";
+import { CanvasEditorLogo } from "../CanvasEditorLogo";
 
 const WelcomeScreenMenuItemContent = ({
   icon,
@@ -103,7 +103,7 @@ Center.displayName = "Center";
 const Logo = ({ children }: { children?: React.ReactNode }) => {
   return (
     <div className="welcome-screen-center__logo excalifont welcome-screen-decor">
-      {children || <ExcalidrawLogo withText />}
+      {children || <CanvasEditorLogo withText />}
     </div>
   );
 };

@@ -32,8 +32,26 @@ export interface AgentRunConfig {
   /** 测试注入点：与 provider-model-discovery 的 fetchImpl 同理。 */
   responseImpl?: typeof response;
   modelRetry?: ModelRetryConfig;
+  /** Clock injection keeps run-level duration deterministic in tests. */
+  clock?: () => number;
   /** Context supplied for this run only; it is intentionally not committed. */
   runScopedContext?: ModelMessage[];
+  /** Main-generated ID shared with the optimistic initial user message. */
+  initialUserEntryId?: string;
+  steeringInbox?: AgentSteeringInbox;
+}
+
+export interface SteeringInput {
+  inputId: string;
+  content: string;
+}
+
+/** Host-owned admission queue. Runtime reads it only between complete model turns. */
+export interface AgentSteeringInbox {
+  stopAdmission(): void;
+  takePending(): Promise<SteeringInput[]>;
+  takePendingOrSeal(): Promise<SteeringInput[]>;
+  closeAndAbandon(reason: RunStatus): Promise<string[]>;
 }
 
 export interface TurnContext {
@@ -79,7 +97,8 @@ export interface AgentEvents {
     maxAttempts: number;
   }) => void;
   onTurnCompleted?: (ctx: TurnContext) => void;
-  onRunCompleted?: (result: { runId: string; status: RunStatus; error?: AgentError; turnCount: number }) => void;
+  onInputsApplied?: (result: { runId: string; inputIds: string[]; startedAt: number }) => void;
+  onRunCompleted?: (result: { runId: string; status: RunStatus; error?: AgentError; turnCount: number; unappliedInputIds?: string[]; finalTurnId?: string; finalDurationMs?: number }) => void;
 }
 
 export interface AgentError {
@@ -137,8 +156,10 @@ export async function run(
   modelConfig: ModelConfig,
   config: AgentRunConfig,
   events: AgentEvents = {},
-): Promise<{ runId: string; status: RunStatus; error?: AgentError; turnCount: number }> {
-  const startedAt = new Date().toISOString();
+): Promise<{ runId: string; status: RunStatus; error?: AgentError; turnCount: number; unappliedInputIds?: string[]; finalTurnId?: string; finalDurationMs?: number }> {
+  const clock = config.clock ?? Date.now;
+  const runStartedAt = clock();
+  const startedAt = new Date(runStartedAt).toISOString();
   const messages: ModelMessage[] = [...(config.recorder?.snapshot() ?? [])];
   const userMessage: ModelMessage = { role: "user", content: task };
   const tools = [...config.tools.values()].map((tool) => tool.definition);
@@ -147,21 +168,64 @@ export async function run(
   let currentTurnId: string | undefined;
   let attempt = 0;
   let finished = false;
+  let readyInputs: SteeringInput[] = [];
 
-  const finish = async (status: RunStatus, error?: AgentError) => {
+  const finish = async (status: RunStatus, error?: AgentError, finalTurnId?: string) => {
     if (finished) return { runId: config.runId, status, error, turnCount: turnOrdinal };
+    config.steeringInbox?.stopAdmission();
     let finalStatus = status;
     let finalError = error;
+    let unappliedInputIds: string[] = [];
     try {
       await config.recorder?.finishRun({ runId: config.runId, status });
     } catch (finishError) {
       finalStatus = "failed";
       finalError = toAgentError(finishError);
     }
-    const result = { runId: config.runId, status: finalStatus, error: finalError, turnCount: turnOrdinal };
+    try {
+      unappliedInputIds = await config.steeringInbox?.closeAndAbandon(finalStatus) ?? [];
+    } catch (abandonError) {
+      finalStatus = "failed";
+      finalError = toAgentError(abandonError);
+    }
+    if (finalStatus === "completed" && unappliedInputIds.length > 0) {
+      finalStatus = "failed";
+      finalError = { kind: "runtime", message: "Accepted steering remained unapplied at run completion." };
+    }
+    let finalDurationMs: number | undefined;
+    if (finalStatus === "completed" && finalTurnId) {
+      finalDurationMs = Math.max(0, clock() - runStartedAt);
+      try {
+        await config.recorder?.finalizeAnswerDuration(finalTurnId, finalDurationMs);
+      } catch (durationError) {
+        finalStatus = "failed";
+        finalError = toAgentError(durationError);
+      }
+    }
+    const result = {
+      runId: config.runId,
+      status: finalStatus,
+      error: finalError,
+      turnCount: turnOrdinal,
+      ...(unappliedInputIds.length ? { unappliedInputIds } : {}),
+      ...(finalStatus === "completed" && finalTurnId && finalDurationMs !== undefined ? { finalTurnId, finalDurationMs } : {}),
+    };
     finished = true;
     events.onRunCompleted?.(result);
     return result;
+  };
+
+  const applyInputs = async (batch: SteeringInput[]): Promise<void> => {
+    if (batch.length === 0) return;
+    const inputIds = batch.map((input) => input.inputId);
+    const entries = config.recorder
+      ? await config.recorder.applyRunInputs(config.runId, inputIds)
+      : batch.map((input) => ({ id: input.inputId, payload: { role: "user" as const, content: input.content } }));
+    if (entries.length !== batch.length || entries.some((entry, index) => entry.id !== inputIds[index])) {
+      throw new Error("Steering input persistence returned a different input batch.");
+    }
+    messages.push(...entries.map((entry) => entry.payload));
+    events.onInputsApplied?.({ runId: config.runId, inputIds, startedAt: clock() });
   };
 
   try {
@@ -172,7 +236,7 @@ export async function run(
   }
 
   try {
-    await config.recorder?.commitUser(userMessage, { runId: config.runId });
+    await config.recorder?.commitUser(userMessage, { runId: config.runId, entryId: config.initialUserEntryId });
   } catch (error) {
     return finish("failed", toAgentError(error));
   }
@@ -182,6 +246,14 @@ export async function run(
   while (true) {
     if (config.signal?.aborted) return finish("cancelled");
     if (!currentTurnId) {
+      try {
+        const incoming = config.steeringInbox ? await config.steeringInbox.takePending() : [];
+        await applyInputs([...readyInputs, ...incoming]);
+        readyInputs = [];
+      } catch (error) {
+        return finish("failed", toAgentError(error));
+      }
+      if (config.signal?.aborted) return finish("cancelled");
       currentTurnId = randomUUID();
       turnOrdinal += 1;
       attempt = 0;
@@ -231,7 +303,16 @@ export async function run(
 
       if (outcome.kind === "answer") {
         events.onTurnCompleted?.(ctx);
-        return finish("completed");
+        try {
+          readyInputs = await config.steeringInbox?.takePendingOrSeal() ?? [];
+        } catch (error) {
+          return finish("failed", toAgentError(error));
+        }
+        if (readyInputs.length > 0) {
+          currentTurnId = undefined;
+          continue;
+        }
+        return finish("completed", undefined, ctx.turnId);
       }
 
       let invocations: Map<string, ToolInvocationRecord>;
@@ -434,7 +515,9 @@ async function recoverOpenToolInvocations(config: AgentRunConfig, messages: Mode
     } else {
       const recovered = invocation.phase === "effect_pending"
         ? await recoverToolInvocation(call, invocation, config)
-        : undefined;
+        : invocation.phase === "planned" && config.tools.get(call.name)?.recovery.resumePlanned === false
+          ? { kind: "interrupted" as const, reason: `Tool ${call.name} belongs to an earlier run and requires a new request.` }
+          : undefined;
       if (recovered?.kind === "succeeded") toolResult = recovered.result;
       else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
       else {

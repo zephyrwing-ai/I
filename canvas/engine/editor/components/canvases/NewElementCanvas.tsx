@@ -41,7 +41,7 @@ const NewElementCanvas = (props: NewElementCanvasProps) => {
 
   return (
     <canvas
-      className="excalidraw__canvas"
+      className="agent-canvas__canvas"
       style={{
         width: props.appState.width,
         height: props.appState.height,

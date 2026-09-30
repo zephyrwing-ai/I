@@ -64,12 +64,12 @@ import {
 } from "../element/typeChecks";
 import type {
   ElementsMap,
-  ExcalidrawBindableElement,
-  ExcalidrawElement,
-  ExcalidrawFrameLikeElement,
-  ExcalidrawImageElement,
-  ExcalidrawLinearElement,
-  ExcalidrawTextElement,
+  CanvasEditorBindableElement,
+  CanvasEditorElement,
+  CanvasEditorFrameLikeElement,
+  CanvasEditorImageElement,
+  CanvasEditorLinearElement,
+  CanvasEditorTextElement,
   GroupId,
   NonDeleted,
 } from "../element/types";
@@ -242,7 +242,7 @@ const strokeEllipseWithRotation = (
 
 const renderBindingHighlightForBindableElement = (
   context: CanvasRenderingContext2D,
-  element: ExcalidrawBindableElement,
+  element: CanvasEditorBindableElement,
   elementsMap: ElementsMap,
   zoom: InteractiveCanvasAppState["zoom"],
 ) => {
@@ -478,7 +478,7 @@ const renderBindingHighlight = (
 const renderFrameHighlight = (
   context: CanvasRenderingContext2D,
   appState: InteractiveCanvasAppState,
-  frame: NonDeleted<ExcalidrawFrameLikeElement>,
+  frame: NonDeleted<CanvasEditorFrameLikeElement>,
   elementsMap: ElementsMap,
 ) => {
   const [x1, y1, x2, y2] = getElementAbsoluteCoords(frame, elementsMap);
@@ -508,7 +508,7 @@ const renderFrameHighlight = (
 const renderElementsBoxHighlight = (
   context: CanvasRenderingContext2D,
   appState: InteractiveCanvasAppState,
-  elements: NonDeleted<ExcalidrawElement>[],
+  elements: NonDeleted<CanvasEditorElement>[],
 ) => {
   const individualElements = elements.filter(
     (element) => element.groupIds.length === 0,
@@ -518,7 +518,7 @@ const renderElementsBoxHighlight = (
     (element) => element.groupIds.length > 0,
   );
 
-  const getSelectionFromElements = (elements: ExcalidrawElement[]) => {
+  const getSelectionFromElements = (elements: CanvasEditorElement[]) => {
     const [x1, y1, x2, y2] = getCommonBounds(elements);
     return {
       angle: 0,
@@ -554,7 +554,7 @@ const renderElementsBoxHighlight = (
 const renderLinearPointHandles = (
   context: CanvasRenderingContext2D,
   appState: InteractiveCanvasAppState,
-  element: NonDeleted<ExcalidrawLinearElement>,
+  element: NonDeleted<CanvasEditorLinearElement>,
   elementsMap: RenderableElementsMap,
 ) => {
   if (!appState.selectedLinearElement) {
@@ -668,7 +668,7 @@ const renderCropHandles = (
   context: CanvasRenderingContext2D,
   renderConfig: InteractiveCanvasRenderConfig,
   appState: InteractiveCanvasAppState,
-  croppingElement: ExcalidrawImageElement,
+  croppingElement: CanvasEditorImageElement,
   elementsMap: ElementsMap,
 ): void => {
   const [x1, y1, , , cx, cy] = getElementAbsoluteCoords(
@@ -770,7 +770,7 @@ const renderCropHandles = (
 };
 
 const renderTextBox = (
-  text: NonDeleted<ExcalidrawTextElement>,
+  text: NonDeleted<CanvasEditorTextElement>,
   context: CanvasRenderingContext2D,
   appState: InteractiveCanvasAppState,
   selectionColor: InteractiveCanvasRenderConfig["selectionColor"],
@@ -822,7 +822,7 @@ const _renderInteractiveScene = ({
   context.save();
   context.scale(appState.zoom.value, appState.zoom.value);
 
-  let editingLinearElement: NonDeleted<ExcalidrawLinearElement> | undefined =
+  let editingLinearElement: NonDeleted<CanvasEditorLinearElement> | undefined =
     undefined;
 
   visibleElements.forEach((element) => {
@@ -831,7 +831,7 @@ const _renderInteractiveScene = ({
     // correct element from visible elements
     if (appState.editingLinearElement?.elementId === element.id) {
       if (element) {
-        editingLinearElement = element as NonDeleted<ExcalidrawLinearElement>;
+        editingLinearElement = element as NonDeleted<CanvasEditorLinearElement>;
       }
     }
   });
@@ -864,7 +864,7 @@ const _renderInteractiveScene = ({
     isTextElement(appState.editingTextElement)
   ) {
     const textElement = allElementsMap.get(appState.editingTextElement.id) as
-      | ExcalidrawTextElement
+      | CanvasEditorTextElement
       | undefined;
     if (textElement && !textElement.autoResize) {
       renderTextBox(
@@ -916,7 +916,7 @@ const _renderInteractiveScene = ({
     renderLinearPointHandles(
       context,
       appState,
-      selectedElements[0] as NonDeleted<ExcalidrawLinearElement>,
+      selectedElements[0] as NonDeleted<CanvasEditorLinearElement>,
       elementsMap,
     );
   }
@@ -955,7 +955,7 @@ const _renderInteractiveScene = ({
       renderLinearPointHandles(
         context,
         appState,
-        selectedElements[0] as ExcalidrawLinearElement,
+        selectedElements[0] as CanvasEditorLinearElement,
         elementsMap,
       );
     }

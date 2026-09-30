@@ -1,7 +1,7 @@
 import { mutateElement } from "../../element/mutateElement";
 import { getBoundTextElement } from "../../element/textElement";
 import { isArrowElement } from "../../element/typeChecks";
-import type { ExcalidrawElement } from "../../element/types";
+import type { CanvasEditorElement } from "../../element/types";
 import { isInGroup } from "../../groups";
 import type Scene from "../../scene/Scene";
 import { angleIcon } from "../icons";
@@ -13,7 +13,7 @@ import type { Degrees } from "@agent-studio/canvas-math";
 import { degreesToRadians, radiansToDegrees } from "@agent-studio/canvas-math";
 
 interface MultiAngleProps {
-  elements: readonly ExcalidrawElement[];
+  elements: readonly CanvasEditorElement[];
   scene: Scene;
   appState: AppState;
   property: "angle";

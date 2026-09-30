@@ -32,6 +32,9 @@
 .user-message-row { width: 100%; margin: 0 0 28px; display: flex; justify-content: flex-end; }
 .user-message-group { width: fit-content; display: flex; flex-direction: column; align-items: flex-end; max-width: 76%; }
 .user-message { width: fit-content; max-width: 100%; padding: 8px 14px; border-radius: 16px; background: var(--surface-bubble); color: var(--text); font-size: 14px; line-height: 24px; letter-spacing: 0.02em; white-space: pre-wrap; word-break: break-word; }
+.user-message-interrupted { margin-top: 5px; display: flex; align-items: center; gap: 8px; color: var(--danger); font-size: 11px; line-height: 20px; }
+.user-message-interrupted button { padding: 0; border: 0; background: transparent; color: var(--text-secondary); font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.user-message-interrupted button:hover { color: var(--text); }
 
 /* ===== 过程块：Working for 折叠行 ===== */
 .run-process { margin: 0; }
@@ -95,6 +98,7 @@
 
 /* ===== 时间戳与复制行：13px 时间 + 14×14 复制/Check 图标；用户消息右对齐、模型消息左对齐，距消息下缘 8px；默认隐藏，悬停/聚焦消息区域时淡入 ===== */
 .model-message { width: 100%; display: flex; flex-direction: column; }
+.model-duration { margin-bottom: 8px; color: var(--text-muted); font-size: 14px; line-height: 20px; }
 .model-message > .message-meta { align-self: flex-start; }
 .message-meta { margin-top: 8px; display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity 120ms var(--ease-standard); }
 .message-meta.has-copy-feedback { opacity: 1; }
@@ -312,12 +316,15 @@
   background-color: var(--selection) !important;
 }
 .canvas-panel-state { height: 100%; padding: 24px; color: var(--text-muted); display: grid; place-items: center; text-align: center; font-size: 11px; }
+.canvas-panel-loading { position: absolute; z-index: 16; inset: 0; background: var(--bg); }
 .canvas-panel-error { gap: 10px; }
 .canvas-panel-error button { min-height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-secondary); }
 .canvas-panel-status { position: absolute; z-index: 14; left: 12px; bottom: 74px; max-width: min(420px, calc(100% - 24px)); margin: 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-strong-translucent); color: var(--text-muted); font-size: 10px; line-height: 14px; pointer-events: none; }
-.canvas-selection-actions { position: absolute; z-index: 15; display: flex; align-items: stretch; gap: 0; padding: 0; overflow: hidden; border: 1px solid var(--canvas-floating-border); border-radius: var(--canvas-floating-radius); background: var(--canvas-floating-background); box-shadow: var(--canvas-floating-shadow); transform: translate(-50%, -100%); }
+.canvas-panel-status.has-action { display: flex; align-items: center; gap: 8px; pointer-events: auto; }
+.canvas-panel-status button { border: 0; background: transparent; color: var(--text); text-decoration: underline; }
+.canvas-selection-actions { position: absolute; z-index: 15; display: flex; align-items: stretch; gap: 0; box-sizing: border-box; height: var(--canvas-toolbar-hit-size); padding: 0; overflow: hidden; border: 1px solid var(--canvas-floating-border); border-radius: var(--canvas-floating-radius); background: var(--canvas-floating-background); box-shadow: var(--canvas-floating-shadow); transform: translate(-50%, -100%); }
 .canvas-selection-actions.placement-below { transform: translateX(-50%); }
-.canvas-selection-actions button { display: flex; align-items: center; justify-content: center; align-self: stretch; min-width: var(--canvas-toolbar-hit-size); min-height: var(--canvas-toolbar-hit-size); padding: 0 8px; border: 0; border-radius: 0; background: transparent; color: var(--text-secondary); font-size: 9px; white-space: nowrap; }
+.canvas-selection-actions button { display: flex; align-items: center; justify-content: center; align-self: stretch; min-width: var(--canvas-toolbar-hit-size); min-height: 0; padding: 0 8px; border: 0; border-radius: 0; background: transparent; color: var(--text-secondary); font-size: 9px; white-space: nowrap; }
 .canvas-selection-actions button:hover:not(:disabled) { background: var(--canvas-floating-hover); color: var(--text); }
 .canvas-selection-actions button:active:not(:disabled) { background: var(--canvas-floating-active); }
 .canvas-selection-actions button:disabled { opacity: .55; }

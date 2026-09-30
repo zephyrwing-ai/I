@@ -4,7 +4,7 @@ import { ToolButton } from "../components/ToolButton";
 import { t } from "../i18n";
 import { register } from "./register";
 import { getNonDeletedElements } from "../element";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import type { AppClassProperties, AppState } from "../types";
 import { mutateElement, newElementWith } from "../element/mutateElement";
 import { getElementsInGroup, selectGroupsForSelectedElements } from "../groups";
@@ -22,7 +22,7 @@ import { getContainerElement } from "../element/textElement";
 import { getFrameChildren } from "../frame";
 
 const deleteSelectedElements = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: AppState,
   app: AppClassProperties,
 ) => {
@@ -33,11 +33,11 @@ const deleteSelectedElements = (
     ).map((el) => el.id),
   );
 
-  const selectedElementIds: Record<ExcalidrawElement["id"], true> = {};
+  const selectedElementIds: Record<CanvasEditorElement["id"], true> = {};
 
   const elementsMap = app.scene.getNonDeletedElementsMap();
 
-  const processedElements = new Set<ExcalidrawElement["id"]>();
+  const processedElements = new Set<CanvasEditorElement["id"]>();
 
   for (const frameId of framesToBeDeleted) {
     const frameChildren = getFrameChildren(elements, frameId);
@@ -174,7 +174,7 @@ const deleteSelectedElements = (
 
 const handleGroupEditingState = (
   appState: AppState,
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
 ): AppState => {
   if (appState.editingGroupId) {
     const siblingElements = getElementsInGroup(

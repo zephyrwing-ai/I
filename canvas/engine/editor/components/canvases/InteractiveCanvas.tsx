@@ -10,7 +10,7 @@ import type {
   RenderInteractiveSceneCallback,
 } from "../../scene/types";
 import type {
-  NonDeletedExcalidrawElement,
+  NonDeletedCanvasEditorElement,
   NonDeletedSceneElementsMap,
 } from "../../element/types";
 import { isRenderThrottlingEnabled } from "../../reactUtils";
@@ -20,8 +20,8 @@ type InteractiveCanvasProps = {
   containerRef: React.RefObject<HTMLDivElement | null>;
   canvas: HTMLCanvasElement | null;
   elementsMap: RenderableElementsMap;
-  visibleElements: readonly NonDeletedExcalidrawElement[];
-  selectedElements: readonly NonDeletedExcalidrawElement[];
+  visibleElements: readonly NonDeletedCanvasEditorElement[];
+  selectedElements: readonly NonDeletedCanvasEditorElement[];
   allElementsMap: NonDeletedSceneElementsMap;
   sceneNonce: number | undefined;
   selectionNonce: number | undefined;
@@ -148,7 +148,7 @@ const InteractiveCanvas = (props: InteractiveCanvasProps) => {
 
   return (
     <canvas
-      className="excalidraw__canvas interactive"
+      className="agent-canvas__canvas interactive"
       style={{
         width: props.appState.width,
         height: props.appState.height,

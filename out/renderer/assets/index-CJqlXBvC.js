@@ -1,5 +1,5 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./subset-worker.chunk-DGOavGXf.js","./subset-shared.chunk-Bvd6kpAq.js","./pica-x3Yzs-mf.js","./index-DZnlVrn2.js","./index-tYfoD-YM.css"])))=>i.map(i=>d[i]);
-import { r as reactExports, R as React, j as jsxRuntimeExports, _ as __vitePreload, a as requireReactDom, c as commonjsGlobal, g as getDefaultExportFromCjs, b as requireReact, $ as $2AODx$react } from "./index-DZnlVrn2.js";
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./subset-worker.chunk-DGOavGXf.js","./subset-shared.chunk-Bvd6kpAq.js","./pica-Dms4PXdr.js","./index-D4XixuXW.js","./index-BFVS-1q8.css"])))=>i.map(i=>d[i]);
+import { r as reactExports, R as React, j as jsxRuntimeExports, _ as __vitePreload, a as requireReactDom, c as commonjsGlobal, g as getDefaultExportFromCjs, b as requireReact, $ as $2AODx$react } from "./index-D4XixuXW.js";
 const __variableDynamicImportRuntimeHelper = (glob$1, path$13, segs) => {
   const v = glob$1[path$13];
   if (v) return typeof v === "function" ? v() : Promise.resolve(v);
@@ -22790,7 +22790,7 @@ const resizeImageFile = async (file, opts) => {
     return file;
   }
   const [pica, imageBlobReduce] = await Promise.all([
-    __vitePreload(() => import("./pica-x3Yzs-mf.js").then((n2) => n2.p), true ? __vite__mapDeps([2,3,4]) : void 0, import.meta.url).then((res) => res.default),
+    __vitePreload(() => import("./pica-Dms4PXdr.js").then((n2) => n2.p), true ? __vite__mapDeps([2,3,4]) : void 0, import.meta.url).then((res) => res.default),
     // a wrapper for pica for better API
     __vitePreload(() => import("./image-blob-reduce.esm-D2nwdMMZ.js"), true ? [] : void 0, import.meta.url).then((res) => res.default)
   ]);
@@ -30567,6 +30567,11 @@ const transformHandleSizes = {
   touch: 28
 };
 const ROTATION_RESIZE_HANDLE_GAP = 16;
+const getRotationHandleTopOffset = (pointerType, margin = 4, spacing = DEFAULT_TRANSFORM_HANDLE_SPACING) => {
+  const size = transformHandleSizes[pointerType];
+  const centeringOffset = (size - spacing * 2) / 2;
+  return margin + size - centeringOffset + ROTATION_RESIZE_HANDLE_GAP;
+};
 const DEFAULT_OMIT_SIDES = {
   e: true,
   s: true,
@@ -30659,7 +30664,7 @@ const getTransformHandlesFromCoords = ([x1, y1, x2, y2, cx, cy], angle, zoom, po
     ),
     rotation: omitSides.rotation ? void 0 : generateTransformHandle(
       x1 + width / 2 - handleWidth / 2,
-      y1 - dashedLineMargin - handleMarginY + centeringOffset - ROTATION_RESIZE_HANDLE_GAP / zoom.value,
+      y1 - getRotationHandleTopOffset(pointerType, margin, spacing) / zoom.value,
       handleWidth,
       handleHeight,
       cx,
@@ -39235,8 +39240,8 @@ const getOffscreenIndicatorPoint = (target, viewport) => {
   const distanceY = dy === 0 ? Number.POSITIVE_INFINITY : (height / 2 - margin) / Math.abs(dy);
   const rayScale = Math.min(distanceX, distanceY);
   const indicator = {
-    left: centerX + dx * rayScale,
-    top: centerY + dy * rayScale
+    left: Math.round(centerX + dx * rayScale),
+    top: Math.round(centerY + dy * rayScale)
   };
   const rotation = Math.atan2(target.y - indicator.top, target.x - indicator.left) * 180 / Math.PI + 90;
   return {
@@ -45958,6 +45963,11 @@ const strokeSelectionOutline = (context, appState, selectionColor, stroke) => {
   stroke();
   context.restore();
 };
+const SELECTION_OUTLINE_CORNER_RADIUS = 6;
+const getSelectionOutlineRadius = (width, height, zoom) => Math.max(
+  0,
+  Math.min(SELECTION_OUTLINE_CORNER_RADIUS / zoom, width / 2, height / 2)
+);
 const renderSelectionBorder = (context, appState, elementProperties) => {
   const {
     angle,
@@ -45977,6 +45987,13 @@ const renderSelectionBorder = (context, appState, elementProperties) => {
   const linePadding = padding / appState.zoom.value;
   const lineWidth = 8 / appState.zoom.value;
   const spaceWidth = 4 / appState.zoom.value;
+  const outlineWidth = elementWidth + linePadding * 2;
+  const outlineHeight = elementHeight + linePadding * 2;
+  const outlineRadius = getSelectionOutlineRadius(
+    outlineWidth,
+    outlineHeight,
+    appState.zoom.value
+  );
   context.save();
   context.translate(appState.scrollX, appState.scrollY);
   context.lineWidth = (activeEmbeddable ? 4 : 1) / appState.zoom.value;
@@ -45994,11 +46011,13 @@ const renderSelectionBorder = (context, appState, elementProperties) => {
       context,
       x1 - linePadding,
       y1 - linePadding,
-      elementWidth + linePadding * 2,
-      elementHeight + linePadding * 2,
+      outlineWidth,
+      outlineHeight,
       cx,
       cy,
-      angle
+      angle,
+      false,
+      outlineRadius
     );
     if (activeEmbeddable) {
       stroke();
@@ -46140,7 +46159,7 @@ const renderLinearPointHandles = (context, appState, element2, elementsMap) => {
   }
   context.restore();
 };
-const renderTransformHandles = (context, appState, transformHandles, angle) => {
+const renderTransformHandles = (context, appState, transformHandles) => {
   Object.keys(transformHandles).forEach((key) => {
     const transformHandle = transformHandles[key];
     if (transformHandle !== void 0) {
@@ -46149,27 +46168,12 @@ const renderTransformHandles = (context, appState, transformHandles, angle) => {
       context.lineWidth = 1.5 / appState.zoom.value;
       context.strokeStyle = appState.theme === THEME.DARK ? "#ffffff" : "#25282d";
       context.fillStyle = oc.white;
-      if (key === "rotation") {
-        fillCircle(context, x + width / 2, y + height / 2, width / 2);
-      } else if (context.roundRect) {
-        context.beginPath();
-        context.roundRect(x, y, width, height, 2 / appState.zoom.value);
-        context.fill();
-        context.stroke();
-      } else {
-        strokeRectWithRotation(
-          context,
-          x,
-          y,
-          width,
-          height,
-          x + width / 2,
-          y + height / 2,
-          angle,
-          true
-          // fill before stroke
-        );
-      }
+      fillCircle(
+        context,
+        x + width / 2,
+        y + height / 2,
+        Math.min(width, height) / 2
+      );
       context.restore();
     }
   });
@@ -46473,8 +46477,7 @@ const _renderInteractiveScene = ({
         renderTransformHandles(
           context,
           appState,
-          transformHandles,
-          selectedElements[0].angle
+          transformHandles
         );
       }
       if (appState.croppingElementId && !appState.isCropping) {
@@ -46493,6 +46496,8 @@ const _renderInteractiveScene = ({
       const dashedLinePadding = DEFAULT_TRANSFORM_HANDLE_SPACING * 2 / appState.zoom.value;
       context.fillStyle = oc.white;
       const [x1, y1, x2, y2] = getCommonBounds(selectedElements);
+      const outlineWidth = x2 - x1 + dashedLinePadding * 2;
+      const outlineHeight = y2 - y1 + dashedLinePadding * 2;
       const initialLineDash = context.getLineDash();
       context.setLineDash([2 / appState.zoom.value]);
       const lineWidth = context.lineWidth;
@@ -46501,11 +46506,17 @@ const _renderInteractiveScene = ({
         context,
         x1 - dashedLinePadding,
         y1 - dashedLinePadding,
-        x2 - x1 + dashedLinePadding * 2,
-        y2 - y1 + dashedLinePadding * 2,
+        outlineWidth,
+        outlineHeight,
         (x1 + x2) / 2,
         (y1 + y2) / 2,
-        0
+        0,
+        false,
+        getSelectionOutlineRadius(
+          outlineWidth,
+          outlineHeight,
+          appState.zoom.value
+        )
       );
       strokeSelectionOutline(context, appState, selectionColor, stroke);
       context.lineWidth = lineWidth;
@@ -46521,8 +46532,7 @@ const _renderInteractiveScene = ({
         renderTransformHandles(
           context,
           appState,
-          transformHandles,
-          0
+          transformHandles
         );
       }
     }
@@ -48340,7 +48350,6 @@ let invalidateContextMenu = false;
 const YOUTUBE_VIDEO_STATES = /* @__PURE__ */ new Map();
 let IS_PLAIN_PASTE = false;
 let IS_PLAIN_PASTE_TIMER = 0;
-let PLAIN_PASTE_TOAST_SHOWN = false;
 let lastPointerUp = null;
 const gesture = {
   pointers: /* @__PURE__ */ new Map(),
@@ -48349,6 +48358,7 @@ const gesture = {
   initialScale: null
 };
 class App extends React.Component {
+  documentEpoch = 0;
   canvas;
   interactiveCanvas = null;
   rc;
@@ -48455,10 +48465,12 @@ class App extends React.Component {
     if (excalidrawAPI) {
       const api = {
         updateScene: this.updateScene,
+        replaceScene: this.replaceScene,
         updateLibrary: this.library.updateLibrary,
         addFiles: this.addFiles,
         resetScene: this.resetScene,
         getSceneElementsIncludingDeleted: this.getSceneElementsIncludingDeleted,
+        getSceneVersion: () => this.scene.getSceneNonce(),
         history: {
           clear: this.resetHistory
         },
@@ -49638,7 +49650,30 @@ class App extends React.Component {
       this.resetHistory();
     }
   );
+  /** Switches the active document while retaining the mounted editor. */
+  replaceScene = withBatchedUpdates(
+    (sceneData) => {
+      this.documentEpoch += 1;
+      this.resetStore();
+      this.resetHistory();
+      this.clearImageShapeCache();
+      this.imageCache.clear();
+      this.addMissingFiles(sceneData.files, true);
+      this.updateScene({
+        elements: sceneData.elements,
+        appState: {
+          ...getDefaultAppState(),
+          ...sceneData.appState,
+          selectedElementIds: {},
+          selectedGroupIds: {}
+        },
+        captureUpdate: CaptureUpdateAction.NEVER
+      });
+      this.addNewImagesToImageCache();
+    }
+  );
   initializeScene = async () => {
+    const initialDocumentEpoch = this.documentEpoch;
     if ("launchQueue" in window && "LaunchParams" in window) {
       window.launchQueue.setConsumer(
         async (launchParams) => {
@@ -49683,6 +49718,7 @@ class App extends React.Component {
         }
       };
     }
+    if (initialDocumentEpoch !== this.documentEpoch) return;
     const scene = restore(initialData, null, null, { repairBindings: true });
     scene.appState = {
       ...scene.appState,
@@ -50322,7 +50358,7 @@ class App extends React.Component {
           }
           return;
         }
-        this.addTextFromPaste(data.text, isPlainPaste);
+        this.addTextFromPaste(data.text);
       }
       this.setActiveTool({ type: "selection" });
       event?.preventDefault();
@@ -50500,14 +50536,15 @@ class App extends React.Component {
     } else {
       const textNodes = mixedContent.filter((node) => node.type === "text");
       if (textNodes.length) {
-        this.addTextFromPaste(
-          textNodes.map((node) => node.value).join("\n\n"),
-          isPlainPaste
-        );
+        this.addTextFromPaste(textNodes.map((node) => node.value).join("\n\n"));
       }
     }
   }
-  addTextFromPaste(text, isPlainPaste = false) {
+  addTextFromPaste(text) {
+    const originalText = normalizeText(text).trim();
+    if (!originalText) {
+      return;
+    }
     const { x, y } = viewportCoordsToSceneCoords(
       {
         clientX: this.lastViewportPosition.x,
@@ -50540,64 +50577,30 @@ class App extends React.Component {
     const lineHeight = getLineHeight(textElementProps.fontFamily);
     const [x1, , x2] = getVisibleSceneBounds(this.state);
     const maxTextWidth = Math.max(Math.min((x2 - x1) * 0.5, 800), 200);
-    const LINE_GAP = 10;
-    let currentY = y;
-    const lines = isPlainPaste ? [text] : text.split("\n");
-    const textElements = lines.reduce(
-      (acc, line2, idx) => {
-        const originalText = normalizeText(line2).trim();
-        if (originalText.length) {
-          const topLayerFrame = this.getTopLayerFrameAtSceneCoords({
-            x,
-            y: currentY
-          });
-          let metrics = measureText(originalText, fontString, lineHeight);
-          const isTextUnwrapped = metrics.width > maxTextWidth;
-          const text2 = isTextUnwrapped ? wrapText(originalText, fontString, maxTextWidth) : originalText;
-          metrics = isTextUnwrapped ? measureText(text2, fontString, lineHeight) : metrics;
-          const startX = x - metrics.width / 2;
-          const startY = currentY - metrics.height / 2;
-          const element2 = newTextElement({
-            ...textElementProps,
-            x: startX,
-            y: startY,
-            text: text2,
-            originalText,
-            lineHeight,
-            autoResize: !isTextUnwrapped,
-            frameId: topLayerFrame ? topLayerFrame.id : null
-          });
-          acc.push(element2);
-          currentY += element2.height + LINE_GAP;
-        } else {
-          const prevLine = lines[idx - 1]?.trim();
-          if (prevLine) {
-            currentY += getLineHeightInPx(textElementProps.fontSize, lineHeight) + LINE_GAP;
-          }
-        }
-        return acc;
-      },
-      []
-    );
-    if (textElements.length === 0) {
-      return;
+    const topLayerFrame = this.getTopLayerFrameAtSceneCoords({ x, y });
+    let metrics = measureText(originalText, fontString, lineHeight);
+    const isTextUnwrapped = metrics.width > maxTextWidth;
+    const wrappedText = isTextUnwrapped ? wrapText(originalText, fontString, maxTextWidth) : originalText;
+    if (isTextUnwrapped) {
+      metrics = measureText(wrappedText, fontString, lineHeight);
     }
-    this.scene.insertElements(textElements);
+    const element2 = newTextElement({
+      ...textElementProps,
+      x: x - metrics.width / 2,
+      y: y - metrics.height / 2,
+      text: wrappedText,
+      originalText,
+      lineHeight,
+      autoResize: !isTextUnwrapped,
+      frameId: topLayerFrame ? topLayerFrame.id : null
+    });
+    this.scene.insertElements([element2]);
     this.setState({
       selectedElementIds: makeNextSelectedElementIds(
-        Object.fromEntries(textElements.map((el) => [el.id, true])),
+        { [element2.id]: true },
         this.state
       )
     });
-    if (!isPlainPaste && textElements.length > 1 && PLAIN_PASTE_TOAST_SHOWN === false && !this.device.editor.isMobile) {
-      this.setToast({
-        message: t$1("toast.pasteAsSingleElement", {
-          shortcut: getShortcutKey("CtrlOrCmd+Shift+V")
-        }),
-        duration: 5e3
-      });
-      PLAIN_PASTE_TOAST_SHOWN = true;
-    }
     this.store.shouldCaptureIncrement();
   }
   setAppState = (state, callback) => {
@@ -52827,7 +52830,7 @@ class App extends React.Component {
   };
   // Returns whether the event is a panning
   handleCanvasPanUsingWheelOrSpaceDrag = (event) => {
-    if (!(gesture.pointers.size <= 1 && (event.button === POINTER_BUTTON.WHEEL || event.button === POINTER_BUTTON.MAIN && isHoldingSpace || isHandToolActive(this.state) || this.state.viewModeEnabled))) {
+    if (!(gesture.pointers.size <= 1 && (event.button === POINTER_BUTTON.WHEEL || event.button === POINTER_BUTTON.MAIN && isHoldingSpace || event.button === POINTER_BUTTON.MAIN && this.state.activeTool.type === TOOL_TYPE.selection && event[KEYS.CTRL_OR_CMD] || isHandToolActive(this.state) || this.state.viewModeEnabled))) {
       return false;
     }
     isPanning = true;
@@ -55854,43 +55857,24 @@ class App extends React.Component {
       if (isPanning) {
         return;
       }
-      const { deltaX, deltaY } = event;
-      if (event.metaKey || event.ctrlKey) {
-        const sign = Math.sign(deltaY);
-        const MAX_STEP = ZOOM_STEP * 100;
-        const absDelta = Math.abs(deltaY);
-        let delta = deltaY;
-        if (absDelta > MAX_STEP) {
-          delta = MAX_STEP * sign;
-        }
-        let newZoom = this.state.zoom.value - delta / 100;
-        newZoom += Math.log10(Math.max(1, this.state.zoom.value)) * -sign * // reduced amplification for small deltas (small movements on a trackpad)
-        Math.min(1, absDelta / 20);
-        this.translateCanvas((state) => ({
-          ...getStateForZoom(
-            {
-              viewportX: this.lastViewportPosition.x,
-              viewportY: this.lastViewportPosition.y,
-              nextZoom: getNormalizedZoom(newZoom)
-            },
-            state
-          ),
-          shouldCacheIgnoreZoom: true
-        }));
-        this.resetShouldCacheIgnoreZoomDebounced();
-        return;
-      }
-      if (event.shiftKey) {
-        this.translateCanvas(({ zoom, scrollX }) => ({
-          // on Mac, shift+wheel tends to result in deltaX
-          scrollX: scrollX - (deltaY || deltaX) / zoom.value
-        }));
-        return;
-      }
-      this.translateCanvas(({ zoom, scrollX, scrollY }) => ({
-        scrollX: scrollX - deltaX / zoom.value,
-        scrollY: scrollY - deltaY / zoom.value
+      const wheelDelta = event.deltaY || event.deltaX;
+      const pixelDelta = wheelDelta * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? this.state.height : 1);
+      const zoomDelta = Math.max(-120, Math.min(120, pixelDelta));
+      if (zoomDelta === 0) return;
+      this.translateCanvas((state) => ({
+        ...getStateForZoom(
+          {
+            viewportX: event.clientX,
+            viewportY: event.clientY,
+            nextZoom: getNormalizedZoom(
+              state.zoom.value * Math.exp(-zoomDelta / 600)
+            )
+          },
+          state
+        ),
+        shouldCacheIgnoreZoom: true
       }));
+      this.resetShouldCacheIgnoreZoomDebounced();
     }
   );
   getTextWysiwygSnappedToCenterPosition(x, y, appState, container) {
@@ -56446,6 +56430,7 @@ export {
   getFreeDrawSvgPath,
   getLibraryItemsHash,
   getNonDeletedElements,
+  getRotationHandleTopOffset,
   getSceneVersion,
   getTextFromElements,
   getVisibleSceneBounds,

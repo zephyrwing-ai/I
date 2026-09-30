@@ -15,7 +15,7 @@ import {
   ZOOM_STEP,
 } from "../constants";
 import { getCommonBounds, getNonDeletedElements } from "../element";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import { t } from "../i18n";
 import { CODES, KEYS } from "../keys";
 import { getNormalizedZoom } from "../scene";
@@ -318,7 +318,7 @@ export const zoomToFit = ({
   maxZoom,
 }: {
   canvasOffsets?: Offsets;
-  targetElements: readonly ExcalidrawElement[];
+  targetElements: readonly CanvasEditorElement[];
   appState: Readonly<AppState>;
   /** whether to fit content to viewport (beyond >100%) */
   fitToViewport: boolean;

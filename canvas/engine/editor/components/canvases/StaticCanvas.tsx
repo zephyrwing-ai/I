@@ -8,7 +8,7 @@ import type {
   StaticCanvasRenderConfig,
 } from "../../scene/types";
 import type {
-  NonDeletedExcalidrawElement,
+  NonDeletedCanvasEditorElement,
   NonDeletedSceneElementsMap,
 } from "../../element/types";
 import { isRenderThrottlingEnabled } from "../../reactUtils";
@@ -18,7 +18,7 @@ type StaticCanvasProps = {
   rc: RoughCanvas;
   elementsMap: RenderableElementsMap;
   allElementsMap: NonDeletedSceneElementsMap;
-  visibleElements: readonly NonDeletedExcalidrawElement[];
+  visibleElements: readonly NonDeletedCanvasEditorElement[];
   sceneNonce: number | undefined;
   selectionNonce: number | undefined;
   scale: number;
@@ -42,7 +42,7 @@ const StaticCanvas = (props: StaticCanvasProps) => {
       isComponentMounted.current = true;
 
       wrapper.replaceChildren(canvas);
-      canvas.classList.add("excalidraw__canvas", "static");
+      canvas.classList.add("agent-canvas__canvas", "static");
     }
 
     const widthString = `${props.appState.width}px`;
@@ -80,7 +80,7 @@ const StaticCanvas = (props: StaticCanvasProps) => {
     );
   });
 
-  return <div className="excalidraw__canvas-wrapper" ref={wrapperRef} />;
+  return <div className="agent-canvas__canvas-wrapper" ref={wrapperRef} />;
 };
 
 const getRelevantAppStateProps = (

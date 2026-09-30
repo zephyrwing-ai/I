@@ -1,4 +1,4 @@
-import type { ExcalidrawElement } from "../../element/types";
+import type { CanvasEditorElement } from "../../element/types";
 import DragInput from "./DragInput";
 import type { DragInputCallbackType } from "./DragInput";
 import { getStepSizedValue, isPropertyEditable } from "./utils";
@@ -16,13 +16,13 @@ import { clamp, round } from "@agent-studio/canvas-math";
 
 interface DimensionDragInputProps {
   property: "width" | "height";
-  element: ExcalidrawElement;
+  element: CanvasEditorElement;
   scene: Scene;
   appState: AppState;
 }
 
 const STEP_SIZE = 10;
-const _shouldKeepAspectRatio = (element: ExcalidrawElement) => {
+const _shouldKeepAspectRatio = (element: CanvasEditorElement) => {
   return element.type === "image";
 };
 

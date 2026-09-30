@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { EVENT } from "../../constants";
 import { KEYS } from "../../keys";
-import type { ElementsMap, ExcalidrawElement } from "../../element/types";
+import type { ElementsMap, CanvasEditorElement } from "../../element/types";
 import { deepCopyElement } from "../../element/newElement";
 import clsx from "clsx";
 import { useApp } from "../App";
@@ -17,7 +17,7 @@ import { cloneJSON } from "../../utils";
 
 export type DragInputCallbackType<
   P extends StatsInputProperty,
-  E = ExcalidrawElement,
+  E = CanvasEditorElement,
 > = (props: {
   accumulatedChange: number;
   instantChange: number;
@@ -34,7 +34,7 @@ export type DragInputCallbackType<
 
 interface StatsDragInputProps<
   T extends StatsInputProperty,
-  E = ExcalidrawElement,
+  E = CanvasEditorElement,
 > {
   label: string | React.ReactNode;
   icon?: React.ReactNode;
@@ -52,7 +52,7 @@ interface StatsDragInputProps<
 
 const StatsDragInput = <
   T extends StatsInputProperty,
-  E extends ExcalidrawElement = ExcalidrawElement,
+  E extends CanvasEditorElement = CanvasEditorElement,
 >({
   label,
   icon,
@@ -200,7 +200,7 @@ const StatsDragInput = <
         ref={labelRef}
         onPointerDown={(event) => {
           if (inputRef.current && editable) {
-            document.body.classList.add("excalidraw-cursor-resize");
+            document.body.classList.add("agent-canvas-cursor-resize");
 
             let startValue = Number(inputRef.current.value);
             if (isNaN(startValue)) {
@@ -212,7 +212,7 @@ const StatsDragInput = <
               y: number;
             } | null = null;
 
-            let originalElementsMap: Map<string, ExcalidrawElement> | null =
+            let originalElementsMap: Map<string, CanvasEditorElement> | null =
               app.scene
                 .getNonDeletedElements()
                 .reduce((acc: ElementsMap, element) => {
@@ -288,7 +288,7 @@ const StatsDragInput = <
               originalElements = null;
               originalElementsMap = null;
 
-              document.body.classList.remove("excalidraw-cursor-resize");
+              document.body.classList.remove("agent-canvas-cursor-resize");
 
               window.removeEventListener(EVENT.POINTER_UP, onPointerUp, false);
             };

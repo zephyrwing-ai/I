@@ -13,8 +13,8 @@ import {
 } from "../../element/typeChecks";
 import type {
   ElementsMap,
-  ExcalidrawElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  NonDeletedCanvasEditorElement,
   NonDeletedSceneElementsMap,
 } from "../../element/types";
 import {
@@ -37,8 +37,8 @@ export type StatsInputProperty =
 export const SMALLEST_DELTA = 0.01;
 
 export const isPropertyEditable = (
-  element: ExcalidrawElement,
-  property: keyof ExcalidrawElement,
+  element: CanvasEditorElement,
+  property: keyof CanvasEditorElement,
 ) => {
   if (property === "height" && isTextElement(element)) {
     return false;
@@ -69,8 +69,8 @@ export const getElementsInAtomicUnit = (
       latest: elementsMap.get(id),
     }))
     .filter((el) => el.original !== undefined && el.latest !== undefined) as {
-    original: NonDeletedExcalidrawElement;
-    latest: NonDeletedExcalidrawElement;
+    original: NonDeletedCanvasEditorElement;
+    latest: NonDeletedCanvasEditorElement;
   }[];
 };
 
@@ -113,9 +113,9 @@ export const newOrigin = (
 export const moveElement = (
   newTopLeftX: number,
   newTopLeftY: number,
-  originalElement: ExcalidrawElement,
+  originalElement: CanvasEditorElement,
   elementsMap: NonDeletedSceneElementsMap,
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   scene: Scene,
   originalElementsMap: ElementsMap,
   shouldInformMutation = true,
@@ -172,7 +172,7 @@ export const moveElement = (
 };
 
 export const getAtomicUnits = (
-  targetElements: readonly ExcalidrawElement[],
+  targetElements: readonly CanvasEditorElement[],
   appState: AppState,
 ) => {
   const selectedGroupIds = getSelectedGroupIds(appState);
@@ -193,12 +193,12 @@ export const getAtomicUnits = (
 };
 
 export const updateBindings = (
-  latestElement: ExcalidrawElement,
+  latestElement: CanvasEditorElement,
   elementsMap: NonDeletedSceneElementsMap,
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   scene: Scene,
   options?: {
-    simultaneouslyUpdated?: readonly ExcalidrawElement[];
+    simultaneouslyUpdated?: readonly CanvasEditorElement[];
     newSize?: { width: number; height: number };
     zoom?: AppState["zoom"];
   },

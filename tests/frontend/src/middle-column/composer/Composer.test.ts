@@ -7,7 +7,7 @@ import type { ModelOption } from "../../../../../shell/shared/ipc.js";
 
 register("../../../css-module-loader.mjs", import.meta.url);
 
-const { Composer, parseStoredModelPickerPreference, restoreStoredModelOptionId } = await import("../../../../../frontend/src/middle-column/composer/Composer.js");
+const { Composer, parseStoredModelPickerPreference, restoreStoredModelOptionId, selectComposerAction } = await import("../../../../../frontend/src/middle-column/composer/Composer.js");
 
 const selectedModel: ModelOption = {
   modelOptionId: "model-option-a",
@@ -20,7 +20,7 @@ const selectedModel: ModelOption = {
   state: "saved",
 };
 
-function renderComposer(running: boolean, stopping: boolean): string {
+function renderComposer(running: boolean, stopping: boolean, activeRunId: string | null = running ? "active-run" : null): string {
   const originalError = console.error;
   console.error = (message?: unknown, ...rest: unknown[]): void => {
     if (typeof message === "string" && message.includes("useLayoutEffect does nothing on the server")) return;
@@ -30,9 +30,11 @@ function renderComposer(running: boolean, stopping: boolean): string {
     return renderToStaticMarkup(createElement(Composer, {
       running,
       stopping,
+      activeRunId,
       modelOptions: [selectedModel],
       modelLoading: false,
-      onRun: () => undefined,
+      onRun: async () => true,
+      onSteer: async () => true,
       onStop: () => undefined,
     }));
   } finally {
@@ -78,14 +80,35 @@ test("Composer accepts a valid cached picker layout and falls back to the legacy
   );
 });
 
-test("running Composer locks inputs and exposes the stop action", () => {
+test("running Composer keeps the text input editable and shows Stop in the single action button", () => {
   const html = renderComposer(true, false);
-  assert.match(html, /<textarea[^>]*disabled=""[^>]*aria-label="Task"/);
+  assert.match(html, /<textarea[^>]*aria-label="Task"/);
+  assert.doesNotMatch(html, /<textarea[^>]*disabled=""/);
   assert.match(html, /<button[^>]*aria-label="Stop run"/);
+  assert.doesNotMatch(html, /aria-label="Send"/);
+  assert.equal(html.match(/class="send-stop-button /g)?.length, 1);
   assert.doesNotMatch(html, /aria-label="Stopping"/);
+});
+
+test("the stable action button switches from Stop to steering Send when the draft has text", () => {
+  const base = { running: true, stopping: false, submitting: false, activeRunId: "active-run" };
+  assert.equal(selectComposerAction({ ...base, hasText: false }), "stop");
+  assert.equal(selectComposerAction({ ...base, hasText: true }), "steer");
+  assert.equal(selectComposerAction({ ...base, submitting: true, hasText: true }), "submitting");
+  assert.equal(selectComposerAction({ ...base, stopping: true, hasText: true }), "stopping");
+  assert.equal(selectComposerAction({ ...base, running: false, activeRunId: null, hasText: true }), "start");
+  assert.equal(selectComposerAction({ ...base, activeRunId: null, hasText: true }), "starting");
 });
 
 test("stopping Composer disables the stop action and reports busy state", () => {
   const html = renderComposer(true, true);
   assert.match(html, /<button[^>]*disabled=""[^>]*aria-label="Stopping"[^>]*aria-busy="true"/);
+});
+
+test("starting Composer keeps its draft editable while run identity is being established", () => {
+  const html = renderComposer(true, false, null);
+  assert.match(html, /<textarea[^>]*aria-label="Task"/);
+  assert.doesNotMatch(html, /<textarea[^>]*disabled=""/);
+  assert.doesNotMatch(html, /aria-label="Stop run"/);
+  assert.match(html, /<button[^>]*disabled=""[^>]*aria-label="Send"/);
 });

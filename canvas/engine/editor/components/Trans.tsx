@@ -81,9 +81,9 @@ const getTransChildren = (
       } else if (keyMatch !== null) {
         // The match is for {{key}}. Check if the key is present in props and set
         // the prop value as children of last stack item e.g. format = "Hello
-        // {{name}}", key = "name" and props.name = "Excalidraw" then its prop
+        // {{name}}", key = "name" and props.name = "CanvasEditor" then its prop
         // value will be pushed to "name"'s children so it's rendered on DOM as
-        // "Hello Excalidraw"
+        // "Hello CanvasEditor"
         const name = keyMatch[1];
         if (props.hasOwnProperty(name)) {
           stack[stack.length - 1].children.push(props[name] as React.ReactNode);

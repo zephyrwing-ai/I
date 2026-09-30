@@ -55,6 +55,8 @@ export class CanvasContextRegistry {
     }
 
     if (selectedIds.size > 0) throw new Error("The canvas selection does not match the selected elements.");
+    if (input.coordinateSpace !== "scene") throw new Error("The canvas coordinate space is invalid.");
+    const selectionBounds = validateSelectionBounds(input.selectionBounds);
     const files = stripImageData(selection.files, imageFileIds);
     const visual = validateVisual(input.visual, imageCount);
     const text = JSON.stringify({
@@ -64,6 +66,7 @@ export class CanvasContextRegistry {
       elements: selection.elements,
       appState: selection.appState,
       files,
+      canvasContext: { coordinateSpace: "scene", selectionBounds },
     }, null, 2);
     if (text.length > MAX_MODEL_JSON_LENGTH) throw new Error("The canvas selection is too large for one model reference.");
 
@@ -145,6 +148,15 @@ function validateSelectedIds(ids: string[]): Set<string> {
   const unique = new Set(ids);
   if (unique.size !== ids.length) throw new Error("The canvas selection contains duplicate element IDs.");
   return unique;
+}
+
+function validateSelectionBounds(value: CanvasContextInput["selectionBounds"]): CanvasContextInput["selectionBounds"] {
+  if (!isRecord(value) ||
+      ![value.x, value.y, value.width, value.height].every((number) => typeof number === "number" && Number.isFinite(number) && Math.abs(number) <= 1e9) ||
+      value.width < 0 || value.height < 0) {
+    throw new Error("The canvas selection bounds are invalid.");
+  }
+  return { x: value.x, y: value.y, width: value.width, height: value.height };
 }
 
 function stripImageData(files: SerializedCanvasSelection["files"], imageFileIds: Set<string>): Record<string, Record<string, unknown>> {

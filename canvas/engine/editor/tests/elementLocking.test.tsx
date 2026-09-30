@@ -1,5 +1,5 @@
 import React from "react";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { render, unmountComponent } from "../tests/test-utils";
 import { Keyboard, Pointer, UI } from "../tests/helpers/ui";
 import { KEYS } from "../keys";
@@ -15,7 +15,7 @@ const h = window.h;
 
 describe("element locking", () => {
   beforeEach(async () => {
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
     API.setElements([]);
   });
 
@@ -249,7 +249,7 @@ describe("element locking", () => {
     UI.clickTool("text");
     mouse.clickAt(text.x + 50, text.y + 50);
     const editor = document.querySelector(
-      ".excalidraw-textEditorContainer > textarea",
+      ".agent-canvas-textEditorContainer > textarea",
     ) as HTMLTextAreaElement;
     expect(editor).not.toBe(null);
     expect(h.state.editingTextElement?.id).not.toBe(text.id);
@@ -271,7 +271,7 @@ describe("element locking", () => {
     UI.clickTool("selection");
     mouse.doubleClickAt(text.x + 50, text.y + 50);
     const editor = document.querySelector(
-      ".excalidraw-textEditorContainer > textarea",
+      ".agent-canvas-textEditorContainer > textarea",
     ) as HTMLTextAreaElement;
     expect(editor).not.toBe(null);
     expect(h.state.editingTextElement?.id).not.toBe(text.id);
@@ -344,7 +344,7 @@ describe("element locking", () => {
     mouse.doubleClickAt(container.width / 2, container.height / 2);
 
     const editor = document.querySelector(
-      ".excalidraw-textEditorContainer > textarea",
+      ".agent-canvas-textEditorContainer > textarea",
     ) as HTMLTextAreaElement;
     expect(editor).not.toBe(null);
     expect(h.state.editingTextElement?.id).not.toBe(text.id);
@@ -378,7 +378,7 @@ describe("element locking", () => {
     mouse.clickAt(container.width / 2, container.height / 2);
 
     const editor = document.querySelector(
-      ".excalidraw-textEditorContainer > textarea",
+      ".agent-canvas-textEditorContainer > textarea",
     ) as HTMLTextAreaElement;
     expect(editor).not.toBe(null);
     expect(h.state.editingTextElement?.id).not.toBe(text.id);

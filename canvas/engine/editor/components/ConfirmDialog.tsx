@@ -5,7 +5,7 @@ import { Dialog } from "./Dialog";
 
 import "./ConfirmDialog.scss";
 import DialogActionButton from "./DialogActionButton";
-import { useExcalidrawContainer, useExcalidrawSetAppState } from "./App";
+import { useCanvasEditorContainer, useCanvasEditorSetAppState } from "./App";
 
 interface Props extends Omit<DialogProps, "onCloseRequest"> {
   onConfirm: () => void;
@@ -23,8 +23,8 @@ const ConfirmDialog = (props: Props) => {
     className = "",
     ...rest
   } = props;
-  const setAppState = useExcalidrawSetAppState();
-  const { container } = useExcalidrawContainer();
+  const setAppState = useCanvasEditorSetAppState();
+  const { container } = useCanvasEditorContainer();
 
   return (
     <Dialog

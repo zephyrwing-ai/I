@@ -1,4 +1,4 @@
-import { useExcalidrawSetAppState } from "../App";
+import { useCanvasEditorSetAppState } from "../App";
 import type { SidebarTriggerProps } from "./common";
 import { useUIAppState } from "../../context/ui-appState";
 import clsx from "clsx";
@@ -15,7 +15,7 @@ export const SidebarTrigger = ({
   className,
   style,
 }: SidebarTriggerProps) => {
-  const setAppState = useExcalidrawSetAppState();
+  const setAppState = useCanvasEditorSetAppState();
   const appState = useUIAppState();
 
   return (

@@ -5,8 +5,8 @@ import {
 import { getDefaultAppState } from "@agent-studio/canvas-editor/appState";
 import type { AppState, BinaryFiles } from "@agent-studio/canvas-editor/types";
 import type {
-  ExcalidrawElement,
-  ExcalidrawFrameLikeElement,
+  CanvasEditorElement,
+  CanvasEditorFrameLikeElement,
   NonDeleted,
 } from "@agent-studio/canvas-editor/element/types";
 import { restore } from "@agent-studio/canvas-editor/data/restore";
@@ -22,11 +22,11 @@ import {
 export { MIME_TYPES };
 
 type ExportOpts = {
-  elements: readonly NonDeleted<ExcalidrawElement>[];
+  elements: readonly NonDeleted<CanvasEditorElement>[];
   appState?: Partial<Omit<AppState, "offsetTop" | "offsetLeft">>;
   files: BinaryFiles | null;
   maxWidthOrHeight?: number;
-  exportingFrame?: ExcalidrawFrameLikeElement | null;
+  exportingFrame?: CanvasEditorFrameLikeElement | null;
   getDimensions?: (
     width: number,
     height: number,

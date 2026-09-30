@@ -20,8 +20,8 @@
 @media screen and (min-device-width: 1921px) {
   .canvas-panel-editor { --canvas-toolbar-hit-size: 2.25rem; }
 }
-.canvas-panel-editor .excalidraw { width: 100%; height: 100%; }
-.canvas-panel-editor .excalidraw {
+.canvas-panel-editor .agent-canvas { width: 100%; height: 100%; }
+.canvas-panel-editor .agent-canvas {
   --default-button-size: var(--canvas-toolbar-hit-size);
   --color-primary: var(--accent);
   --color-primary-darker: var(--text-secondary);
@@ -46,34 +46,34 @@
   --button-active-border: var(--border-strong);
   --focus-highlight-color: var(--focus-ring-strong);
 }
-.canvas-panel-editor .excalidraw.theme--dark {
+.canvas-panel-editor .agent-canvas.theme--dark {
   --canvas-selection-outline: #d8d6ff;
 }
-.canvas-panel-editor .excalidraw .ToolIcon_type_button:hover:not(:disabled),
-.canvas-panel-editor .excalidraw .ToolIcon_type_button.ToolIcon--selected {
+.canvas-panel-editor .agent-canvas .ToolIcon_type_button:hover:not(:disabled),
+.canvas-panel-editor .agent-canvas .ToolIcon_type_button.ToolIcon--selected {
   background-color: var(--hover) !important;
   color: var(--text) !important;
 }
-.canvas-panel-editor .excalidraw .ToolIcon_type_button:active:not(:disabled),
-.canvas-panel-editor .excalidraw .ToolIcon_type_button.ToolIcon--selected:hover {
+.canvas-panel-editor .agent-canvas .ToolIcon_type_button:active:not(:disabled),
+.canvas-panel-editor .agent-canvas .ToolIcon_type_button.ToolIcon--selected:hover {
   background-color: var(--selection) !important;
 }
-.canvas-panel-editor .excalidraw .ToolIcon_type_button:focus-visible {
+.canvas-panel-editor .agent-canvas .ToolIcon_type_button:focus-visible {
   box-shadow: 0 0 0 2px var(--focus-ring-strong) !important;
 }
-.canvas-panel-editor .excalidraw .zoom-actions { background: transparent; box-shadow: none; }
-.canvas-panel-editor .excalidraw .zoom-actions .zoom-button,
-.canvas-panel-editor .excalidraw .undo-redo-buttons button {
+.canvas-panel-editor .agent-canvas .zoom-actions { background: transparent; box-shadow: none; }
+.canvas-panel-editor .agent-canvas .zoom-actions .zoom-button,
+.canvas-panel-editor .agent-canvas .undo-redo-buttons button {
   background-color: var(--surface-secondary) !important;
   color: var(--text-secondary) !important;
 }
-.canvas-panel-editor .excalidraw .zoom-actions .zoom-button:hover:not(:disabled),
-.canvas-panel-editor .excalidraw .undo-redo-buttons button:hover:not(:disabled) {
+.canvas-panel-editor .agent-canvas .zoom-actions .zoom-button:hover:not(:disabled),
+.canvas-panel-editor .agent-canvas .undo-redo-buttons button:hover:not(:disabled) {
   background-color: var(--hover) !important;
   color: var(--text) !important;
 }
-.canvas-panel-editor .excalidraw .zoom-actions .zoom-button:active:not(:disabled),
-.canvas-panel-editor .excalidraw .undo-redo-buttons button:active:not(:disabled) {
+.canvas-panel-editor .agent-canvas .zoom-actions .zoom-button:active:not(:disabled),
+.canvas-panel-editor .agent-canvas .undo-redo-buttons button:active:not(:disabled) {
   background-color: var(--selection) !important;
 }
 .canvas-panel-state { height: 100%; padding: 24px; color: var(--text-muted); display: grid; place-items: center; text-align: center; font-size: 11px; }

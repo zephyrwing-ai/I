@@ -4,7 +4,7 @@ import React, { useLayoutEffect } from "react";
 import clsx from "clsx";
 import type { Collaborator, SocketId } from "../types";
 import { Tooltip } from "./Tooltip";
-import { useExcalidrawActionManager } from "./App";
+import { useCanvasEditorActionManager } from "./App";
 import type { ActionManager } from "../actions/manager";
 
 import * as Popover from "@radix-ui/react-popover";
@@ -108,7 +108,7 @@ const collaboratorComparatorKeys = [
 
 export const UserList = React.memo(
   ({ className, mobile, collaborators, userToFollow }: UserListProps) => {
-    const actionManager = useExcalidrawActionManager();
+    const actionManager = useCanvasEditorActionManager();
 
     const uniqueCollaboratorsMap = new Map<
       ClientId,

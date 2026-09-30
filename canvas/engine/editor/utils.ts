@@ -10,7 +10,7 @@ import {
   WINDOWS_EMOJI_FALLBACK_FONT,
 } from "./constants";
 import type {
-  ExcalidrawBindableElement,
+  CanvasEditorBindableElement,
   FontFamilyValues,
   FontString,
 } from "./element/types";
@@ -550,7 +550,7 @@ export const isTransparent = (color: string) => {
   );
 };
 
-export const isBindingFallthroughEnabled = (el: ExcalidrawBindableElement) =>
+export const isBindingFallthroughEnabled = (el: CanvasEditorBindableElement) =>
   el.fillStyle !== "solid" || isTransparent(el.backgroundColor);
 
 export type ResolvablePromise<T> = Promise<T> & {
