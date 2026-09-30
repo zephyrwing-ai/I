@@ -1,14 +1,14 @@
 import { LockedIcon, UnlockedIcon } from "../components/icons";
 import { newElementWith } from "../element/mutateElement";
 import { isFrameLikeElement } from "../element/typeChecks";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import { KEYS } from "../keys";
 import { getSelectedElements } from "../scene";
 import { CaptureUpdateAction } from "../store";
 import { arrayToMap } from "../utils";
 import { register } from "./register";
 
-const shouldLock = (elements: readonly ExcalidrawElement[]) =>
+const shouldLock = (elements: readonly CanvasEditorElement[]) =>
   elements.every((el) => !el.locked);
 
 export const actionToggleElementLock = register({

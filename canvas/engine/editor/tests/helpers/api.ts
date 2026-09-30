@@ -1,16 +1,16 @@
 import type {
-  ExcalidrawElement,
-  ExcalidrawGenericElement,
-  ExcalidrawTextElement,
-  ExcalidrawLinearElement,
-  ExcalidrawFreeDrawElement,
-  ExcalidrawImageElement,
+  CanvasEditorElement,
+  CanvasEditorGenericElement,
+  CanvasEditorTextElement,
+  CanvasEditorLinearElement,
+  CanvasEditorFreeDrawElement,
+  CanvasEditorImageElement,
   FileId,
-  ExcalidrawFrameElement,
-  ExcalidrawElementType,
-  ExcalidrawMagicFrameElement,
-  ExcalidrawElbowArrowElement,
-  ExcalidrawArrowElement,
+  CanvasEditorFrameElement,
+  CanvasEditorElementType,
+  CanvasEditorMagicFrameElement,
+  CanvasEditorElbowArrowElement,
+  CanvasEditorArrowElement,
   FixedSegment,
 } from "../../element/types";
 import { newElement, newTextElement, newLinearElement } from "../../element";
@@ -63,13 +63,13 @@ export class API {
     });
   };
 
-  static setElements = (elements: readonly ExcalidrawElement[]) => {
+  static setElements = (elements: readonly CanvasEditorElement[]) => {
     act(() => {
       h.elements = elements;
     });
   };
 
-  static setSelectedElements = (elements: ExcalidrawElement[], editingGroupId?: string | null) => {
+  static setSelectedElements = (elements: CanvasEditorElement[], editingGroupId?: string | null) => {
     act(() => {
       h.setState({
         ...selectGroupsForSelectedElements(
@@ -78,7 +78,7 @@ export class API {
           selectedElementIds: elements.reduce((acc, element) => {
             acc[element.id] = true;
             return acc;
-          }, {} as Record<ExcalidrawElement["id"], true>),
+          }, {} as Record<CanvasEditorElement["id"], true>),
         },
         elements,
         h.state,
@@ -89,7 +89,7 @@ export class API {
   };
 
   // eslint-disable-next-line prettier/prettier
-  static updateElement = <T extends ExcalidrawElement>(
+  static updateElement = <T extends CanvasEditorElement>(
     ...args: Parameters<typeof mutateElement<T>>
   ) => {
     act(() => {
@@ -100,14 +100,14 @@ export class API {
   static getSelectedElements = (
     includeBoundTextElement: boolean = false,
     includeElementsInFrames: boolean = false,
-  ): ExcalidrawElement[] => {
+  ): CanvasEditorElement[] => {
     return getSelectedElements(h.elements, h.state, {
       includeBoundTextElement,
       includeElementsInFrames,
     });
   };
 
-  static getSelectedElement = (): ExcalidrawElement => {
+  static getSelectedElement = (): CanvasEditorElement => {
     const selectedElements = API.getSelectedElements();
     if (selectedElements.length !== 1) {
       throw new Error(
@@ -139,12 +139,12 @@ export class API {
     expect(API.getSelectedElements().length).toBe(0);
   };
 
-  static getElement = <T extends ExcalidrawElement>(element: T): T => {
+  static getElement = <T extends CanvasEditorElement>(element: T): T => {
     return h.app.scene.getElementsMapIncludingDeleted().get(element.id) as T || element;
   }
 
   static createElement = <
-    T extends Exclude<ExcalidrawElementType, "selection"> = "rectangle",
+    T extends Exclude<CanvasEditorElementType, "selection"> = "rectangle",
   >({
     // @ts-ignore
     type = "rectangle",
@@ -165,68 +165,68 @@ export class API {
     angle?: number;
     id?: string;
     isDeleted?: boolean;
-    frameId?: ExcalidrawElement["id"] | null;
-    index?: ExcalidrawElement["index"];
-    groupIds?: ExcalidrawElement["groupIds"];
+    frameId?: CanvasEditorElement["id"] | null;
+    index?: CanvasEditorElement["index"];
+    groupIds?: CanvasEditorElement["groupIds"];
     // generic element props
-    strokeColor?: ExcalidrawGenericElement["strokeColor"];
-    backgroundColor?: ExcalidrawGenericElement["backgroundColor"];
-    fillStyle?: ExcalidrawGenericElement["fillStyle"];
-    strokeWidth?: ExcalidrawGenericElement["strokeWidth"];
-    strokeStyle?: ExcalidrawGenericElement["strokeStyle"];
-    roundness?: ExcalidrawGenericElement["roundness"];
-    roughness?: ExcalidrawGenericElement["roughness"];
-    opacity?: ExcalidrawGenericElement["opacity"];
+    strokeColor?: CanvasEditorGenericElement["strokeColor"];
+    backgroundColor?: CanvasEditorGenericElement["backgroundColor"];
+    fillStyle?: CanvasEditorGenericElement["fillStyle"];
+    strokeWidth?: CanvasEditorGenericElement["strokeWidth"];
+    strokeStyle?: CanvasEditorGenericElement["strokeStyle"];
+    roundness?: CanvasEditorGenericElement["roundness"];
+    roughness?: CanvasEditorGenericElement["roughness"];
+    opacity?: CanvasEditorGenericElement["opacity"];
     // text props
-    text?: T extends "text" ? ExcalidrawTextElement["text"] : never;
-    fontSize?: T extends "text" ? ExcalidrawTextElement["fontSize"] : never;
-    fontFamily?: T extends "text" ? ExcalidrawTextElement["fontFamily"] : never;
-    textAlign?: T extends "text" ? ExcalidrawTextElement["textAlign"] : never;
+    text?: T extends "text" ? CanvasEditorTextElement["text"] : never;
+    fontSize?: T extends "text" ? CanvasEditorTextElement["fontSize"] : never;
+    fontFamily?: T extends "text" ? CanvasEditorTextElement["fontFamily"] : never;
+    textAlign?: T extends "text" ? CanvasEditorTextElement["textAlign"] : never;
     verticalAlign?: T extends "text"
-      ? ExcalidrawTextElement["verticalAlign"]
+      ? CanvasEditorTextElement["verticalAlign"]
       : never;
-    boundElements?: ExcalidrawGenericElement["boundElements"];
+    boundElements?: CanvasEditorGenericElement["boundElements"];
     containerId?: T extends "text"
-      ? ExcalidrawTextElement["containerId"]
+      ? CanvasEditorTextElement["containerId"]
       : never;
     points?: T extends "arrow" | "line" | "freedraw" ? readonly LocalPoint[] : never;
     locked?: boolean;
     fileId?: T extends "image" ? string : never;
-    scale?: T extends "image" ? ExcalidrawImageElement["scale"] : never;
-    status?: T extends "image" ? ExcalidrawImageElement["status"] : never;
+    scale?: T extends "image" ? CanvasEditorImageElement["scale"] : never;
+    status?: T extends "image" ? CanvasEditorImageElement["status"] : never;
     startBinding?: T extends "arrow"
-      ? ExcalidrawArrowElement["startBinding"] | ExcalidrawElbowArrowElement["startBinding"]
+      ? CanvasEditorArrowElement["startBinding"] | CanvasEditorElbowArrowElement["startBinding"]
       : never;
     endBinding?: T extends "arrow"
-      ? ExcalidrawArrowElement["endBinding"] | ExcalidrawElbowArrowElement["endBinding"]
+      ? CanvasEditorArrowElement["endBinding"] | CanvasEditorElbowArrowElement["endBinding"]
       : never;
     startArrowhead?: T extends "arrow"
-      ? ExcalidrawArrowElement["startArrowhead"] | ExcalidrawElbowArrowElement["startArrowhead"]
+      ? CanvasEditorArrowElement["startArrowhead"] | CanvasEditorElbowArrowElement["startArrowhead"]
       : never;
     endArrowhead?: T extends "arrow"
-      ? ExcalidrawArrowElement["endArrowhead"] | ExcalidrawElbowArrowElement["endArrowhead"]
+      ? CanvasEditorArrowElement["endArrowhead"] | CanvasEditorElbowArrowElement["endArrowhead"]
       : never;
     elbowed?: boolean;
     fixedSegments?: FixedSegment[] | null;
   }): T extends "arrow" | "line"
-    ? ExcalidrawLinearElement
+    ? CanvasEditorLinearElement
     : T extends "freedraw"
-    ? ExcalidrawFreeDrawElement
+    ? CanvasEditorFreeDrawElement
     : T extends "text"
-    ? ExcalidrawTextElement
+    ? CanvasEditorTextElement
     : T extends "image"
-    ? ExcalidrawImageElement
+    ? CanvasEditorImageElement
     : T extends "frame"
-    ? ExcalidrawFrameElement
+    ? CanvasEditorFrameElement
     : T extends "magicframe"
-    ? ExcalidrawMagicFrameElement
-    : ExcalidrawGenericElement => {
-    let element: Mutable<ExcalidrawElement> = null!;
+    ? CanvasEditorMagicFrameElement
+    : CanvasEditorGenericElement => {
+    let element: Mutable<CanvasEditorElement> = null!;
 
     const appState = h?.state || getDefaultAppState();
 
     const base: Omit<
-      ExcalidrawGenericElement,
+      CanvasEditorGenericElement,
       | "id"
       | "type"
       | "version"
@@ -378,12 +378,12 @@ export class API {
   };
 
   static createTextContainer = (opts?: {
-    frameId?: ExcalidrawElement["id"];
-    groupIds?: ExcalidrawElement["groupIds"];
+    frameId?: CanvasEditorElement["id"];
+    groupIds?: CanvasEditorElement["groupIds"];
     label?: {
       text?: string;
-      frameId?: ExcalidrawElement["id"] | null;
-      groupIds?: ExcalidrawElement["groupIds"];
+      frameId?: CanvasEditorElement["id"] | null;
+      groupIds?: CanvasEditorElement["groupIds"];
     };
   }) => {
     const rectangle = API.createElement({
@@ -421,10 +421,10 @@ export class API {
   };
 
   static createLabeledArrow = (opts?: {
-    frameId?: ExcalidrawElement["id"];
+    frameId?: CanvasEditorElement["id"];
     label?: {
       text?: string;
-      frameId?: ExcalidrawElement["id"] | null;
+      frameId?: CanvasEditorElement["id"] | null;
     };
   }) => {
     const arrow = API.createElement({

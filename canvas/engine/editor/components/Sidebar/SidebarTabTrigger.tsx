@@ -15,7 +15,7 @@ export const SidebarTabTrigger = ({
     <RadixTabs.Trigger value={tab} asChild onSelect={onSelect}>
       <button
         type={"button"}
-        className={`excalidraw-button sidebar-tab-trigger`}
+        className={`agent-canvas-button sidebar-tab-trigger`}
         {...rest}
       >
         {children}

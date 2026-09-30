@@ -66,17 +66,22 @@ export class InputAttachmentRegistry {
 
 export function composeTaskWithAttachments(task: string, attachments: ResolvedAttachment[]): string {
   if (attachments.length === 0) return task;
-  const list = attachments.map((attachment) => `- ${attachment.name}: ${JSON.stringify(attachment.path)}`).join("\n");
-  return `${task}\n\nThe user attached the following local files. Use the available tools to read them only when relevant to the task:\n${list}`;
+  const list = attachments.map((attachment) => `- ${attachment.name} (attachmentId: ${attachment.attachmentId}): ${JSON.stringify(attachment.path)}`).join("\n");
+  return `${task}\n\nThe user attached the following local files. Use the available tools to read them only when relevant to the task. Image attachments can also be inserted into the current Canvas with canvas_edit by referencing their attachmentId:\n${list}`;
 }
 
 function mediaTypeForPath(path: string): string {
   switch (extname(path).toLowerCase()) {
+    case ".svg": return "image/svg+xml";
     case ".png": return "image/png";
     case ".jpg":
     case ".jpeg": return "image/jpeg";
     case ".gif": return "image/gif";
     case ".webp": return "image/webp";
+    case ".bmp": return "image/bmp";
+    case ".ico": return "image/x-icon";
+    case ".avif": return "image/avif";
+    case ".jfif": return "image/jfif";
     case ".md": return "text/markdown";
     case ".json": return "application/json";
     case ".txt": return "text/plain";

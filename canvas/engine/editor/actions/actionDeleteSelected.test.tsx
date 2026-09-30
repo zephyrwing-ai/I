@@ -1,5 +1,5 @@
 import React from "react";
-import { Excalidraw, mutateElement } from "../index";
+import { CanvasEditor, mutateElement } from "../index";
 import { act, assertElements, render } from "../tests/test-utils";
 import { API } from "../tests/helpers/api";
 import { actionDeleteSelected } from "./actionDeleteSelected";
@@ -8,7 +8,7 @@ const { h } = window;
 
 describe("deleting selected elements when frame selected should keep children + select them", () => {
   beforeEach(async () => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
   });
 
   it("frame only", async () => {

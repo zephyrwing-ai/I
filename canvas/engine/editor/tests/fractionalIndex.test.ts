@@ -7,7 +7,7 @@ import {
 import { API } from "./helpers/api";
 import { arrayToMap } from "../utils";
 import { InvalidFractionalIndexError } from "../errors";
-import type { ExcalidrawElement, FractionalIndex } from "../element/types";
+import type { CanvasEditorElement, FractionalIndex } from "../element/types";
 import { deepCopyElement } from "../element/newElement";
 import { generateKeyBetween } from "fractional-indexing";
 
@@ -740,7 +740,7 @@ function testInvalidIndicesSync(args: {
 function prepareArguments(
   elementsLike: { id: string; index?: string }[],
   movedElementsIds?: string[],
-): [ExcalidrawElement[], Map<string, ExcalidrawElement> | undefined] {
+): [CanvasEditorElement[], Map<string, CanvasEditorElement> | undefined] {
   const elements = elementsLike.map((x) =>
     API.createElement({ id: x.id, index: x.index as FractionalIndex }),
   );
@@ -754,8 +754,8 @@ function prepareArguments(
 
 function test(
   name: string,
-  elements: ExcalidrawElement[],
-  movedElements: Map<string, ExcalidrawElement> | undefined,
+  elements: CanvasEditorElement[],
+  movedElements: Map<string, CanvasEditorElement> | undefined,
   expectUnchangedElements: Map<string, { id: string }>,
   expectValidInput?: boolean,
 ) {

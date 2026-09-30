@@ -1,7 +1,7 @@
 import { DEFAULT_CATEGORIES } from "../components/CommandPalette/CommandPalette";
 import { LinearElementEditor } from "../element/linearElementEditor";
 import { isElbowArrow, isLinearElement } from "../element/typeChecks";
-import type { ExcalidrawLinearElement } from "../element/types";
+import type { CanvasEditorLinearElement } from "../element/types";
 import { CaptureUpdateAction } from "../store";
 import { register } from "./register";
 import { ToolButton } from "../components/ToolButton";
@@ -14,7 +14,7 @@ export const actionToggleLinearEditor = register({
   label: (elements, appState, app) => {
     const selectedElement = app.scene.getSelectedElements({
       selectedElementIds: appState.selectedElementIds,
-    })[0] as ExcalidrawLinearElement | undefined;
+    })[0] as CanvasEditorLinearElement | undefined;
 
     return selectedElement?.type === "arrow"
       ? "labels.lineEditor.editArrow"
@@ -40,7 +40,7 @@ export const actionToggleLinearEditor = register({
     const selectedElement = app.scene.getSelectedElements({
       selectedElementIds: appState.selectedElementIds,
       includeBoundTextElement: true,
-    })[0] as ExcalidrawLinearElement;
+    })[0] as CanvasEditorLinearElement;
 
     const editingLinearElement =
       appState.editingLinearElement?.elementId === selectedElement.id
@@ -57,7 +57,7 @@ export const actionToggleLinearEditor = register({
   PanelComponent: ({ appState, updateData, app }) => {
     const selectedElement = app.scene.getSelectedElements({
       selectedElementIds: appState.selectedElementIds,
-    })[0] as ExcalidrawLinearElement;
+    })[0] as CanvasEditorLinearElement;
 
     const label = t(
       selectedElement.type === "arrow"

@@ -1,7 +1,7 @@
 @import "open-color/open-color.scss";
 @import "../css/variables.module.scss";
 
-.excalidraw {
+.agent-canvas {
   .App-toolbar {
     &.zen-mode .ToolIcon__keybinding {
       display: none;
@@ -14,9 +14,6 @@
       background-color: var(--default-border-color);
       margin: 0 0.25rem;
 
-      @include isMobile {
-        margin: 0;
-      }
     }
   }
 

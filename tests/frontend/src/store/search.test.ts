@@ -16,13 +16,18 @@ function turn(partial: Partial<TurnState> & Pick<TurnState, "turnId">): TurnStat
   };
 }
 
-function run(partial: Partial<RunState> & Pick<RunState, "runId">): RunState {
+function run(partial: Partial<RunState> & Pick<RunState, "runId"> & { task?: string; turnIds?: string[] }): RunState {
+  const inputId = `${partial.runId}:task`;
   return {
     runId: partial.runId,
-    task: partial.task,
-    taskAt: partial.taskAt,
+    projectId: null,
+    inputs: partial.task ? { [inputId]: { inputId, task: partial.task, at: 1_000, status: "applied" } } : {},
+    pendingInputIds: [],
+    timeline: [
+      ...(partial.task ? [{ kind: "user" as const, inputId }] : []),
+      ...(partial.turnIds ?? []).map((turnId) => ({ kind: "assistant" as const, turnId })),
+    ],
     status: partial.status ?? "completed",
-    turnOrder: partial.turnOrder ?? [],
     turns: partial.turns ?? {},
     outputFileOrder: [],
     outputFiles: {},
@@ -36,12 +41,12 @@ function state(runs: RunState[]): Pick<AgentState, "runOrder" | "runs"> {
   };
 }
 
-test("buildSearchIndex creates one entry per user or final model message block", () => {
+test("buildSearchIndex creates one entry per user or visible model message block", () => {
   const indexed = buildSearchIndex(state([
     run({
       runId: "run-1",
       task: "检查项目",
-      turnOrder: ["turn-1", "turn-2"],
+      turnIds: ["turn-1", "turn-2"],
       turns: {
         "turn-1": turn({
           turnId: "turn-1",
@@ -60,7 +65,7 @@ test("buildSearchIndex creates one entry per user or final model message block",
 
   assert.deepEqual(indexed, [
     { blockId: "run-1:task", text: "检查项目" },
-    { blockId: "run-1:answer:turn-2", text: "最终答案" },
+    { blockId: "run-1:work:run-1:task", text: "最终答案" },
   ]);
 });
 
@@ -70,7 +75,7 @@ test("buildSearchIndex includes the current streaming final message and follows 
     run({
       runId: "run-1",
       task: "第一条",
-      turnOrder: ["turn-1"],
+      turnIds: ["turn-1"],
       turns: {
         "turn-1": turn({
           turnId: "turn-1",
@@ -84,7 +89,7 @@ test("buildSearchIndex includes the current streaming final message and follows 
   assert.deepEqual(indexed, [
     { blockId: "run-2:task", text: "第二条" },
     { blockId: "run-1:task", text: "第一条" },
-    { blockId: "run-1:answer:turn-1", text: "正在生成答案" },
+    { blockId: "run-1:work:run-1:task", text: "正在生成答案" },
   ]);
 });
 

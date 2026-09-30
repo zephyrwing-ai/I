@@ -1,12 +1,12 @@
 import type {
-  ExcalidrawElement,
-  ExcalidrawFreeDrawElement,
-  ExcalidrawLinearElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  CanvasEditorFreeDrawElement,
+  CanvasEditorLinearElement,
+  NonDeletedCanvasEditorElement,
 } from "@agent-studio/canvas-editor/element/types";
 import {
   isArrowElement,
-  isExcalidrawElement,
+  isCanvasEditorElement,
   isFreeDrawElement,
   isLinearElement,
   isTextElement,
@@ -22,8 +22,8 @@ import {
   rangeInclusive,
 } from "@agent-studio/canvas-math";
 
-type Element = NonDeletedExcalidrawElement;
-type Elements = readonly NonDeletedExcalidrawElement[];
+type Element = NonDeletedCanvasEditorElement;
+type Elements = readonly NonDeletedCanvasEditorElement[];
 
 type Points = readonly LocalPoint[];
 
@@ -31,7 +31,7 @@ type Points = readonly LocalPoint[];
 const getNonLinearElementRelativePoints = (
   element: Exclude<
     Element,
-    ExcalidrawLinearElement | ExcalidrawFreeDrawElement
+    CanvasEditorLinearElement | CanvasEditorFreeDrawElement
   >,
 ): [
   TopLeft: LocalPoint,
@@ -56,7 +56,7 @@ const getNonLinearElementRelativePoints = (
 };
 
 /** @returns vertices relative to element's top-left [0,0] position  */
-const getElementRelativePoints = (element: ExcalidrawElement): Points => {
+const getElementRelativePoints = (element: CanvasEditorElement): Points => {
   if (isLinearElement(element) || isFreeDrawElement(element)) {
     return element.points;
   }
@@ -165,7 +165,7 @@ export const elementsOverlappingBBox = ({
   errorMargin = 0,
 }: {
   elements: Elements;
-  bounds: Bounds | ExcalidrawElement;
+  bounds: Bounds | CanvasEditorElement;
   /** safety offset. Defaults to 0. */
   errorMargin?: number;
   /**
@@ -175,7 +175,7 @@ export const elementsOverlappingBBox = ({
    **/
   type: "overlap" | "contain" | "inside";
 }) => {
-  if (isExcalidrawElement(bounds)) {
+  if (isCanvasEditorElement(bounds)) {
     bounds = getElementBounds(bounds, arrayToMap(elements));
   }
   const adjustedBBox: Bounds = [

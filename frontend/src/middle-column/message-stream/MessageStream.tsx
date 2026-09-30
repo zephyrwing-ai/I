@@ -2,7 +2,7 @@ import { forwardRef, useImperativeHandle, useMemo, useRef, type ReactNode, type 
 import type { RunState } from "../../store/agentReducer";
 import { buildMessageBlockRecords, type MessageBlockKind } from "../../store/messageBlocks";
 import { normalizePunctuation } from "../../utils/punctuation";
-import { FinalAnswer, RunProcess, type RunTiming } from "./RunProcess";
+import { AssistantMessage } from "./AssistantMessage";
 import { MessageMeta } from "./MessageMeta";
 import { useVirtualMessageWindow, type VirtualMessageItem } from "./useVirtualMessageWindow";
 import "./message-stream.css";
@@ -14,19 +14,20 @@ export interface MessageBlock extends VirtualMessageItem {
 }
 
 const USER_MESSAGE_ESTIMATE = 88;
-const RUN_PROCESS_ESTIMATE = 140;
 const ASSISTANT_MESSAGE_ESTIMATE = 160;
 
 function buildMessageBlocks(
   order: string[],
   runs: Record<string, RunState>,
-  runTimings: Record<string, RunTiming>,
   activeSearchBlockId: string | null = null,
+  onResendInput?: (runId: string, inputId: string) => void | Promise<void>,
 ): MessageBlock[] {
   return buildMessageBlockRecords({ runOrder: order, runs }).flatMap((record): MessageBlock[] => {
     const run = runs[record.runId];
     if (!run) return [];
     if (record.kind === "user") {
+      const input = record.inputId ? run.inputs[record.inputId] : undefined;
+      if (!input) return [];
       const taskText = normalizePunctuation(record.text ?? "");
       return [{
         blockId: record.blockId,
@@ -37,34 +38,42 @@ function buildMessageBlocks(
           <div className="user-message-row">
             <div className="user-message-group">
               <div className={`user-message${activeSearchBlockId === record.blockId ? " search-active" : ""}`}>{taskText}</div>
-              {run.taskAt !== undefined && <MessageMeta time={run.taskAt} text={taskText} />}
+              {input.status === "interrupted" && (
+                <div className="user-message-interrupted">
+                  <span>Not applied</span>
+                  {onResendInput && <button type="button" onClick={() => void onResendInput(record.runId, input.inputId)}>Edit and resend</button>}
+                </div>
+              )}
+              <MessageMeta time={input.at} text={taskText} />
             </div>
           </div>
         ),
       }];
     }
-    if (record.kind === "process") {
-      return [{
-        blockId: record.blockId,
-        kind: record.kind,
-        estimatedHeight: RUN_PROCESS_ESTIMATE,
-        content: <RunProcess run={run} runTiming={runTimings[record.runId]} />,
-      }];
-    }
+    if (!record.turnIds) return [];
     return [{
       blockId: record.blockId,
       kind: record.kind,
       searchText: record.text,
       estimatedHeight: ASSISTANT_MESSAGE_ESTIMATE,
-      content: <FinalAnswer run={run} runTiming={runTimings[record.runId]} active={activeSearchBlockId === record.blockId} />,
+      content: (
+        <AssistantMessage
+          run={run}
+          turnIds={record.turnIds}
+          answerTurnId={record.answerTurnId}
+          showDuration={record.showDuration}
+          isWorking={record.isWorking}
+          active={activeSearchBlockId === record.blockId}
+        />
+      ),
     }];
   });
 }
 
 /**
  * 消息列：纯文本行直接堆叠进入阅读流。
- * 每个 run = 用户消息（右对齐气泡 + 时间戳与复制行）+ 过程块（Working for 折叠行 + 展开内容）+ 最终答案。
- * 空状态提示由主列布局居中展示；有内容时按 run 顺序呈现上述三部分。
+ * 同一 run 的时间线直接渲染用户和助手消息；turn 内的工具更新原助手块。
+ * 空状态提示由主列布局居中展示；有内容时按稳定 blockId 虚拟化。
  */
 export interface MessageStreamHandle {
   revealBlock: (blockId: string) => Promise<boolean>;
@@ -77,13 +86,13 @@ export interface MessageStreamProps {
   historyReady?: boolean;
   order: string[];
   runs: Record<string, RunState>;
-  runTimings: Record<string, RunTiming>;
   scrollRef?: RefObject<HTMLElement>;
   hasMore?: boolean;
   loadingOlder?: boolean;
   historyError?: string | null;
   onLoadOlder?: () => void | Promise<void>;
   activeSearchBlockId?: string | null;
+  onResendInput?: (runId: string, inputId: string) => void | Promise<void>;
 }
 
 export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>(function MessageStream({
@@ -93,18 +102,18 @@ export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>
   historyReady = true,
   order,
   runs,
-  runTimings,
   scrollRef,
   hasMore = false,
   loadingOlder = false,
   historyError = null,
   onLoadOlder,
   activeSearchBlockId = null,
+  onResendInput,
 }, ref) {
   const rootRef = useRef<HTMLDivElement>(null);
   const blocks = useMemo(
-    () => buildMessageBlocks(order, runs, runTimings, activeSearchBlockId),
-    [activeSearchBlockId, order, runTimings, runs],
+    () => buildMessageBlocks(order, runs, activeSearchBlockId, onResendInput),
+    [activeSearchBlockId, onResendInput, order, runs],
   );
   const { range, revealBlock } = useVirtualMessageWindow({
     items: blocks,
@@ -134,19 +143,15 @@ export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>
         </div>
       )}
       <div className="message-virtual-spacer" data-virtual-spacer="top" style={{ height: range.topSpacer }} />
-      {visibleBlocks.map((block, visibleIndex) => {
-        const blockIndex = range.startIndex + visibleIndex;
-        const hasFollowingAnswer = block.kind === "process" && blocks[blockIndex + 1]?.kind === "assistant";
-        return (
+      {visibleBlocks.map((block) => (
         <div
-          className={`message-virtual-block block-${block.kind}${hasFollowingAnswer ? " has-following-answer" : ""}`}
+          className={`message-virtual-block block-${block.kind}`}
           data-message-block-id={block.blockId}
           key={block.blockId}
         >
           {block.content}
         </div>
-        );
-      })}
+      ))}
       <div className="message-virtual-spacer" data-virtual-spacer="bottom" style={{ height: range.bottomSpacer }} />
     </div>
   );

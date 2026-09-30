@@ -1,8 +1,8 @@
 import type { Radians } from "@agent-studio/canvas-math";
 import { DEFAULT_FONT_FAMILY } from "../../constants";
-import type { ExcalidrawElement } from "../../element/types";
+import type { CanvasEditorElement } from "../../element/types";
 
-const elementBase: Omit<ExcalidrawElement, "type"> = {
+const elementBase: Omit<CanvasEditorElement, "type"> = {
   id: "vWrqOAfkind2qcm7LDAGZ",
   x: 414,
   y: 237,
@@ -30,29 +30,29 @@ const elementBase: Omit<ExcalidrawElement, "type"> = {
   locked: false,
 };
 
-export const rectangleFixture: ExcalidrawElement = {
+export const rectangleFixture: CanvasEditorElement = {
   ...elementBase,
   type: "rectangle",
 };
-export const embeddableFixture: ExcalidrawElement = {
+export const embeddableFixture: CanvasEditorElement = {
   ...elementBase,
   type: "embeddable",
 };
-export const ellipseFixture: ExcalidrawElement = {
+export const ellipseFixture: CanvasEditorElement = {
   ...elementBase,
   type: "ellipse",
 };
-export const diamondFixture: ExcalidrawElement = {
+export const diamondFixture: CanvasEditorElement = {
   ...elementBase,
   type: "diamond",
 };
-export const rectangleWithLinkFixture: ExcalidrawElement = {
+export const rectangleWithLinkFixture: CanvasEditorElement = {
   ...elementBase,
   type: "rectangle",
   link: "excalidraw.com",
 };
 
-export const textFixture: ExcalidrawElement = {
+export const textFixture: CanvasEditorElement = {
   ...elementBase,
   type: "text",
   fontSize: 20,

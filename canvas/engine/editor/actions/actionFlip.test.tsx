@@ -1,5 +1,5 @@
 import React from "react";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { render } from "../tests/test-utils";
 import { API } from "../tests/helpers/api";
 import { pointFrom } from "@agent-studio/canvas-math";
@@ -60,7 +60,7 @@ describe("flipping re-centers selection", () => {
         elbowed: true,
       }),
     ];
-    await render(<Excalidraw initialData={{ elements }} />);
+    await render(<CanvasEditor initialData={{ elements }} />);
 
     API.setSelectedElements(elements);
 
@@ -83,7 +83,7 @@ describe("flipping re-centers selection", () => {
 
 describe("flipping arrowheads", () => {
   beforeEach(async () => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
   });
 
   it("flipping bound arrow should flip arrowheads only", () => {

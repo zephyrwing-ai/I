@@ -8,7 +8,7 @@ import "./css/app.scss";
 import "./css/styles.scss";
 import "./fonts/fonts.css";
 
-import type { AppProps, ExcalidrawProps } from "./types";
+import type { AppProps, CanvasEditorProps } from "./types";
 import { defaultLang } from "./i18n";
 import { DEFAULT_UI_OPTIONS } from "./constants";
 import { EditorJotaiProvider, editorJotaiStore } from "./editor-jotai";
@@ -17,11 +17,11 @@ import WelcomeScreen from "./components/welcome-screen/WelcomeScreen";
 
 polyfill();
 
-const ExcalidrawBase = (props: ExcalidrawProps) => {
+const CanvasEditorBase = (props: CanvasEditorProps) => {
   const {
     onChange,
     initialData,
-    excalidrawAPI,
+    canvasAPI,
     isCollaborating = false,
     onPointerUpdate,
     renderTopRightUI,
@@ -111,7 +111,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
         <App
           onChange={onChange}
           initialData={initialData}
-          excalidrawAPI={excalidrawAPI}
+          canvasAPI={canvasAPI}
           isCollaborating={isCollaborating}
           onPointerUpdate={onPointerUpdate}
           renderTopRightUI={renderTopRightUI}
@@ -148,7 +148,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
   );
 };
 
-const areEqual = (prevProps: ExcalidrawProps, nextProps: ExcalidrawProps) => {
+const areEqual = (prevProps: CanvasEditorProps, nextProps: CanvasEditorProps) => {
   // short-circuit early
   if (prevProps.children !== nextProps.children) {
     return false;
@@ -205,8 +205,8 @@ const areEqual = (prevProps: ExcalidrawProps, nextProps: ExcalidrawProps) => {
   return isUIOptionsSame && isShallowEqual(prev, next);
 };
 
-export const Excalidraw = React.memo(ExcalidrawBase, areEqual);
-Excalidraw.displayName = "Excalidraw";
+export const CanvasEditor = React.memo(CanvasEditorBase, areEqual);
+CanvasEditor.displayName = "CanvasEditor";
 
 export {
   getSceneVersion,
@@ -277,7 +277,7 @@ export { Stats } from "./components/Stats";
 
 export { normalizeLink } from "./data/url";
 export { zoomToFitBounds } from "./actions/actionCanvas";
-export { convertToExcalidrawElements } from "./data/transform";
+export { convertToCanvasEditorElements } from "./data/transform";
 export { getCommonBounds, getVisibleSceneBounds } from "./element/bounds";
 export { getRotationHandleTopOffset } from "./element/transformHandles";
 

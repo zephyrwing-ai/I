@@ -2,9 +2,9 @@ import { register } from "./register";
 import { getSelectedElements } from "../scene";
 import { getNonDeletedElements } from "../element";
 import type {
-  ExcalidrawArrowElement,
-  ExcalidrawElbowArrowElement,
-  ExcalidrawElement,
+  CanvasEditorArrowElement,
+  CanvasEditorElbowArrowElement,
+  CanvasEditorElement,
   NonDeleted,
   NonDeletedSceneElementsMap,
 } from "../element/types";
@@ -80,7 +80,7 @@ export const actionFlipVertical = register({
 });
 
 const flipSelectedElements = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   elementsMap: NonDeletedSceneElementsMap,
   appState: Readonly<AppState>,
   flipDirection: "horizontal" | "vertical",
@@ -111,12 +111,12 @@ const flipSelectedElements = (
 };
 
 const flipElements = (
-  selectedElements: NonDeleted<ExcalidrawElement>[],
+  selectedElements: NonDeleted<CanvasEditorElement>[],
   elementsMap: NonDeletedSceneElementsMap,
   appState: AppState,
   flipDirection: "horizontal" | "vertical",
   app: AppClassProperties,
-): ExcalidrawElement[] => {
+): CanvasEditorElement[] => {
   if (
     selectedElements.every(
       (element) =>
@@ -124,7 +124,7 @@ const flipElements = (
     )
   ) {
     return selectedElements.map((element) => {
-      const _element = element as ExcalidrawArrowElement;
+      const _element = element as CanvasEditorArrowElement;
       return newElementWith(_element, {
         startArrowhead: _element.endArrowhead,
         endArrowhead: _element.startArrowhead,
@@ -172,8 +172,8 @@ const flipElements = (
   const { elbowArrows, otherElements } = selectedElements.reduce(
     (
       acc: {
-        elbowArrows: ExcalidrawElbowArrowElement[];
-        otherElements: ExcalidrawElement[];
+        elbowArrows: CanvasEditorElbowArrowElement[];
+        otherElements: CanvasEditorElement[];
       },
       element,
     ) =>

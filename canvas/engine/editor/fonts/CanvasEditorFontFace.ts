@@ -4,7 +4,7 @@ import { subsetWoff2GlyphsByCodepoints } from "../subset/subset-main";
 
 type DataURL = string;
 
-export class ExcalidrawFontFace {
+export class CanvasEditorFontFace {
   public readonly urls: URL[] | DataURL[];
   public readonly fontFace: FontFace;
 
@@ -12,10 +12,10 @@ export class ExcalidrawFontFace {
     typeof window === "undefined" ? "http://localhost/" : `${window.location.origin}/`;
 
   constructor(family: string, uri: string, descriptors?: FontFaceDescriptors) {
-    this.urls = ExcalidrawFontFace.createUrls(uri);
+    this.urls = CanvasEditorFontFace.createUrls(uri);
 
     const sources = this.urls
-      .map((url) => `url(${url}) ${ExcalidrawFontFace.getFormat(url)}`)
+      .map((url) => `url(${url}) ${CanvasEditorFontFace.getFormat(url)}`)
       .join(", ");
 
     this.fontFace = new FontFace(family, sources, {
@@ -147,21 +147,21 @@ export class ExcalidrawFontFace {
     const assetUrl: string = uri.replace(/^\/+/, "");
     const urls: URL[] = [];
 
-    if (typeof window.EXCALIDRAW_ASSET_PATH === "string") {
+    if (typeof window.AGENT_CANVAS_ASSET_PATH === "string") {
       const normalizedBaseUrl = this.normalizeBaseUrl(
-        window.EXCALIDRAW_ASSET_PATH,
+        window.AGENT_CANVAS_ASSET_PATH,
       );
 
       urls.push(new URL(assetUrl, normalizedBaseUrl));
-    } else if (Array.isArray(window.EXCALIDRAW_ASSET_PATH)) {
-      window.EXCALIDRAW_ASSET_PATH.forEach((path) => {
+    } else if (Array.isArray(window.AGENT_CANVAS_ASSET_PATH)) {
+      window.AGENT_CANVAS_ASSET_PATH.forEach((path) => {
         const normalizedBaseUrl = this.normalizeBaseUrl(path);
         urls.push(new URL(assetUrl, normalizedBaseUrl));
       });
     }
 
     // fallback url for bundled fonts
-    urls.push(new URL(assetUrl, ExcalidrawFontFace.ASSETS_FALLBACK_URL));
+    urls.push(new URL(assetUrl, CanvasEditorFontFace.ASSETS_FALLBACK_URL));
 
     return urls;
   }

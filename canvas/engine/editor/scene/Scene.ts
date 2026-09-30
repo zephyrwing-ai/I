@@ -1,13 +1,13 @@
 import throttle from "lodash.throttle";
 import type {
-  ExcalidrawElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  NonDeletedCanvasEditorElement,
   NonDeleted,
-  ExcalidrawFrameLikeElement,
+  CanvasEditorFrameLikeElement,
   ElementsMapOrArray,
   SceneElementsMap,
   NonDeletedSceneElementsMap,
-  OrderedExcalidrawElement,
+  OrderedCanvasEditorElement,
   Ordered,
 } from "../element/types";
 import { isNonDeletedElement } from "../element";
@@ -28,14 +28,14 @@ import { ENV } from "../constants";
 import { getElementsInGroup } from "../groups";
 
 type ElementIdKey = InstanceType<typeof LinearElementEditor>["elementId"];
-type ElementKey = ExcalidrawElement | ElementIdKey;
+type ElementKey = CanvasEditorElement | ElementIdKey;
 
 type SceneStateCallback = () => void;
 type SceneStateCallbackRemover = () => void;
 
 type SelectionHash = string & { __brand: "selectionHash" };
 
-const getNonDeletedElements = <T extends ExcalidrawElement>(
+const getNonDeletedElements = <T extends CanvasEditorElement>(
   allElements: readonly T[],
 ) => {
   const elementsMap = new Map() as NonDeletedSceneElementsMap;
@@ -45,7 +45,7 @@ const getNonDeletedElements = <T extends ExcalidrawElement>(
       elements.push(element as NonDeleted<T>);
       elementsMap.set(
         element.id,
-        element as Ordered<NonDeletedExcalidrawElement>,
+        element as Ordered<NonDeletedCanvasEditorElement>,
       );
     }
   }
@@ -53,7 +53,7 @@ const getNonDeletedElements = <T extends ExcalidrawElement>(
 };
 
 const validateIndicesThrottled = throttle(
-  (elements: readonly ExcalidrawElement[]) => {
+  (elements: readonly CanvasEditorElement[]) => {
     if (
       import.meta.env.DEV ||
       import.meta.env.MODE === ENV.TEST ||
@@ -95,7 +95,7 @@ const hashSelectionOpts = (
 
 // ideally this would be a branded type but it'd be insanely hard to work with
 // in our codebase
-export type ExcalidrawElementsIncludingDeleted = readonly ExcalidrawElement[];
+export type CanvasEditorElementsIncludingDeleted = readonly CanvasEditorElement[];
 
 const isIdKey = (elementKey: ElementKey): elementKey is ElementIdKey => {
   if (typeof elementKey === "string") {
@@ -109,7 +109,7 @@ class Scene {
   // static methods/props
   // ---------------------------------------------------------------------------
 
-  private static sceneMapByElement = new WeakMap<ExcalidrawElement, Scene>();
+  private static sceneMapByElement = new WeakMap<CanvasEditorElement, Scene>();
   private static sceneMapById = new Map<string, Scene>();
 
   static mapElementToScene(elementKey: ElementKey, scene: Scene) {
@@ -141,21 +141,21 @@ class Scene {
 
   private callbacks: Set<SceneStateCallback> = new Set();
 
-  private nonDeletedElements: readonly Ordered<NonDeletedExcalidrawElement>[] =
+  private nonDeletedElements: readonly Ordered<NonDeletedCanvasEditorElement>[] =
     [];
   private nonDeletedElementsMap = toBrandedType<NonDeletedSceneElementsMap>(
     new Map(),
   );
   // ideally all elements within the scene should be wrapped around with `Ordered` type, but right now there is no real benefit doing so
-  private elements: readonly OrderedExcalidrawElement[] = [];
-  private nonDeletedFramesLikes: readonly NonDeleted<ExcalidrawFrameLikeElement>[] =
+  private elements: readonly OrderedCanvasEditorElement[] = [];
+  private nonDeletedFramesLikes: readonly NonDeleted<CanvasEditorFrameLikeElement>[] =
     [];
-  private frames: readonly ExcalidrawFrameLikeElement[] = [];
+  private frames: readonly CanvasEditorFrameLikeElement[] = [];
   private elementsMap = toBrandedType<SceneElementsMap>(new Map());
   private selectedElementsCache: {
     selectedElementIds: AppState["selectedElementIds"] | null;
-    elements: readonly NonDeletedExcalidrawElement[] | null;
-    cache: Map<SelectionHash, NonDeletedExcalidrawElement[]>;
+    elements: readonly NonDeletedCanvasEditorElement[] | null;
+    cache: Map<SelectionHash, NonDeletedCanvasEditorElement[]>;
   } = {
     selectedElementIds: null,
     elements: null,
@@ -205,7 +205,7 @@ class Scene {
     // selection-related options
     includeBoundTextElement?: boolean;
     includeElementsInFrames?: boolean;
-  }): NonDeleted<ExcalidrawElement>[] {
+  }): NonDeleted<CanvasEditorElement>[] {
     const hash = hashSelectionOpts(opts);
 
     const elements = opts?.elements || this.nonDeletedElements;
@@ -239,17 +239,17 @@ class Scene {
     return selectedElements;
   }
 
-  getNonDeletedFramesLikes(): readonly NonDeleted<ExcalidrawFrameLikeElement>[] {
+  getNonDeletedFramesLikes(): readonly NonDeleted<CanvasEditorFrameLikeElement>[] {
     return this.nonDeletedFramesLikes;
   }
 
-  getElement<T extends ExcalidrawElement>(id: T["id"]): T | null {
+  getElement<T extends CanvasEditorElement>(id: T["id"]): T | null {
     return (this.elementsMap.get(id) as T | undefined) || null;
   }
 
   getNonDeletedElement(
-    id: ExcalidrawElement["id"],
-  ): NonDeleted<ExcalidrawElement> | null {
+    id: CanvasEditorElement["id"],
+  ): NonDeleted<CanvasEditorElement> | null {
     const element = this.getElement(id);
     if (element && isNonDeletedElement(element)) {
       return element;
@@ -270,7 +270,7 @@ class Scene {
    * @returns whether a change was made
    */
   mapElements(
-    iteratee: (element: ExcalidrawElement) => ExcalidrawElement,
+    iteratee: (element: CanvasEditorElement) => CanvasEditorElement,
   ): boolean {
     let didChange = false;
     const newElements = this.elements.map((element) => {
@@ -292,7 +292,7 @@ class Scene {
       nextElements instanceof Array
         ? nextElements
         : Array.from(nextElements.values());
-    const nextFrameLikes: ExcalidrawFrameLikeElement[] = [];
+    const nextFrameLikes: CanvasEditorFrameLikeElement[] = [];
 
     validateIndicesThrottled(_nextElements);
 
@@ -359,7 +359,7 @@ class Scene {
     this.callbacks.clear();
   }
 
-  insertElementAtIndex(element: ExcalidrawElement, index: number) {
+  insertElementAtIndex(element: CanvasEditorElement, index: number) {
     if (!Number.isFinite(index) || index < 0) {
       throw new Error(
         "insertElementAtIndex can only be called with index >= 0",
@@ -377,7 +377,7 @@ class Scene {
     this.replaceAllElements(nextElements);
   }
 
-  insertElementsAtIndex(elements: ExcalidrawElement[], index: number) {
+  insertElementsAtIndex(elements: CanvasEditorElement[], index: number) {
     if (!elements.length) {
       return;
     }
@@ -399,7 +399,7 @@ class Scene {
     this.replaceAllElements(nextElements);
   }
 
-  insertElement = (element: ExcalidrawElement) => {
+  insertElement = (element: CanvasEditorElement) => {
     const index = element.frameId
       ? this.getElementIndex(element.frameId)
       : this.elements.length;
@@ -407,7 +407,7 @@ class Scene {
     this.insertElementAtIndex(element, index);
   };
 
-  insertElements = (elements: ExcalidrawElement[]) => {
+  insertElements = (elements: CanvasEditorElement[]) => {
     if (!elements.length) {
       return;
     }
@@ -425,8 +425,8 @@ class Scene {
 
   getContainerElement = (
     element:
-      | (ExcalidrawElement & {
-          containerId: ExcalidrawElement["id"] | null;
+      | (CanvasEditorElement & {
+          containerId: CanvasEditorElement["id"] | null;
         })
       | null,
   ) => {
@@ -439,7 +439,7 @@ class Scene {
     return null;
   };
 
-  getElementsFromId = (id: string): ExcalidrawElement[] => {
+  getElementsFromId = (id: string): CanvasEditorElement[] => {
     const elementsMap = this.getNonDeletedElementsMap();
     // first check if the id is an element
     const el = elementsMap.get(id);

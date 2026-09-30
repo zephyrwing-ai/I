@@ -1,16 +1,16 @@
 import { MIN_FONT_SIZE, SHIFT_LOCKING_ANGLE } from "../constants";
 import { rescalePoints } from "../points";
 import type {
-  ExcalidrawLinearElement,
-  ExcalidrawTextElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorLinearElement,
+  CanvasEditorTextElement,
+  NonDeletedCanvasEditorElement,
   NonDeleted,
-  ExcalidrawElement,
-  ExcalidrawTextElementWithContainer,
-  ExcalidrawImageElement,
+  CanvasEditorElement,
+  CanvasEditorTextElementWithContainer,
+  CanvasEditorImageElement,
   ElementsMap,
   SceneElementsMap,
-  ExcalidrawElbowArrowElement,
+  CanvasEditorElbowArrowElement,
 } from "./types";
 import type { Mutable } from "../utility-types";
 import {
@@ -71,7 +71,7 @@ import {
 export const transformElements = (
   originalElements: PointerDownState["originalElements"],
   transformHandleType: MaybeTransformHandleType,
-  selectedElements: readonly NonDeletedExcalidrawElement[],
+  selectedElements: readonly NonDeletedCanvasEditorElement[],
   elementsMap: SceneElementsMap,
   scene: Scene,
   shouldRotateWithDiscreteAngle: boolean,
@@ -198,7 +198,7 @@ export const transformElements = (
 };
 
 const rotateSingleElement = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   elementsMap: ElementsMap,
   scene: Scene,
   pointerX: number,
@@ -225,7 +225,7 @@ const rotateSingleElement = (
   mutateElement(element, { angle });
   if (boundTextElementId) {
     const textElement =
-      scene.getElement<ExcalidrawTextElementWithContainer>(boundTextElementId);
+      scene.getElement<CanvasEditorTextElementWithContainer>(boundTextElementId);
 
     if (textElement && !isArrowElement(element)) {
       mutateElement(textElement, { angle });
@@ -234,7 +234,7 @@ const rotateSingleElement = (
 };
 
 export const rescalePointsInElement = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   width: number,
   height: number,
   normalizePoints: boolean,
@@ -251,7 +251,7 @@ export const rescalePointsInElement = (
     : {};
 
 export const measureFontSizeFromWidth = (
-  element: NonDeleted<ExcalidrawTextElement>,
+  element: NonDeleted<CanvasEditorTextElement>,
   elementsMap: ElementsMap,
   nextWidth: number,
 ): { size: number } | null => {
@@ -277,7 +277,7 @@ export const measureFontSizeFromWidth = (
 
 const resizeSingleTextElement = (
   originalElements: PointerDownState["originalElements"],
-  element: NonDeleted<ExcalidrawTextElement>,
+  element: NonDeleted<CanvasEditorTextElement>,
   elementsMap: ElementsMap,
   transformHandleType: TransformHandleDirection,
   shouldResizeFromCenter: boolean,
@@ -488,7 +488,7 @@ const resizeSingleTextElement = (
       -angle as Radians,
     );
 
-    const resizedElement: Partial<ExcalidrawTextElement> = {
+    const resizedElement: Partial<CanvasEditorTextElement> = {
       width: Math.abs(newWidth),
       height: Math.abs(metrics.height),
       x: newTopLeft[0],
@@ -503,7 +503,7 @@ const resizeSingleTextElement = (
 
 const rotateMultipleElements = (
   originalElements: PointerDownState["originalElements"],
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   elementsMap: SceneElementsMap,
   scene: Scene,
   pointerX: number,
@@ -573,7 +573,7 @@ const rotateMultipleElements = (
 
 export const getResizeOffsetXY = (
   transformHandleType: MaybeTransformHandleType,
-  selectedElements: NonDeletedExcalidrawElement[],
+  selectedElements: NonDeletedCanvasEditorElement[],
   elementsMap: ElementsMap,
   x: number,
   y: number,
@@ -632,7 +632,7 @@ export const getResizeOffsetXY = (
 
 export const getResizeArrowDirection = (
   transformHandleType: MaybeTransformHandleType,
-  element: NonDeleted<ExcalidrawLinearElement>,
+  element: NonDeleted<CanvasEditorLinearElement>,
 ): "origin" | "end" => {
   const [, [px, py]] = element.points;
   const isResizeEnd =
@@ -806,8 +806,8 @@ const getResizedOrigin = (
 export const resizeSingleElement = (
   nextWidth: number,
   nextHeight: number,
-  latestElement: ExcalidrawElement,
-  origElement: ExcalidrawElement,
+  latestElement: CanvasEditorElement,
+  origElement: CanvasEditorElement,
   elementsMap: ElementsMap,
   originalElementsMap: ElementsMap,
   handleDirection: TransformHandleDirection,
@@ -978,8 +978,8 @@ export const resizeSingleElement = (
 };
 
 const getNextSingleWidthAndHeightFromPointer = (
-  latestElement: ExcalidrawElement,
-  origElement: ExcalidrawElement,
+  latestElement: CanvasEditorElement,
+  origElement: CanvasEditorElement,
   elementsMap: ElementsMap,
   originalElementsMap: ElementsMap,
   handleDirection: TransformHandleDirection,
@@ -1074,7 +1074,7 @@ const getNextSingleWidthAndHeightFromPointer = (
 };
 
 const getNextMultipleWidthAndHeightFromPointer = (
-  selectedElements: readonly NonDeletedExcalidrawElement[],
+  selectedElements: readonly NonDeletedCanvasEditorElement[],
   originalElementsMap: ElementsMap,
   elementsMap: ElementsMap,
   handleDirection: TransformHandleDirection,
@@ -1119,7 +1119,7 @@ const getNextMultipleWidthAndHeightFromPointer = (
         ),
       },
     ];
-  }, [] as ExcalidrawTextElementWithContainer[]);
+  }, [] as CanvasEditorTextElementWithContainer[]);
 
   const originalBoundingBox = getCommonBoundingBox(
     originalElementsArray.map((orig) => orig).concat(boundTextElements),
@@ -1201,7 +1201,7 @@ const getNextMultipleWidthAndHeightFromPointer = (
 };
 
 export const resizeMultipleElements = (
-  selectedElements: readonly NonDeletedExcalidrawElement[],
+  selectedElements: readonly NonDeletedCanvasEditorElement[],
   elementsMap: ElementsMap,
   handleDirection: TransformHandleDirection,
   scene: Scene,
@@ -1248,9 +1248,9 @@ export const resizeMultipleElements = (
     (
       acc: {
         /** element at resize start */
-        orig: NonDeletedExcalidrawElement;
+        orig: NonDeletedCanvasEditorElement;
         /** latest element */
-        latest: NonDeletedExcalidrawElement;
+        latest: NonDeletedCanvasEditorElement;
       }[],
       element,
     ) => {
@@ -1291,7 +1291,7 @@ export const resizeMultipleElements = (
           ),
         },
       ];
-    }, [] as ExcalidrawTextElementWithContainer[]);
+    }, [] as CanvasEditorTextElementWithContainer[]);
 
     boundingBox = getCommonBoundingBox(
       targetElements.map(({ orig }) => orig).concat(boundTextElements),
@@ -1382,17 +1382,17 @@ export const resizeMultipleElements = (
     const [flipFactorX, flipFactorY] = [flipByX ? -1 : 1, flipByY ? -1 : 1];
 
     const elementsAndUpdates: {
-      element: NonDeletedExcalidrawElement;
+      element: NonDeletedCanvasEditorElement;
       update: Mutable<
-        Pick<ExcalidrawElement, "x" | "y" | "width" | "height" | "angle">
+        Pick<CanvasEditorElement, "x" | "y" | "width" | "height" | "angle">
       > & {
-        points?: ExcalidrawLinearElement["points"];
-        fontSize?: ExcalidrawTextElement["fontSize"];
-        scale?: ExcalidrawImageElement["scale"];
-        boundTextFontSize?: ExcalidrawTextElement["fontSize"];
-        startBinding?: ExcalidrawElbowArrowElement["startBinding"];
-        endBinding?: ExcalidrawElbowArrowElement["endBinding"];
-        fixedSegments?: ExcalidrawElbowArrowElement["fixedSegments"];
+        points?: CanvasEditorLinearElement["points"];
+        fontSize?: CanvasEditorTextElement["fontSize"];
+        scale?: CanvasEditorImageElement["scale"];
+        boundTextFontSize?: CanvasEditorTextElement["fontSize"];
+        startBinding?: CanvasEditorElbowArrowElement["startBinding"];
+        endBinding?: CanvasEditorElbowArrowElement["endBinding"];
+        fixedSegments?: CanvasEditorElbowArrowElement["fixedSegments"];
       };
     }[] = [];
 
@@ -1488,7 +1488,7 @@ export const resizeMultipleElements = (
 
       const boundTextElement = originalElementsMap.get(
         getBoundTextElementId(orig) ?? "",
-      ) as ExcalidrawTextElementWithContainer | undefined;
+      ) as CanvasEditorTextElementWithContainer | undefined;
 
       if (boundTextElement) {
         if (keepAspectRatio) {

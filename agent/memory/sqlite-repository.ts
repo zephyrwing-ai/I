@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { initializeSchema } from "./schema.js";
 import {
   RepositoryError,
+  type AcceptRunInputInput,
   type AppendEntryInput,
   type CreateProjectInput,
   type CreateToolInvocationInput,
@@ -12,6 +13,7 @@ import {
   type HistoryEntry,
   type HistoryRepository,
   type HistoryScope,
+  type PendingRunInput,
   type Project,
   type ProjectContextInput,
   type ProjectContextRecord,
@@ -113,6 +115,20 @@ function rowToEntry(row: Row): HistoryEntry {
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     durationMs: row.duration_ms === null || row.duration_ms === undefined ? null : Number(row.duration_ms),
+  };
+}
+
+function rowToPendingRunInput(row: Row): PendingRunInput {
+  return {
+    inputId: String(row.input_id),
+    projectId: row.project_id === null || row.project_id === undefined ? null : String(row.project_id),
+    runId: String(row.run_id),
+    content: String(row.content),
+    acceptOrder: Number(row.accept_order),
+    state: String(row.state) as PendingRunInput["state"],
+    acceptedAt: Number(row.accepted_at),
+    appliedAt: row.applied_at === null || row.applied_at === undefined ? null : Number(row.applied_at),
+    terminalReason: row.terminal_reason === null || row.terminal_reason === undefined ? null : String(row.terminal_reason),
   };
 }
 
@@ -316,6 +332,127 @@ export class SqliteHistoryRepository implements HistoryRepository {
     return rows.map(rowToEntry);
   }
 
+  async acceptRunInput(projectId: HistoryScope, input: AcceptRunInputInput): Promise<PendingRunInput> {
+    if (!input.inputId || !input.runId || typeof input.content !== "string" || !input.content.trim()) {
+      throw new RepositoryError("Run input identity and non-empty content are required.", "invalid");
+    }
+    return this.transaction(() => {
+      const existing = this.getPendingRunInputById(input.inputId);
+      if (existing) {
+        if (existing.projectId !== projectId || existing.runId !== input.runId || existing.content !== input.content) {
+          throw new RepositoryError(`Run input already exists with different content or scope: ${input.inputId}`, "conflict");
+        }
+        return existing;
+      }
+      if (projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)) {
+        throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
+      }
+      this.database.prepare(`
+        INSERT INTO pending_run_inputs
+          (input_id, project_id, run_id, content, state, accepted_at, applied_at, terminal_reason)
+        VALUES (?, ?, ?, ?, 'accepted', ?, NULL, NULL)
+      `).run(input.inputId, projectId, input.runId, input.content, now());
+      return this.getPendingRunInputById(input.inputId)!;
+    });
+  }
+
+  async listAcceptedRunInputs(projectId: HistoryScope, runId: string): Promise<PendingRunInput[]> {
+    if (!runId) throw new RepositoryError("runId is required.", "invalid");
+    const rows = this.database.prepare(`
+      SELECT * FROM pending_run_inputs
+      WHERE project_id IS ? AND run_id = ? AND state = 'accepted'
+      ORDER BY accept_order ASC
+    `).all(projectId, runId) as Row[];
+    return rows.map(rowToPendingRunInput);
+  }
+
+  async applyRunInputs(projectId: HistoryScope, runId: string, inputIds: string[]): Promise<HistoryEntry[]> {
+    if (!runId || !Array.isArray(inputIds) || inputIds.some((id) => typeof id !== "string" || !id)) {
+      throw new RepositoryError("runId and inputIds are required.", "invalid");
+    }
+    if (new Set(inputIds).size !== inputIds.length) throw new RepositoryError("inputIds must be unique.", "invalid");
+    if (inputIds.length === 0) return [];
+    return this.transaction(() => {
+      const selected = inputIds.map((id) => {
+        const item = this.getPendingRunInputById(id);
+        if (!item) throw new RepositoryError(`Run input not found: ${id}`, "not_found");
+        if (item.projectId !== projectId || item.runId !== runId) {
+          throw new RepositoryError(`Run input belongs to another scope or run: ${id}`, "conflict");
+        }
+        if (item.state === "unapplied") throw new RepositoryError(`Run input was abandoned: ${id}`, "conflict");
+        return item;
+      });
+      if (selected.some((item, index) => index > 0 && item.acceptOrder <= selected[index - 1]!.acceptOrder)) {
+        throw new RepositoryError(`Run inputs must be supplied in acceptance order: ${runId}`, "conflict");
+      }
+
+      const accepted = selected.filter((item) => item.state === "accepted");
+      if (accepted.length > 0) {
+        const nextRows = this.database.prepare(`
+          SELECT input_id FROM pending_run_inputs
+          WHERE project_id IS ? AND run_id = ? AND state = 'accepted'
+          ORDER BY accept_order ASC LIMIT ?
+        `).all(projectId, runId, accepted.length) as Row[];
+        if (nextRows.length !== accepted.length || nextRows.some((row, index) => row.input_id !== accepted[index]!.inputId)) {
+          throw new RepositoryError(`Run inputs must be applied in acceptance order: ${runId}`, "conflict");
+        }
+      }
+
+      const timestamp = now();
+      let nextOrder = this.nextEntryOrder();
+      return selected.map((item) => {
+        if (item.state === "applied") return this.getSettledRunInputEntry(item);
+        const entry = this.settleRunInput(item, "applied", timestamp, null, nextOrder);
+        nextOrder += 1;
+        return entry;
+      });
+    });
+  }
+
+  async abandonRunInputs(projectId: HistoryScope, runId: string, reason: string): Promise<HistoryEntry[]> {
+    if (!runId || !reason.trim()) throw new RepositoryError("runId and terminal reason are required.", "invalid");
+    return this.transaction(() => {
+      const rows = this.database.prepare(`
+        SELECT * FROM pending_run_inputs
+        WHERE project_id IS ? AND run_id = ? AND state = 'accepted'
+        ORDER BY accept_order ASC
+      `).all(projectId, runId) as Row[];
+      return this.settleRunInputBatch(rows.map(rowToPendingRunInput), "unapplied", reason);
+    });
+  }
+
+  async recoverAcceptedRunInputs(reason: string): Promise<HistoryEntry[]> {
+    if (!reason.trim()) throw new RepositoryError("Terminal reason is required.", "invalid");
+    return this.transaction(() => {
+      const rows = this.database.prepare(`
+        SELECT * FROM pending_run_inputs WHERE state = 'accepted' ORDER BY accept_order ASC
+      `).all() as Row[];
+      return this.settleRunInputBatch(rows.map(rowToPendingRunInput), "unapplied", reason);
+    });
+  }
+
+  async finalizeAnswerDuration(projectId: HistoryScope, turnId: string, durationMs: number): Promise<void> {
+    if (!turnId || !Number.isSafeInteger(durationMs) || durationMs < 0) {
+      throw new RepositoryError("turnId and a non-negative integer durationMs are required.", "invalid");
+    }
+    this.transaction(() => {
+      const rows = this.database.prepare(`
+        SELECT * FROM entries
+        WHERE project_id IS ? AND turn_id = ? AND type = 'assistant_message' AND status = 'completed'
+      `).all(projectId, turnId) as Row[];
+      if (rows.length === 0) throw new RepositoryError(`Completed assistant entry not found for turn: ${turnId}`, "not_found");
+      if (rows.length !== 1) throw new RepositoryError(`Multiple completed assistant entries for turn: ${turnId}`, "conflict");
+      const entry = rowToEntry(rows[0]!);
+      if (entry.payload.toolCalls?.length) throw new RepositoryError(`Turn is a tool-call response, not a final answer: ${turnId}`, "conflict");
+      if (entry.durationMs !== null) {
+        if (entry.durationMs !== durationMs) throw new RepositoryError(`Answer duration already finalized for turn: ${turnId}`, "conflict");
+        return;
+      }
+      this.database.prepare("UPDATE entries SET duration_ms = ?, revision = revision + 1 WHERE id = ? AND duration_ms IS NULL")
+        .run(durationMs, entry.id);
+    });
+  }
+
   async registerToolInvocation(input: CreateToolInvocationInput): Promise<ToolInvocationRecord> {
     this.validateToolInvocationInput(input);
     const id = input.id ?? randomUUID();
@@ -432,6 +569,62 @@ export class SqliteHistoryRepository implements HistoryRepository {
 
   private validateHistoryLimit(limit: number): void {
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new RepositoryError("History limit must be a positive safe integer.", "invalid");
+  }
+
+  private getPendingRunInputById(inputId: string): PendingRunInput | null {
+    const row = this.database.prepare("SELECT * FROM pending_run_inputs WHERE input_id = ?").get(inputId) as Row | undefined;
+    return row ? rowToPendingRunInput(row) : null;
+  }
+
+  private getSettledRunInputEntry(item: PendingRunInput): HistoryEntry {
+    const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(item.inputId) as Row | undefined;
+    if (!row) throw new RepositoryError(`Settled run input has no history entry: ${item.inputId}`, "storage");
+    const entry = rowToEntry(row);
+    if (entry.projectId !== item.projectId || entry.runId !== item.runId || entry.type !== "user_message") {
+      throw new RepositoryError(`Settled run input entry has a different scope: ${item.inputId}`, "storage");
+    }
+    return entry;
+  }
+
+  private nextEntryOrder(): number {
+    return Number((this.database.prepare("SELECT COALESCE(MAX(entry_order), 0) + 1 AS next_order FROM entries").get() as { next_order: number }).next_order);
+  }
+
+  private settleRunInputBatch(items: PendingRunInput[], state: "unapplied", reason: string): HistoryEntry[] {
+    const timestamp = now();
+    let nextOrder = this.nextEntryOrder();
+    return items.map((item) => {
+      const entry = this.settleRunInput(item, state, timestamp, reason, nextOrder);
+      nextOrder += 1;
+      return entry;
+    });
+  }
+
+  private settleRunInput(
+    item: PendingRunInput,
+    state: "applied" | "unapplied",
+    timestamp: number,
+    reason: string | null,
+    entryOrder: number,
+  ): HistoryEntry {
+    const existing = this.database.prepare("SELECT 1 FROM entries WHERE id = ?").get(item.inputId);
+    if (existing) throw new RepositoryError(`Run input entry ID already exists: ${item.inputId}`, "conflict");
+    this.database.prepare(`
+      INSERT INTO entries
+        (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
+         revision, payload_version, payload_json, created_at, updated_at, duration_ms)
+      VALUES (?, ?, ?, 'user_message', ?, ?, NULL, NULL, 0, 1, ?, ?, ?, NULL)
+    `).run(
+      item.inputId, item.projectId, entryOrder, state === "applied" ? "completed" : "interrupted",
+      item.runId, JSON.stringify({ role: "user", content: item.content }), item.acceptedAt, timestamp,
+    );
+    const changed = this.database.prepare(`
+      UPDATE pending_run_inputs
+      SET state = ?, applied_at = ?, terminal_reason = ?
+      WHERE input_id = ? AND state = 'accepted'
+    `).run(state, state === "applied" ? timestamp : null, reason, item.inputId);
+    if (Number(changed.changes) !== 1) throw new RepositoryError(`Run input state changed during settlement: ${item.inputId}`, "conflict");
+    return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(item.inputId) as Row);
   }
 
   private validateToolInvocationInput(input: CreateToolInvocationInput): void {

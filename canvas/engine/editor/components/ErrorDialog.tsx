@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { t } from "../i18n";
 
 import { Dialog } from "./Dialog";
-import { useExcalidrawContainer } from "./App";
+import { useCanvasEditorContainer } from "./App";
 
 export const ErrorDialog = ({
   children,
@@ -12,7 +12,7 @@ export const ErrorDialog = ({
   onClose?: () => void;
 }) => {
   const [modalIsShown, setModalIsShown] = useState(!!children);
-  const { container: excalidrawContainer } = useExcalidrawContainer();
+  const { container: canvasContainer } = useCanvasEditorContainer();
 
   const handleClose = React.useCallback(() => {
     setModalIsShown(false);
@@ -21,8 +21,8 @@ export const ErrorDialog = ({
       onClose();
     }
     // TODO: Fix the A11y issues so this is never needed since we should always focus on last active element
-    excalidrawContainer?.focus();
-  }, [onClose, excalidrawContainer]);
+    canvasContainer?.focus();
+  }, [onClose, canvasContainer]);
 
   return (
     <>

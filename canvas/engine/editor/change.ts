@@ -21,13 +21,13 @@ import {
   isTextElement,
 } from "./element/typeChecks";
 import type {
-  ExcalidrawElement,
-  ExcalidrawImageElement,
-  ExcalidrawLinearElement,
-  ExcalidrawTextElement,
+  CanvasEditorElement,
+  CanvasEditorImageElement,
+  CanvasEditorLinearElement,
+  CanvasEditorTextElement,
   NonDeleted,
   Ordered,
-  OrderedExcalidrawElement,
+  OrderedCanvasEditorElement,
   SceneElementsMap,
 } from "./element/types";
 import { orderByFractionalIndex, syncMovedIndices } from "./fractionalIndex";
@@ -474,7 +474,7 @@ export class AppStateChange implements Change<AppState> {
           ? new LinearElementEditor(
               nextElements.get(
                 selectedLinearElementId,
-              ) as NonDeleted<ExcalidrawLinearElement>,
+              ) as NonDeleted<CanvasEditorLinearElement>,
             )
           : null;
 
@@ -483,7 +483,7 @@ export class AppStateChange implements Change<AppState> {
           ? new LinearElementEditor(
               nextElements.get(
                 editingLinearElementId,
-              ) as NonDeleted<ExcalidrawLinearElement>,
+              ) as NonDeleted<CanvasEditorLinearElement>,
             )
           : null;
 
@@ -795,7 +795,7 @@ export class AppStateChange implements Change<AppState> {
   }
 }
 
-type ElementPartial<T extends ExcalidrawElement = ExcalidrawElement> = Omit<
+type ElementPartial<T extends CanvasEditorElement = CanvasEditorElement> = Omit<
   ElementUpdate<Ordered<T>>,
   "seed"
 >;
@@ -892,7 +892,7 @@ export class ElementsChange implements Change<SceneElementsMap> {
    *
    * @returns `ElementsChange` instance representing the `Delta` changes between the two sets of elements.
    */
-  public static calculate<T extends OrderedExcalidrawElement>(
+  public static calculate<T extends OrderedCanvasEditorElement>(
     prevElements: Map<string, T>,
     nextElements: Map<string, T>,
   ): ElementsChange {
@@ -1017,7 +1017,7 @@ export class ElementsChange implements Change<SceneElementsMap> {
    */
   public applyLatestChanges(elements: SceneElementsMap): ElementsChange {
     const modifier =
-      (element: OrderedExcalidrawElement) => (partial: ElementPartial) => {
+      (element: OrderedCanvasEditorElement) => (partial: ElementPartial) => {
         const latestPartial: { [key: string]: unknown } = {};
 
         for (const key of Object.keys(partial) as Array<keyof typeof partial>) {
@@ -1071,10 +1071,10 @@ export class ElementsChange implements Change<SceneElementsMap> {
 
   public applyTo(
     elements: SceneElementsMap,
-    snapshot: Map<string, OrderedExcalidrawElement>,
+    snapshot: Map<string, OrderedCanvasEditorElement>,
   ): [SceneElementsMap, boolean] {
     let nextElements = toBrandedType<SceneElementsMap>(new Map(elements));
-    let changedElements: Map<string, OrderedExcalidrawElement>;
+    let changedElements: Map<string, OrderedCanvasEditorElement>;
 
     const flags = {
       containsVisibleDifference: false,
@@ -1146,7 +1146,7 @@ export class ElementsChange implements Change<SceneElementsMap> {
 
   private static createApplier = (
     nextElements: SceneElementsMap,
-    snapshot: Map<string, OrderedExcalidrawElement>,
+    snapshot: Map<string, OrderedCanvasEditorElement>,
     flags: {
       containsVisibleDifference: boolean;
       containsZindexDifference: boolean;
@@ -1169,13 +1169,13 @@ export class ElementsChange implements Change<SceneElementsMap> {
         }
 
         return acc;
-      }, new Map<string, OrderedExcalidrawElement>());
+      }, new Map<string, OrderedCanvasEditorElement>());
   };
 
   private static createGetter =
     (
       elements: SceneElementsMap,
-      snapshot: Map<string, OrderedExcalidrawElement>,
+      snapshot: Map<string, OrderedCanvasEditorElement>,
       flags: {
         containsVisibleDifference: boolean;
         containsZindexDifference: boolean;
@@ -1206,7 +1206,7 @@ export class ElementsChange implements Change<SceneElementsMap> {
     };
 
   private static applyDelta(
-    element: OrderedExcalidrawElement,
+    element: OrderedCanvasEditorElement,
     delta: Delta<ElementPartial>,
     flags: {
       containsVisibleDifference: boolean;
@@ -1236,7 +1236,7 @@ export class ElementsChange implements Change<SceneElementsMap> {
     }
 
     if (isImageElement(element)) {
-      const _delta = delta as Delta<ElementPartial<ExcalidrawImageElement>>;
+      const _delta = delta as Delta<ElementPartial<CanvasEditorImageElement>>;
       // we want to override `crop` only if modified so that we don't reset
       // when undoing/redoing unrelated change
       if (_delta.deleted.crop || _delta.inserted.crop) {
@@ -1268,7 +1268,7 @@ export class ElementsChange implements Change<SceneElementsMap> {
    * Check for visible changes regardless of whether they were removed, added or updated.
    */
   private static checkForVisibleDifference(
-    element: OrderedExcalidrawElement,
+    element: OrderedCanvasEditorElement,
     partial: ElementPartial,
   ) {
     if (element.isDeleted && partial.isDeleted !== false) {
@@ -1300,29 +1300,29 @@ export class ElementsChange implements Change<SceneElementsMap> {
     prevElements: SceneElementsMap,
     nextElements: SceneElementsMap,
   ) {
-    const nextAffectedElements = new Map<string, OrderedExcalidrawElement>();
+    const nextAffectedElements = new Map<string, OrderedCanvasEditorElement>();
     const updater = (
-      element: ExcalidrawElement,
-      updates: ElementUpdate<ExcalidrawElement>,
+      element: CanvasEditorElement,
+      updates: ElementUpdate<CanvasEditorElement>,
     ) => {
       const nextElement = nextElements.get(element.id); // only ever modify next element!
       if (!nextElement) {
         return;
       }
 
-      let affectedElement: OrderedExcalidrawElement;
+      let affectedElement: OrderedCanvasEditorElement;
 
       if (prevElements.get(element.id) === nextElement) {
         // create the new element instance in case we didn't modify the element yet
         // so that we won't end up in an incosistent state in case we would fail in the middle of mutations
         affectedElement = newElementWith(
           nextElement,
-          updates as ElementUpdate<OrderedExcalidrawElement>,
+          updates as ElementUpdate<OrderedCanvasEditorElement>,
         );
       } else {
         affectedElement = mutateElement(
           nextElement,
-          updates as ElementUpdate<OrderedExcalidrawElement>,
+          updates as ElementUpdate<OrderedCanvasEditorElement>,
         );
       }
 
@@ -1391,8 +1391,8 @@ export class ElementsChange implements Change<SceneElementsMap> {
     nextElements: SceneElementsMap,
     id: string,
     updater: (
-      element: ExcalidrawElement,
-      updates: ElementUpdate<ExcalidrawElement>,
+      element: CanvasEditorElement,
+      updates: ElementUpdate<CanvasEditorElement>,
     ) => void,
   ) {
     // the instance could have been updated, so make sure we are passing the latest element to each function below
@@ -1415,8 +1415,8 @@ export class ElementsChange implements Change<SceneElementsMap> {
     nextElements: SceneElementsMap,
     id: string,
     updater: (
-      element: ExcalidrawElement,
-      updates: ElementUpdate<ExcalidrawElement>,
+      element: CanvasEditorElement,
+      updates: ElementUpdate<CanvasEditorElement>,
     ) => void,
   ) {
     // the instance could have been updated, so make sure we are passing the latest element to each function below
@@ -1442,22 +1442,22 @@ export class ElementsChange implements Change<SceneElementsMap> {
 
   private static redrawTextBoundingBoxes(
     elements: SceneElementsMap,
-    changed: Map<string, OrderedExcalidrawElement>,
+    changed: Map<string, OrderedCanvasEditorElement>,
   ) {
     const boxesToRedraw = new Map<
       string,
-      { container: OrderedExcalidrawElement; boundText: ExcalidrawTextElement }
+      { container: OrderedCanvasEditorElement; boundText: CanvasEditorTextElement }
     >();
 
     for (const element of changed.values()) {
       if (isBoundToContainer(element)) {
-        const { containerId } = element as ExcalidrawTextElement;
+        const { containerId } = element as CanvasEditorTextElement;
         const container = containerId ? elements.get(containerId) : undefined;
 
         if (container) {
           boxesToRedraw.set(container.id, {
             container,
-            boundText: element as ExcalidrawTextElement,
+            boundText: element as CanvasEditorTextElement,
           });
         }
       }
@@ -1471,7 +1471,7 @@ export class ElementsChange implements Change<SceneElementsMap> {
         if (boundText) {
           boxesToRedraw.set(element.id, {
             container: element,
-            boundText: boundText as ExcalidrawTextElement,
+            boundText: boundText as CanvasEditorTextElement,
           });
         }
       }
@@ -1489,7 +1489,7 @@ export class ElementsChange implements Change<SceneElementsMap> {
 
   private static redrawBoundArrows(
     elements: SceneElementsMap,
-    changed: Map<string, OrderedExcalidrawElement>,
+    changed: Map<string, OrderedCanvasEditorElement>,
   ) {
     for (const element of changed.values()) {
       if (!element.isDeleted && isBindableElement(element)) {
@@ -1502,7 +1502,7 @@ export class ElementsChange implements Change<SceneElementsMap> {
 
   private static reorderElements(
     elements: SceneElementsMap,
-    changed: Map<string, OrderedExcalidrawElement>,
+    changed: Map<string, OrderedCanvasEditorElement>,
     flags: {
       containsVisibleDifference: boolean;
       containsZindexDifference: boolean;
@@ -1559,7 +1559,7 @@ export class ElementsChange implements Change<SceneElementsMap> {
   }
 
   private static stripIrrelevantProps(
-    partial: Partial<OrderedExcalidrawElement>,
+    partial: Partial<OrderedCanvasEditorElement>,
   ): ElementPartial {
     const { id, updated, version, versionNonce, seed, ...strippedPartial } =
       partial;

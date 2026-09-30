@@ -8,7 +8,7 @@ import {
   VERSIONS,
 } from "../constants";
 import { clearElementsForDatabase, clearElementsForExport } from "../element";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import type { AppState, BinaryFiles, LibraryItems } from "../types";
 import { isImageFileHandle, loadFromBlob, normalizeFile } from "./blob";
 
@@ -23,7 +23,7 @@ import type {
  * Strips out files which are only referenced by deleted elements
  */
 const filterOutDeletedFiles = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   files: BinaryFiles,
 ) => {
   const nextFiles: BinaryFiles = {};
@@ -41,14 +41,14 @@ const filterOutDeletedFiles = (
 };
 
 export const serializeAsJSON = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: Partial<AppState>,
   files: BinaryFiles,
   type: "local" | "database",
 ): string => {
   const data: ExportedDataState = {
-    type: EXPORT_DATA_TYPES.excalidraw,
-    version: VERSIONS.excalidraw,
+    type: EXPORT_DATA_TYPES.canvas,
+    version: VERSIONS.canvas,
     source: EXPORT_SOURCE,
     elements:
       type === "local"
@@ -69,7 +69,7 @@ export const serializeAsJSON = (
 };
 
 export const saveAsJSON = async (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: AppState,
   files: BinaryFiles,
   /** filename */
@@ -93,13 +93,10 @@ export const saveAsJSON = async (
 
 export const loadFromJSON = async (
   localAppState: AppState,
-  localElements: readonly ExcalidrawElement[] | null,
+  localElements: readonly CanvasEditorElement[] | null,
 ) => {
   const file = await fileOpen({
-    description: "Excalidraw files",
-    // ToDo: Be over-permissive until https://bugs.webkit.org/show_bug.cgi?id=34442
-    // gets resolved. Else, iOS users cannot open `.excalidraw` files.
-    // extensions: ["json", "excalidraw", "png", "svg"],
+    description: "Canvas files",
   });
   return loadFromBlob(
     await normalizeFile(file),
@@ -109,13 +106,13 @@ export const loadFromJSON = async (
   );
 };
 
-export const isValidExcalidrawData = (data?: {
+export const isValidCanvasEditorData = (data?: {
   type?: any;
   elements?: any;
   appState?: any;
 }): data is ImportedDataState => {
   return (
-    data?.type === EXPORT_DATA_TYPES.excalidraw &&
+    data?.type === EXPORT_DATA_TYPES.canvas &&
     (!data.elements ||
       (Array.isArray(data.elements) &&
         (!data.appState || typeof data.appState === "object")))
@@ -126,15 +123,15 @@ export const isValidLibrary = (json: any): json is ImportedLibraryData => {
   return (
     typeof json === "object" &&
     json &&
-    json.type === EXPORT_DATA_TYPES.excalidrawLibrary &&
+    json.type === EXPORT_DATA_TYPES.canvasLibrary &&
     (json.version === 1 || json.version === 2)
   );
 };
 
 export const serializeLibraryAsJSON = (libraryItems: LibraryItems) => {
   const data: ExportedLibraryData = {
-    type: EXPORT_DATA_TYPES.excalidrawLibrary,
-    version: VERSIONS.excalidrawLibrary,
+    type: EXPORT_DATA_TYPES.canvasLibrary,
+    version: VERSIONS.canvasLibrary,
     source: EXPORT_SOURCE,
     libraryItems,
   };
@@ -145,12 +142,12 @@ export const saveLibraryAsJSON = async (libraryItems: LibraryItems) => {
   const serialized = serializeLibraryAsJSON(libraryItems);
   await fileSave(
     new Blob([serialized], {
-      type: MIME_TYPES.excalidrawlib,
+      type: MIME_TYPES.canvaslib,
     }),
     {
       name: "library",
       extension: "excalidrawlib",
-      description: "Excalidraw library file",
+      description: "CanvasEditor library file",
     },
   );
 };

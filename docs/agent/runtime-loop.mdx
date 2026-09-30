@@ -7,11 +7,11 @@ description: Agent 的继续、自然完成、取消和失败判定。
 
 ## 当前实现
 
-当前 `agent/loop.ts` 使用单层循环，工具按模型给出的顺序串行执行。模型回合以 attempt 计数进行有限重试；没有 Step 次数上限，也没有 `terminate`、`shouldStopAfterTurn`、steering 或 follow-up 接口；这些扩展设计见后文，不代表现有能力。
+当前 `agent/loop.ts` 使用单层循环，工具按模型给出的顺序串行执行，模型回合以 attempt 计数进行有限重试。运行中输入通过 Host 的持久化队列和回合安全边界进入下一次模型请求；`terminate`、`shouldStopAfterTurn` 和 follow-up 属于独立的后续扩展。
 
 | Runtime Outcome | 当前结果 |
 | --- | --- |
-| `answer` | Recorder 提交 completed Assistant Message，提交成功后加入 `messages`，运行 completed |
+| `answer` | Recorder 提交 completed Assistant Message，Runtime 检查待处理输入；已接收的补充进入下一次模型请求，队列清空时运行 completed |
 | `tool_calls` | Recorder 提交 completed Assistant Message，提交成功后执行工具并回填结果，再请求模型 |
 | `incomplete/reasoning_only`、`empty_response`、`length` | Recorder 提交 interrupted attempt，不修改 `messages`，调用 `retryModelTurn()` |
 | `incomplete/missing_finish_reason`、`invalid_tool_calls` | 保存 interrupted attempt，有限重试或失败 |
@@ -77,11 +77,41 @@ HistoryRecorder 的数据结构、草稿刷新和本地事务以[项目历史存
 4. 只有 `incomplete` 或可重试错误才调用 `retryModelTurn()`。
 5. 重试允许时，Runtime 使用最后一个稳定的 `messages` 上下文重新调用 `response()`。
 
-不完整 attempt 的 reasoning 和正文可以保留在 Recorder 的 interrupted 草稿与宿主界面中，但不会加入下一次模型上下文。正常 answer 和完整 tool-call 则必须在 Recorder 提交成功后才调用 `messages.push`。
+不完整 attempt 的 reasoning 和正文保存在 Recorder 的 interrupted 草稿中，并维持在已提交模型上下文之外。正常 answer 和完整 tool-call 在 Recorder 提交成功后加入 `messages`。
+
+## 运行中输入实现契约
+
+每次补充文本拥有独立 `inputId`；`runId` 归组本次主任务及其所有补充输入，`turnId` 归组单次模型回合。项目、模型、附件和画布选区在当前运行中沿用启动时捕获的配置；补充载荷为文本消息，`projectId: null` 对应同一通用历史范围。
+
+### 发送与接收
+
+1. Host 在当前模型请求或工具批次运行期间提交 `activeRunId`、`projectId` 和冻结文本快照，并为请求生成 `inputId`。
+2. Main 通过 Runner 核对活动 `runId`、捕获的 `projectId` 和输入接收状态，在应用数据库中持久化待处理输入。相同 `inputId` 的重试返回同一次接收结果；多条独立输入按接收顺序形成 FIFO 队列。
+3. Main 在持久化成功后返回 ACK。ACK 表示输入已经绑定当前 run 并进入持久化待处理队列；模型读取时间由后续 `inputsApplied` 事件确认。
+
+### 安全边界与模型上下文
+
+1. Runtime 完成当前模型请求，分类并提交完整 Assistant Message；带工具调用的回合按序执行本批全部工具，并提交每个 Tool Message。
+2. 工具批次全部提交后，Runtime 发出 `turnCompleted` 并检查待处理输入。`answer` 分支在候选 `finish("completed")` 前发出 `turnCompleted`，并执行同一检查。
+3. Runtime 通过 Recorder 在一个事务中按 FIFO 提交本次读取的 completed 用户 entry，并将对应待处理输入改为已应用。每条 entry 沿用自己的 `inputId`。事务完成后，Runtime 按 `assistant → tool results → user inputs` 的顺序更新内存 `messages`，发出 `inputsApplied(inputIds, startedAt)`，再开始下一次模型请求。
+4. 同一边界读取到的多条输入依次进入下一次模型请求；该请求使用新的 `turnId` 并读取已提交的新上下文。已经开始的模型请求继续使用其启动时的上下文；本边界读取批次之后到达的输入进入后续安全边界。
+5. 当前回合走模型重试路径时，Runtime 保持最后一份稳定上下文并继续该回合的 attempt；待处理输入在完整回合的安全边界进入上下文。
+
+### 完成、停止与恢复
+
+Runner 以每个 run 的串行接收门控协调 `steer` 入队与完成判定。完成边界先处理门控内已接收的输入；队列清空时封闭当前 run 的接收入口并提交终态。封闭后到达的请求收到明确拒绝，发送方继续持有未接收的文本快照。这个门控为临近完成的输入提供确定的归属。
+
+取消、模型失败、提交失败和启动恢复通过 Recorder 在同一事务中为剩余已接收输入写入同 `inputId` 的 interrupted 用户 entry，并将队列项转为 `unapplied`。Run 的唯一终态事件在队列归属与 Recorder 终态提交后发出，携带 `unappliedInputIds` 和可选最终时长。每条输入各自获得接收与应用结果，应用批次遵循 FIFO。
+
+### Run 级时长与最终回复
+
+同一个 `runId` 包含初始用户消息、零个或多个 steer 输入，以及按 Runtime 顺序完成的多个 `turnId`。`inputsApplied` 在用户消息写入运行上下文后报告其 `inputIds` 与 `startedAt`；后续 `turnStarted` 标识读取该上下文的模型回合。工具调用后的继续请求保持同一个 `runId`，并使用新的 `turnId`。
+
+`runStarted.startedAt` 是整个 run 的唯一计时起点。Runtime 在成功回复提交并完成 run 终态时计算全 run 总时长，将其写入最终 Assistant Message 的 `durationMs`，并由 `runCompleted` 携带 `finalTurnId` 与相同的 `finalDurationMs`。`inputsApplied.startedAt` 记录输入应用时刻，承担输入归属与事件排序职责。
 
 ## 后续扩展设计（尚未实现）
 
-以下描述工具批次终止和宿主队列的目标语义。引入这些能力前，需要一起实现接口、控制流和验证；当前的模型完整性判断与回合重试由前面的流程负责。
+以下描述 `terminate`、宿主回合终止钩子和 follow-up 的独立扩展语义。运行中输入按照上面的安全边界契约实施；这些扩展进入实现时沿用同一个接收门控与终态归属规则。
 
 ## `terminate` 的作用域
 
@@ -96,7 +126,7 @@ HistoryRecorder 的数据结构、草稿刷新和本地事务以[项目历史存
 
 它表达的是“当前工具批次是否还需要模型接管”，不是“这个工具是否执行成功”。天气查询即使成功返回天气，也通常不设置 `terminate`，因为还需要 LLM 根据结果组织最终回答。
 
-`terminate` 关闭的是自动工具续轮，并不保证整个 `run` 永远不可继续：如果 `shouldStopAfterTurn` 返回 `false`，随后读取到 steering message，或外层读取到 follow-up message，`pi` 仍可能再次请求 LLM。要在回合边界阻止这些宿主输入，应使用下面的 `shouldStopAfterTurn`。
+`terminate` 关闭自动工具续轮；安全边界仍按运行中输入队列处理已接收的补充文本。未来的 follow-up 能在 Agent 自然结束后发起独立延续；`shouldStopAfterTurn` 负责在回合边界执行宿主的停止策略。
 
 ## 可选的回合终止钩子
 
@@ -104,30 +134,11 @@ HistoryRecorder 的数据结构、草稿刷新和本地事务以[项目历史存
 
 `shouldStopAfterTurn` 接收当前 Assistant Message、该回合的所有工具结果、更新后的上下文和本次运行新增消息，并返回“继续”或“停止”的决定。
 
-它在当前 Assistant Message、该回合全部工具结果和 `turnCompleted` 事件完成后调用，并且先于 steering / follow-up 队列检查；返回 `true` 时发出唯一的 `runCompleted` 并退出，不再读取或注入待处理消息，也不发起下一次模型请求。这个钩子适合上下文压缩失败、外部资源预算耗尽、宿主策略要求在当前回合收尾等明确条件，不应重新实现固定的 Step 计数上限。
+它在当前 Assistant Message、该回合全部工具结果和 `turnCompleted` 事件完成后调用，并且先于运行中输入队列检查；返回 `true` 时按终态流程把已接收输入标记为“未应用”，随后发出唯一的 `runCompleted`。这个钩子适合上下文压缩失败、外部资源预算耗尽、宿主策略要求在当前回合收尾等明确条件。
 
 钩子是“回合边界的优雅停止”，不是立即取消。用户点击停止或系统需要立刻终止模型 / 命令时，仍须调用同一个 `AbortSignal`。钩子本身应返回布尔值，不应通过抛出异常承担正常终止语义。
 
-## 参考实现语义
-
-
-steering 在当前回合结束后进入下一次模型请求，follow-up 在 Agent 原本要停止后重新开启外层循环。它们不是工具结果，也不改变 `terminate` 的批次计算；是否接收它们由 `shouldStopAfterTurn` 先行决定。
-
-## 扩展后的运行顺序（尚未实现）
-
-一次运行按以下语言顺序执行：
-
-1. 用户发送任务，Runtime 创建本次运行的上下文并请求模型。
-2. 模型返回普通正文或一个或多个工具调用。模型不直接返回 `terminate`。
-3. 如果没有工具调用，当前 Assistant Message 成为候选最终回答；如果有工具调用，Agent 逐个或按调度策略执行它们。
-4. 每个工具返回执行内容、成功或失败状态，以及可选的终止意图。Runtime 将同一模型回合中的工具结果聚合为工具批次状态，并保留所有结果。
-5. 工具批次完成后发出回合完成事件，先询问 `shouldStopAfterTurn`。钩子返回“停止”时，不再读取 steering 或 follow-up，也不再请求模型。
-6. 钩子允许继续时，Runtime 检查 steering 队列。队列有内容就将其加入上下文并请求下一轮模型；没有内容时，未终止的工具批次也会直接请求下一轮模型。
-7. 当内层工具续轮结束后，Runtime 再检查 follow-up 队列。队列有内容就重新开始一轮模型请求；没有待处理消息时，运行自然结束。
-
-`turnId` 和可选的 `turnOrdinal` 只用于事件关联和日志诊断，不参与 `while` 的退出条件或其他控制决策。
-
-这套顺序解释了一个容易混淆的情况：`terminate=true` 会让内层“工具自动续轮”停止，但 steering 可以重新满足内层循环条件，follow-up 可以重新启动外层循环。只有 Host 钩子提前返回“停止”时，才会在当前回合后同时阻止这两类输入。
+未来加入宿主回合终止钩子时，回合顺序依次为 Assistant 提交、工具批次提交、`turnCompleted`、宿主策略检查、已接收输入应用、自动工具续轮或终态提交。follow-up 在当前 run 终态之后按独立协议启动。`turnId` 与 `turnOrdinal` 承担事件关联和诊断职责。
 
 ## 运行状态机
 
@@ -163,3 +174,8 @@ Agent 的运行状态在模型请求与工具执行之间切换，并最终收�
 | Tool Message 提交失败 | `failed`，下一次模型请求保持待调用状态 |
 | 纯工具调用响应 | 直接提交 completed Assistant Message，再进入工具执行 |
 | 取消发生在助手流式输出期间 | Recorder 刷新草稿并提交 interrupted，随后发出 `runCompleted` |
+| 流式输出期间连续发送两条文本 | Main 按各自 `inputId` 持久化并 ACK；Runtime 在安全边界按 FIFO 一次提交并发出 `inputsApplied` |
+| 工具批次期间发送文本 | 工具结果全部提交后应用用户 entry；下一次模型请求按 Assistant、Tool、User 顺序接收上下文 |
+| `answer` 准备结束时发送文本 | 接收门控确认归属；已接收输入进入下一轮，封闭后的请求保留为新 run 草稿 |
+| 停止或失败时仍有已接收输入 | Recorder 写入同 `inputId` 的 interrupted 用户 entry，`runCompleted.unappliedInputIds` 返回未应用输入身份 |
+| 补充输入后完成运行 | 最终 Assistant Message 与 `runCompleted` 保存从 `runStarted` 到运行终态的同一 `durationMs` |

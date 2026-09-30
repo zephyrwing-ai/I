@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   RepositoryError,
+  SCHEMA_VERSION,
   SqliteHistoryRepository,
   createHistoryRecorder,
 } from "../../../agent/memory/index.js";
@@ -210,7 +211,182 @@ test("legacy session storage migrates entries and tool records into the unprojec
     assert.equal(entries.length, 1);
     assert.equal(entries[0]?.payload.content, "legacy");
     assert.equal((await repository.listOpenToolInvocations(null, "legacy-run")).length, 1);
+    const queued = await repository.acceptRunInput(null, { inputId: "legacy-input", runId: "legacy-run", content: "more" });
+    assert.equal(queued.state, "accepted");
+    assert.equal(Number((repository.database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version), SCHEMA_VERSION);
     repository.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("run inputs are durable, scoped, idempotent and applied in caller order", async () => {
+  const repository = new SqliteHistoryRepository(":memory:");
+  try {
+    const project = await repository.createProject({ canonicalPath: "/tmp/steering-project", displayName: "steering-project" });
+    const first = await repository.acceptRunInput(project.id, { inputId: "input-1", runId: "run-1", content: "first" });
+    const second = await repository.acceptRunInput(project.id, { inputId: "input-2", runId: "run-1", content: "second" });
+    assert.equal(first.projectId, project.id);
+    assert.equal(first.content, "first");
+    assert.equal(first.state, "accepted");
+    assert.ok(first.acceptedAt > 0);
+    assert.ok(second.acceptOrder > first.acceptOrder);
+    assert.deepEqual(await repository.acceptRunInput(project.id, { inputId: "input-1", runId: "run-1", content: "first" }), first);
+    assert.deepEqual((await repository.listAcceptedRunInputs(project.id, "run-1")).map((item) => item.inputId), ["input-1", "input-2"]);
+
+    await assert.rejects(
+      repository.acceptRunInput(project.id, { inputId: "input-1", runId: "run-1", content: "changed" }),
+      (error: unknown) => error instanceof RepositoryError && error.code === "conflict",
+    );
+    await assert.rejects(
+      repository.applyRunInputs(project.id, "run-1", ["input-2", "input-1"]),
+      (error: unknown) => error instanceof RepositoryError && error.code === "conflict",
+    );
+    await assert.rejects(
+      repository.applyRunInputs(project.id, "run-1", ["input-2"]),
+      (error: unknown) => error instanceof RepositoryError && error.code === "conflict",
+    );
+    assert.deepEqual(await repository.listEntries(project.id), []);
+
+    const applied = await repository.applyRunInputs(project.id, "run-1", ["input-1", "input-2"]);
+    assert.deepEqual(applied.map((entry) => entry.id), ["input-1", "input-2"]);
+    assert.deepEqual(applied.map((entry) => entry.payload.content), ["first", "second"]);
+    assert.deepEqual(applied.map((entry) => entry.status), ["completed", "completed"]);
+    assert.deepEqual(applied.map((entry) => entry.createdAt), [first.acceptedAt, second.acceptedAt]);
+    const settled = await repository.acceptRunInput(project.id, { inputId: "input-1", runId: "run-1", content: "first" });
+    assert.equal(settled.state, "applied");
+    assert.equal(settled.appliedAt, applied[0]!.updatedAt);
+    assert.deepEqual((await repository.applyRunInputs(project.id, "run-1", ["input-1", "input-2"])).map((entry) => entry.id), ["input-1", "input-2"]);
+    assert.equal((await repository.listEntries(project.id)).length, 2);
+  } finally {
+    repository.close();
+  }
+});
+
+test("applying a batch rolls back every entry and queue transition on conflict", async () => {
+  const repository = new SqliteHistoryRepository(":memory:");
+  try {
+    await repository.acceptRunInput(null, { inputId: "atomic-1", runId: "run-atomic", content: "one" });
+    await repository.acceptRunInput(null, { inputId: "atomic-2", runId: "run-atomic", content: "two" });
+    await repository.appendEntry(null, {
+      id: "atomic-2", type: "user_message", status: "completed", runId: "other-run",
+      payload: { role: "user", content: "already used" },
+    });
+    await assert.rejects(
+      repository.applyRunInputs(null, "run-atomic", ["atomic-1", "atomic-2"]),
+      (error: unknown) => error instanceof RepositoryError && error.code === "conflict",
+    );
+    assert.equal(await repository.getEntry("atomic-1"), null);
+    assert.deepEqual((await repository.listAcceptedRunInputs(null, "run-atomic")).map((item) => item.inputId), ["atomic-1", "atomic-2"]);
+  } finally {
+    repository.close();
+  }
+});
+
+test("Recorder keeps initial commit idempotent and models multiple applied messages per run", async () => {
+  const repository = new SqliteHistoryRepository(":memory:");
+  try {
+    const recorder = await createHistoryRecorder(repository, null);
+    await recorder.commitUser({ role: "user", content: "initial" }, { runId: "run-multi" });
+    await recorder.commitUser({ role: "user", content: "initial" }, { runId: "run-multi" });
+    await recorder.commitAssistant({ role: "assistant", content: "before" }, { runId: "run-multi", turnId: "turn-before", turnOrdinal: 1 });
+    const a = await recorder.acceptRunInput({ inputId: "multi-a", runId: "run-multi", content: "question A" });
+    const b = await recorder.acceptRunInput({ inputId: "multi-b", runId: "run-multi", content: "question B" });
+    assert.equal(a.inputId, "multi-a");
+    assert.equal(b.content, "question B");
+    assert.deepEqual((await recorder.listAcceptedRunInputs("run-multi")).map((item) => item.inputId), ["multi-a", "multi-b"]);
+    const entries = await recorder.applyRunInputs("run-multi", ["multi-a", "multi-b"]);
+    assert.equal(entries.length, 2);
+    assert.deepEqual(entries.map((entry) => entry.id), ["multi-a", "multi-b"]);
+    await recorder.applyRunInputs("run-multi", ["multi-a", "multi-b"]);
+    await recorder.commitAssistant({ role: "assistant", content: "after" }, { runId: "run-multi", turnId: "turn-after", turnOrdinal: 2 });
+    assert.deepEqual(recorder.snapshot().map((message) => message.content), ["initial", "before", "question A", "question B", "after"]);
+    assert.equal((await repository.listEntries(null)).filter((entry) => entry.type === "user_message").length, 3);
+    await assert.rejects(
+      recorder.commitUser({ role: "user", content: "different" }, { runId: "run-multi" }),
+      (error: unknown) => error instanceof RepositoryError && error.code === "conflict",
+    );
+
+    const before = (await repository.listEntries(null)).find((entry) => entry.turnId === "turn-before");
+    assert.equal(before?.durationMs, null);
+    await recorder.finalizeAnswerDuration("turn-after", 320);
+    await recorder.finalizeAnswerDuration("turn-after", 320);
+    const after = (await repository.listEntries(null)).find((entry) => entry.turnId === "turn-after");
+    assert.equal(after?.durationMs, 320);
+    assert.equal((await repository.getEntry(before!.id))?.durationMs, null);
+    await assert.rejects(
+      recorder.finalizeAnswerDuration("turn-after", 321),
+      (error: unknown) => error instanceof RepositoryError && error.code === "conflict",
+    );
+    await recorder.close();
+  } finally {
+    repository.close();
+  }
+});
+
+test("cancel and startup recovery archive accepted inputs without exposing them to model snapshot", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-steering-recovery-"));
+  const databasePath = join(directory, "history.sqlite");
+  try {
+    const firstRepository = new SqliteHistoryRepository(databasePath);
+    const project = await firstRepository.createProject({ canonicalPath: "/tmp/steering-recovery", displayName: "steering-recovery" });
+    const recorder = await createHistoryRecorder(firstRepository, project.id);
+    await recorder.commitUser({ role: "user", content: "start" }, { runId: "run-cancel" });
+    await recorder.acceptRunInput({ inputId: "cancelled-input", runId: "run-cancel", content: "cancel me" });
+    await recorder.finishRun({ runId: "run-cancel", status: "cancelled" });
+    assert.equal(await firstRepository.getEntry("cancelled-input"), null);
+    const cancelled = await recorder.abandonRunInputs("run-cancel", "cancelled");
+    assert.deepEqual(cancelled.map((entry) => [entry.id, entry.status]), [["cancelled-input", "interrupted"]]);
+    assert.deepEqual(recorder.snapshot().map((message) => message.content), ["start"]);
+    assert.equal((await firstRepository.getEntry("cancelled-input"))?.status, "interrupted");
+    assert.equal((await firstRepository.acceptRunInput(project.id, { inputId: "cancelled-input", runId: "run-cancel", content: "cancel me" })).terminalReason, "cancelled");
+    await firstRepository.acceptRunInput(project.id, { inputId: "orphan-project", runId: "run-orphan", content: "project orphan" });
+    await firstRepository.acceptRunInput(null, { inputId: "orphan-general", runId: "run-general", content: "general orphan" });
+    await recorder.close();
+    firstRepository.close();
+
+    const secondRepository = new SqliteHistoryRepository(databasePath);
+    const general = await createHistoryRecorder(secondRepository, null);
+    assert.equal((await secondRepository.getEntry("orphan-project"))?.status, "interrupted");
+    assert.equal((await secondRepository.getEntry("orphan-general"))?.status, "interrupted");
+    assert.equal((await secondRepository.acceptRunInput(null, { inputId: "orphan-general", runId: "run-general", content: "general orphan" })).terminalReason, "startup_recovery");
+    assert.deepEqual(general.snapshot(), []);
+    const projectRecorder = await createHistoryRecorder(secondRepository, project.id);
+    assert.deepEqual(projectRecorder.snapshot().map((message) => message.content), ["start"]);
+    await projectRecorder.acceptRunInput({ inputId: "active-input", runId: "run-active", content: "still active" });
+    await createHistoryRecorder(secondRepository, null);
+    assert.equal((await secondRepository.listAcceptedRunInputs(project.id, "run-active")).length, 1);
+    const abandoned = await projectRecorder.abandonRunInputs("run-active", "stopped");
+    assert.deepEqual(abandoned.map((entry) => [entry.id, entry.status]), [["active-input", "interrupted"]]);
+    assert.deepEqual(projectRecorder.snapshot().map((message) => message.content), ["start"]);
+    await general.close();
+    await projectRecorder.close();
+    secondRepository.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("project schema version 7 upgrades its queue without changing existing history", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-steering-migration-"));
+  const databasePath = join(directory, "history.sqlite");
+  try {
+    const first = new SqliteHistoryRepository(databasePath);
+    const project = await first.createProject({ canonicalPath: "/tmp/steering-v7", displayName: "steering-v7" });
+    await first.appendEntry(project.id, {
+      id: "old-entry", type: "user_message", status: "completed", runId: "old-run",
+      payload: { role: "user", content: "old history" },
+    });
+    first.close();
+    const oldSchema = new DatabaseSync(databasePath);
+    oldSchema.exec("DROP TABLE pending_run_inputs; PRAGMA user_version = 7");
+    oldSchema.close();
+
+    const upgraded = new SqliteHistoryRepository(databasePath);
+    assert.equal((await upgraded.listEntries(project.id))[0]?.payload.content, "old history");
+    assert.equal(Number((upgraded.database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version), SCHEMA_VERSION);
+    assert.equal((await upgraded.acceptRunInput(project.id, { inputId: "new-input", runId: "old-run", content: "new" })).state, "accepted");
+    upgraded.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

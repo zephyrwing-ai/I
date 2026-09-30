@@ -7,7 +7,7 @@ import {
 
 export const diagramFixture = {
   type: "excalidraw",
-  version: VERSIONS.excalidraw,
+  version: VERSIONS.canvas,
   source: "https://excalidraw.com",
   elements: [diamondFixture, ellipseFixture, rectangleFixture],
   appState: {

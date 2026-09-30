@@ -1,11 +1,11 @@
 import type {
-  ExcalidrawElement,
-  ExcalidrawTextElement,
-  NonDeletedExcalidrawElement,
-  ExcalidrawFreeDrawElement,
-  ExcalidrawImageElement,
-  ExcalidrawTextElementWithContainer,
-  ExcalidrawFrameLikeElement,
+  CanvasEditorElement,
+  CanvasEditorTextElement,
+  NonDeletedCanvasEditorElement,
+  CanvasEditorFreeDrawElement,
+  CanvasEditorImageElement,
+  CanvasEditorTextElementWithContainer,
+  CanvasEditorFrameLikeElement,
   NonDeletedSceneElementsMap,
   ElementsMap,
 } from "../element/types";
@@ -35,7 +35,7 @@ import type {
   Zoom,
   InteractiveCanvasAppState,
   ElementsPendingErasure,
-  PendingExcalidrawElements,
+  PendingCanvasEditorElements,
 } from "../types";
 import { getDefaultAppState } from "../appState";
 import {
@@ -75,14 +75,14 @@ export const IMAGE_INVERT_FILTER =
 const defaultAppState = getDefaultAppState();
 
 const isPendingImageElement = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   renderConfig: StaticCanvasRenderConfig,
 ) =>
   isInitializedImageElement(element) &&
   !renderConfig.imageCache.has(element.fileId);
 
 const shouldResetImageFilter = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   renderConfig: StaticCanvasRenderConfig,
   appState: StaticCanvasAppState,
 ) => {
@@ -94,7 +94,7 @@ const shouldResetImageFilter = (
   );
 };
 
-const getCanvasPadding = (element: ExcalidrawElement) => {
+const getCanvasPadding = (element: CanvasEditorElement) => {
   switch (element.type) {
     case "freedraw":
       return element.strokeWidth * 12;
@@ -106,10 +106,10 @@ const getCanvasPadding = (element: ExcalidrawElement) => {
 };
 
 export const getRenderOpacity = (
-  element: ExcalidrawElement,
-  containingFrame: ExcalidrawFrameLikeElement | null,
+  element: CanvasEditorElement,
+  containingFrame: CanvasEditorFrameLikeElement | null,
   elementsPendingErasure: ElementsPendingErasure,
-  pendingNodes: Readonly<PendingExcalidrawElements> | null,
+  pendingNodes: Readonly<PendingCanvasEditorElements> | null,
   globalAlpha: number = 1,
 ) => {
   // multiplying frame opacity with element opacity to combine them
@@ -131,8 +131,8 @@ export const getRenderOpacity = (
   return opacity;
 };
 
-export interface ExcalidrawElementWithCanvas {
-  element: ExcalidrawElement | ExcalidrawTextElement;
+export interface CanvasEditorElementWithCanvas {
+  element: CanvasEditorElement | CanvasEditorTextElement;
   canvas: HTMLCanvasElement;
   theme: AppState["theme"];
   scale: number;
@@ -141,13 +141,13 @@ export interface ExcalidrawElementWithCanvas {
   canvasOffsetX: number;
   canvasOffsetY: number;
   boundTextElementVersion: number | null;
-  imageCrop: ExcalidrawImageElement["crop"] | null;
+  imageCrop: CanvasEditorImageElement["crop"] | null;
   containingFrameOpacity: number;
   boundTextCanvas: HTMLCanvasElement;
 }
 
 const cappedElementCanvasSize = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   elementsMap: ElementsMap,
   zoom: Zoom,
 ): {
@@ -202,12 +202,12 @@ const cappedElementCanvasSize = (
 };
 
 const generateElementCanvas = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   elementsMap: NonDeletedSceneElementsMap,
   zoom: Zoom,
   renderConfig: StaticCanvasRenderConfig,
   appState: StaticCanvasAppState,
-): ExcalidrawElementWithCanvas | null => {
+): CanvasEditorElementWithCanvas | null => {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d")!;
   const padding = getCanvasPadding(element);
@@ -356,7 +356,7 @@ IMAGE_ERROR_PLACEHOLDER_IMG.src = `data:${MIME_TYPES.svg},${encodeURIComponent(
 )}`;
 
 const drawImagePlaceholder = (
-  element: ExcalidrawImageElement,
+  element: CanvasEditorImageElement,
   context: CanvasRenderingContext2D,
 ) => {
   context.fillStyle = "#E7E7E7";
@@ -381,7 +381,7 @@ const drawImagePlaceholder = (
 };
 
 const drawElementOnCanvas = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   rc: RoughCanvas,
   context: CanvasRenderingContext2D,
   renderConfig: StaticCanvasRenderConfig,
@@ -523,12 +523,12 @@ const drawElementOnCanvas = (
 };
 
 export const elementWithCanvasCache = new WeakMap<
-  ExcalidrawElement,
-  ExcalidrawElementWithCanvas
+  CanvasEditorElement,
+  CanvasEditorElementWithCanvas
 >();
 
 const generateElementWithCanvas = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   elementsMap: NonDeletedSceneElementsMap,
   renderConfig: StaticCanvasRenderConfig,
   appState: StaticCanvasAppState,
@@ -581,7 +581,7 @@ const generateElementWithCanvas = (
 };
 
 const drawElementFromCanvas = (
-  elementWithCanvas: ExcalidrawElementWithCanvas,
+  elementWithCanvas: CanvasEditorElementWithCanvas,
   context: CanvasRenderingContext2D,
   renderConfig: StaticCanvasRenderConfig,
   appState: StaticCanvasAppState,
@@ -654,7 +654,7 @@ const drawElementFromCanvas = (
       const textElement = getBoundTextElement(
         element,
         allElementsMap,
-      ) as ExcalidrawTextElementWithContainer;
+      ) as CanvasEditorTextElementWithContainer;
       const coords = getContainerCoords(element);
       context.strokeStyle = "#c92a2a";
       context.lineWidth = 3;
@@ -672,7 +672,7 @@ const drawElementFromCanvas = (
 };
 
 export const renderSelectionElement = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   context: CanvasRenderingContext2D,
   appState: InteractiveCanvasAppState,
   selectionColor: InteractiveCanvasRenderConfig["selectionColor"],
@@ -696,7 +696,7 @@ export const renderSelectionElement = (
 };
 
 export const renderElement = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   elementsMap: RenderableElementsMap,
   allElementsMap: NonDeletedSceneElementsMap,
   rc: RoughCanvas,
@@ -821,7 +821,7 @@ export const renderElement = (
             const boundTextCoords =
               LinearElementEditor.getBoundTextElementPosition(
                 container,
-                element as ExcalidrawTextElementWithContainer,
+                element as CanvasEditorTextElementWithContainer,
                 elementsMap,
               );
             shiftX = (x2 - x1) / 2 - (boundTextCoords.x - x1);
@@ -1002,20 +1002,20 @@ export const renderElement = (
   context.globalAlpha = 1;
 };
 
-export const pathsCache = new WeakMap<ExcalidrawFreeDrawElement, Path2D>([]);
+export const pathsCache = new WeakMap<CanvasEditorFreeDrawElement, Path2D>([]);
 
-export function generateFreeDrawShape(element: ExcalidrawFreeDrawElement) {
+export function generateFreeDrawShape(element: CanvasEditorFreeDrawElement) {
   const svgPathData = getFreeDrawSvgPath(element);
   const path = new Path2D(svgPathData);
   pathsCache.set(element, path);
   return path;
 }
 
-export function getFreeDrawPath2D(element: ExcalidrawFreeDrawElement) {
+export function getFreeDrawPath2D(element: CanvasEditorFreeDrawElement) {
   return pathsCache.get(element);
 }
 
-export function getFreeDrawSvgPath(element: ExcalidrawFreeDrawElement) {
+export function getFreeDrawSvgPath(element: CanvasEditorFreeDrawElement) {
   // If input points are empty (should they ever be?) return a dot
   const inputPoints = element.simulatePressure
     ? element.points

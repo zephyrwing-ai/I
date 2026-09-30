@@ -11,10 +11,10 @@ import {
   VERTICAL_ALIGN,
 } from "./constants";
 import { newElement, newLinearElement, newTextElement } from "./element";
-import type { NonDeletedExcalidrawElement } from "./element/types";
+import type { NonDeletedCanvasEditorElement } from "./element/types";
 import { randomId } from "./random";
 
-export type ChartElements = readonly NonDeletedExcalidrawElement[];
+export type ChartElements = readonly NonDeletedCanvasEditorElement[];
 
 const BAR_WIDTH = 32;
 const BAR_GAP = 12;

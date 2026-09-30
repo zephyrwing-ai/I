@@ -1,5 +1,5 @@
 import { getCommonBounds, getNonDeletedElements } from "../element";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import { addElementsToFrame, removeAllElementsFromFrame } from "../frame";
 import { getFrameChildren } from "../frame";
 import { KEYS } from "../keys";
@@ -47,7 +47,7 @@ export const actionSelectAllElementsInFrame = register({
           selectedElementIds: elementsInFrame.reduce((acc, element) => {
             acc[element.id] = true;
             return acc;
-          }, {} as Record<ExcalidrawElement["id"], true>),
+          }, {} as Record<CanvasEditorElement["id"], true>),
         },
         captureUpdate: CaptureUpdateAction.IMMEDIATELY,
       };

@@ -12,17 +12,19 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from "react";
-import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from "@agent-studio/canvas-editor/types";
-import type { ExcalidrawElement } from "@agent-studio/canvas-editor/element/types";
+import type { AppState, BinaryFiles, CanvasEditorImperativeAPI } from "@agent-studio/canvas-editor/types";
+import type { CanvasEditorElement } from "@agent-studio/canvas-editor/element/types";
 import type {
   CanvasContextDescriptor,
   CanvasDocument,
   CanvasDocumentResult,
 } from "../../shell/shared/ipc";
+import type { CanvasEditOutcome, CanvasEditRequest, CanvasEditResult } from "../commands/types";
 import { shouldPersistCanvasChange } from "./scenePersistence";
 import "./CanvasSurface.css";
 
 let canvasEditorPromise: Promise<typeof import("@agent-studio/canvas-editor")> | null = null;
+let loadedCanvasEditor: typeof import("@agent-studio/canvas-editor") | null = null;
 const preloadedCanvasDocuments = new Map<string, Promise<CanvasDocumentResult>>();
 
 function canvasScopeKey(projectId: string | null): string {
@@ -30,10 +32,16 @@ function canvasScopeKey(projectId: string | null): string {
 }
 
 export function preloadCanvasEditor(): Promise<typeof import("@agent-studio/canvas-editor")> {
-  canvasEditorPromise ??= import("@agent-studio/canvas-editor").catch((error: unknown) => {
-    canvasEditorPromise = null;
-    throw error;
-  });
+  canvasEditorPromise ??= import("@agent-studio/canvas-editor")
+    .then((module) => {
+      loadedCanvasEditor = module;
+      return module;
+    })
+    .catch((error: unknown) => {
+      canvasEditorPromise = null;
+      loadedCanvasEditor = null;
+      throw error;
+    });
   return canvasEditorPromise;
 }
 
@@ -54,7 +62,7 @@ export function resetPreloadedCanvasDocument(): void {
 }
 
 class CanvasRenderErrorBoundary extends Component<
-  { children: ReactNode },
+  { children: ReactNode; onError?: (error: Error) => void },
   { error: Error | null }
 > {
   public state: { error: Error | null } = { error: null };
@@ -65,6 +73,7 @@ class CanvasRenderErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error("Canvas renderer failed", error, info.componentStack);
+    this.props.onError?.(error);
   }
 
   render(): ReactNode {
@@ -89,13 +98,15 @@ function consumeCanvasDocument(projectId: string | null): Promise<CanvasDocument
   return promise;
 }
 
-const Excalidraw = lazy(async () => {
+const CanvasEditor = lazy(async () => {
   const module = await preloadCanvasEditor();
-  return { default: module.Excalidraw };
+  return { default: module.CanvasEditor };
 });
 
 interface CanvasSurfaceProps {
   projectId: string | null;
+  pendingEdit?: CanvasEditRequest | null;
+  onEditResult?: (result: CanvasEditResult) => void;
   onContextPrepared: (descriptor: CanvasContextDescriptor) => void;
   onCanReleaseChange?: (canRelease: boolean) => void;
 }
@@ -104,7 +115,7 @@ export interface CanvasSurfaceHandle {
   flush: () => Promise<void>;
 }
 
-type SceneElements = readonly ExcalidrawElement[];
+type SceneElements = readonly CanvasEditorElement[];
 type SelectionActionPosition = {
   left: number;
   top: number;
@@ -113,18 +124,19 @@ type SelectionActionPosition = {
 
 type SelectionPositionSnapshot = {
   request: number;
-  selectedElements: readonly ExcalidrawElement[];
+  selectedElements: readonly CanvasEditorElement[];
   appState: Pick<AppState, "zoom" | "offsetLeft" | "offsetTop" | "scrollX" | "scrollY">;
 };
 
 const SELECTION_ACTION_HANDLE_GAP = 10;
 
-export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>(function CanvasSurface({ projectId, onContextPrepared, onCanReleaseChange }, ref) {
+export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>(function CanvasSurface({ projectId, pendingEdit = null, onEditResult, onContextPrepared, onCanReleaseChange }, ref) {
   const [document, setDocument] = useState<CanvasDocument | null>(null);
-  const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
+  const [api, setApi] = useState<CanvasEditorImperativeAPI | null>(null);
   const [selectionActionPosition, setSelectionActionPosition] =
     useState<SelectionActionPosition | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editorReady, setEditorReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedCount, setSelectedCount] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -138,7 +150,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
   const sceneGenerationRef = useRef(0);
   const savedGenerationRef = useRef(0);
   const lastSceneVersionRef = useRef<number | undefined>(undefined);
-  const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+  const apiRef = useRef<CanvasEditorImperativeAPI | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const selectionActionsRef = useRef<HTMLDivElement | null>(null);
   const selectionPositionRequestRef = useRef(0);
@@ -148,6 +160,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
   const saveTimerRef = useRef<number | null>(null);
   const loadedRef = useRef(false);
   const canReleaseRef = useRef(true);
+  const activeEditRequestRef = useRef<string | null>(null);
 
   const reportCanRelease = useCallback((canRelease: boolean): void => {
     if (canReleaseRef.current === canRelease) return;
@@ -155,7 +168,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     onCanReleaseChange?.(canRelease);
   }, [onCanReleaseChange]);
 
-  const receiveAPI = useCallback((next: ExcalidrawImperativeAPI | null): void => {
+  const receiveAPI = useCallback((next: CanvasEditorImperativeAPI | null): void => {
     apiRef.current = next;
     setApi(next);
   }, []);
@@ -197,6 +210,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     let cancelled = false;
     let enableEditingFrame: number | null = null;
     loadedRef.current = false;
+    setEditorReady(false);
     setLoading(true);
     setLoadError(null);
     setSaving(false);
@@ -230,7 +244,10 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
       reportCanRelease(true);
       setLoading(false);
       enableEditingFrame = window.requestAnimationFrame(() => {
-        if (!cancelled) loadedRef.current = true;
+        if (!cancelled) {
+          loadedRef.current = true;
+          setEditorReady(true);
+        }
       });
     }).catch((error: unknown) => {
       if (cancelled) return;
@@ -254,13 +271,107 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     };
   }, [persistSnapshot, projectId, reloadVersion, reportCanRelease]);
 
+  useEffect(() => {
+    if (!pendingEdit || !onEditResult || activeEditRequestRef.current) return;
+    const respond = (result: Omit<CanvasEditResult, "requestId" | "runId" | "projectId">): void => {
+      onEditResult({
+        requestId: pendingEdit.requestId,
+        runId: pendingEdit.runId,
+        projectId: pendingEdit.projectId,
+        ...result,
+      });
+    };
+
+    if (pendingEdit.projectId !== projectId || sceneProjectIdRef.current !== pendingEdit.projectId) {
+      respond({ ok: false, error: "project_changed" });
+      return;
+    }
+    if (Date.now() >= pendingEdit.deadlineAt) {
+      respond({ ok: false, error: "deadline_expired" });
+      return;
+    }
+    if (loadError) {
+      respond({ ok: false, error: "canvas_load_failed" });
+      return;
+    }
+    const editorAPI = apiRef.current;
+    if (!editorReady || !loadedRef.current || !editorAPI) return;
+
+    activeEditRequestRef.current = pendingEdit.requestId;
+    let unsubscribe = (): void => undefined;
+    let timeout: number | null = null;
+    let cancelPendingWait = (): void => undefined;
+    let settled = false;
+    let appliedOutcome: CanvasEditOutcome | null = null;
+    let stage: "apply" | "scene" | "save" = "apply";
+    const changeObserved = new Promise<void>((resolve) => {
+      unsubscribe = editorAPI.onChange(() => resolve());
+    });
+    const deadlineReached = new Promise<never>((_resolve, reject) => {
+      timeout = window.setTimeout(
+        () => reject(new Error("outcome_unknown")),
+        Math.max(0, pendingEdit.deadlineAt - Date.now()),
+      );
+      cancelPendingWait = () => reject(new Error("canvas_edit_cancelled"));
+    });
+    // A parent cancellation removes the request. Handle that promise even if
+    // the renderer has already begun a save and can no longer roll it back.
+    void deadlineReached.catch(() => undefined);
+
+    const apply = async (): Promise<void> => {
+      try {
+        const outcome = editorAPI.applyCanvasEdit(
+          pendingEdit.operations,
+          pendingEdit.sourceElements,
+          pendingEdit.imageFiles,
+        );
+        appliedOutcome = outcome;
+        if (!outcome.ok || outcome.changed === false) {
+          if (!outcome.ok) setNotice("Canvas edit needs attention. See the tool result in the conversation.");
+          respond(outcome);
+          return;
+        }
+        stage = "scene";
+        await Promise.race([changeObserved, deadlineReached]);
+        stage = "save";
+        await Promise.race([flush(), deadlineReached]);
+        setNotice("Canvas updated by the Agent.");
+        respond(outcome);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "canvas_edit_failed";
+        const outcomeUnknown = message === "outcome_unknown" || message === "canvas_edit_cancelled";
+        const persistenceFailed = appliedOutcome?.ok === true && stage === "save" && !outcomeUnknown;
+        if (persistenceFailed) setNotice("Canvas edit is visible but could not be saved. Retry saving the canvas.");
+        respond({
+          ...(appliedOutcome ?? {}),
+          ok: false,
+          error: persistenceFailed ? "persistence_failed" : outcomeUnknown ? "outcome_unknown" : message,
+        });
+      } finally {
+        settled = true;
+        unsubscribe();
+        if (timeout !== null) window.clearTimeout(timeout);
+        activeEditRequestRef.current = null;
+      }
+    };
+
+    void apply();
+    return () => {
+      if (!settled && activeEditRequestRef.current === pendingEdit.requestId) {
+        cancelPendingWait();
+      }
+      unsubscribe();
+      if (timeout !== null) window.clearTimeout(timeout);
+    };
+  }, [api, editorReady, flush, loadError, onEditResult, pendingEdit, projectId]);
+
   const initialData = useMemo(() => {
     if (!document) return null;
     const softwareBackground =
       window.getComputedStyle(window.document.documentElement).getPropertyValue("--bg").trim() ||
       "#f7f3ee";
     return {
-      elements: document.elements as unknown as readonly ExcalidrawElement[],
+      elements: document.elements as unknown as readonly CanvasEditorElement[],
       appState: {
         ...document.appState,
         viewBackgroundColor: softwareBackground,
@@ -421,7 +532,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
   const prepareSelectionContext = async (): Promise<void> => {
     if (!api || !loadedRef.current || busy) return;
     const capturedProjectId = sceneProjectIdRef.current;
-    const allElements = api.getSceneElements() as readonly ExcalidrawElement[];
+    const allElements = api.getSceneElements() as readonly CanvasEditorElement[];
     const selectedIds = Object.keys(api.getAppState().selectedElementIds ?? {});
     if (selectedIds.length === 0) {
       setNotice("Select one or more canvas elements first.");
@@ -432,7 +543,13 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     try {
       const selectedIdSet = new Set(selectedIds);
       const selected = allElements.filter((element) => selectedIdSet.has(element.id) && !element.isDeleted);
-      const editor = await import("@agent-studio/canvas-editor");
+      const editor = loadedCanvasEditor;
+      if (!editor) throw new Error("Canvas editor is still loading.");
+      const [minX, minY, maxX, maxY] = editor.getCommonBounds(
+        selected,
+        new Map(allElements.map((element) => [element.id, element])),
+      );
+      const selectionBounds = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
       const files = api.getFiles();
       const selectedFiles: BinaryFiles = {};
       for (const element of selected) {
@@ -459,6 +576,8 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
         scope: "selection",
         selectedElementIds: selectedIds,
         serializedJSON,
+        coordinateSpace: "scene",
+        selectionBounds,
         ...(visual ? { visual } : {}),
       });
       if (sceneProjectIdRef.current === capturedProjectId && loadedRef.current) onContextPrepared(descriptor);
@@ -478,7 +597,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     try {
       const editor = await import("@agent-studio/canvas-editor");
       const { fileHandle } = await editor.saveAsJSON(
-        api.getSceneElements() as unknown as readonly ExcalidrawElement[],
+        api.getSceneElements() as unknown as readonly CanvasEditorElement[],
         api.getAppState(),
         api.getFiles() as unknown as BinaryFiles,
         api.getName(),
@@ -502,11 +621,21 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     <section className="canvas-panel" aria-label="Canvas workspace">
       <div className="canvas-panel-editor" ref={editorRef}>
         {initialData && (
-          <CanvasRenderErrorBoundary>
+          <CanvasRenderErrorBoundary onError={() => {
+            if (pendingEdit) {
+              onEditResult?.({
+                requestId: pendingEdit.requestId,
+                runId: pendingEdit.runId,
+                projectId: pendingEdit.projectId,
+                ok: false,
+                error: "canvas_renderer_failed",
+              });
+            }
+          }}>
             <Suspense fallback={<div className="canvas-panel-state">Loading drawing tools…</div>}>
-              <Excalidraw
+              <CanvasEditor
                 initialData={initialData}
-                excalidrawAPI={receiveAPI}
+                canvasAPI={receiveAPI}
                 onChange={handleChange}
                 handleKeyboardGlobally={false}
                 aiEnabled={false}

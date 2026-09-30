@@ -3,14 +3,14 @@ import { vi } from "vitest";
 import { fireEvent, getCloneByOrigId, render, waitFor } from "./test-utils";
 import { act, queryByTestId } from "@testing-library/react";
 
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { API } from "./helpers/api";
 import { MIME_TYPES, ORIG_ID } from "../constants";
 import type { LibraryItem, LibraryItems } from "../types";
 import { UI } from "./helpers/ui";
 import { serializeLibraryAsJSON } from "../data/json";
 import { distributeLibraryItemsOnSquareGrid } from "../data/library";
-import type { ExcalidrawGenericElement } from "../element/types";
+import type { CanvasEditorGenericElement } from "../element/types";
 import { getCommonBoundingBox } from "../element/bounds";
 import { parseLibraryJSON } from "../data/blob";
 
@@ -24,7 +24,7 @@ const libraryJSONPromise = API.readFile(
 const mockLibraryFilePromise = new Promise<Blob>(async (resolve, reject) => {
   try {
     resolve(
-      new Blob([await libraryJSONPromise], { type: MIME_TYPES.excalidrawlib }),
+      new Blob([await libraryJSONPromise], { type: MIME_TYPES.canvaslib }),
     );
   } catch (error) {
     reject(error);
@@ -43,7 +43,7 @@ vi.mock("../data/filesystem.ts", async (importOriginal) => {
 
 describe("library", () => {
   beforeEach(async () => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
     await act(() => {
       return h.app.library.resetLibrary();
     });
@@ -72,7 +72,7 @@ describe("library", () => {
     const libraryItems = parseLibraryJSON(await libraryJSONPromise);
     await API.drop(
       new Blob([serializeLibraryAsJSON(libraryItems)], {
-        type: MIME_TYPES.excalidrawlib,
+        type: MIME_TYPES.canvaslib,
       }),
     );
     await waitFor(() => {
@@ -119,7 +119,7 @@ describe("library", () => {
           ]),
         ],
         {
-          type: MIME_TYPES.excalidrawlib,
+          type: MIME_TYPES.canvaslib,
         },
       ),
     );
@@ -167,7 +167,7 @@ describe("library", () => {
 
     await API.drop(
       new Blob([serializeLibraryAsJSON([item1, item1])], {
-        type: MIME_TYPES.excalidrawlib,
+        type: MIME_TYPES.canvaslib,
       }),
     );
 
@@ -190,7 +190,7 @@ describe("library", () => {
     const libraryItems = parseLibraryJSON(await libraryJSONPromise);
     await API.drop(
       new Blob([serializeLibraryAsJSON(libraryItems)], {
-        type: MIME_TYPES.excalidrawlib,
+        type: MIME_TYPES.canvaslib,
       }),
     );
     await waitFor(() => {
@@ -202,7 +202,7 @@ describe("library", () => {
 
 describe("library menu", () => {
   it("should load library from file picker", async () => {
-    const { container } = await render(<Excalidraw />);
+    const { container } = await render(<CanvasEditor />);
 
     const latestLibrary = await h.app.library.getLatestLibrary();
     expect(latestLibrary.length).toBe(0);
@@ -235,7 +235,7 @@ describe("library menu", () => {
 describe("distributeLibraryItemsOnSquareGrid()", () => {
   it("should distribute items on a grid", async () => {
     const createLibraryItem = (
-      elements: ExcalidrawGenericElement[],
+      elements: CanvasEditorGenericElement[],
     ): LibraryItem => {
       return {
         id: `id-${Date.now()}`,

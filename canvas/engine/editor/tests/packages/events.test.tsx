@@ -1,7 +1,7 @@
 import React from "react";
 import { vi } from "vitest";
-import { Excalidraw, CaptureUpdateAction } from "../../index";
-import type { ExcalidrawImperativeAPI } from "../../types";
+import { CanvasEditor, CaptureUpdateAction } from "../../index";
+import type { CanvasEditorImperativeAPI } from "../../types";
 import { resolvablePromise } from "../../utils";
 import { render } from "../test-utils";
 import { Pointer } from "../helpers/ui";
@@ -10,25 +10,25 @@ import { API } from "../helpers/api";
 describe("event callbacks", () => {
   const h = window.h;
 
-  let excalidrawAPI: ExcalidrawImperativeAPI;
+  let canvasAPI: CanvasEditorImperativeAPI;
 
   const mouse = new Pointer("mouse");
 
   beforeEach(async () => {
-    const excalidrawAPIPromise = resolvablePromise<ExcalidrawImperativeAPI>();
+    const canvasAPIPromise = resolvablePromise<CanvasEditorImperativeAPI>();
     await render(
-      <Excalidraw
-        excalidrawAPI={(api) => excalidrawAPIPromise.resolve(api as any)}
+      <CanvasEditor
+        canvasAPI={(api) => canvasAPIPromise.resolve(api as any)}
       />,
     );
-    excalidrawAPI = await excalidrawAPIPromise;
+    canvasAPI = await canvasAPIPromise;
   });
 
   it("should trigger onChange on render", async () => {
     const onChange = vi.fn();
 
     const origBackgroundColor = h.state.viewBackgroundColor;
-    excalidrawAPI.onChange(onChange);
+    canvasAPI.onChange(onChange);
     API.updateScene({
       appState: { viewBackgroundColor: "red" },
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
@@ -52,8 +52,8 @@ describe("event callbacks", () => {
     const onPointerDown = vi.fn();
     const onPointerUp = vi.fn();
 
-    excalidrawAPI.onPointerDown(onPointerDown);
-    excalidrawAPI.onPointerUp(onPointerUp);
+    canvasAPI.onPointerDown(onPointerDown);
+    canvasAPI.onPointerUp(onPointerUp);
 
     mouse.downAt(100);
     expect(onPointerDown).toHaveBeenCalledTimes(1);

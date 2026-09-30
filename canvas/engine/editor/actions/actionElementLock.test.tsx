@@ -1,5 +1,5 @@
 import React from "react";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { queryByTestId, fireEvent } from "@testing-library/react";
 import { render } from "../tests/test-utils";
 import { Pointer, UI } from "../tests/helpers/ui";
@@ -10,7 +10,7 @@ const mouse = new Pointer("mouse");
 
 describe("element locking", () => {
   it("should not show unlockAllElements action in contextMenu if no elements locked", async () => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
 
     mouse.rightClickAt(0, 0);
 
@@ -20,7 +20,7 @@ describe("element locking", () => {
 
   it("should unlock all elements and select them when using unlockAllElements action in contextMenu", async () => {
     await render(
-      <Excalidraw
+      <CanvasEditor
         initialData={{
           elements: [
             API.createElement({

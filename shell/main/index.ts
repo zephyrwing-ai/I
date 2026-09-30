@@ -2,7 +2,7 @@
  * Electron 主进程入口 — 创建窗口、注册 IPC、装配 AgentRunner。
  */
 
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, webContents } from "electron";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ import {
   IPC,
   type DeleteProviderResult,
   type CanvasContextInput,
+  type CanvasEditResult,
   type CanvasDocumentResult,
   type CanvasSaveRequest,
   type CanvasSaveResult,
@@ -24,6 +25,8 @@ import {
   type ProjectDescriptor,
   type RunRequest,
   type RunStartAck,
+  type SteerRequest,
+  type SteerAck,
   type SaveProviderResult,
   type HistoryPageRequest,
   type HistoryPageResult,
@@ -37,6 +40,7 @@ import { HistoryService } from "./session-history.js";
 import { ProjectRegistry } from "./project-registry.js";
 import { CanvasContextRegistry } from "../../canvas/context/CanvasContextRegistry.js";
 import { CanvasDocumentStore } from "../../canvas/persistence/CanvasDocumentStore.js";
+import { CanvasEditBridge } from "./canvas-edit-bridge.js";
 import {
   createHistoryRecorder,
   SqliteHistoryRepository,
@@ -91,6 +95,7 @@ function registerIpc(
   inputAttachments: InputAttachmentRegistry,
   canvasContexts: CanvasContextRegistry,
   canvasDocuments: CanvasDocumentStore,
+  canvasEditBridge: CanvasEditBridge,
   projects: ProjectRegistry,
   historyService: HistoryService,
   getHistoryRecorder: (projectId: HistoryScope) => Promise<HistoryRecorder>,
@@ -114,6 +119,7 @@ function registerIpc(
       const canvasContextIds = Array.isArray(req.canvasContextIds) ? req.canvasContextIds.filter((id): id is string => typeof id === "string") : [];
       const resolvedCanvasContexts = canvasContexts.peekMany(canvasContextIds, projectId);
       const historyRecorder = await getHistoryRecorder(projectId);
+      const inputId = randomUUID();
       if (projects.activeScope !== projectId) {
         return { ok: false, error: "The selected project changed. Send the task again." };
       }
@@ -124,22 +130,48 @@ function registerIpc(
         projectContextVersion: active.contextVersion,
         historyRecorder,
         runId,
+        initialUserEntryId: inputId,
+        ownerWebContentsId: event.sender.id,
         runScopedContext: active.projectContext,
         canvasContexts: resolvedCanvasContexts,
+        attachments,
         ...resolved,
       }, (payload) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
       canvasContexts.consumeMany(canvasContextIds);
-      return { ok: true, runId: handle.runId };
+      return { ok: true, runId: handle.runId, inputId };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
-  ipcMain.on(IPC.stop, () => {
-    runner.stop();
+  ipcMain.handle(IPC.steer, async (event, request: SteerRequest): Promise<SteerAck> => {
+    try {
+      if (!request || typeof request !== "object"
+        || typeof request.runId !== "string"
+        || typeof request.inputId !== "string"
+        || typeof request.task !== "string"
+        || (request.projectId !== null && typeof request.projectId !== "string")) {
+        return { ok: false, error: "The steering input format is invalid." };
+      }
+      const accepted = await runner.steer(request, event.sender.id);
+      return {
+        ok: true,
+        runId: accepted.runId,
+        projectId: accepted.projectId,
+        inputId: accepted.inputId,
+        acceptOrder: accepted.acceptOrder,
+        acceptedAt: accepted.acceptedAt,
+      };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.on(IPC.stop, (event) => {
+    runner.stop(event.sender.id);
   });
 
   ipcMain.handle(IPC.loadHistoryPage, async (_event, request: HistoryPageRequest): Promise<HistoryPageResult> => {
@@ -261,6 +293,10 @@ function registerIpc(
     return canvasContexts.prepare(input);
   });
 
+  ipcMain.on(IPC.canvasEditResult, (event, result: CanvasEditResult) => {
+    canvasEditBridge.handleResult(event.sender.id, result);
+  });
+
   ipcMain.handle(IPC.previewOutputFile, async (_event, runId: string, fileId: string): Promise<OutputFilePreviewResult> => {
     if (typeof runId !== "string" || typeof fileId !== "string" || !runId || !fileId) {
       return { ok: false, error: "invalid_request", message: "The output file identity is missing." };
@@ -310,11 +346,40 @@ app.whenReady().then(async () => {
   const inputAttachments = new InputAttachmentRegistry();
   const canvasDocuments = new CanvasDocumentStore(app.getPath("userData"));
   const canvasContexts = new CanvasContextRegistry();
+  const canvasEditBridge = new CanvasEditBridge({
+    sendRequest(ownerWebContentsId, request) {
+      const owner = webContents.fromId(ownerWebContentsId);
+      if (!owner || owner.isDestroyed()) return false;
+      owner.send(IPC.canvasEditRequest, request);
+      return true;
+    },
+    sendCancel(ownerWebContentsId, request) {
+      const owner = webContents.fromId(ownerWebContentsId);
+      if (owner && !owner.isDestroyed()) owner.send(IPC.canvasEditCancel, request);
+    },
+    onOwnerDestroyed(ownerWebContentsId, callback) {
+      const owner = webContents.fromId(ownerWebContentsId);
+      if (!owner || owner.isDestroyed()) {
+        callback();
+        return () => undefined;
+      }
+      owner.once("destroyed", callback);
+      return () => owner.removeListener("destroyed", callback);
+    },
+  });
   const runner = new AgentRunner((runId, cwd, artifacts, projectId) => {
     void projects.markContextDirty(projectId);
     return outputFiles.register(runId, cwd, artifacts);
+  }, {
+    enableCreateWithoutSelection: true,
+    execute: (ownerWebContentsId, request, signal) => {
+      if (projects.activeScope !== request.projectId) {
+        throw new Error("The Canvas project changed before the edit could be applied.");
+      }
+      return canvasEditBridge.request(ownerWebContentsId, request, signal);
+    },
   });
-  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, canvasDocuments, projects, historyService, getHistoryRecorder);
+  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, canvasDocuments, canvasEditBridge, projects, historyService, getHistoryRecorder);
   createWindow();
 
   app.on("before-quit", (event) => {
@@ -322,6 +387,7 @@ app.whenReady().then(async () => {
     event.preventDefault();
     closing = true;
     runner.stop();
+    canvasEditBridge.dispose();
     void (async () => {
       try {
         await runner.waitForIdle();

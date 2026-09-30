@@ -1,15 +1,15 @@
 import type { AppState } from "../types";
 import { sceneCoordsToViewportCoords } from "../utils";
-import type { ElementsMap, NonDeletedExcalidrawElement } from "./types";
+import type { ElementsMap, NonDeletedCanvasEditorElement } from "./types";
 import { getElementAbsoluteCoords } from ".";
-import { useExcalidrawAppState } from "../components/App";
+import { useCanvasEditorAppState } from "../components/App";
 
 import "./ElementCanvasButtons.scss";
 
 const CONTAINER_PADDING = 5;
 
 const getContainerCoords = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   appState: AppState,
   elementsMap: ElementsMap,
 ) => {
@@ -29,10 +29,10 @@ export const ElementCanvasButtons = ({
   elementsMap,
 }: {
   children: React.ReactNode;
-  element: NonDeletedExcalidrawElement;
+  element: NonDeletedCanvasEditorElement;
   elementsMap: ElementsMap;
 }) => {
-  const appState = useExcalidrawAppState();
+  const appState = useCanvasEditorAppState();
 
   if (
     appState.contextMenu ||
@@ -48,7 +48,7 @@ export const ElementCanvasButtons = ({
 
   return (
     <div
-      className="excalidraw-canvas-buttons"
+      className="agent-canvas-canvas-buttons"
       style={{
         top: `${y}px`,
         left: `${x}px`,

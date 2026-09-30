@@ -1,16 +1,16 @@
 import { arrayToMapWithIndex } from "../utils";
-import type { ExcalidrawElement } from "./types";
+import type { CanvasEditorElement } from "./types";
 
-const normalizeGroupElementOrder = (elements: readonly ExcalidrawElement[]) => {
-  const origElements: ExcalidrawElement[] = elements.slice();
-  const sortedElements = new Set<ExcalidrawElement>();
+const normalizeGroupElementOrder = (elements: readonly CanvasEditorElement[]) => {
+  const origElements: CanvasEditorElement[] = elements.slice();
+  const sortedElements = new Set<CanvasEditorElement>();
 
   const orderInnerGroups = (
-    elements: readonly ExcalidrawElement[],
-  ): ExcalidrawElement[] => {
+    elements: readonly CanvasEditorElement[],
+  ): CanvasEditorElement[] => {
     const firstGroupSig = elements[0]?.groupIds?.join("");
-    const aGroup: ExcalidrawElement[] = [elements[0]];
-    const bGroup: ExcalidrawElement[] = [];
+    const aGroup: CanvasEditorElement[] = [elements[0]];
+    const bGroup: CanvasEditorElement[] = [];
     for (const element of elements.slice(1)) {
       if (element.groupIds?.join("") === firstGroupSig) {
         aGroup.push(element);
@@ -65,12 +65,12 @@ const normalizeGroupElementOrder = (elements: readonly ExcalidrawElement[]) => {
  * containers).
  */
 const normalizeBoundElementsOrder = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
 ) => {
   const elementsMap = arrayToMapWithIndex(elements);
 
-  const origElements: (ExcalidrawElement | null)[] = elements.slice();
-  const sortedElements = new Set<ExcalidrawElement>();
+  const origElements: (CanvasEditorElement | null)[] = elements.slice();
+  const sortedElements = new Set<CanvasEditorElement>();
 
   origElements.forEach((element, idx) => {
     if (!element) {
@@ -114,7 +114,7 @@ const normalizeBoundElementsOrder = (
 };
 
 export const normalizeElementOrder = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
 ) => {
   return normalizeBoundElementsOrder(normalizeGroupElementOrder(elements));
 };

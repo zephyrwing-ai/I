@@ -1,7 +1,7 @@
 import type {
-  ExcalidrawTextElement,
+  CanvasEditorTextElement,
   FractionalIndex,
-  NonDeletedExcalidrawElement,
+  NonDeletedCanvasEditorElement,
 } from "../../element/types";
 import * as exportUtils from "../../scene/export";
 import {
@@ -44,7 +44,7 @@ describe("exportToSvg", () => {
       width: ELEMENT_WIDTH,
       index: "a3",
     },
-  ] as NonDeletedExcalidrawElement[];
+  ] as NonDeletedCanvasEditorElement[];
 
   const DEFAULT_OPTIONS = {
     exportBackground: false,
@@ -74,7 +74,7 @@ describe("exportToSvg", () => {
           originalText:
             "中国你好！这是一个测试。中国你好！日本こんにちは！これはテストです。한국 안녕하세요! 이것은 테스트입니다.",
           index: "a4" as FractionalIndex,
-        } as ExcalidrawTextElement,
+        } as CanvasEditorTextElement,
       ],
       DEFAULT_OPTIONS,
       null,

@@ -7,12 +7,13 @@ description: Agent 按项目和无项目范围保存本地历史、工具恢复�
 
 - `projectId`：真实项目的稳定身份；项目由规范化目录路径唯一确定。
 - `projectId = NULL`：持久化的无项目历史范围，界面显示为 `General`。
-- `runId`：用户一次发送触发的完整 Agent 运行。
+- `runId`：主任务与运行中补充输入共享的一次完整 Agent 运行。
 - `turnId`：一次模型请求以及随后产生的工具批次。
 - `attempt`：同一逻辑 turn 内的一次模型请求尝试。
 - `toolCallId`：模型产生的一次工具调用。
 - `entryId`：一条持久化记录的稳定身份。
 - `entryOrder`：数据库范围内递增的历史顺序游标。
+- `inputId`：一次运行中补充输入的稳定身份；待处理记录和最终用户 entry 沿用同一个 ID。
 
 ## 数据模型
 
@@ -22,6 +23,8 @@ projects 1 ──────── 1 project_context
    └─────────────── N entries
    │
    └─────────────── N tool_invocations
+   │
+   └─────────────── N 待处理输入记录（project_id 可空）
 ```
 
 `projects` 保存真实项目目录。
@@ -34,7 +37,7 @@ projects 1 ──────── 1 project_context
 | created_at | INTEGER | 非空 | 项目创建时间 |
 | last_opened_at | INTEGER | 非空 | 最近激活时间 |
 
-`entries` 保存模型可见消息。
+`entries` 保存模型可见的 completed 消息，以及供历史展示的 interrupted 用户输入。
 
 | 字段 | SQLite 类型 | 约束 | 语义 |
 | --- | --- | --- | --- |
@@ -51,9 +54,33 @@ projects 1 ──────── 1 project_context
 | payload_json | TEXT | 非空 | 完整 ModelMessage |
 | created_at | INTEGER | 非空 | 记录创建时间 |
 | updated_at | INTEGER | 非空 | 最近更新时间 |
-| duration_ms | INTEGER | 可空 | 助手消息完成时从对应用户消息起算的持久化运行时长（毫秒） |
+| duration_ms | INTEGER | 可空 | 成功完成的 run 从 `runStarted` 到 `runCompleted` 的持久化总时长（毫秒），保存在最终 Assistant Message |
 
 `project_id IS NULL` 的记录构成无项目历史；`project_id = ?` 的记录构成对应项目历史。两个范围共享全局 `entry_order`，历史读取先按范围过滤，再按 `entry_order` 排序。
+
+## 运行中输入持久化
+
+Main 在应用数据库的 `pending_run_inputs` 表保存已接收的补充文本。`entries` 保存已进入模型上下文的 completed 消息，并保存运行终态时归档的 interrupted 用户输入。待处理记录与对应用户 entry 共用 `inputId`，作为接收记录、应用结果和历史 entry 的关联身份。
+
+| 字段 | SQLite 类型 | 约束 | 语义 |
+| --- | --- | --- | --- |
+| input_id | TEXT | 唯一 | 一次 steer 提交的幂等 ID，应用后成为用户 `entryId` |
+| run_id | TEXT | 非空 | 已绑定的活动运行 |
+| project_id | TEXT | 可空 | 运行捕获的项目历史范围；`NULL` 对应通用历史范围 |
+| accept_order | INTEGER | 自增主键 | 同一数据库中的接收顺序 |
+| content | TEXT | 非空 | 用户补充文本的冻结快照 |
+| state | TEXT | 非空 | `accepted`、`applied` 或 `unapplied` |
+| accepted_at | INTEGER | 非空 | Main 完成队列写入的时间 |
+| applied_at | INTEGER | 可空 | 用户 entry 提交并进入 Runtime 上下文的时间 |
+| terminal_reason | TEXT | 可空 | 停止、失败或进程恢复后的未应用原因 |
+
+Main 使用 `inputId` 唯一约束处理重复 IPC 提交，同一个 ID 返回同一条待处理记录。项目范围允许 `NULL`，项目目录表继续只保存真实目录。持久化层按 `runId、state、acceptOrder` 提供顺序读取。
+
+Runtime 到达安全边界后，通过 Recorder 在同一 SQLite 事务中按 `acceptOrder` 读取 `accepted` 项、写入对应的 completed `user_message` entry，并把队列项改为 `applied`。事务成功后，Runtime 按相同顺序追加内存 `messages` 并发出应用事件。事务重试以 `inputId` 和 entry 主键保证幂等；`commitUser` 提交初始任务，`applyRunInputs` 提交同一 run 的多条补充消息。
+
+Main 在停止、失败和启动恢复时，通过 Recorder 在同一事务中为剩余 `accepted` 项写入同 `inputId` 的 interrupted `user_message` entry，并把队列项改为 `unapplied`。`runCompleted.unappliedInputIds` 与这些 entries 使用同一身份；HistoryService 按 `entryOrder` 分页 entries，completed 与 interrupted 用户 entry 各自以 `inputId` 去重。`snapshot()` 只向模型提供 completed 消息。
+
+`runStarted` 为一个 `runId` 建立唯一计时起点，`inputsApplied` 保留补充输入的应用时间。运行完成时，Recorder 为最终 Assistant Message 保存从起点到 `runCompleted` 的 `duration_ms`；`runCompleted.finalTurnId` 标识最终回合，`finalDurationMs` 与持久化总时长一致。既有历史记录保留写入时的时长值及其历史语义；新记录统一保存全 run 总时长。
 
 ## 项目上下文缓存
 
@@ -84,7 +111,7 @@ type HistoryScope = string | null;
 - `projectId` 为真实 ID 时，Recorder 读写对应项目历史。
 - `projectId` 为 `null` 时，Recorder 读写无项目历史。
 - `snapshot()` 返回范围内已完成的 ModelMessage 快照。
-- `commitUser()` 先提交用户消息，再允许 Runtime 开始模型请求。
+- `commitUser()` 先提交初始用户消息，再允许 Runtime 开始模型请求；运行中输入按上述事务批量提交。
 - `recordAssistantDelta()` 维护流式助手草稿。
 - `finishAssistantAttempt()` 提交助手 attempt 的最终状态。
 - `commitToolResult()` 提交模型可见工具结果。
@@ -128,6 +155,8 @@ HistoryRecorder(null).snapshot()
 → current user message
 → provider request
 ```
+
+运行中的下一次模型请求沿用本次运行捕获的 `projectId`、`cwd`、模型、工具集合与运行期上下文；已提交的助手消息和工具结果先进入 `messages`，同一安全边界提交的补充用户消息随后按 `acceptOrder` 进入 `messages`，Provider 接收这一完整顺序。补充输入载荷为文本消息；附件与画布选区继续属于初始运行请求。
 
 无项目范围不产生项目目录上下文。
 

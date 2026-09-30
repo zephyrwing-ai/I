@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 function hasTable(database: DatabaseSync, name: string): boolean {
   const row = database.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) as { present?: number } | undefined;
@@ -85,6 +85,28 @@ function createProjectSchema(database: DatabaseSync): void {
       ON entries (project_id, entry_order ASC);
     CREATE INDEX IF NOT EXISTS entries_tool_call_idx
       ON entries (project_id, tool_call_id);
+
+    CREATE TABLE IF NOT EXISTS pending_run_inputs (
+      accept_order INTEGER PRIMARY KEY AUTOINCREMENT,
+      input_id TEXT NOT NULL UNIQUE,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      run_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('accepted', 'applied', 'unapplied')),
+      accepted_at INTEGER NOT NULL,
+      applied_at INTEGER,
+      terminal_reason TEXT,
+      CHECK (
+        (state = 'accepted' AND applied_at IS NULL AND terminal_reason IS NULL)
+        OR (state = 'applied' AND applied_at IS NOT NULL AND terminal_reason IS NULL)
+        OR (state = 'unapplied' AND applied_at IS NULL AND terminal_reason IS NOT NULL)
+      )
+    );
+
+    CREATE INDEX IF NOT EXISTS pending_run_inputs_scope_idx
+      ON pending_run_inputs (project_id, run_id, state, accept_order);
+    CREATE INDEX IF NOT EXISTS pending_run_inputs_recovery_idx
+      ON pending_run_inputs (state, accept_order);
 
     CREATE TABLE IF NOT EXISTS tool_invocations (
       id TEXT PRIMARY KEY,
@@ -214,6 +236,27 @@ function migrateLegacySessionSchema(database: DatabaseSync): void {
       CREATE INDEX entries_tool_call_idx ON entries (project_id, tool_call_id);
       CREATE INDEX tool_invocations_project_phase_idx
         ON tool_invocations (project_id, phase, ordinal ASC);
+
+      CREATE TABLE pending_run_inputs (
+        accept_order INTEGER PRIMARY KEY AUTOINCREMENT,
+        input_id TEXT NOT NULL UNIQUE,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        run_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('accepted', 'applied', 'unapplied')),
+        accepted_at INTEGER NOT NULL,
+        applied_at INTEGER,
+        terminal_reason TEXT,
+        CHECK (
+          (state = 'accepted' AND applied_at IS NULL AND terminal_reason IS NULL)
+          OR (state = 'applied' AND applied_at IS NOT NULL AND terminal_reason IS NULL)
+          OR (state = 'unapplied' AND applied_at IS NULL AND terminal_reason IS NOT NULL)
+        )
+      );
+      CREATE INDEX pending_run_inputs_scope_idx
+        ON pending_run_inputs (project_id, run_id, state, accept_order);
+      CREATE INDEX pending_run_inputs_recovery_idx
+        ON pending_run_inputs (state, accept_order);
     `);
     migrateCompletedAtToDurationMs(database);
     database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);

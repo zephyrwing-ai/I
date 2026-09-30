@@ -1,6 +1,6 @@
 @import "../../css/variables.module.scss";
 
-.excalidraw {
+.agent-canvas {
   .dropdown-menu {
     position: absolute;
     top: 100%;
@@ -185,7 +185,7 @@
 
     background-color: var(--background);
 
-    @at-root .excalidraw.theme--dark#{&} {
+    @at-root .agent-canvas.theme--dark#{&} {
       --background: var(--color-surface-high);
       &:hover {
         --background: #363541;

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   useApp,
   useAppProps,
-  useExcalidrawActionManager,
-  useExcalidrawSetAppState,
+  useCanvasEditorActionManager,
+  useCanvasEditorSetAppState,
 } from "../App";
 import { KEYS } from "../../keys";
 import { Dialog } from "../Dialog";
@@ -121,7 +121,7 @@ type CommandPaletteProps = {
 export const CommandPalette = Object.assign(
   (props: CommandPaletteProps) => {
     const uiAppState = useUIAppState();
-    const setAppState = useExcalidrawSetAppState();
+    const setAppState = useCanvasEditorSetAppState();
 
     useEffect(() => {
       const commandPaletteShortcut = (event: KeyboardEvent) => {
@@ -169,9 +169,9 @@ function CommandPaletteInner({
 }: CommandPaletteProps) {
   const app = useApp();
   const uiAppState = useUIAppState();
-  const setAppState = useExcalidrawSetAppState();
+  const setAppState = useCanvasEditorSetAppState();
   const appProps = useAppProps();
-  const actionManager = useExcalidrawActionManager();
+  const actionManager = useCanvasEditorActionManager();
 
   const [lastUsed, setLastUsed] = useAtom(lastUsedPaletteItem);
   const [allCommands, setAllCommands] = useState<
@@ -438,13 +438,13 @@ function CommandPaletteInner({
     if (uiAppState.openDialog?.name === "commandPalette") {
       event.stopPropagation();
       event.preventDefault();
-      document.body.classList.add("excalidraw-animations-disabled");
+      document.body.classList.add("agent-canvas-animations-disabled");
       closeCommandPalette(() => {
         command.perform({ actionManager, event });
         setLastUsed(command);
 
         requestAnimationFrame(() => {
-          document.body.classList.remove("excalidraw-animations-disabled");
+          document.body.classList.remove("agent-canvas-animations-disabled");
         });
       });
     }

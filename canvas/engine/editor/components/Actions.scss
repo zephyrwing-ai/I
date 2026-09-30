@@ -1,6 +1,6 @@
 @import "../css/variables.module.scss";
 
-.excalidraw {
+.agent-canvas {
   .footer-controls-section {
     align-items: center;
   }
@@ -78,7 +78,7 @@
     border-radius: var(--border-radius-lg);
   }
 
-  .canvas-footer-controls > .excalidraw-tooltip-wrapper {
+  .canvas-footer-controls > .agent-canvas-tooltip-wrapper {
     display: flex;
     flex: 0 0 var(--canvas-toolbar-hit-size, var(--default-button-size, 2rem));
     align-items: stretch;
@@ -132,8 +132,8 @@
     }
   }
 
-  .canvas-footer-controls > .excalidraw-tooltip-wrapper:last-child,
-  .canvas-footer-controls > .excalidraw-tooltip-wrapper:last-child button {
+  .canvas-footer-controls > .agent-canvas-tooltip-wrapper:last-child,
+  .canvas-footer-controls > .agent-canvas-tooltip-wrapper:last-child button {
     border-top-right-radius: var(--border-radius-lg);
     border-bottom-right-radius: var(--border-radius-lg);
   }

@@ -1,6 +1,6 @@
 import type {
-  ExcalidrawElement,
-  ExcalidrawTextElement,
+  CanvasEditorElement,
+  CanvasEditorTextElement,
 } from "../../element/types";
 import StatsDragInput from "./DragInput";
 import type { DragInputCallbackType } from "./DragInput";
@@ -14,7 +14,7 @@ import { hasBoundTextElement } from "../../element/typeChecks";
 import { getBoundTextElement } from "../../element/textElement";
 
 interface FontSizeProps {
-  element: ExcalidrawElement;
+  element: CanvasEditorElement;
   scene: Scene;
   appState: AppState;
   property: "fontSize";
@@ -25,7 +25,7 @@ const STEP_SIZE = 4;
 
 const handleFontSizeChange: DragInputCallbackType<
   FontSizeProps["property"],
-  ExcalidrawTextElement
+  CanvasEditorTextElement
 > = ({
   accumulatedChange,
   originalElements,

@@ -1,7 +1,7 @@
 import type {
   ElementsMap,
-  ExcalidrawElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  NonDeletedCanvasEditorElement,
   PointerType,
 } from "./types";
 
@@ -270,7 +270,7 @@ export const getTransformHandlesFromCoords = (
 };
 
 export const getTransformHandles = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   zoom: Zoom,
   elementsMap: ElementsMap,
   pointerType: PointerType = "mouse",
@@ -326,7 +326,7 @@ export const getTransformHandles = (
 };
 
 export const shouldShowBoundingBox = (
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   appState: InteractiveCanvasAppState,
 ) => {
   if (appState.editingLinearElement) {

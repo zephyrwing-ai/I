@@ -165,28 +165,28 @@ import {
   isBindableElement,
 } from "../element/typeChecks";
 import type {
-  ExcalidrawBindableElement,
-  ExcalidrawElement,
-  ExcalidrawFreeDrawElement,
-  ExcalidrawGenericElement,
-  ExcalidrawLinearElement,
-  ExcalidrawTextElement,
+  CanvasEditorBindableElement,
+  CanvasEditorElement,
+  CanvasEditorFreeDrawElement,
+  CanvasEditorGenericElement,
+  CanvasEditorLinearElement,
+  CanvasEditorTextElement,
   NonDeleted,
-  InitializedExcalidrawImageElement,
-  ExcalidrawImageElement,
+  InitializedCanvasEditorImageElement,
+  CanvasEditorImageElement,
   FileId,
-  NonDeletedExcalidrawElement,
-  ExcalidrawTextContainer,
-  ExcalidrawFrameLikeElement,
-  ExcalidrawMagicFrameElement,
-  ExcalidrawIframeLikeElement,
+  NonDeletedCanvasEditorElement,
+  CanvasEditorTextContainer,
+  CanvasEditorFrameLikeElement,
+  CanvasEditorMagicFrameElement,
+  CanvasEditorIframeLikeElement,
   IframeData,
-  ExcalidrawIframeElement,
-  ExcalidrawEmbeddableElement,
+  CanvasEditorIframeElement,
+  CanvasEditorEmbeddableElement,
   Ordered,
   MagicGenerationData,
-  ExcalidrawNonSelectionElement,
-  ExcalidrawArrowElement,
+  CanvasEditorNonSelectionElement,
+  CanvasEditorArrowElement,
 } from "../element/types";
 import { getCenter, getDistance } from "../gesture";
 import {
@@ -241,7 +241,7 @@ import type {
   AppState,
   BinaryFileData,
   DataURL,
-  ExcalidrawImperativeAPI,
+  CanvasEditorImperativeAPI,
   BinaryFiles,
   Gesture,
   GestureEvent,
@@ -387,8 +387,8 @@ import {
 } from "../snapping";
 import { actionWrapTextInContainer } from "../actions/actionBoundText";
 import BraveMeasureTextError from "./BraveMeasureTextError";
-import type { ExcalidrawElementSkeleton } from "../data/transform";
-import { convertToExcalidrawElements } from "../data/transform";
+import type { CanvasEditorElementSkeleton } from "../data/transform";
+import { convertToCanvasEditorElements } from "../data/transform";
 import type { ValueOf } from "../utility-types";
 import { isSidebarDockedAtom } from "./Sidebar/Sidebar";
 import { StaticCanvas, InteractiveCanvas } from "./canvases";
@@ -408,6 +408,7 @@ import { ElementCanvasButton } from "./MagicButton";
 import { MagicIcon, copyIcon, fullscreenIcon } from "./icons";
 import FollowMode from "./FollowMode/FollowMode";
 import { Store, CaptureUpdateAction } from "../store";
+import { applyCanvasEdit } from "../commands/applyCanvasEdit";
 import { AnimationFrameHandler } from "../animation-frame-handler";
 import { AnimatedTrail } from "../animated-trail";
 import { withBatchedUpdates, withBatchedUpdatesThrottled } from "../reactUtils";
@@ -476,51 +477,51 @@ const deviceContextInitialValue = {
 const DeviceContext = React.createContext<Device>(deviceContextInitialValue);
 DeviceContext.displayName = "DeviceContext";
 
-export const ExcalidrawContainerContext = React.createContext<{
+export const CanvasEditorContainerContext = React.createContext<{
   container: HTMLDivElement | null;
   id: string | null;
 }>({ container: null, id: null });
-ExcalidrawContainerContext.displayName = "ExcalidrawContainerContext";
+CanvasEditorContainerContext.displayName = "CanvasEditorContainerContext";
 
-const ExcalidrawElementsContext = React.createContext<
-  readonly NonDeletedExcalidrawElement[]
+const CanvasEditorElementsContext = React.createContext<
+  readonly NonDeletedCanvasEditorElement[]
 >([]);
-ExcalidrawElementsContext.displayName = "ExcalidrawElementsContext";
+CanvasEditorElementsContext.displayName = "CanvasEditorElementsContext";
 
-const ExcalidrawAppStateContext = React.createContext<AppState>({
+const CanvasEditorAppStateContext = React.createContext<AppState>({
   ...getDefaultAppState(),
   width: 0,
   height: 0,
   offsetLeft: 0,
   offsetTop: 0,
 });
-ExcalidrawAppStateContext.displayName = "ExcalidrawAppStateContext";
+CanvasEditorAppStateContext.displayName = "CanvasEditorAppStateContext";
 
-const ExcalidrawSetAppStateContext = React.createContext<
+const CanvasEditorSetAppStateContext = React.createContext<
   React.Component<any, AppState>["setState"]
 >(() => {
-  console.warn("Uninitialized ExcalidrawSetAppStateContext context!");
+  console.warn("Uninitialized CanvasEditorSetAppStateContext context!");
 });
-ExcalidrawSetAppStateContext.displayName = "ExcalidrawSetAppStateContext";
+CanvasEditorSetAppStateContext.displayName = "CanvasEditorSetAppStateContext";
 
-const ExcalidrawActionManagerContext = React.createContext<ActionManager>(
+const CanvasEditorActionManagerContext = React.createContext<ActionManager>(
   null!,
 );
-ExcalidrawActionManagerContext.displayName = "ExcalidrawActionManagerContext";
+CanvasEditorActionManagerContext.displayName = "CanvasEditorActionManagerContext";
 
 export const useApp = () => useContext(AppContext);
 export const useAppProps = () => useContext(AppPropsContext);
 export const useDevice = () => useContext<Device>(DeviceContext);
-export const useExcalidrawContainer = () =>
-  useContext(ExcalidrawContainerContext);
-export const useExcalidrawElements = () =>
-  useContext(ExcalidrawElementsContext);
-export const useExcalidrawAppState = () =>
-  useContext(ExcalidrawAppStateContext);
-export const useExcalidrawSetAppState = () =>
-  useContext(ExcalidrawSetAppStateContext);
-export const useExcalidrawActionManager = () =>
-  useContext(ExcalidrawActionManagerContext);
+export const useCanvasEditorContainer = () =>
+  useContext(CanvasEditorContainerContext);
+export const useCanvasEditorElements = () =>
+  useContext(CanvasEditorElementsContext);
+export const useCanvasEditorAppState = () =>
+  useContext(CanvasEditorAppStateContext);
+export const useCanvasEditorSetAppState = () =>
+  useContext(CanvasEditorSetAppStateContext);
+export const useCanvasEditorActionManager = () =>
+  useContext(CanvasEditorActionManagerContext);
 
 let didTapTwice: boolean = false;
 let tappedTwiceTimer = 0;
@@ -535,7 +536,7 @@ let invalidateContextMenu = false;
  * Map of youtube embed video states
  */
 const YOUTUBE_VIDEO_STATES = new Map<
-  ExcalidrawElement["id"],
+  CanvasEditorElement["id"],
   ValueOf<typeof YOUTUBE_STATES>
 >();
 
@@ -552,6 +553,8 @@ const gesture: Gesture = {
 
 class App extends React.Component<AppProps, AppState> {
   private documentEpoch = 0;
+  private temporaryHandActive = false;
+  private temporaryHandPending = false;
   canvas: AppClassProperties["canvas"];
   interactiveCanvas: AppClassProperties["interactiveCanvas"] = null;
   rc: RoughCanvas;
@@ -559,16 +562,16 @@ class App extends React.Component<AppProps, AppState> {
   actionManager: ActionManager;
   device: Device = deviceContextInitialValue;
 
-  private excalidrawContainerRef = React.createRef<HTMLDivElement>();
+  private canvasContainerRef = React.createRef<HTMLDivElement>();
 
   public scene: Scene;
   public fonts: Fonts;
   public renderer: Renderer;
-  public visibleElements: readonly NonDeletedExcalidrawElement[];
+  public visibleElements: readonly NonDeletedCanvasEditorElement[];
   private resizeObserver: ResizeObserver | undefined;
   private nearestScrollableContainer: HTMLElement | Document | undefined;
   private offscreenContentTarget: {
-    elementId: ExcalidrawElement["id"];
+    elementId: CanvasEditorElement["id"];
     point: { x: number; y: number };
   } | null = null;
   public library: AppClassProperties["library"];
@@ -576,14 +579,14 @@ class App extends React.Component<AppProps, AppState> {
   public id: string;
   private store: Store;
   private history: History;
-  public excalidrawContainerValue: {
+  public canvasContainerValue: {
     container: HTMLDivElement | null;
     id: string;
   };
 
   public files: BinaryFiles = {};
   public imageCache: AppClassProperties["imageCache"] = new Map();
-  private iFrameRefs = new Map<ExcalidrawElement["id"], HTMLIFrameElement>();
+  private iFrameRefs = new Map<CanvasEditorElement["id"], HTMLIFrameElement>();
   /**
    * Indicates whether the embeddable's url has been validated for rendering.
    * If value not set, indicates that the validation is pending.
@@ -593,14 +596,14 @@ class App extends React.Component<AppProps, AppState> {
   private embedsValidationStatus: EmbedsValidationStatus = new Map();
   /** embeds that have been inserted to DOM (as a perf optim, we don't want to
    * insert to DOM before user initially scrolls to them) */
-  private initializedEmbeds = new Set<ExcalidrawIframeLikeElement["id"]>();
+  private initializedEmbeds = new Set<CanvasEditorIframeLikeElement["id"]>();
 
   private elementsPendingErasure: ElementsPendingErasure = new Set();
 
   public flowChartCreator: FlowChartCreator = new FlowChartCreator();
   private flowChartNavigator: FlowChartNavigator = new FlowChartNavigator();
 
-  hitLinkElement?: NonDeletedExcalidrawElement;
+  hitLinkElement?: NonDeletedCanvasEditorElement;
   lastPointerDownEvent: React.PointerEvent<HTMLElement> | null = null;
   lastPointerUpEvent: React.PointerEvent<HTMLElement> | PointerEvent | null =
     null;
@@ -633,7 +636,7 @@ class App extends React.Component<AppProps, AppState> {
 
   onChangeEmitter = new Emitter<
     [
-      elements: readonly ExcalidrawElement[],
+      elements: readonly CanvasEditorElement[],
       appState: AppState,
       files: BinaryFiles,
     ]
@@ -668,7 +671,7 @@ class App extends React.Component<AppProps, AppState> {
     super(props);
     const defaultAppState = getDefaultAppState();
     const {
-      excalidrawAPI,
+      canvasAPI,
       viewModeEnabled = false,
       zenModeEnabled = false,
       gridModeEnabled = false,
@@ -708,8 +711,31 @@ class App extends React.Component<AppProps, AppState> {
     this.store = new Store();
     this.history = new History();
 
-    if (excalidrawAPI) {
-      const api: ExcalidrawImperativeAPI = {
+    if (canvasAPI) {
+      const api: CanvasEditorImperativeAPI = {
+        applyCanvasEdit: (operations, sourceElements, imageFiles) => {
+          const result = applyCanvasEdit({
+            elements: this.scene.getElementsIncludingDeleted(),
+            appState: this.state,
+            files: this.files,
+            operations,
+            sourceElements,
+            imageFiles,
+          });
+          if (!result.ok || result.changed === false || !result.elements) return result;
+          if (result.filesToAdd?.length) {
+            const { addedFiles } = this.addMissingFiles(result.filesToAdd);
+            this.clearImageShapeCache(addedFiles);
+          }
+          this.updateScene({
+            elements: result.elements,
+            ...(result.appState ? { appState: { ...this.state, ...result.appState } } : {}),
+            captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+          });
+          if (result.filesToAdd?.length) void this.addNewImagesToImageCache();
+          const { filesToAdd: _filesToAdd, ...outcome } = result;
+          return outcome;
+        },
         updateScene: this.updateScene,
         replaceScene: this.replaceScene,
         updateLibrary: this.library.updateLibrary,
@@ -742,15 +768,15 @@ class App extends React.Component<AppProps, AppState> {
         onScrollChange: (cb) => this.onScrollChangeEmitter.on(cb),
         onUserFollow: (cb) => this.onUserFollowEmitter.on(cb),
       } as const;
-      if (typeof excalidrawAPI === "function") {
-        excalidrawAPI(api);
+      if (typeof canvasAPI === "function") {
+        canvasAPI(api);
       } else {
-        console.error("excalidrawAPI should be a function!");
+        console.error("canvasAPI should be a function!");
       }
     }
 
-    this.excalidrawContainerValue = {
-      container: this.excalidrawContainerRef.current,
+    this.canvasContainerValue = {
+      container: this.canvasContainerRef.current,
       id: this.id,
     };
 
@@ -784,11 +810,11 @@ class App extends React.Component<AppProps, AppState> {
 
     switch (event.origin) {
       case "https://player.vimeo.com":
-        //Allowing for multiple instances of Excalidraw running in the window
+        //Allowing for multiple instances of CanvasEditor running in the window
         if (data.method === "paused") {
           let source: Window | null = null;
           const iframes = document.body.querySelectorAll(
-            "iframe.excalidraw__embeddable",
+            "iframe.agent-canvas__embeddable",
           );
           if (!iframes) {
             break;
@@ -830,7 +856,7 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   private cacheEmbeddableRef(
-    element: ExcalidrawIframeLikeElement,
+    element: CanvasEditorIframeLikeElement,
     ref: HTMLIFrameElement | null,
   ) {
     if (ref) {
@@ -849,12 +875,12 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private getHTMLIFrameElement(
-    element: ExcalidrawIframeLikeElement,
+    element: CanvasEditorIframeLikeElement,
   ): HTMLIFrameElement | undefined {
     return this.iFrameRefs.get(element.id);
   }
 
-  private handleEmbeddableCenterClick(element: ExcalidrawIframeLikeElement) {
+  private handleEmbeddableCenterClick(element: CanvasEditorIframeLikeElement) {
     if (
       this.state.activeEmbeddable?.element === element &&
       this.state.activeEmbeddable?.state === "active"
@@ -934,7 +960,7 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   private isIframeLikeElementCenter(
-    el: ExcalidrawIframeLikeElement | null,
+    el: CanvasEditorIframeLikeElement | null,
     event: React.PointerEvent<HTMLElement> | PointerEvent,
     sceneX: number,
     sceneY: number,
@@ -956,7 +982,7 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   private updateEmbedValidationStatus = (
-    element: ExcalidrawEmbeddableElement,
+    element: CanvasEditorEmbeddableElement,
     status: boolean,
   ) => {
     this.embedsValidationStatus.set(element.id, status);
@@ -964,7 +990,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private updateEmbeddables = () => {
-    const iframeLikes = new Set<ExcalidrawIframeLikeElement["id"]>();
+    const iframeLikes = new Set<CanvasEditorIframeLikeElement["id"]>();
 
     let updated = false;
     this.scene.getNonDeletedElements().filter((element) => {
@@ -1006,7 +1032,7 @@ class App extends React.Component<AppProps, AppState> {
     const embeddableElements = this.scene
       .getNonDeletedElements()
       .filter(
-        (el): el is Ordered<NonDeleted<ExcalidrawIframeLikeElement>> =>
+        (el): el is Ordered<NonDeleted<CanvasEditorIframeLikeElement>> =>
           (isEmbeddableElement(el) &&
             this.embedsValidationStatus.get(el.id) === true) ||
           isIframeElement(el),
@@ -1189,7 +1215,7 @@ class App extends React.Component<AppProps, AppState> {
           return (
             <div
               key={el.id}
-              className={clsx("excalidraw__embeddable-container", {
+              className={clsx("agent-canvas__embeddable-container", {
                 "is-hovered": isHovered,
               })}
               style={{
@@ -1217,10 +1243,10 @@ class App extends React.Component<AppProps, AppState> {
               <div
                 // Preserve the embedded surface stacking order while the iframe is interactive.
                 /*ref={(ref) => {
-                  if (!this.excalidrawContainerRef.current) {
+                  if (!this.canvasContainerRef.current) {
                     return;
                   }
-                  const container = this.excalidrawContainerRef.current;
+                  const container = this.canvasContainerRef.current;
                   const sh = container.scrollHeight;
                   const ch = container.clientHeight;
                   if (sh !== ch) {
@@ -1230,7 +1256,7 @@ class App extends React.Component<AppProps, AppState> {
                     });
                   }
                 }}*/
-                className="excalidraw__embeddable-container__inner"
+                className="agent-canvas__embeddable-container__inner"
                 style={{
                   width: isVisible ? `${el.width}px` : 0,
                   height: isVisible ? `${el.height}px` : 0,
@@ -1241,12 +1267,12 @@ class App extends React.Component<AppProps, AppState> {
                 }}
               >
                 {isHovered && (
-                  <div className="excalidraw__embeddable-hint">
+                  <div className="agent-canvas__embeddable-hint">
                     {t("buttons.embeddableInteractionButton")}
                   </div>
                 )}
                 <div
-                  className="excalidraw__embeddable__outer"
+                  className="agent-canvas__embeddable__outer"
                   style={{
                     padding: `${el.strokeWidth}px`,
                   }}
@@ -1256,7 +1282,7 @@ class App extends React.Component<AppProps, AppState> {
                     : null) ?? (
                     <iframe
                       ref={(ref) => this.cacheEmbeddableRef(el, ref)}
-                      className="excalidraw__embeddable"
+                      className="agent-canvas__embeddable"
                       srcDoc={
                         src?.type === "document"
                           ? src.srcdoc(this.state.theme)
@@ -1268,7 +1294,7 @@ class App extends React.Component<AppProps, AppState> {
                       // https://stackoverflow.com/q/18470015
                       scrolling="no"
                       referrerPolicy="no-referrer-when-downgrade"
-                      title="Excalidraw Embedded Content"
+                      title="CanvasEditor Embedded Content"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                       allowFullScreen={true}
                       sandbox={`${
@@ -1285,7 +1311,7 @@ class App extends React.Component<AppProps, AppState> {
     );
   }
 
-  private getFrameNameDOMId = (frameElement: ExcalidrawElement) => {
+  private getFrameNameDOMId = (frameElement: CanvasEditorElement) => {
     return `${this.id}-frame-name-${frameElement.id}`;
   };
 
@@ -1337,7 +1363,7 @@ class App extends React.Component<AppProps, AppState> {
     _cache: new Map(),
   };
 
-  private resetEditingFrame = (frame: ExcalidrawFrameLikeElement | null) => {
+  private resetEditingFrame = (frame: CanvasEditorFrameLikeElement | null) => {
     if (frame) {
       mutateElement(frame, { name: frame.name?.trim() || null });
     }
@@ -1532,11 +1558,10 @@ class App extends React.Component<AppProps, AppState> {
 
     return (
       <div
-        className={clsx("excalidraw excalidraw-container", {
-          "excalidraw--view-mode":
+        className={clsx("agent-canvas agent-canvas-container", {
+          "agent-canvas--view-mode":
             this.state.viewModeEnabled ||
             this.state.openDialog?.name === "elementLinkSelector",
-          "excalidraw--mobile": this.device.editor.isMobile,
         })}
         style={{
           ["--ui-pointerEvents" as any]: shouldBlockPointerEvents
@@ -1544,7 +1569,7 @@ class App extends React.Component<AppProps, AppState> {
             : POINTER_EVENTS.enabled,
           ["--right-sidebar-width" as any]: "302px",
         }}
-        ref={this.excalidrawContainerRef}
+        ref={this.canvasContainerRef}
         onDrop={this.handleAppOnDrop}
         tabIndex={0}
         onKeyDown={
@@ -1555,16 +1580,16 @@ class App extends React.Component<AppProps, AppState> {
       >
         <AppContext.Provider value={this}>
           <AppPropsContext.Provider value={this.props}>
-            <ExcalidrawContainerContext.Provider
-              value={this.excalidrawContainerValue}
+            <CanvasEditorContainerContext.Provider
+              value={this.canvasContainerValue}
             >
               <DeviceContext.Provider value={this.device}>
-                <ExcalidrawSetAppStateContext.Provider value={this.setAppState}>
-                  <ExcalidrawAppStateContext.Provider value={this.state}>
-                    <ExcalidrawElementsContext.Provider
+                <CanvasEditorSetAppStateContext.Provider value={this.setAppState}>
+                  <CanvasEditorAppStateContext.Provider value={this.state}>
+                    <CanvasEditorElementsContext.Provider
                       value={this.scene.getNonDeletedElements()}
                     >
-                      <ExcalidrawActionManagerContext.Provider
+                      <CanvasEditorActionManagerContext.Provider
                         value={this.actionManager}
                       >
                         <LayerUI
@@ -1583,6 +1608,7 @@ class App extends React.Component<AppProps, AppState> {
                           onLockToggle={this.toggleLock}
                           onPenModeToggle={this.togglePenMode}
                           onHandToolToggle={this.onHandToolToggle}
+                          temporaryHandActive={this.temporaryHandActive}
                           langCode={getLanguage().code}
                           renderTopRightUI={renderTopRightUI}
                           renderCustomStats={renderCustomStats}
@@ -1601,9 +1627,9 @@ class App extends React.Component<AppProps, AppState> {
                           {this.props.children}
                         </LayerUI>
 
-                        <div className="excalidraw-textEditorContainer" />
-                        <div className="excalidraw-contextMenuContainer" />
-                        <div className="excalidraw-eye-dropper-container" />
+                        <div className="agent-canvas-textEditorContainer" />
+                        <div className="agent-canvas-contextMenuContainer" />
+                        <div className="agent-canvas-eye-dropper-container" />
                         <SVGLayer trails={[this.eraserTrail]} />
                         {selectedElements.length === 1 &&
                           this.state.openDialog?.name !==
@@ -1758,7 +1784,7 @@ class App extends React.Component<AppProps, AppState> {
                           />
                         )}
                         <InteractiveCanvas
-                          containerRef={this.excalidrawContainerRef}
+                          containerRef={this.canvasContainerRef}
                           canvas={this.interactiveCanvas}
                           elementsMap={elementsMap}
                           visibleElements={visibleElements}
@@ -1792,13 +1818,13 @@ class App extends React.Component<AppProps, AppState> {
                           />
                         )}
                         {this.renderFrameNames()}
-                      </ExcalidrawActionManagerContext.Provider>
+                      </CanvasEditorActionManagerContext.Provider>
                       {this.renderEmbeddables()}
-                    </ExcalidrawElementsContext.Provider>
-                  </ExcalidrawAppStateContext.Provider>
-                </ExcalidrawSetAppStateContext.Provider>
+                    </CanvasEditorElementsContext.Provider>
+                  </CanvasEditorAppStateContext.Provider>
+                </CanvasEditorSetAppStateContext.Provider>
               </DeviceContext.Provider>
-            </ExcalidrawContainerContext.Provider>
+            </CanvasEditorContainerContext.Provider>
           </AppPropsContext.Provider>
         </AppContext.Provider>
       </div>
@@ -1806,7 +1832,7 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   public focusContainer: AppClassProperties["focusContainer"] = () => {
-    this.excalidrawContainerRef.current?.focus();
+    this.canvasContainerRef.current?.focus();
   };
 
   public getSceneElementsIncludingDeleted = () => {
@@ -1817,7 +1843,7 @@ class App extends React.Component<AppProps, AppState> {
     return this.scene.getNonDeletedElements();
   };
 
-  public onInsertElements = (elements: readonly ExcalidrawElement[]) => {
+  public onInsertElements = (elements: readonly CanvasEditorElement[]) => {
     this.addElementsFromPasteOrLibrary({
       elements,
       position: "center",
@@ -1828,7 +1854,7 @@ class App extends React.Component<AppProps, AppState> {
   public onExportImage = async (
     type: keyof typeof EXPORT_IMAGE_TYPES,
     elements: ExportedElements,
-    opts: { exportingFrame: ExcalidrawFrameLikeElement | null },
+    opts: { exportingFrame: CanvasEditorFrameLikeElement | null },
   ) => {
     trackEvent("export", type, "ui");
     const fileHandle = await exportCanvas(
@@ -1859,7 +1885,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private magicGenerations = new Map<
-    ExcalidrawIframeElement["id"],
+    CanvasEditorIframeElement["id"],
     MagicGenerationData
   >();
 
@@ -1867,7 +1893,7 @@ class App extends React.Component<AppProps, AppState> {
     frameElement,
     data,
   }: {
-    frameElement: ExcalidrawIframeElement;
+    frameElement: CanvasEditorIframeElement;
     data: MagicGenerationData;
   }) => {
     if (data.status === "pending") {
@@ -1902,7 +1928,7 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   private async onMagicFrameGenerate(
-    magicFrame: ExcalidrawMagicFrameElement,
+    magicFrame: CanvasEditorMagicFrameElement,
     source: "button" | "upstream",
   ) {
     const generateDiagramToCode = this.plugins.diagramToCode?.generate;
@@ -1995,7 +2021,7 @@ class App extends React.Component<AppProps, AppState> {
     }
   }
 
-  private onIframeSrcCopy(element: ExcalidrawIframeElement) {
+  private onIframeSrcCopy(element: CanvasEditorIframeElement) {
     if (element.customData?.generationData?.status === "done") {
       copyTextToSystemClipboard(element.customData.generationData.html);
       this.setToast({
@@ -2015,7 +2041,7 @@ class App extends React.Component<AppProps, AppState> {
       this.setActiveTool({ type: TOOL_TYPE.magicframe });
       trackEvent("ai", "tool-select (empty-selection)", "d2c");
     } else {
-      const selectedMagicFrame: ExcalidrawMagicFrameElement | false =
+      const selectedMagicFrame: CanvasEditorMagicFrameElement | false =
         selectedElements.length === 1 &&
         isMagicFrameElement(selectedElements[0]) &&
         selectedElements[0];
@@ -2033,7 +2059,7 @@ class App extends React.Component<AppProps, AppState> {
 
       trackEvent("ai", "tool-select (existing selection)", "d2c");
 
-      let frame: ExcalidrawMagicFrameElement;
+      let frame: CanvasEditorMagicFrameElement;
       if (selectedMagicFrame) {
         // a single magicframe already selected -> use it
         frame = selectedMagicFrame;
@@ -2170,6 +2196,8 @@ class App extends React.Component<AppProps, AppState> {
 
   private onBlur = withBatchedUpdates(() => {
     isHoldingSpace = false;
+    this.temporaryHandPending = false;
+    this.setTemporaryHandActive(false);
     this.setState({ isBindingEnabled: true });
   });
 
@@ -2213,6 +2241,8 @@ class App extends React.Component<AppProps, AppState> {
       appState: Partial<AppState>;
       files: BinaryFiles;
     }) => {
+      this.temporaryHandPending = false;
+      this.setTemporaryHandActive(false);
       this.documentEpoch += 1;
       this.resetStore();
       this.resetHistory();
@@ -2343,7 +2373,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private refreshViewportBreakpoints = () => {
-    const container = this.excalidrawContainerRef.current;
+    const container = this.canvasContainerRef.current;
     if (!container) {
       return;
     }
@@ -2366,7 +2396,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private refreshEditorBreakpoints = () => {
-    const container = this.excalidrawContainerRef.current;
+    const container = this.canvasContainerRef.current;
     if (!container) {
       return;
     }
@@ -2405,8 +2435,8 @@ class App extends React.Component<AppProps, AppState> {
 
   public async componentDidMount() {
     this.unmounted = false;
-    this.excalidrawContainerValue.container =
-      this.excalidrawContainerRef.current;
+    this.canvasContainerValue.container =
+      this.canvasContainerRef.current;
 
     if (import.meta.env.MODE === ENV.TEST || import.meta.env.DEV) {
       const setState = this.setState.bind(this);
@@ -2449,7 +2479,7 @@ class App extends React.Component<AppProps, AppState> {
     this.scene.onUpdate(this.triggerRender);
     this.addEventListeners();
 
-    if (this.props.autoFocus && this.excalidrawContainerRef.current) {
+    if (this.props.autoFocus && this.canvasContainerRef.current) {
       this.focusContainer();
     }
 
@@ -2463,12 +2493,12 @@ class App extends React.Component<AppProps, AppState> {
       this.refreshEditorBreakpoints();
     }
 
-    if (supportsResizeObserver && this.excalidrawContainerRef.current) {
+    if (supportsResizeObserver && this.canvasContainerRef.current) {
       this.resizeObserver = new ResizeObserver(() => {
         this.refreshEditorBreakpoints();
         this.updateDOMRect();
       });
-      this.resizeObserver?.observe(this.excalidrawContainerRef.current);
+      this.resizeObserver?.observe(this.canvasContainerRef.current);
     }
 
     const searchParams = new URLSearchParams(window.location.search.slice(1));
@@ -2489,6 +2519,8 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   public componentWillUnmount() {
+    this.temporaryHandActive = false;
+    this.temporaryHandPending = false;
     (window as any).launchQueue?.setConsumer(() => {});
     this.renderer.destroy();
     this.scene.destroy();
@@ -2558,7 +2590,7 @@ class App extends React.Component<AppProps, AppState> {
 
     this.onRemoveEventListenersEmitter.once(
       addEventListener(
-        this.excalidrawContainerRef.current,
+        this.canvasContainerRef.current,
         EVENT.WHEEL,
         this.handleWheel,
         { passive: false },
@@ -2569,6 +2601,8 @@ class App extends React.Component<AppProps, AppState> {
       }), // #3553
       addEventListener(document, EVENT.COPY, this.onCopy, { passive: false }),
       addEventListener(document, EVENT.KEYUP, this.onKeyUp, { passive: true }),
+      addEventListener(document, EVENT.KEYDOWN, this.onTemporaryHandKeyDown, false),
+      addEventListener(window, EVENT.POINTER_UP, this.onTemporaryHandPointerUp, false),
       addEventListener(
         document,
         EVENT.POINTER_MOVE,
@@ -2640,19 +2674,19 @@ class App extends React.Component<AppProps, AppState> {
       addEventListener(window, EVENT.UNLOAD, this.onUnload, false),
       addEventListener(window, EVENT.BLUR, this.onBlur, false),
       addEventListener(
-        this.excalidrawContainerRef.current,
+        this.canvasContainerRef.current,
         EVENT.WHEEL,
         this.handleWheel,
         { passive: false },
       ),
       addEventListener(
-        this.excalidrawContainerRef.current,
+        this.canvasContainerRef.current,
         EVENT.DRAG_OVER,
         this.disableEvent,
         false,
       ),
       addEventListener(
-        this.excalidrawContainerRef.current,
+        this.canvasContainerRef.current,
         EVENT.DROP,
         this.disableEvent,
         false,
@@ -2662,7 +2696,7 @@ class App extends React.Component<AppProps, AppState> {
     if (this.props.detectScroll) {
       this.onRemoveEventListenersEmitter.once(
         addEventListener(
-          getNearestScrollableContainer(this.excalidrawContainerRef.current!),
+          getNearestScrollableContainer(this.canvasContainerRef.current!),
           EVENT.SCROLL,
           this.onScroll,
           { passive: false },
@@ -2788,7 +2822,7 @@ class App extends React.Component<AppProps, AppState> {
       this.setState({ theme: this.props.theme });
     }
 
-    this.excalidrawContainerRef.current?.classList.toggle(
+    this.canvasContainerRef.current?.classList.toggle(
       "theme--dark",
       this.state.theme === THEME.DARK,
     );
@@ -2889,7 +2923,7 @@ class App extends React.Component<AppProps, AppState> {
         );
         targetElement =
           getClosestElementToPoint(
-            Array.from(elementsMap.values()) as NonDeletedExcalidrawElement[],
+            Array.from(elementsMap.values()) as NonDeletedCanvasEditorElement[],
             elementsMap,
             viewportCenter,
           ) ?? undefined;
@@ -2936,10 +2970,10 @@ class App extends React.Component<AppProps, AppState> {
   // Copy/paste
 
   private onCut = withBatchedUpdates((event: ClipboardEvent) => {
-    const isExcalidrawActive = this.excalidrawContainerRef.current?.contains(
+    const isCanvasEditorActive = this.canvasContainerRef.current?.contains(
       document.activeElement,
     );
-    if (!isExcalidrawActive || isWritableElement(event.target)) {
+    if (!isCanvasEditorActive || isWritableElement(event.target)) {
       return;
     }
     this.actionManager.executeAction(actionCut, "keyboard", event);
@@ -2948,10 +2982,10 @@ class App extends React.Component<AppProps, AppState> {
   });
 
   private onCopy = withBatchedUpdates((event: ClipboardEvent) => {
-    const isExcalidrawActive = this.excalidrawContainerRef.current?.contains(
+    const isCanvasEditorActive = this.canvasContainerRef.current?.contains(
       document.activeElement,
     );
-    if (!isExcalidrawActive || isWritableElement(event.target)) {
+    if (!isCanvasEditorActive || isWritableElement(event.target)) {
       return;
     }
     this.actionManager.executeAction(actionCopy, "keyboard", event);
@@ -3020,9 +3054,9 @@ class App extends React.Component<AppProps, AppState> {
 
       // #686
       const target = document.activeElement;
-      const isExcalidrawActive =
-        this.excalidrawContainerRef.current?.contains(target);
-      if (event && !isExcalidrawActive) {
+      const isCanvasEditorActive =
+        this.canvasContainerRef.current?.contains(target);
+      if (event && !isCanvasEditorActive) {
         return;
       }
 
@@ -3112,11 +3146,11 @@ class App extends React.Component<AppProps, AppState> {
       } else if (data.elements) {
         const elements = (
           data.programmaticAPI
-            ? convertToExcalidrawElements(
-                data.elements as ExcalidrawElementSkeleton[],
+            ? convertToCanvasEditorElements(
+                data.elements as CanvasEditorElementSkeleton[],
               )
             : data.elements
-        ) as readonly ExcalidrawElement[];
+        ) as readonly CanvasEditorElement[];
         // TODO remove formatting from elements if isPlainPaste
         this.addElementsFromPasteOrLibrary({
           elements,
@@ -3147,9 +3181,9 @@ class App extends React.Component<AppProps, AppState> {
           // urls, ignore and paste as text
           embbeddableUrls.length === nonEmptyLines.length
         ) {
-          const embeddables: NonDeleted<ExcalidrawEmbeddableElement>[] = [];
+          const embeddables: NonDeleted<CanvasEditorEmbeddableElement>[] = [];
           for (const url of embbeddableUrls) {
-            const prevEmbeddable: ExcalidrawEmbeddableElement | undefined =
+            const prevEmbeddable: CanvasEditorEmbeddableElement | undefined =
               embeddables[embeddables.length - 1];
             const embeddable = this.insertEmbeddableElement({
               sceneX: prevEmbeddable
@@ -3179,7 +3213,7 @@ class App extends React.Component<AppProps, AppState> {
   );
 
   addElementsFromPasteOrLibrary = (opts: {
-    elements: readonly ExcalidrawElement[];
+    elements: readonly CanvasEditorElement[];
     files: BinaryFiles | null;
     position: { clientX: number; clientY: number } | "cursor" | "center";
     retainSeed?: boolean;
@@ -3303,7 +3337,7 @@ class App extends React.Component<AppProps, AppState> {
           {
             editingGroupId: null,
             selectedElementIds: nextElementsToSelect.reduce(
-              (acc: Record<ExcalidrawElement["id"], true>, element) => {
+              (acc: Record<CanvasEditorElement["id"], true>, element) => {
                 if (!isBoundToContainer(element)) {
                   acc[element.id] = true;
                 }
@@ -3368,7 +3402,7 @@ class App extends React.Component<AppProps, AppState> {
       );
       let y = sceneY;
       let firstImageYOffsetDone = false;
-      const nextSelectedIds: Record<ExcalidrawElement["id"], true> = {};
+      const nextSelectedIds: Record<CanvasEditorElement["id"], true> = {};
       for (const response of responses) {
         if (response.file) {
           const imageElement = this.createImageElement({
@@ -3592,12 +3626,12 @@ class App extends React.Component<AppProps, AppState> {
      * target to scroll to
      *
      * - string - id of element or group, or url containing elementLink
-     * - ExcalidrawElement | ExcalidrawElement[] - element(s) objects
+     * - CanvasEditorElement | CanvasEditorElement[] - element(s) objects
      */
     target:
       | string
-      | ExcalidrawElement
-      | readonly ExcalidrawElement[] = this.scene.getNonDeletedElements(),
+      | CanvasEditorElement
+      | readonly CanvasEditorElement[] = this.scene.getNonDeletedElements(),
     opts?: (
       | {
           fitToContent?: boolean;
@@ -3652,7 +3686,7 @@ class App extends React.Component<AppProps, AppState> {
 
     this.cancelInProgressAnimation?.();
 
-    // convert provided target into ExcalidrawElement[] if necessary
+    // convert provided target into CanvasEditorElement[] if necessary
     const targetElements = Array.isArray(target) ? target : [target];
 
     let zoom = this.state.zoom;
@@ -3775,7 +3809,7 @@ class App extends React.Component<AppProps, AppState> {
    * adds supplied files to existing files in the appState.
    * NOTE if file already exists in editor state, the file data is not updated
    * */
-  public addFiles: ExcalidrawImperativeAPI["addFiles"] = withBatchedUpdates(
+  public addFiles: CanvasEditorImperativeAPI["addFiles"] = withBatchedUpdates(
     (files) => {
       const { addedFiles } = this.addMissingFiles(files);
 
@@ -3946,13 +3980,13 @@ class App extends React.Component<AppProps, AppState> {
   );
 
   public getEditorUIOffsets = (): Offsets => {
-    const container = this.excalidrawContainerRef?.current;
+    const container = this.canvasContainerRef?.current;
     const containerRect = container?.getBoundingClientRect();
     const toolbarTop = container
       ?.querySelector(".layer-ui__wrapper > .shapes-section--bottom")
       ?.getBoundingClientRect().top;
     const footerTop = container
-      ?.querySelector(".App-menu_bottom, .App-bottom-bar footer")
+      ?.querySelector(".App-menu_bottom")
       ?.getBoundingClientRect().top;
     const sidebarRect = container?.querySelector(".sidebar")?.getBoundingClientRect();
     const PADDING = 16;
@@ -3990,6 +4024,50 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   // Input handling
+  private setTemporaryHandActive = (active: boolean) => {
+    if (this.temporaryHandActive === active) return;
+    this.temporaryHandActive = active;
+    if (!isPanning) {
+      if (active || isHoldingSpace || isHandToolActive(this.state) || this.state.viewModeEnabled) {
+        setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
+      } else {
+        setCursorForShape(this.interactiveCanvas, this.state);
+      }
+    }
+    this.forceUpdate();
+  };
+
+  private onTemporaryHandKeyDown = (event: KeyboardEvent) => {
+    if (
+      event.key !== "Meta" ||
+      event.repeat ||
+      this.state.editingTextElement ||
+      isWritableElement(event.target)
+    ) {
+      return;
+    }
+    const container = this.canvasContainerRef.current;
+    if (container && (container.matches(":hover") || container.contains(document.activeElement))) {
+      if (this.state.cursorButton === "down") {
+        this.temporaryHandPending = true;
+        return;
+      }
+      this.setTemporaryHandActive(true);
+    }
+  };
+
+  private onTemporaryHandPointerUp = (event: PointerEvent) => {
+    if (!this.temporaryHandPending) return;
+    this.temporaryHandPending = false;
+    if (event.metaKey) {
+      queueMicrotask(() => {
+        if (!this.unmounted && this.canvasContainerRef.current?.matches(":hover")) {
+          this.setTemporaryHandActive(true);
+        }
+      });
+    }
+  };
+
   private onKeyDown = withBatchedUpdates(
     (event: React.KeyboardEvent | KeyboardEvent) => {
       // normalize `event.key` when CapsLock is pressed #2372
@@ -4255,7 +4333,7 @@ class App extends React.Component<AppProps, AppState> {
         });
 
         const elbowArrow = selectedElements.find(isElbowArrow) as
-          | ExcalidrawArrowElement
+          | CanvasEditorArrowElement
           | undefined;
 
         const arrowIdsToRemove = new Set<string>();
@@ -4358,7 +4436,7 @@ class App extends React.Component<AppProps, AppState> {
           ) {
             let container;
             if (!isTextElement(selectedElement)) {
-              container = selectedElement as ExcalidrawTextContainer;
+              container = selectedElement as CanvasEditorTextContainer;
             }
             const midPoint = getContainerCenter(
               selectedElement,
@@ -4433,8 +4511,14 @@ class App extends React.Component<AppProps, AppState> {
   );
 
   private onKeyUp = withBatchedUpdates((event: KeyboardEvent) => {
+    if (event.key === "Meta") {
+      this.temporaryHandPending = false;
+      this.setTemporaryHandActive(false);
+    }
     if (event.key === KEYS.SPACE) {
-      if (
+      if (this.temporaryHandActive) {
+        setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
+      } else if (
         this.state.viewModeEnabled ||
         this.state.openDialog?.name === "elementLinkSelector"
       ) {
@@ -4559,7 +4643,7 @@ class App extends React.Component<AppProps, AppState> {
     const nextActiveTool = updateActiveTool(this.state, tool);
     if (nextActiveTool.type === "hand") {
       setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
-    } else if (!isHoldingSpace) {
+    } else if (!isHoldingSpace && !this.temporaryHandActive) {
       setCursorForShape(this.interactiveCanvas, {
         ...this.state,
         activeTool: nextActiveTool,
@@ -4704,7 +4788,7 @@ class App extends React.Component<AppProps, AppState> {
   });
 
   private handleTextWysiwyg(
-    element: ExcalidrawTextElement,
+    element: CanvasEditorTextElement,
     {
       isExistingElement = false,
     }: {
@@ -4806,7 +4890,7 @@ class App extends React.Component<AppProps, AppState> {
         this.focusContainer();
       }),
       element,
-      excalidrawContainer: this.excalidrawContainerRef.current,
+      canvasContainer: this.canvasContainerRef.current,
       app: this,
       // when text is selected, it's hard (at least on iOS) to re-position the
       // caret (i.e. deselect). There's not much use for always selecting
@@ -4834,7 +4918,7 @@ class App extends React.Component<AppProps, AppState> {
   private getTextElementAtPosition(
     x: number,
     y: number,
-  ): NonDeleted<ExcalidrawTextElement> | null {
+  ): NonDeleted<CanvasEditorTextElement> | null {
     const element = this.getElementAtPosition(x, y, {
       includeBoundTextElement: true,
     });
@@ -4852,7 +4936,7 @@ class App extends React.Component<AppProps, AppState> {
       includeBoundTextElement?: boolean;
       includeLockedElements?: boolean;
     },
-  ): NonDeleted<ExcalidrawElement> | null {
+  ): NonDeleted<CanvasEditorElement> | null {
     const allHitElements = this.getElementsAtPosition(
       x,
       y,
@@ -4903,8 +4987,8 @@ class App extends React.Component<AppProps, AppState> {
     y: number,
     includeBoundTextElement: boolean = false,
     includeLockedElements: boolean = false,
-  ): NonDeleted<ExcalidrawElement>[] {
-    const iframeLikes: Ordered<ExcalidrawIframeElement>[] = [];
+  ): NonDeleted<CanvasEditorElement>[] {
+    const iframeLikes: Ordered<CanvasEditorIframeElement>[] = [];
 
     const elementsMap = this.scene.getNonDeletedElementsMap();
 
@@ -4941,7 +5025,7 @@ class App extends React.Component<AppProps, AppState> {
         }
         return true;
       })
-      .concat(iframeLikes) as NonDeleted<ExcalidrawElement>[];
+      .concat(iframeLikes) as NonDeleted<CanvasEditorElement>[];
 
     return elements;
   }
@@ -4953,7 +5037,7 @@ class App extends React.Component<AppProps, AppState> {
   private hitElement(
     x: number,
     y: number,
-    element: ExcalidrawElement,
+    element: CanvasEditorElement,
     considerBoundingBox = true,
   ) {
     // if the element is selected, then hit test is done against its bounding box
@@ -5052,7 +5136,7 @@ class App extends React.Component<AppProps, AppState> {
     sceneY: number;
     /** whether to attempt to insert at element center if applicable */
     insertAtParentCenter?: boolean;
-    container?: ExcalidrawTextContainer | null;
+    container?: CanvasEditorTextContainer | null;
     autoEdit?: boolean;
   }) => {
     let shouldBindToContainer = false;
@@ -5074,7 +5158,7 @@ class App extends React.Component<AppProps, AppState> {
         shouldBindToContainer = true;
       }
     }
-    let existingTextElement: NonDeleted<ExcalidrawTextElement> | null = null;
+    let existingTextElement: NonDeleted<CanvasEditorTextElement> | null = null;
 
     const selectedElements = this.scene.getSelectedElements(this.state);
 
@@ -5198,7 +5282,7 @@ class App extends React.Component<AppProps, AppState> {
     }
   };
 
-  private startImageCropping = (image: ExcalidrawImageElement) => {
+  private startImageCropping = (image: CanvasEditorImageElement) => {
     this.store.shouldCaptureIncrement();
     this.setState({
       croppingElementId: image.id,
@@ -5392,8 +5476,8 @@ class App extends React.Component<AppProps, AppState> {
 
   private getElementLinkAtPosition = (
     scenePointer: Readonly<{ x: number; y: number }>,
-    hitElement: NonDeletedExcalidrawElement | null,
-  ): ExcalidrawElement | undefined => {
+    hitElement: NonDeletedCanvasEditorElement | null,
+  ): CanvasEditorElement | undefined => {
     const elements = this.scene.getNonDeletedElements();
     let hitElementIndex = -1;
 
@@ -5465,7 +5549,7 @@ class App extends React.Component<AppProps, AppState> {
         url = normalizeLink(url);
         let customEvent;
         if (this.props.onLinkOpen) {
-          customEvent = wrapEvent(EVENT.EXCALIDRAW_LINK, event.nativeEvent);
+          customEvent = wrapEvent(EVENT.CANVAS_LINK, event.nativeEvent);
           this.props.onLinkOpen(
             {
               ...this.hitLinkElement,
@@ -5494,7 +5578,7 @@ class App extends React.Component<AppProps, AppState> {
     const elementsMap = this.scene.getNonDeletedElementsMap();
     const frames = this.scene
       .getNonDeletedFramesLikes()
-      .filter((frame): frame is ExcalidrawFrameLikeElement =>
+      .filter((frame): frame is CanvasEditorFrameLikeElement =>
         isCursorInFrame(sceneCoords, frame, elementsMap),
       );
 
@@ -5566,6 +5650,7 @@ class App extends React.Component<AppProps, AppState> {
 
     if (
       isHoldingSpace ||
+      this.temporaryHandActive ||
       isPanning ||
       isDraggingScrollBar ||
       isHandToolActive(this.state)
@@ -6004,10 +6089,10 @@ class App extends React.Component<AppProps, AppState> {
 
     let didChange = false;
 
-    const processedGroups = new Set<ExcalidrawElement["id"]>();
+    const processedGroups = new Set<CanvasEditorElement["id"]>();
     const nonDeletedElements = this.scene.getNonDeletedElements();
 
-    const processElements = (elements: ExcalidrawElement[]) => {
+    const processElements = (elements: CanvasEditorElement[]) => {
       for (const element of elements) {
         if (element.locked) {
           return;
@@ -6236,7 +6321,7 @@ class App extends React.Component<AppProps, AppState> {
       this.state.newElement &&
       this.state.newElement.type === "freedraw"
     ) {
-      const element = this.state.newElement as ExcalidrawFreeDrawElement;
+      const element = this.state.newElement as CanvasEditorFreeDrawElement;
       this.updateScene({
         ...(element.points.length < 10
           ? {
@@ -6432,7 +6517,7 @@ class App extends React.Component<AppProps, AppState> {
       }
 
       this.setState({
-        newElement: pendingImageElement as ExcalidrawNonSelectionElement,
+        newElement: pendingImageElement as CanvasEditorNonSelectionElement,
         pendingImageElementId: null,
         multiElement: null,
       });
@@ -6631,8 +6716,7 @@ class App extends React.Component<AppProps, AppState> {
         (event.button === POINTER_BUTTON.WHEEL ||
           (event.button === POINTER_BUTTON.MAIN && isHoldingSpace) ||
           (event.button === POINTER_BUTTON.MAIN &&
-            this.state.activeTool.type === TOOL_TYPE.selection &&
-            event[KEYS.CTRL_OR_CMD]) ||
+            event.metaKey && !this.state.editingTextElement) ||
           isHandToolActive(this.state) ||
           this.state.viewModeEnabled)
       )
@@ -6712,7 +6796,7 @@ class App extends React.Component<AppProps, AppState> {
         lastPointerUp = null;
         isPanning = false;
         if (!isHoldingSpace) {
-          if (this.state.viewModeEnabled) {
+          if (this.temporaryHandActive || this.state.viewModeEnabled || isHandToolActive(this.state)) {
             setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
           } else {
             setCursorForShape(this.interactiveCanvas, this.state);
@@ -7096,7 +7180,7 @@ class App extends React.Component<AppProps, AppState> {
                   [hitElement.id]: true,
                 };
 
-                const previouslySelectedElements: ExcalidrawElement[] = [];
+                const previouslySelectedElements: CanvasEditorElement[] = [];
 
                 Object.keys(prevState.selectedElementIds).forEach((id) => {
                   const element = this.scene.getElement(id);
@@ -7208,13 +7292,13 @@ class App extends React.Component<AppProps, AppState> {
     return false;
   };
 
-  private isASelectedElement(hitElement: ExcalidrawElement | null): boolean {
+  private isASelectedElement(hitElement: CanvasEditorElement | null): boolean {
     return hitElement != null && this.state.selectedElementIds[hitElement.id];
   }
 
   private isHittingCommonBoundingBoxOfSelectedElements(
     point: Readonly<{ x: number; y: number }>,
-    selectedElements: readonly ExcalidrawElement[],
+    selectedElements: readonly CanvasEditorElement[],
   ): boolean {
     if (selectedElements.length < 2) {
       return false;
@@ -7252,7 +7336,7 @@ class App extends React.Component<AppProps, AppState> {
     let container = this.getTextBindableContainerAtPosition(sceneX, sceneY);
 
     if (hasBoundTextElement(element)) {
-      container = element as ExcalidrawTextContainer;
+      container = element as CanvasEditorTextContainer;
       sceneX = element.x + element.width / 2;
       sceneY = element.y + element.height / 2;
     }
@@ -7274,7 +7358,7 @@ class App extends React.Component<AppProps, AppState> {
 
   private handleFreeDrawElementOnPointerDown = (
     event: React.PointerEvent<HTMLElement>,
-    elementType: ExcalidrawFreeDrawElement["type"],
+    elementType: CanvasEditorFreeDrawElement["type"],
     pointerDownState: PointerDownState,
   ) => {
     // Begin a mark capture. This does not have to update state yet.
@@ -7479,7 +7563,7 @@ class App extends React.Component<AppProps, AppState> {
 
   private handleLinearElementOnPointerDown = (
     event: React.PointerEvent<HTMLElement>,
-    elementType: ExcalidrawLinearElement["type"],
+    elementType: CanvasEditorLinearElement["type"],
     pointerDownState: PointerDownState,
   ): void => {
     if (this.state.multiElement) {
@@ -7664,7 +7748,7 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   private createGenericElementOnPointerDown = (
-    elementType: ExcalidrawGenericElement["type"] | "embeddable",
+    elementType: CanvasEditorGenericElement["type"] | "embeddable",
     pointerDownState: PointerDownState,
   ): void => {
     const [gridX, gridY] = getGridPoint(
@@ -7756,7 +7840,7 @@ class App extends React.Component<AppProps, AppState> {
 
   private maybeCacheReferenceSnapPoints(
     event: KeyboardModifiersObject,
-    selectedElements: ExcalidrawElement[],
+    selectedElements: CanvasEditorElement[],
     recomputeAnyways: boolean = false,
   ) {
     if (
@@ -7780,7 +7864,7 @@ class App extends React.Component<AppProps, AppState> {
 
   private maybeCacheVisibleGaps(
     event: KeyboardModifiersObject,
-    selectedElements: ExcalidrawElement[],
+    selectedElements: CanvasEditorElement[],
     recomputeAnyways: boolean = false,
   ) {
     if (
@@ -8386,7 +8470,7 @@ class App extends React.Component<AppProps, AppState> {
               }
             }
 
-            let nextSceneElements: ExcalidrawElement[] = [
+            let nextSceneElements: CanvasEditorElement[] = [
               ...nextElements,
               ...elementsToAppend,
             ];
@@ -8574,7 +8658,7 @@ class App extends React.Component<AppProps, AppState> {
             const nextSelectedElementIds = {
               ...(shouldReuseSelection && prevState.selectedElementIds),
               ...elementsWithinSelection.reduce(
-                (acc: Record<ExcalidrawElement["id"], true>, element) => {
+                (acc: Record<CanvasEditorElement["id"], true>, element) => {
                   acc[element.id] = true;
                   return acc;
                 },
@@ -9054,7 +9138,7 @@ class App extends React.Component<AppProps, AppState> {
           let nextElements = this.scene.getElementsMapIncludingDeleted();
 
           const updateGroupIdsAfterEditingGroup = (
-            elements: ExcalidrawElement[],
+            elements: CanvasEditorElement[],
           ) => {
             if (elements.length > 0) {
               for (const element of elements) {
@@ -9161,7 +9245,7 @@ class App extends React.Component<AppProps, AppState> {
 
         const selectedFrames = this.scene
           .getSelectedElements(this.state)
-          .filter((element): element is ExcalidrawFrameLikeElement =>
+          .filter((element): element is CanvasEditorFrameLikeElement =>
             isFrameLikeElement(element),
           );
 
@@ -9562,7 +9646,7 @@ class App extends React.Component<AppProps, AppState> {
     showCursorImagePreview = false,
   }: {
     imageFile: File;
-    imageElement: ExcalidrawImageElement;
+    imageElement: CanvasEditorImageElement;
     showCursorImagePreview?: boolean;
   }) => {
     // at this point this should be guaranteed image file, but we do this check
@@ -9640,9 +9724,9 @@ class App extends React.Component<AppProps, AppState> {
         fileId,
       },
       false,
-    ) as NonDeleted<InitializedExcalidrawImageElement>;
+    ) as NonDeleted<InitializedCanvasEditorImageElement>;
 
-    return new Promise<NonDeleted<InitializedExcalidrawImageElement>>(
+    return new Promise<NonDeleted<InitializedCanvasEditorImageElement>>(
       async (resolve, reject) => {
         try {
           this.addMissingFiles([
@@ -9685,7 +9769,7 @@ class App extends React.Component<AppProps, AppState> {
    * inserts image into elements array and rerenders
    */
   insertImageElement = async (
-    imageElement: ExcalidrawImageElement,
+    imageElement: CanvasEditorImageElement,
     imageFile: File,
     showCursorImagePreview?: boolean,
   ) => {
@@ -9838,7 +9922,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   initializeImageDimensions = (
-    imageElement: ExcalidrawImageElement,
+    imageElement: CanvasEditorImageElement,
     forceNaturalSize = false,
   ) => {
     const image =
@@ -9898,7 +9982,7 @@ class App extends React.Component<AppProps, AppState> {
   /** updates image cache, refreshing updated elements and/or setting status
       to error for images that fail during <img> element creation */
   private updateImageCache = async (
-    elements: readonly InitializedExcalidrawImageElement[],
+    elements: readonly InitializedCanvasEditorImageElement[],
     files = this.files,
   ) => {
     const { updatedFiles, erroredFiles } = await _updateImageCache({
@@ -9934,7 +10018,7 @@ class App extends React.Component<AppProps, AppState> {
 
   /** adds new images to imageCache and re-renders if needed */
   private addNewImagesToImageCache = async (
-    imageElements: InitializedExcalidrawImageElement[] = getInitializedImageElements(
+    imageElements: InitializedCanvasEditorImageElement[] = getInitializedImageElements(
       this.scene.getNonDeletedElements(),
     ),
     files: BinaryFiles = this.files,
@@ -9991,7 +10075,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private maybeSuggestBindingsForLinearElementAtCoords = (
-    linearElement: NonDeleted<ExcalidrawLinearElement>,
+    linearElement: NonDeleted<CanvasEditorLinearElement>,
     /** scene coords */
     pointerCoords: {
       x: number;
@@ -9999,14 +10083,14 @@ class App extends React.Component<AppProps, AppState> {
     }[],
     // During line creation the start binding hasn't been written yet
     // into `linearElement`
-    oppositeBindingBoundElement?: ExcalidrawBindableElement | null,
+    oppositeBindingBoundElement?: CanvasEditorBindableElement | null,
   ): void => {
     if (!pointerCoords.length) {
       return;
     }
 
     const suggestedBindings = pointerCoords.reduce(
-      (acc: NonDeleted<ExcalidrawBindableElement>[], coords) => {
+      (acc: NonDeleted<CanvasEditorBindableElement>[], coords) => {
         const hoveredBindableElement = getHoveredElementForBinding(
           coords,
           this.scene.getNonDeletedElements(),
@@ -10033,7 +10117,7 @@ class App extends React.Component<AppProps, AppState> {
     this.setState({ suggestedBindings });
   };
 
-  private clearSelection(hitElement: ExcalidrawElement | null): void {
+  private clearSelection(hitElement: CanvasEditorElement | null): void {
     this.setState((prevState) => ({
       selectedElementIds: makeNextSelectedElementIds({}, prevState),
       activeEmbeddable: null,
@@ -10147,7 +10231,7 @@ class App extends React.Component<AppProps, AppState> {
       });
     }
 
-    const libraryJSON = event.dataTransfer.getData(MIME_TYPES.excalidrawlib);
+    const libraryJSON = event.dataTransfer.getData(MIME_TYPES.canvaslib);
     if (libraryJSON && typeof libraryJSON === "string") {
       try {
         const libraryItems = parseLibraryJSON(libraryJSON);
@@ -10227,7 +10311,7 @@ class App extends React.Component<AppProps, AppState> {
         return;
       }
 
-      if (ret.type === MIME_TYPES.excalidraw) {
+      if (ret.type === MIME_TYPES.canvas) {
         // restore the fractional indices by mutating elements
         syncInvalidIndices(elements.concat(ret.data.elements));
 
@@ -10244,7 +10328,7 @@ class App extends React.Component<AppProps, AppState> {
           replaceFiles: true,
           captureUpdate: CaptureUpdateAction.IMMEDIATELY,
         });
-      } else if (ret.type === MIME_TYPES.excalidrawlib) {
+      } else if (ret.type === MIME_TYPES.canvaslib) {
         await this.library
           .updateLibrary({
             libraryItems: file,
@@ -10292,7 +10376,7 @@ class App extends React.Component<AppProps, AppState> {
 
     const type = element || isHittingCommonBoundBox ? "element" : "canvas";
 
-    const container = this.excalidrawContainerRef.current!;
+    const container = this.canvasContainerRef.current!;
     const { top: offsetTop, left: offsetLeft } =
       container.getBoundingClientRect();
     const left = event.clientX - offsetLeft;
@@ -10430,7 +10514,7 @@ class App extends React.Component<AppProps, AppState> {
       this.setState({
         elementsToHighlight: getElementsInResizingFrame(
           this.scene.getNonDeletedElements(),
-          newElement as ExcalidrawFrameLikeElement,
+          newElement as CanvasEditorFrameLikeElement,
           this.state,
           this.scene.getNonDeletedElementsMap(),
         ),
@@ -10544,7 +10628,7 @@ class App extends React.Component<AppProps, AppState> {
   ): boolean => {
     const selectedElements = this.scene.getSelectedElements(this.state);
     const selectedFrames = selectedElements.filter(
-      (element): element is ExcalidrawFrameLikeElement =>
+      (element): element is CanvasEditorFrameLikeElement =>
         isFrameLikeElement(element),
     );
 
@@ -10657,7 +10741,7 @@ class App extends React.Component<AppProps, AppState> {
         this.state.zoom,
       );
 
-      const elementsToHighlight = new Set<ExcalidrawElement>();
+      const elementsToHighlight = new Set<CanvasEditorElement>();
       selectedFrames.forEach((frame) => {
         getElementsInResizingFrame(
           this.scene.getNonDeletedElements(),
@@ -10823,7 +10907,7 @@ class App extends React.Component<AppProps, AppState> {
     x: number,
     y: number,
     appState: AppState,
-    container?: ExcalidrawTextContainer | null,
+    container?: CanvasEditorTextContainer | null,
   ) {
     if (container) {
       let elementCenterX = container.x + container.width / 2;
@@ -10887,14 +10971,14 @@ class App extends React.Component<AppProps, AppState> {
   }, 300);
 
   private updateDOMRect = (cb?: () => void) => {
-    if (this.excalidrawContainerRef?.current) {
-      const excalidrawContainer = this.excalidrawContainerRef.current;
+    if (this.canvasContainerRef?.current) {
+      const canvasContainer = this.canvasContainerRef.current;
       const {
         width,
         height,
         left: offsetLeft,
         top: offsetTop,
-      } = excalidrawContainer.getBoundingClientRect();
+      } = canvasContainer.getBoundingClientRect();
       const {
         width: currentWidth,
         height: currentHeight,
@@ -10933,9 +11017,9 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private getCanvasOffsets(): Pick<AppState, "offsetTop" | "offsetLeft"> {
-    if (this.excalidrawContainerRef?.current) {
-      const excalidrawContainer = this.excalidrawContainerRef.current;
-      const { left, top } = excalidrawContainer.getBoundingClientRect();
+    if (this.canvasContainerRef?.current) {
+      const canvasContainer = this.canvasContainerRef.current;
+      const { left, top } = canvasContainer.getBoundingClientRect();
       return {
         offsetLeft: left,
         offsetTop: top,
@@ -10963,7 +11047,7 @@ declare global {
   interface Window {
     h: {
       scene: Scene;
-      elements: readonly ExcalidrawElement[];
+      elements: readonly CanvasEditorElement[];
       state: AppState;
       setState: React.Component<any, AppState>["setState"];
       app: InstanceType<typeof App>;
@@ -10983,7 +11067,7 @@ export const createTestHook = () => {
         get() {
           return this.app?.scene.getElementsIncludingDeleted();
         },
-        set(elements: ExcalidrawElement[]) {
+        set(elements: CanvasEditorElement[]) {
           return this.app?.scene.replaceAllElements(
             syncInvalidIndices(elements),
           );

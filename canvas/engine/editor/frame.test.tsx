@@ -1,5 +1,5 @@
-import type { ExcalidrawElement } from "./element/types";
-import { convertToExcalidrawElements, Excalidraw } from "./index";
+import type { CanvasEditorElement } from "./element/types";
+import { convertToCanvasEditorElements, CanvasEditor } from "./index";
 import { API } from "./tests/helpers/api";
 import { Keyboard, Pointer } from "./tests/helpers/ui";
 import { getCloneByOrigId, render } from "./tests/test-utils";
@@ -27,8 +27,8 @@ describe("adding elements to frames", () => {
   };
 
   function resizeFrameOverElement(
-    frame: ExcalidrawElement,
-    element: ExcalidrawElement,
+    frame: CanvasEditorElement,
+    element: CanvasEditorElement,
   ) {
     mouse.clickAt(0, 0);
     mouse.downAt(frame.x + frame.width, frame.y + frame.height);
@@ -40,8 +40,8 @@ describe("adding elements to frames", () => {
   }
 
   function dragElementIntoFrame(
-    frame: ExcalidrawElement,
-    element: ExcalidrawElement,
+    frame: CanvasEditorElement,
+    element: CanvasEditorElement,
   ) {
     mouse.clickAt(element.x, element.y);
     mouse.downAt(element.x + element.width / 2, element.y + element.height / 2);
@@ -50,7 +50,7 @@ describe("adding elements to frames", () => {
   }
 
   function selectElementAndDuplicate(
-    element: ExcalidrawElement,
+    element: CanvasEditorElement,
     moveTo: [number, number] = [element.x + 25, element.y + 25],
   ) {
     const [x, y] = [
@@ -65,20 +65,20 @@ describe("adding elements to frames", () => {
     });
   }
 
-  function expectEqualIds(expected: ExcalidrawElement[]) {
+  function expectEqualIds(expected: CanvasEditorElement[]) {
     expect(h.elements.map((x) => x.id)).toEqual(expected.map((x) => x.id));
   }
 
-  let frame: ExcalidrawElement;
-  let rect1: ExcalidrawElement;
-  let rect2: ExcalidrawElement;
-  let rect3: ExcalidrawElement;
-  let rect4: ExcalidrawElement;
-  let text: ExcalidrawElement;
-  let arrow: ExcalidrawElement;
+  let frame: CanvasEditorElement;
+  let rect1: CanvasEditorElement;
+  let rect2: CanvasEditorElement;
+  let rect3: CanvasEditorElement;
+  let rect4: CanvasEditorElement;
+  let text: CanvasEditorElement;
+  let arrow: CanvasEditorElement;
 
   beforeEach(async () => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
 
     frame = API.createElement({ id: "id0", type: "frame", x: 0, width: 150 });
     rect1 = API.createElement({
@@ -249,7 +249,7 @@ describe("adding elements to frames", () => {
     initialOrder: ElementType[],
     expectedOrder: ElementType[],
   ) => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
 
     const frame = API.createElement({ type: "frame", x: 0, y: 0 });
 
@@ -257,7 +257,7 @@ describe("adding elements to frames", () => {
       reorderElements(
         [
           frame,
-          ...convertToExcalidrawElements([
+          ...convertToCanvasEditorElements([
             {
               type: containerType,
               x: 100,

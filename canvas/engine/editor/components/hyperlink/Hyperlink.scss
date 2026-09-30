@@ -1,6 +1,6 @@
 @import "../../css/variables.module.scss";
 
-.excalidraw-hyperlinkContainer {
+.agent-canvas-hyperlinkContainer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -50,7 +50,7 @@
     color: $oc-blue-6;
     background-color: transparent !important;
     font-weight: 500;
-    &.excalidraw-hyperlinkContainer--remove {
+    &.agent-canvas-hyperlinkContainer--remove {
       color: $oc-red-9;
     }
   }

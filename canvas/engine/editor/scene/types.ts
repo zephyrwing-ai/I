@@ -1,9 +1,9 @@
 import type { RoughCanvas } from "roughjs/bin/canvas";
 import type { Drawable } from "roughjs/bin/core";
 import type {
-  ExcalidrawElement,
+  CanvasEditorElement,
   NonDeletedElementsMap,
-  NonDeletedExcalidrawElement,
+  NonDeletedCanvasEditorElement,
   NonDeletedSceneElementsMap,
 } from "../element/types";
 import type {
@@ -15,7 +15,7 @@ import type {
   StaticCanvasAppState,
   SocketId,
   Device,
-  PendingExcalidrawElements,
+  PendingCanvasEditorElements,
 } from "../types";
 import type { MakeBrand } from "../utility-types";
 import type { UserIdleState } from "../constants";
@@ -33,7 +33,7 @@ export type StaticCanvasRenderConfig = {
   isExporting: boolean;
   embedsValidationStatus: EmbedsValidationStatus;
   elementsPendingErasure: ElementsPendingErasure;
-  pendingFlowchartNodes: PendingExcalidrawElements | null;
+  pendingFlowchartNodes: PendingCanvasEditorElements | null;
 };
 
 export type SVGRenderConfig = {
@@ -57,7 +57,7 @@ export type SVGRenderConfig = {
 export type InteractiveCanvasRenderConfig = {
   // collab-related state
   // ---------------------------------------------------------------------------
-  remoteSelectedElementIds: Map<ExcalidrawElement["id"], SocketId[]>;
+  remoteSelectedElementIds: Map<CanvasEditorElement["id"], SocketId[]>;
   remotePointerViewportCoords: Map<SocketId, { x: number; y: number }>;
   remotePointerUserStates: Map<SocketId, UserIdleState>;
   remotePointerUsernames: Map<SocketId, string>;
@@ -79,7 +79,7 @@ export type StaticSceneRenderConfig = {
   rc: RoughCanvas;
   elementsMap: RenderableElementsMap;
   allElementsMap: NonDeletedSceneElementsMap;
-  visibleElements: readonly NonDeletedExcalidrawElement[];
+  visibleElements: readonly NonDeletedCanvasEditorElement[];
   scale: number;
   appState: StaticCanvasAppState;
   renderConfig: StaticCanvasRenderConfig;
@@ -88,8 +88,8 @@ export type StaticSceneRenderConfig = {
 export type InteractiveSceneRenderConfig = {
   canvas: HTMLCanvasElement | null;
   elementsMap: RenderableElementsMap;
-  visibleElements: readonly NonDeletedExcalidrawElement[];
-  selectedElements: readonly NonDeletedExcalidrawElement[];
+  visibleElements: readonly NonDeletedCanvasEditorElement[];
+  selectedElements: readonly NonDeletedCanvasEditorElement[];
   allElementsMap: NonDeletedSceneElementsMap;
   scale: number;
   appState: InteractiveCanvasAppState;
@@ -101,7 +101,7 @@ export type InteractiveSceneRenderConfig = {
 export type NewElementSceneRenderConfig = {
   canvas: HTMLCanvasElement | null;
   rc: RoughCanvas;
-  newElement: ExcalidrawElement | null;
+  newElement: CanvasEditorElement | null;
   elementsMap: RenderableElementsMap;
   allElementsMap: NonDeletedSceneElementsMap;
   scale: number;

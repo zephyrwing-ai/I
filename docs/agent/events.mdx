@@ -18,6 +18,8 @@ description: Agent 向宿主报告运行、回合、模型消息和工具调用�
 
 身份不能由数组位置、“最后一条消息”或显示顺序推导。事件允许异步到达，宿主仍应能够把结果归入原始运行对象。
 
+运行中输入使用独立 `inputId`：它标识一次补充文本提交，横向关联 Main 的持久化 ACK、Runtime 的应用事件与最终用户 entry。同一个 `runId` 可以包含多个 `inputId` 和多个 `turnId`。
+
 ## 事件协议
 
 Agent 发出以下事件：运行开始、回合开始、Assistant 正文增量、思考增量、回合重试、Assistant 完成、工具开始、工具完成、回合完成和运行完成。每类事件都携带 `runId`；回合事件还携带 `turnId`；重试事件携带当前与下一次 attempt；工具事件还携带 `toolCallId`。
@@ -40,6 +42,18 @@ AgentEvent 负责报告运行过程，HistoryRecorder 负责保存项目或无�
 - `onMessageFinalized` 由 HistoryRecorder 的 `commitUser`、`commitAssistant` 和 `commitToolResult` 取代。
 
 HistoryRecorder 的接口与写入规则由[项目历史存储](./memory.mdx)定义。Runner 的注入和 IPC 转发由[历史存储装配](../desktop/design/workbench/session-storage.mdx)定义。
+
+## 运行中输入事件契约
+
+`steer` IPC 的 ACK 由 Main 返回给发送方，携带 `runId`、`projectId`、`inputId`、`acceptOrder` 和 `acceptedAt`；它表示待处理输入已经持久化并绑定当前 run。ACK 是接收协议，AgentEvent `inputsApplied` 是实际模型上下文协议。
+
+Runtime 在安全边界完成同批输入的事务提交、内存上下文更新后发出 `inputsApplied`。事件携带 `runId`、按接收顺序排列的 `inputIds` 和 `startedAt`。`startedAt` 对应这一批用户消息实际注入下一次模型请求的时刻；后续 `turnStarted` 使用新的 `turnId`。同一模型回合的助手消息和工具结果先完成提交并发出对应事件，随后才出现 `inputsApplied`。
+
+每条 steer 提交拥有独立 `inputId`；同一安全边界应用的多条输入按 FIFO 顺序记录于 `inputsApplied.inputIds`。事件接收方依据 `inputId` 归并 ACK、应用结果与历史 entry，并依据原始 `turnId` 关联助手增量、完整消息和工具批次。
+
+Runner 在完成路径先通过 Recorder 为剩余已接收输入提交同 `inputId` 的 interrupted 用户 entries，并把队列状态更新为 `unapplied`，随后发出唯一 `runCompleted`。事件携带 `unappliedInputIds`；成功完成的事件携带 `finalTurnId` 和整个 run 的 `finalDurationMs`。历史记录保留 completed 与 interrupted entries；启动恢复执行相同的 interrupted entry 归档。完成边界和入队由 Main 的串行门控决定，封闭后收到的 `steer` 请求获得明确拒绝。
+
+Run 级时长以 `runStarted.startedAt` 为起点，以运行终态为终点。`runCompleted.finalDurationMs` 对应整个 `runId` 的工作时长，并与最终 Assistant Message 的持久化 `durationMs` 保持一致。`runCompleted.finalTurnId` 标识保存这份时长的最终 Assistant Message。
 
 ## 顺序与终止
 
@@ -65,5 +79,8 @@ HistoryRecorder 的接口与写入规则由[项目历史存储](./memory.mdx)定
 - `runCompleted` 在 Recorder 完成终态刷新后产生。
 - 两个工具调用乱序完成时仍关联到各自的 `toolCallId`。
 - 工具错误完成后，Runtime 可以把同一结果回填模型并继续下一回合。
+- 两条补充文本先收到各自的持久化 ACK，在安全边界获得按序的 `inputsApplied.inputIds`。
+- `inputsApplied` 出现在当前 Assistant、全部 Tool Message 提交之后和下一次 `turnStarted` 之前。
+- 运行终态提交后，`runCompleted.unappliedInputIds` 与已写入的 interrupted 用户 entries 对应；历史恢复依据 `inputId` 关联相同记录。
 - 中止模型请求或工具执行后，运行最终进入 `cancelled`，不再产生新的模型请求。
 - 任何事件都不包含 API Key 或 Authorization header。

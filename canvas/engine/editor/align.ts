@@ -1,4 +1,4 @@
-import type { ElementsMap, ExcalidrawElement } from "./element/types";
+import type { ElementsMap, CanvasEditorElement } from "./element/types";
 import { mutateElement } from "./element/mutateElement";
 import type { BoundingBox } from "./element/bounds";
 import { getCommonBoundingBox } from "./element/bounds";
@@ -12,12 +12,12 @@ export interface Alignment {
 }
 
 export const alignElements = (
-  selectedElements: ExcalidrawElement[],
+  selectedElements: CanvasEditorElement[],
   elementsMap: ElementsMap,
   alignment: Alignment,
   scene: Scene,
-): ExcalidrawElement[] => {
-  const groups: ExcalidrawElement[][] = getMaximumGroups(
+): CanvasEditorElement[] => {
+  const groups: CanvasEditorElement[][] = getMaximumGroups(
     selectedElements,
     elementsMap,
   );
@@ -45,7 +45,7 @@ export const alignElements = (
 };
 
 const calculateTranslation = (
-  group: ExcalidrawElement[],
+  group: CanvasEditorElement[],
   selectionBoundingBox: BoundingBox,
   { axis, position }: Alignment,
 ): { x: number; y: number } => {

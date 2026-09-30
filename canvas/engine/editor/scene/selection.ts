@@ -1,8 +1,8 @@
 import type {
   ElementsMap,
   ElementsMapOrArray,
-  ExcalidrawElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  NonDeletedCanvasEditorElement,
 } from "../element/types";
 import { getElementAbsoluteCoords, getElementBounds } from "../element";
 import type { AppState, InteractiveCanvasAppState } from "../types";
@@ -22,7 +22,7 @@ import { isElementInViewport } from "../element/sizeHelpers";
  * @param selectedElements
  */
 export const excludeElementsInFramesFromSelection = <
-  T extends ExcalidrawElement,
+  T extends CanvasEditorElement,
 >(
   selectedElements: readonly T[],
 ) => {
@@ -43,8 +43,8 @@ export const excludeElementsInFramesFromSelection = <
 };
 
 export const getElementsWithinSelection = (
-  elements: readonly NonDeletedExcalidrawElement[],
-  selection: NonDeletedExcalidrawElement,
+  elements: readonly NonDeletedCanvasEditorElement[],
+  selection: NonDeletedCanvasEditorElement,
   elementsMap: ElementsMap,
   excludeElementsInFrames: boolean = true,
 ) => {
@@ -99,8 +99,8 @@ export const getElementsWithinSelection = (
 };
 
 export const getVisibleAndNonSelectedElements = (
-  elements: readonly NonDeletedExcalidrawElement[],
-  selectedElements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
+  selectedElements: readonly NonDeletedCanvasEditorElement[],
   appState: AppState,
   elementsMap: ElementsMap,
 ) => {
@@ -122,12 +122,12 @@ export const getVisibleAndNonSelectedElements = (
 
 // FIXME move this into the editor instance to keep utility methods stateless
 export const isSomeElementSelected = (function () {
-  let lastElements: readonly NonDeletedExcalidrawElement[] | null = null;
+  let lastElements: readonly NonDeletedCanvasEditorElement[] | null = null;
   let lastSelectedElementIds: AppState["selectedElementIds"] | null = null;
   let isSelected: boolean | null = null;
 
   const ret = (
-    elements: readonly NonDeletedExcalidrawElement[],
+    elements: readonly NonDeletedCanvasEditorElement[],
     appState: Pick<AppState, "selectedElementIds">,
   ): boolean => {
     if (
@@ -161,9 +161,9 @@ export const isSomeElementSelected = (function () {
  *  elements. If elements don't share the same value, returns `null`.
  */
 export const getCommonAttributeOfSelectedElements = <T>(
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   appState: Pick<AppState, "selectedElementIds">,
-  getAttribute: (element: ExcalidrawElement) => T,
+  getAttribute: (element: CanvasEditorElement) => T,
 ): T | null => {
   const attributes = Array.from(
     new Set(
@@ -183,8 +183,8 @@ export const getSelectedElements = (
     includeElementsInFrames?: boolean;
   },
 ) => {
-  const addedElements = new Set<ExcalidrawElement["id"]>();
-  const selectedElements: ExcalidrawElement[] = [];
+  const addedElements = new Set<CanvasEditorElement["id"]>();
+  const selectedElements: CanvasEditorElement[] = [];
   for (const element of elements.values()) {
     if (appState.selectedElementIds[element.id]) {
       selectedElements.push(element);
@@ -203,7 +203,7 @@ export const getSelectedElements = (
   }
 
   if (opts?.includeElementsInFrames) {
-    const elementsToInclude: ExcalidrawElement[] = [];
+    const elementsToInclude: CanvasEditorElement[] = [];
     selectedElements.forEach((element) => {
       if (isFrameLikeElement(element)) {
         getFrameChildren(elements, element.id).forEach(

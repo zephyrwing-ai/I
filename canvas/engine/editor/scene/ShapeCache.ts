@@ -1,8 +1,8 @@
 import type { Drawable } from "roughjs/bin/core";
 import { RoughGenerator } from "roughjs/bin/generator";
 import type {
-  ExcalidrawElement,
-  ExcalidrawSelectionElement,
+  CanvasEditorElement,
+  CanvasEditorSelectionElement,
 } from "../element/types";
 import { elementWithCanvasCache } from "../renderer/renderElement";
 import { _generateElementShape } from "./Shape";
@@ -12,13 +12,13 @@ import type { AppState, EmbedsValidationStatus } from "../types";
 
 export class ShapeCache {
   private static rg = new RoughGenerator();
-  private static cache = new WeakMap<ExcalidrawElement, ElementShape>();
+  private static cache = new WeakMap<CanvasEditorElement, ElementShape>();
 
   /**
    * Retrieves shape from cache if available. Use this only if shape
    * is optional and you have a fallback in case it's not cached.
    */
-  public static get = <T extends ExcalidrawElement>(element: T) => {
+  public static get = <T extends CanvasEditorElement>(element: T) => {
     return ShapeCache.cache.get(
       element,
     ) as T["type"] extends keyof ElementShapes
@@ -26,14 +26,14 @@ export class ShapeCache {
       : ElementShape | undefined;
   };
 
-  public static set = <T extends ExcalidrawElement>(
+  public static set = <T extends CanvasEditorElement>(
     element: T,
     shape: T["type"] extends keyof ElementShapes
       ? ElementShapes[T["type"]]
       : Drawable,
   ) => ShapeCache.cache.set(element, shape);
 
-  public static delete = (element: ExcalidrawElement) =>
+  public static delete = (element: CanvasEditorElement) =>
     ShapeCache.cache.delete(element);
 
   public static destroy = () => {
@@ -45,7 +45,7 @@ export class ShapeCache {
    * returns cached shape.
    */
   public static generateElementShape = <
-    T extends Exclude<ExcalidrawElement, ExcalidrawSelectionElement>,
+    T extends Exclude<CanvasEditorElement, CanvasEditorSelectionElement>,
   >(
     element: T,
     renderConfig: {

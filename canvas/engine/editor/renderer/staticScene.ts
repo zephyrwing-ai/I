@@ -16,8 +16,8 @@ import { createPlaceholderEmbeddableLabel } from "../element/embeddable";
 import type { StaticCanvasAppState } from "../types";
 import type {
   ElementsMap,
-  ExcalidrawFrameLikeElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorFrameLikeElement,
+  NonDeletedCanvasEditorElement,
 } from "../element/types";
 import type {
   StaticCanvasRenderConfig,
@@ -34,7 +34,7 @@ import { getBoundTextElement } from "../element/textElement";
 import { isElementLink } from "../element/elementLink";
 
 const frameClip = (
-  frame: ExcalidrawFrameLikeElement,
+  frame: CanvasEditorFrameLikeElement,
   context: CanvasRenderingContext2D,
   renderConfig: StaticCanvasRenderConfig,
   appState: StaticCanvasAppState,
@@ -70,7 +70,7 @@ const linkIconCanvasCache: {
 };
 
 const renderLinkIcon = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   context: CanvasRenderingContext2D,
   appState: StaticCanvasAppState,
   elementsMap: ElementsMap,

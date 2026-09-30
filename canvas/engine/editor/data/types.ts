@@ -1,4 +1,4 @@
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import type {
   AppState,
   BinaryFiles,
@@ -12,7 +12,7 @@ export interface ExportedDataState {
   type: string;
   version: number;
   source: string;
-  elements: readonly ExcalidrawElement[];
+  elements: readonly CanvasEditorElement[];
   appState: ReturnType<typeof cleanAppStateForExport>;
   files: BinaryFiles | undefined;
 }
@@ -33,7 +33,7 @@ export interface ImportedDataState {
   type?: string;
   version?: number;
   source?: string;
-  elements?: readonly ExcalidrawElement[] | null;
+  elements?: readonly CanvasEditorElement[] | null;
   appState?: Readonly<
     Partial<
       AppState & {
@@ -48,7 +48,7 @@ export interface ImportedDataState {
 
 export interface ExportedLibraryData {
   type: string;
-  version: typeof VERSIONS.excalidrawLibrary;
+  version: typeof VERSIONS.canvasLibrary;
   source: string;
   libraryItems: LibraryItems;
 }

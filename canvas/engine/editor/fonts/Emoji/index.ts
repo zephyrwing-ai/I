@@ -1,8 +1,8 @@
 import { LOCAL_FONT_PROTOCOL } from "../FontMetadata";
 
-import { type ExcalidrawFontFaceDescriptor } from "../Fonts";
+import { type CanvasEditorFontFaceDescriptor } from "../Fonts";
 
-export const EmojiFontFaces: ExcalidrawFontFaceDescriptor[] = [
+export const EmojiFontFaces: CanvasEditorFontFaceDescriptor[] = [
   {
     uri: LOCAL_FONT_PROTOCOL,
   },

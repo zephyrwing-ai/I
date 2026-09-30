@@ -1,7 +1,7 @@
 import { isFrameLikeElement } from "./element/typeChecks";
 import type {
-  ExcalidrawElement,
-  ExcalidrawFrameLikeElement,
+  CanvasEditorElement,
+  CanvasEditorFrameLikeElement,
 } from "./element/types";
 import { syncMovedIndices } from "./fractionalIndex";
 import { getElementsInGroup } from "./groups";
@@ -10,7 +10,7 @@ import Scene from "./scene/Scene";
 import type { AppState } from "./types";
 import { arrayToMap, findIndex, findLastIndex } from "./utils";
 
-const isOfTargetFrame = (element: ExcalidrawElement, frameId: string) => {
+const isOfTargetFrame = (element: CanvasEditorElement, frameId: string) => {
   return element.frameId === frameId || element.id === frameId;
 };
 
@@ -23,9 +23,9 @@ const isOfTargetFrame = (element: ExcalidrawElement, frameId: string) => {
  * appState.selectedElementsIds
  */
 const getIndicesToMove = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: AppState,
-  elementsToBeMoved?: readonly ExcalidrawElement[],
+  elementsToBeMoved?: readonly CanvasEditorElement[],
 ) => {
   let selectedIndices: number[] = [];
   let deletedIndices: number[] = [];
@@ -75,8 +75,8 @@ const toContiguousGroups = (array: number[]) => {
  * If no binding present, returns `undefined`.
  */
 const getTargetIndexAccountingForBinding = (
-  nextElement: ExcalidrawElement,
-  elements: readonly ExcalidrawElement[],
+  nextElement: CanvasEditorElement,
+  elements: readonly CanvasEditorElement[],
   direction: "left" | "right",
 ) => {
   if ("containerId" in nextElement && nextElement.containerId) {
@@ -117,8 +117,8 @@ const getTargetIndexAccountingForBinding = (
 };
 
 const getContiguousFrameRangeElements = (
-  allElements: readonly ExcalidrawElement[],
-  frameId: ExcalidrawFrameLikeElement["id"],
+  allElements: readonly CanvasEditorElement[],
+  frameId: CanvasEditorFrameLikeElement["id"],
 ) => {
   let rangeStart = -1;
   let rangeEnd = -1;
@@ -142,18 +142,18 @@ const getContiguousFrameRangeElements = (
  */
 const getTargetIndex = (
   appState: AppState,
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   boundaryIndex: number,
   direction: "left" | "right",
   /**
    * Frame id if moving frame children.
    * If whole frame (including all children) is being moved, supply `null`.
    */
-  containingFrame: ExcalidrawFrameLikeElement["id"] | null,
+  containingFrame: CanvasEditorFrameLikeElement["id"] | null,
 ) => {
   const sourceElement = elements[boundaryIndex];
 
-  const indexFilter = (element: ExcalidrawElement) => {
+  const indexFilter = (element: CanvasEditorElement) => {
     if (element.isDeleted) {
       return false;
     }
@@ -239,7 +239,7 @@ const getTargetIndex = (
   return candidateIndex;
 };
 
-const getTargetElementsMap = <T extends ExcalidrawElement>(
+const getTargetElementsMap = <T extends CanvasEditorElement>(
   elements: readonly T[],
   indices: number[],
 ) => {
@@ -247,11 +247,11 @@ const getTargetElementsMap = <T extends ExcalidrawElement>(
     const element = elements[index];
     acc.set(element.id, element);
     return acc;
-  }, new Map<string, ExcalidrawElement>());
+  }, new Map<string, CanvasEditorElement>());
 };
 
 const shiftElementsByOne = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: AppState,
   direction: "left" | "right",
 ) => {
@@ -264,7 +264,7 @@ const shiftElementsByOne = (
     groupedIndices = groupedIndices.reverse();
   }
 
-  const selectedFrames = new Set<ExcalidrawFrameLikeElement["id"]>(
+  const selectedFrames = new Set<CanvasEditorFrameLikeElement["id"]>(
     indicesToMove
       .filter((idx) => isFrameLikeElement(elements[idx]))
       .map((idx) => elements[idx].id),
@@ -330,15 +330,15 @@ const shiftElementsByOne = (
 };
 
 const shiftElementsToEnd = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: AppState,
   direction: "left" | "right",
-  containingFrame: ExcalidrawFrameLikeElement["id"] | null,
-  elementsToBeMoved?: readonly ExcalidrawElement[],
+  containingFrame: CanvasEditorFrameLikeElement["id"] | null,
+  elementsToBeMoved?: readonly CanvasEditorElement[],
 ) => {
   const indicesToMove = getIndicesToMove(elements, appState, elementsToBeMoved);
   const targetElementsMap = getTargetElementsMap(elements, indicesToMove);
-  const displacedElements: ExcalidrawElement[] = [];
+  const displacedElements: CanvasEditorElement[] = [];
 
   let leadingIndex: number;
   let trailingIndex: number;
@@ -416,16 +416,16 @@ const shiftElementsToEnd = (
 };
 
 function shiftElementsAccountingForFrames(
-  allElements: readonly ExcalidrawElement[],
+  allElements: readonly CanvasEditorElement[],
   appState: AppState,
   direction: "left" | "right",
   shiftFunction: (
-    elements: readonly ExcalidrawElement[],
+    elements: readonly CanvasEditorElement[],
     appState: AppState,
     direction: "left" | "right",
-    containingFrame: ExcalidrawFrameLikeElement["id"] | null,
-    elementsToBeMoved?: readonly ExcalidrawElement[],
-  ) => ExcalidrawElement[] | readonly ExcalidrawElement[],
+    containingFrame: CanvasEditorFrameLikeElement["id"] | null,
+    elementsToBeMoved?: readonly CanvasEditorElement[],
+  ) => CanvasEditorElement[] | readonly CanvasEditorElement[],
 ) {
   const elementsToMove = arrayToMap(
     getSelectedElements(allElements, appState, {
@@ -435,11 +435,11 @@ function shiftElementsAccountingForFrames(
   );
 
   const frameAwareContiguousElementsToMove: {
-    regularElements: ExcalidrawElement[];
-    frameChildren: Map<ExcalidrawFrameLikeElement["id"], ExcalidrawElement[]>;
+    regularElements: CanvasEditorElement[];
+    frameChildren: Map<CanvasEditorFrameLikeElement["id"], CanvasEditorElement[]>;
   } = { regularElements: [], frameChildren: new Map() };
 
-  const fullySelectedFrames = new Set<ExcalidrawFrameLikeElement["id"]>();
+  const fullySelectedFrames = new Set<CanvasEditorFrameLikeElement["id"]>();
 
   for (const element of allElements) {
     if (elementsToMove.has(element.id) && isFrameLikeElement(element)) {
@@ -499,21 +499,21 @@ function shiftElementsAccountingForFrames(
 // -----------------------------------------------------------------------------
 
 export const moveOneLeft = (
-  allElements: readonly ExcalidrawElement[],
+  allElements: readonly CanvasEditorElement[],
   appState: AppState,
 ) => {
   return shiftElementsByOne(allElements, appState, "left");
 };
 
 export const moveOneRight = (
-  allElements: readonly ExcalidrawElement[],
+  allElements: readonly CanvasEditorElement[],
   appState: AppState,
 ) => {
   return shiftElementsByOne(allElements, appState, "right");
 };
 
 export const moveAllLeft = (
-  allElements: readonly ExcalidrawElement[],
+  allElements: readonly CanvasEditorElement[],
   appState: AppState,
 ) => {
   return shiftElementsAccountingForFrames(
@@ -525,7 +525,7 @@ export const moveAllLeft = (
 };
 
 export const moveAllRight = (
-  allElements: readonly ExcalidrawElement[],
+  allElements: readonly CanvasEditorElement[],
   appState: AppState,
 ) => {
   return shiftElementsAccountingForFrames(

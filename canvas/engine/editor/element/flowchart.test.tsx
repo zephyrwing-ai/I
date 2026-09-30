@@ -1,7 +1,7 @@
 import { render, unmountComponent } from "../tests/test-utils";
 import { reseed } from "../random";
 import { UI, Keyboard, Pointer } from "../tests/helpers/ui";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { API } from "../tests/helpers/api";
 import { KEYS } from "../keys";
 
@@ -15,7 +15,7 @@ beforeEach(async () => {
   reseed(7);
   mouse.reset();
 
-  await render(<Excalidraw handleKeyboardGlobally={true} />);
+  await render(<CanvasEditor handleKeyboardGlobally={true} />);
   h.state.width = 1000;
   h.state.height = 1000;
 

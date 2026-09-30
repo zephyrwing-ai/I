@@ -1,4 +1,4 @@
-import type { ExcalidrawElement, NonDeletedSceneElementsMap } from "./types";
+import type { CanvasEditorElement, NonDeletedSceneElementsMap } from "./types";
 import Scene from "../scene/Scene";
 import { getSizeFromPoints } from "../points";
 import { randomInteger } from "../random";
@@ -9,7 +9,7 @@ import { isElbowArrow } from "./typeChecks";
 import { updateElbowArrowPoints } from "./elbowArrow";
 import type { Radians } from "@agent-studio/canvas-math";
 
-export type ElementUpdate<TElement extends ExcalidrawElement> = Omit<
+export type ElementUpdate<TElement extends CanvasEditorElement> = Omit<
   Partial<TElement>,
   "id" | "version" | "versionNonce" | "updated"
 >;
@@ -18,7 +18,7 @@ export type ElementUpdate<TElement extends ExcalidrawElement> = Omit<
 // The version is used to compare updates when more than one user is working in
 // the same drawing. Note: this will trigger the component to update. Make sure you
 // are calling it either from a React event handler or within unstable_batchedUpdates().
-export const mutateElement = <TElement extends Mutable<ExcalidrawElement>>(
+export const mutateElement = <TElement extends Mutable<CanvasEditorElement>>(
   element: TElement,
   updates: ElementUpdate<TElement>,
   informMutation = true,
@@ -146,7 +146,7 @@ export const mutateElement = <TElement extends Mutable<ExcalidrawElement>>(
   return element;
 };
 
-export const newElementWith = <TElement extends ExcalidrawElement>(
+export const newElementWith = <TElement extends CanvasEditorElement>(
   element: TElement,
   updates: ElementUpdate<TElement>,
   /** pass `true` to always regenerate */
@@ -185,9 +185,9 @@ export const newElementWith = <TElement extends ExcalidrawElement>(
  *
  * NOTE: does not trigger re-render.
  */
-export const bumpVersion = <T extends Mutable<ExcalidrawElement>>(
+export const bumpVersion = <T extends Mutable<CanvasEditorElement>>(
   element: T,
-  version?: ExcalidrawElement["version"],
+  version?: CanvasEditorElement["version"],
 ) => {
   element.version = (version ?? element.version) + 1;
   element.versionNonce = randomInteger();

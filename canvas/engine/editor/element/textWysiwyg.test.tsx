@@ -1,5 +1,5 @@
 import React from "react";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import {
   GlobalTestState,
   render,
@@ -17,8 +17,8 @@ import { queryByText } from "@testing-library/react";
 
 import { FONT_FAMILY, TEXT_ALIGN, VERTICAL_ALIGN } from "../constants";
 import type {
-  ExcalidrawTextElement,
-  ExcalidrawTextElementWithContainer,
+  CanvasEditorTextElement,
+  CanvasEditorTextElementWithContainer,
 } from "./types";
 import { API } from "../tests/helpers/api";
 import { getOriginalContainerHeightFromCache } from "./containerCache";
@@ -30,13 +30,13 @@ unmountComponent();
 const tab = "    ";
 const mouse = new Pointer("mouse");
 
-const textEditorSelector = ".excalidraw-textEditorContainer > textarea";
+const textEditorSelector = ".agent-canvas-textEditorContainer > textarea";
 
 describe("textWysiwyg", () => {
   describe("start text editing", () => {
     const { h } = window;
     beforeEach(async () => {
-      await render(<Excalidraw handleKeyboardGlobally={true} />);
+      await render(<CanvasEditor handleKeyboardGlobally={true} />);
       API.setElements([]);
     });
 
@@ -64,7 +64,7 @@ describe("textWysiwyg", () => {
 
       expect(h.state.editingTextElement?.id).toBe(text.id);
       expect(
-        (h.state.editingTextElement as ExcalidrawTextElement).containerId,
+        (h.state.editingTextElement as CanvasEditorTextElement).containerId,
       ).toBe(null);
     });
 
@@ -246,7 +246,7 @@ describe("textWysiwyg", () => {
     });
 
     beforeEach(async () => {
-      await render(<Excalidraw handleKeyboardGlobally={true} />);
+      await render(<CanvasEditor handleKeyboardGlobally={true} />);
       // @ts-ignore
       h.app.refreshViewportBreakpoints();
       // @ts-ignore
@@ -262,7 +262,7 @@ describe("textWysiwyg", () => {
     it("should keep width when editing a wrapped text", async () => {
       const text = API.createElement({
         type: "text",
-        text: "Excalidraw\nEditor",
+        text: "CanvasEditor\nEditor",
       });
 
       API.setElements([text]);
@@ -306,7 +306,7 @@ describe("textWysiwyg", () => {
     });
 
     it("should restore original text after unwrapping a wrapped text", async () => {
-      const originalText = "Excalidraw\neditor\nis great!";
+      const originalText = "CanvasEditor\neditor\nis great!";
       const text = API.createElement({
         type: "text",
         text: originalText,
@@ -322,7 +322,7 @@ describe("textWysiwyg", () => {
       Keyboard.exitTextEditor(editor);
       // restore after unwrapping
       UI.resize(text, "e", [40, 0]);
-      expect((h.elements[0] as ExcalidrawTextElement).text).toBe(originalText);
+      expect((h.elements[0] as CanvasEditorTextElement).text).toBe(originalText);
 
       // wrap again and add a new line
       UI.resize(text, "e", [-30, 0]);
@@ -339,7 +339,7 @@ describe("textWysiwyg", () => {
       // unwrap
       UI.resize(text, "e", [30, 0]);
       // expect the text to be restored the same
-      expect((h.elements[0] as ExcalidrawTextElement).text).toBe(originalText);
+      expect((h.elements[0] as CanvasEditorTextElement).text).toBe(originalText);
     });
   });
 
@@ -348,14 +348,14 @@ describe("textWysiwyg", () => {
     const dimensions = { height: 400, width: 800 };
 
     let textarea: HTMLTextAreaElement;
-    let textElement: ExcalidrawTextElement;
+    let textElement: CanvasEditorTextElement;
 
     beforeAll(() => {
       mockBoundingClientRect(dimensions);
     });
 
     beforeEach(async () => {
-      await render(<Excalidraw handleKeyboardGlobally={true} />);
+      await render(<CanvasEditor handleKeyboardGlobally={true} />);
       // @ts-ignore
       h.app.refreshViewportBreakpoints();
       // @ts-ignore
@@ -555,7 +555,7 @@ describe("textWysiwyg", () => {
       textarea = await getTextEditor(textEditorSelector, true);
       updateTextEditor(
         textarea,
-        "Excalidraw is an opensource virtual collaborative whiteboard for sketching hand-drawn like diagrams!",
+        "CanvasEditor is an opensource virtual collaborative whiteboard for sketching hand-drawn like diagrams!",
       );
       Keyboard.exitTextEditor(textarea);
 
@@ -569,7 +569,7 @@ describe("textWysiwyg", () => {
     const { h } = window;
 
     beforeEach(async () => {
-      await render(<Excalidraw handleKeyboardGlobally={true} />);
+      await render(<CanvasEditor handleKeyboardGlobally={true} />);
       API.setElements([]);
 
       rectangle = UI.createElement("rectangle", {
@@ -597,7 +597,7 @@ describe("textWysiwyg", () => {
       mouse.doubleClickAt(rectangle.x + 10, rectangle.y + 10);
       expect(h.elements.length).toBe(2);
 
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.type).toBe("text");
       expect(text.containerId).toBe(rectangle.id);
       expect(rectangle.boundElements).toStrictEqual([
@@ -623,7 +623,7 @@ describe("textWysiwyg", () => {
       });
       API.setElements([rectangle]);
       mouse.doubleClickAt(rectangle.x + 10, rectangle.y + 10);
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.type).toBe("text");
       expect(text.containerId).toBe(rectangle.id);
       expect(rectangle.boundElements).toStrictEqual([
@@ -687,7 +687,7 @@ describe("textWysiwyg", () => {
 
       mouse.doubleClickAt(rectangle.x + 10, rectangle.y + 10);
       expect(h.elements.length).toBe(2);
-      let text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      let text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.type).toBe("text");
       expect(text.containerId).toBe(null);
       mouse.down();
@@ -700,7 +700,7 @@ describe("textWysiwyg", () => {
       );
       expect(h.elements.length).toBe(3);
 
-      text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.type).toBe("text");
       expect(text.containerId).toBe(rectangle.id);
 
@@ -723,7 +723,7 @@ describe("textWysiwyg", () => {
 
       expect(h.elements.length).toBe(2);
 
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.type).toBe("text");
       expect(text.containerId).toBe(rectangle.id);
       const editor = await getTextEditor(textEditorSelector, true);
@@ -752,7 +752,7 @@ describe("textWysiwyg", () => {
       mouse.doubleClickAt(rectangle.x + 2, rectangle.y + 2);
       expect(h.elements.length).toBe(2);
 
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.type).toBe("text");
       expect(text.containerId).toBe(rectangle.id);
       expect(rectangle.boundElements).toStrictEqual([
@@ -789,7 +789,7 @@ describe("textWysiwyg", () => {
 
       expect(freedraw.boundElements).toBe(null);
       expect(h.elements[1].type).toBe("text");
-      expect((h.elements[1] as ExcalidrawTextElement).containerId).toBe(null);
+      expect((h.elements[1] as CanvasEditorTextElement).containerId).toBe(null);
     });
 
     ["freedraw", "line"].forEach((type: any) => {
@@ -813,7 +813,7 @@ describe("textWysiwyg", () => {
       mouse.doubleClickAt(rectangle.x + 20, rectangle.y + 20);
       expect(h.elements.length).toBe(2);
 
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.type).toBe("text");
       expect(text.containerId).toBe(null);
       mouse.down();
@@ -835,7 +835,7 @@ describe("textWysiwyg", () => {
 
       updateTextEditor(
         editor,
-        "Excalidraw is an opensource virtual collaborative whiteboard",
+        "CanvasEditor is an opensource virtual collaborative whiteboard",
       );
       expect(h.elements.length).toBe(2);
       expect(h.elements[1].type).toBe("text");
@@ -850,7 +850,7 @@ describe("textWysiwyg", () => {
       fireEvent.click(
         queryByText(contextMenu as HTMLElement, "Bind text to the container")!,
       );
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(rectangle.boundElements).toStrictEqual([
         { id: h.elements[1].id, type: "text" },
       ]);
@@ -873,7 +873,7 @@ describe("textWysiwyg", () => {
         rectangle.y + rectangle.height / 2,
       );
 
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       const editor = await getTextEditor(textEditorSelector, true);
 
       updateTextEditor(editor, "Hello World!");
@@ -889,7 +889,7 @@ describe("textWysiwyg", () => {
       fireEvent.click(screen.getByTitle(/code/i));
 
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).fontFamily,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).fontFamily,
       ).toEqual(FONT_FAMILY["Comic Shanns"]);
 
       //undo
@@ -897,7 +897,7 @@ describe("textWysiwyg", () => {
         Keyboard.keyPress(KEYS.Z);
       });
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).fontFamily,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).fontFamily,
       ).toEqual(FONT_FAMILY.Excalifont);
 
       //redo
@@ -905,7 +905,7 @@ describe("textWysiwyg", () => {
         Keyboard.keyPress(KEYS.Z);
       });
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).fontFamily,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).fontFamily,
       ).toEqual(FONT_FAMILY["Comic Shanns"]);
     });
 
@@ -913,13 +913,13 @@ describe("textWysiwyg", () => {
       expect(h.elements.length).toBe(1);
 
       Keyboard.keyDown(KEYS.ENTER);
-      let text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      let text = h.elements[1] as CanvasEditorTextElementWithContainer;
       let editor = await getTextEditor(textEditorSelector, true);
 
       updateTextEditor(editor, "Hello World!");
 
       Keyboard.exitTextEditor(editor);
-      text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.text).toBe("Hello\nWorld!");
       expect(text.originalText).toBe("Hello World!");
       expect(text.y).toBe(
@@ -938,7 +938,7 @@ describe("textWysiwyg", () => {
       updateTextEditor(editor, "Hello");
 
       Keyboard.exitTextEditor(editor);
-      text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      text = h.elements[1] as CanvasEditorTextElementWithContainer;
 
       expect(text.text).toBe("Hello");
       expect(text.originalText).toBe("Hello");
@@ -958,7 +958,7 @@ describe("textWysiwyg", () => {
 
       expect(h.elements.length).toBe(2);
 
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.containerId).toBe(rectangle.id);
 
       const editor = await getTextEditor(textEditorSelector, true);
@@ -981,7 +981,7 @@ describe("textWysiwyg", () => {
       const contextMenu = document.querySelector(".context-menu");
       fireEvent.click(queryByText(contextMenu as HTMLElement, "Unbind text")!);
       expect(h.elements[0].boundElements).toEqual([]);
-      expect((h.elements[1] as ExcalidrawTextElement).containerId).toEqual(
+      expect((h.elements[1] as CanvasEditorTextElement).containerId).toEqual(
         null,
       );
     });
@@ -994,7 +994,7 @@ describe("textWysiwyg", () => {
       expect(h.elements.length).toBe(2);
 
       // Bind first text
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.containerId).toBe(rectangle.id);
       const editor = await getTextEditor(textEditorSelector, true);
       updateTextEditor(editor, "Hello World!");
@@ -1083,7 +1083,7 @@ describe("textWysiwyg", () => {
 
       expect(h.elements.length).toBe(3);
       expect(h.elements[1].type).toBe("text");
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.type).toBe("text");
       expect(text.containerId).toBe(rectangle.id);
       mouse.down();
@@ -1104,7 +1104,7 @@ describe("textWysiwyg", () => {
       const editor = await getTextEditor(textEditorSelector, true);
       updateTextEditor(editor, "Hello");
       Keyboard.exitTextEditor(editor);
-      const textElement = h.elements[1] as ExcalidrawTextElement;
+      const textElement = h.elements[1] as CanvasEditorTextElement;
       expect(rectangle.width).toBe(90);
       expect(rectangle.height).toBe(75);
       expect(textElement.fontSize).toBe(20);
@@ -1133,9 +1133,9 @@ describe("textWysiwyg", () => {
       expect(h.elements.length).toBe(4);
       const duplicatedRectangle = h.elements[0];
       const duplicatedText = h
-        .elements[1] as ExcalidrawTextElementWithContainer;
+        .elements[1] as CanvasEditorTextElementWithContainer;
       const originalRect = h.elements[2];
-      const originalText = h.elements[3] as ExcalidrawTextElementWithContainer;
+      const originalText = h.elements[3] as CanvasEditorTextElementWithContainer;
       expect(originalRect.boundElements).toStrictEqual([
         { id: originalText.id, type: "text" },
       ]);
@@ -1157,7 +1157,7 @@ describe("textWysiwyg", () => {
       expect(rectangle.boundElements).toStrictEqual([
         { id: h.elements[1].id, type: "text" },
       ]);
-      let text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      let text = h.elements[1] as CanvasEditorTextElementWithContainer;
       const originalRectX = rectangle.x;
       const originalRectY = rectangle.y;
       const originalTextX = text.x;
@@ -1176,7 +1176,7 @@ describe("textWysiwyg", () => {
       });
       expect(rectangle.x).toBe(originalRectX);
       expect(rectangle.y).toBe(originalRectY);
-      text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.x).toBe(originalTextX);
       expect(text.y).toBe(originalTextY);
       expect(rectangle.boundElements).toStrictEqual([
@@ -1222,7 +1222,7 @@ describe("textWysiwyg", () => {
         queryByText(contextMenu as HTMLElement, "Bind text to the container")!,
       );
 
-      expect((h.elements[1] as ExcalidrawTextElementWithContainer).text).toBe(
+      expect((h.elements[1] as CanvasEditorTextElementWithContainer).text).toBe(
         "Online\nwhiteboa\nrd\ncollabor\nation\nmade\neasy",
       );
       fireEvent.contextMenu(GlobalTestState.interactiveCanvas, {
@@ -1277,13 +1277,13 @@ describe("textWysiwyg", () => {
       fireEvent.click(screen.getByTitle(/code/i));
 
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).fontFamily,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).fontFamily,
       ).toEqual(FONT_FAMILY["Comic Shanns"]);
       expect(getOriginalContainerHeightFromCache(rectangle.id)).toBe(75);
 
       fireEvent.click(screen.getByTitle(/Very large/i));
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).fontSize,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).fontSize,
       ).toEqual(36);
       expect(getOriginalContainerHeightFromCache(rectangle.id)).toBe(100);
     });
@@ -1296,7 +1296,7 @@ describe("textWysiwyg", () => {
       updateTextEditor(editor, "Hello World!");
       Keyboard.exitTextEditor(editor);
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).lineHeight,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).lineHeight,
       ).toEqual(1.25);
 
       mouse.select(rectangle);
@@ -1304,18 +1304,18 @@ describe("textWysiwyg", () => {
 
       fireEvent.click(screen.getByTitle(/code/i));
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).fontFamily,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).fontFamily,
       ).toEqual(FONT_FAMILY["Comic Shanns"]);
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).lineHeight,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).lineHeight,
       ).toEqual(1.25);
 
       fireEvent.click(screen.getByTitle(/normal/i));
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).fontFamily,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).fontFamily,
       ).toEqual(FONT_FAMILY.Nunito);
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).lineHeight,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).lineHeight,
       ).toEqual(1.35);
     });
 
@@ -1444,7 +1444,7 @@ describe("textWysiwyg", () => {
 
       updateTextEditor(
         editor,
-        "Excalidraw is an opensource virtual collaborative whiteboard",
+        "CanvasEditor is an opensource virtual collaborative whiteboard",
       );
 
       editor.select();
@@ -1452,12 +1452,12 @@ describe("textWysiwyg", () => {
 
       Keyboard.exitTextEditor(editor);
 
-      const textElement = h.elements[1] as ExcalidrawTextElement;
+      const textElement = h.elements[1] as CanvasEditorTextElement;
       expect(textElement.width).toBe(600);
       expect(textElement.height).toBe(25);
       expect(textElement.textAlign).toBe(TEXT_ALIGN.LEFT);
-      expect((textElement as ExcalidrawTextElement).text).toBe(
-        "Excalidraw is an opensource virtual collaborative whiteboard",
+      expect((textElement as CanvasEditorTextElement).text).toBe(
+        "CanvasEditor is an opensource virtual collaborative whiteboard",
       );
 
       API.setSelectedElements([textElement]);
@@ -1506,9 +1506,9 @@ describe("textWysiwyg", () => {
           y: 25,
         }),
       );
-      expect(h.elements[2] as ExcalidrawTextElement).toEqual(
+      expect(h.elements[2] as CanvasEditorTextElement).toEqual(
         expect.objectContaining({
-          text: "Excalidraw is an opensource virtual collaborative whiteboard",
+          text: "CanvasEditor is an opensource virtual collaborative whiteboard",
           verticalAlign: VERTICAL_ALIGN.MIDDLE,
           textAlign: TEXT_ALIGN.CENTER,
           boundElements: null,
@@ -1524,12 +1524,12 @@ describe("textWysiwyg", () => {
       expect(h.elements.length).toBe(2);
 
       // Bind first text
-      let text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      let text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.containerId).toBe(rectangle.id);
       let editor = await getTextEditor(textEditorSelector, true);
       updateTextEditor(editor, "Hello!");
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).verticalAlign,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).verticalAlign,
       ).toBe(VERTICAL_ALIGN.MIDDLE);
 
       fireEvent.click(screen.getByTitle("Align bottom"));
@@ -1540,7 +1540,7 @@ describe("textWysiwyg", () => {
         { id: text.id, type: "text" },
       ]);
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).verticalAlign,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).verticalAlign,
       ).toBe(VERTICAL_ALIGN.BOTTOM);
 
       // Attempt to Bind 2nd text using text tool
@@ -1550,16 +1550,16 @@ describe("textWysiwyg", () => {
         rectangle.y + rectangle.height / 2,
       );
       editor = await getTextEditor(textEditorSelector, true);
-      updateTextEditor(editor, "Excalidraw");
+      updateTextEditor(editor, "CanvasEditor");
       Keyboard.exitTextEditor(editor);
 
       expect(h.elements.length).toBe(3);
       expect(rectangle.boundElements).toStrictEqual([
         { id: h.elements[1].id, type: "text" },
       ]);
-      text = h.elements[2] as ExcalidrawTextElementWithContainer;
+      text = h.elements[2] as CanvasEditorTextElementWithContainer;
       expect(text.containerId).toBe(null);
-      expect(text.text).toBe("Excalidraw");
+      expect(text.text).toBe("CanvasEditor");
     });
   });
 });

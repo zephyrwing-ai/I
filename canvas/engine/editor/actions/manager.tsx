@@ -8,8 +8,8 @@ import type {
   ActionSource,
 } from "./types";
 import type {
-  ExcalidrawElement,
-  OrderedExcalidrawElement,
+  CanvasEditorElement,
+  OrderedCanvasEditorElement,
 } from "../element/types";
 import type { AppClassProperties, AppState } from "../types";
 import { trackEvent } from "../analytics";
@@ -19,7 +19,7 @@ const trackAction = (
   action: Action,
   source: ActionSource,
   appState: Readonly<AppState>,
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   app: AppClassProperties,
   value: any,
 ) => {
@@ -49,13 +49,13 @@ export class ActionManager {
   updater: (actionResult: ActionResult | Promise<ActionResult>) => void;
 
   getAppState: () => Readonly<AppState>;
-  getElementsIncludingDeleted: () => readonly OrderedExcalidrawElement[];
+  getElementsIncludingDeleted: () => readonly OrderedCanvasEditorElement[];
   app: AppClassProperties;
 
   constructor(
     updater: UpdaterFn,
     getAppState: () => AppState,
-    getElementsIncludingDeleted: () => readonly OrderedExcalidrawElement[],
+    getElementsIncludingDeleted: () => readonly OrderedCanvasEditorElement[],
     app: AppClassProperties,
   ) {
     this.updater = (actionResult) => {

@@ -1,8 +1,7 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { Column } from "./middle-column/Column";
 import { MessageStream, type MessageStreamHandle } from "./middle-column/message-stream/MessageStream";
 import { StreamRegion } from "./middle-column/message-stream/StreamScrollbar";
-import type { RunTiming } from "./middle-column/message-stream/RunProcess";
 import { Composer } from "./middle-column/composer/Composer";
 import { TopBar, SearchPopover } from "./components/TopBar";
 import { ConfigPanel } from "./components/ConfigPanel";
@@ -19,7 +18,8 @@ import { useSessionHistory } from "./hooks/useSessionHistory";
 import { useGlobalSearch } from "./hooks/useGlobalSearch";
 import { agentReducer, initialAgentState } from "./store/agentReducer";
 import { useProviderCatalog } from "./store/providerCatalog";
-import type { AgentEvent, CanvasContextDescriptor, ProjectDescriptor, RunRequest } from "../../shell/shared/ipc";
+import type { AgentEvent, CanvasContextDescriptor, ProjectDescriptor, RunRequest, SteerRequest } from "../../shell/shared/ipc";
+import type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types";
 
 export default function App() {
   const [state, dispatch] = useReducer(agentReducer, initialAgentState);
@@ -27,18 +27,17 @@ export default function App() {
   const [configOpen, setConfigOpen] = useState(false);
   const [sidebarPanel, setSidebarPanel] = useState<"outputs" | "canvas" | null>(null);
   const [canvasContexts, setCanvasContexts] = useState<CanvasContextDescriptor[]>([]);
+  const [pendingCanvasEdit, setPendingCanvasEdit] = useState<CanvasEditRequest | null>(null);
   const [canvasCanRelease, setCanvasCanRelease] = useState(true);
   const [project, setProject] = useState<ProjectDescriptor>({ projectId: null, displayName: "Choose folder", canonicalPath: null });
   const canvasSurfaceRef = useRef<CanvasSurfaceHandle>(null);
   const projectRequestEpochRef = useRef(0);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [restoreDraft, setRestoreDraft] = useState<{ id: string; text: string } | null>(null);
   const eventQueue = useRef<AgentEvent[]>([]);
   const hydrationEventQueue = useRef<AgentEvent[]>([]);
   const historyReadyRef = useRef(false);
   const eventFrame = useRef<number | null>(null);
-  // 计时是 Renderer 侧对事件的观察（事件本身不带时间戳）；reducer 保持纯函数，不写入时间。
-  // run 级总时长：runStarted → runCompleted（含全部回合与工具调用）；回合级时间不展示。
-  const runTimings = useRef<Record<string, RunTiming>>({});
   const streamRef = useRef<HTMLElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = useState(0);
@@ -66,16 +65,7 @@ export default function App() {
         const queued = eventQueue.current;
         eventQueue.current = [];
         eventFrame.current = null;
-        const now = Date.now();
         queued.forEach((queuedEvent) => {
-          if (queuedEvent.type === "runStarted") {
-            runTimings.current[queuedEvent.runId] = { startedAt: now };
-          } else if (queuedEvent.type === "runCompleted") {
-            const timing = runTimings.current[queuedEvent.runId];
-            runTimings.current[queuedEvent.runId] = timing
-              ? { ...timing, completedAt: now }
-              : { startedAt: now, completedAt: now };
-          }
           dispatch({ type: "event", event: queuedEvent });
         });
       });
@@ -86,6 +76,26 @@ export default function App() {
       eventFrame.current = null;
       eventQueue.current = [];
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window.agentAPI?.onCanvasEditRequest !== "function") return;
+    const stopRequests = window.agentAPI.onCanvasEditRequest((request: CanvasEditRequest) => {
+      setPendingCanvasEdit(request);
+      setSidebarPanel("canvas");
+    });
+    const stopCancellations = window.agentAPI.onCanvasEditCancel((cancel: CanvasEditCancel) => {
+      setPendingCanvasEdit((current) => current?.requestId === cancel.requestId ? null : current);
+    });
+    return () => {
+      stopRequests();
+      stopCancellations();
+    };
+  }, []);
+
+  const completeCanvasEdit = useCallback((result: CanvasEditResult): void => {
+    window.agentAPI.completeCanvasEdit(result);
+    setPendingCanvasEdit((current) => current?.requestId === result.requestId ? null : current);
   }, []);
 
   const history = useSessionHistory(state, dispatch);
@@ -179,12 +189,32 @@ export default function App() {
         return false;
       }
       // 任务发送时间由 Renderer 侧观察（事件不带时间戳），仅供用户消息时间戳行展示。
-      dispatch({ type: "runAccepted", runId: ack.runId, task: req.task, taskAt: Date.now() });
+      dispatch({ type: "runAccepted", runId: ack.runId, inputId: ack.inputId, projectId: req.projectId ?? null, task: req.task, taskAt: Date.now() });
       return true;
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
       return false;
     }
+  };
+
+  const handleSteer = async (req: SteerRequest): Promise<boolean> => {
+    try {
+      const ack = await window.agentAPI.steer(req);
+      if (!ack.ok) {
+        dispatch({ type: "steerRejected", error: ack.error });
+        return false;
+      }
+      dispatch({ type: "steerAccepted", runId: ack.runId, projectId: ack.projectId, inputId: ack.inputId, task: req.task, acceptOrder: ack.acceptOrder, acceptedAt: ack.acceptedAt });
+      return true;
+    } catch (error) {
+      dispatch({ type: "steerRejected", error: error instanceof Error ? error.message : String(error) });
+      return false;
+    }
+  };
+
+  const handleResendInput = (runId: string, inputId: string): void => {
+    const input = state.runs[runId]?.inputs[inputId];
+    if (input?.status === "interrupted") setRestoreDraft({ id: crypto.randomUUID(), text: input.task });
   };
 
   const handleStop = (): void => {
@@ -268,13 +298,13 @@ export default function App() {
                 historyReady={history.hydrated}
                 order={state.runOrder}
                 runs={state.runs}
-                runTimings={runTimings.current}
                 scrollRef={streamRef}
                 hasMore={history.hasMore}
                 loadingOlder={history.loadingOlder}
                 historyError={history.error}
                 onLoadOlder={history.loadOlder}
                 activeSearchBlockId={search.activeBlockId}
+                onResendInput={handleResendInput}
               />
               <div style={{ height: composerHeight }} />
             </StreamRegion>
@@ -287,6 +317,8 @@ export default function App() {
               <Composer
                 running={running}
                 stopping={stopping}
+                activeRunId={running ? state.currentRunId : null}
+                restoreDraft={restoreDraft}
                 ready={history.hydrated}
                 modelOptions={catalog.modelOptions}
                 modelLoading={catalog.loading}
@@ -294,10 +326,14 @@ export default function App() {
                 onSelectProject={() => void handleSelectProject()}
                 onClearProject={() => void handleClearProject()}
                 onRun={handleRun}
+                onSteer={handleSteer}
                 onStop={handleStop}
                 canvasContexts={canvasContexts}
                 onRemoveCanvasContext={(contextId) => setCanvasContexts((current) => current.filter((context) => context.contextId !== contextId))}
-                onClearCanvasContexts={() => setCanvasContexts([])}
+                onClearCanvasContexts={(contextIds) => {
+                  const consumed = new Set(contextIds);
+                  setCanvasContexts((current) => current.filter((context) => !consumed.has(context.contextId)));
+                }}
               />
             </div>
           </Column>
@@ -309,7 +345,7 @@ export default function App() {
         files={outputFiles}
         canvasCanRelease={canvasCanRelease}
         onOpenChange={(open) => { if (!open) setSidebarPanel(null); }}
-        canvas={<CanvasSurface ref={canvasSurfaceRef} projectId={project.projectId} onContextPrepared={(descriptor) => {
+        canvas={<CanvasSurface ref={canvasSurfaceRef} projectId={project.projectId} pendingEdit={pendingCanvasEdit} onEditResult={completeCanvasEdit} onContextPrepared={(descriptor) => {
           if (descriptor.projectId === project.projectId) setCanvasContexts((current) => [...current, descriptor]);
         }} onCanReleaseChange={setCanvasCanRelease} />}
       />

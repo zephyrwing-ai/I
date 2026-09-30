@@ -6,7 +6,7 @@ import { ELEMENT_LINK_KEY } from "../constants";
 import { normalizeLink } from "../data/url";
 import { elementsAreInSameGroup } from "../groups";
 import type { AppProps, AppState } from "../types";
-import type { ExcalidrawElement } from "./types";
+import type { CanvasEditorElement } from "./types";
 
 export const defaultGetElementLinkFromSelection: Exclude<
   AppProps["generateLinkForSelection"],
@@ -27,7 +27,7 @@ export const defaultGetElementLinkFromSelection: Exclude<
 };
 
 export const getLinkIdAndTypeFromSelection = (
-  selectedElements: ExcalidrawElement[],
+  selectedElements: CanvasEditorElement[],
   appState: AppState,
 ): {
   id: string;
@@ -64,7 +64,7 @@ export const getLinkIdAndTypeFromSelection = (
 };
 
 export const canCreateLinkFromElements = (
-  selectedElements: ExcalidrawElement[],
+  selectedElements: CanvasEditorElement[],
 ) => {
   if (selectedElements.length === 1) {
     return true;

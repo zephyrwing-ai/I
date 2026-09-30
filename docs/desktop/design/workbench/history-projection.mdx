@@ -37,6 +37,28 @@ interface HistoryPageResult {
 
 Main 以当前 `projectId` 或 `NULL` 范围过滤 entries，再按 `entry_order DESC` 读取尾页，并在交付 Renderer 前恢复为 `entryOrder ASC`。`snapshotOrder` 表示当前范围读取到的最大顺序。
 
+## 运行中输入投影
+
+HistoryService 按现有 `entryOrder` 游标分页 `entries`。安全边界应用的补充输入形成 completed 用户 entry；停止、失败和启动恢复归档的补充输入形成 interrupted 用户 entry。两类 entry 都以 `inputId` 为稳定 `entryId`，`entry.status` 提供其持久化状态。
+
+Renderer 以 `projectId`、历史请求代次和 `inputId` 合并持久化 ACK、后续 `inputsApplied` 事件以及历史 entries。Main 为初始输入生成 `inputId`，通过运行 ACK 交给 Renderer，并把同一个 ID 传入 Recorder 作为初始用户 entry ID；实时投影、历史恢复和搜索因此共用稳定身份。运行中的补充输入沿用其持久化 `inputId`；连续输入的顺序采用 Main 的 `acceptOrder`，历史顺序采用 `entryOrder`。
+
+安全边界提交 completed 用户 entry 时，实时投影以相同 `inputId` 更新对应状态。`inputsApplied` 记录本批用户消息进入模型上下文的时刻；后续 `turnStarted` 使用新的 `turnId`。reasoning、Assistant Message、工具调用与 Tool Message 使用各自的 `turnId` 和 `toolCallId` 关联。历史恢复依照 `entryOrder` 重建用户消息、Assistant 与 Tool entries 的先后关系。
+
+Renderer 使用一条显式消息时间线承载每个 run 的事件投影顺序：
+
+```ts
+type MessageTimelineItem =
+  | { kind: "user"; inputId: string }
+  | { kind: "assistant"; turnId: string };
+```
+
+ACK 以 `inputId` 追加用户项；`turnStarted` 以 `turnId` 追加模型请求事实；`inputsApplied` 保持用户项身份并记录补充消息的上下文提交。Assistant 增量和 Tool 事件更新已有 turn 与 tool 状态。历史投影以 `entryOrder` 重建持久化序列。用户输入边界到助手活动组、消息块身份及展开内容的映射由[消息流视图规范](./message-stream.mdx)统一定义。
+
+`runCompleted.unappliedInputIds` 与 interrupted entries 通过相同 `inputId` 对应；历史重载从 entries 恢复输入状态与文本。搜索索引以 MessageBlock 稳定 ID 关联命中。视图状态和定位交互由[消息流视图规范](./message-stream.mdx)说明。
+
+Runtime 以 `runStarted.startedAt` 建立一个 `runId` 的计时起点；成功完成时，最终模型回复的 `durationMs` 保存从该起点至运行终态的总时长。实时事件通过 `runCompleted.finalTurnId` 与 `finalDurationMs` 标识最终回合和相同总时长；历史投影通过最终 assistant entry 的 `turnId` 与 `durationMs` 恢复相同数据。`projectId = null` 的输入记录进入通用历史范围，并使用相同身份与顺序规则。总时长的活动组归属由[消息流视图规范](./message-stream.mdx)统一定义。
+
 ## Hydrate 流程
 
 ```text
@@ -69,7 +91,7 @@ MessageStream 接收当前 `projectId` 和 hydrate 就绪状态，并据此管�
 
 ## 实时事件
 
-Hydrate 完成后，Renderer 将排队的 AgentEvent 交给 Reducer。`runId → turnId → toolCallId` 继续作为实时事件身份链，`entryOrder` 负责持久化历史排序。迟到的旧 run 事件保持被过滤，项目切换在运行空闲状态完成。
+Hydrate 完成后，Renderer 将排队的 AgentEvent 交给 Reducer。`runId → turnId → toolCallId` 继续作为模型与工具事件身份链，`inputId` 负责补充用户输入归并，`entryOrder` 负责已应用历史排序。迟到的旧 run 事件保持被过滤，项目切换在运行空闲状态完成。
 
 ## 搜索和分页
 

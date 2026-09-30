@@ -1,12 +1,12 @@
 import React from "react";
 import { fireEvent, render, screen } from "./test-utils";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 
 const { h } = window;
 
 describe("zoom control", () => {
   it("commits percentages, cancels drafts, and clamps to the supported range", async () => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
 
     const input = screen.getByRole("textbox", {
       name: "Zoom",

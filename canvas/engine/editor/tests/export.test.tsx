@@ -1,6 +1,6 @@
 import React from "react";
 import { render, waitFor } from "./test-utils";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { API } from "./helpers/api";
 import { encodePngMetadata } from "../data/image";
 import { serializeAsJSON } from "../data/json";
@@ -44,7 +44,7 @@ Object.defineProperty(window, "TextDecoder", {
 
 describe("export", () => {
   beforeEach(async () => {
-    await render(<Excalidraw />);
+    await render(<CanvasEditor />);
   });
 
   it("export embedded png and reimport", async () => {

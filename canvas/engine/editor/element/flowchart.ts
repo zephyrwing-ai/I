@@ -12,15 +12,15 @@ import { LinearElementEditor } from "./linearElementEditor";
 import { newArrowElement, newElement } from "./newElement";
 import {
   type ElementsMap,
-  type ExcalidrawBindableElement,
-  type ExcalidrawElement,
-  type ExcalidrawFlowchartNodeElement,
+  type CanvasEditorBindableElement,
+  type CanvasEditorElement,
+  type CanvasEditorFlowchartNodeElement,
   type NonDeletedSceneElementsMap,
   type Ordered,
-  type OrderedExcalidrawElement,
+  type OrderedCanvasEditorElement,
 } from "./types";
 import { KEYS } from "../keys";
-import type { AppState, PendingExcalidrawElements } from "../types";
+import type { AppState, PendingCanvasEditorElements } from "../types";
 import { mutateElement } from "./mutateElement";
 import { elementOverlapsWithFrame, elementsAreInFrameBounds } from "../frame";
 import {
@@ -56,12 +56,12 @@ export const getLinkDirectionFromKey = (key: string): LinkDirection => {
 
 const getNodeRelatives = (
   type: "predecessors" | "successors",
-  node: ExcalidrawBindableElement,
+  node: CanvasEditorBindableElement,
   elementsMap: ElementsMap,
   direction: LinkDirection,
 ) => {
   const items = [...elementsMap.values()].reduce(
-    (acc: { relative: ExcalidrawBindableElement; heading: Heading }[], el) => {
+    (acc: { relative: CanvasEditorBindableElement; heading: Heading }[], el) => {
       let oppositeBinding;
       if (
         isElbowArrow(el) &&
@@ -81,7 +81,7 @@ const getNodeRelatives = (
 
         invariant(
           isBindableElement(relative),
-          "not an ExcalidrawBindableElement",
+          "not an CanvasEditorBindableElement",
         );
 
         const edgePoint = (
@@ -124,7 +124,7 @@ const getNodeRelatives = (
 };
 
 const getSuccessors = (
-  node: ExcalidrawBindableElement,
+  node: CanvasEditorBindableElement,
   elementsMap: ElementsMap,
   direction: LinkDirection,
 ) => {
@@ -132,7 +132,7 @@ const getSuccessors = (
 };
 
 export const getPredecessors = (
-  node: ExcalidrawBindableElement,
+  node: CanvasEditorBindableElement,
   elementsMap: ElementsMap,
   direction: LinkDirection,
 ) => {
@@ -140,8 +140,8 @@ export const getPredecessors = (
 };
 
 const getOffsets = (
-  element: ExcalidrawFlowchartNodeElement,
-  linkedNodes: ExcalidrawElement[],
+  element: CanvasEditorFlowchartNodeElement,
+  linkedNodes: CanvasEditorElement[],
   direction: LinkDirection,
 ) => {
   const _HORIZONTAL_OFFSET = HORIZONTAL_OFFSET + element.width;
@@ -230,7 +230,7 @@ const getOffsets = (
 };
 
 const addNewNode = (
-  element: ExcalidrawFlowchartNodeElement,
+  element: CanvasEditorFlowchartNodeElement,
   elementsMap: ElementsMap,
   appState: AppState,
   direction: LinkDirection,
@@ -263,7 +263,7 @@ const addNewNode = (
 
   invariant(
     isFlowchartNodeElement(nextNode),
-    "not an ExcalidrawFlowchartNodeElement",
+    "not an CanvasEditorFlowchartNodeElement",
   );
 
   const bindingArrow = createBindingArrow(
@@ -281,14 +281,14 @@ const addNewNode = (
 };
 
 export const addNewNodes = (
-  startNode: ExcalidrawFlowchartNodeElement,
+  startNode: CanvasEditorFlowchartNodeElement,
   elementsMap: ElementsMap,
   appState: AppState,
   direction: LinkDirection,
   numberOfNodes: number,
 ) => {
   // always start from 0 and distribute evenly
-  const newNodes: ExcalidrawElement[] = [];
+  const newNodes: CanvasEditorElement[] = [];
 
   for (let i = 0; i < numberOfNodes; i++) {
     let nextX: number;
@@ -341,7 +341,7 @@ export const addNewNodes = (
 
     invariant(
       isFlowchartNodeElement(nextNode),
-      "not an ExcalidrawFlowchartNodeElement",
+      "not an CanvasEditorFlowchartNodeElement",
     );
 
     const bindingArrow = createBindingArrow(
@@ -360,8 +360,8 @@ export const addNewNodes = (
 };
 
 const createBindingArrow = (
-  startBindingElement: ExcalidrawFlowchartNodeElement,
-  endBindingElement: ExcalidrawFlowchartNodeElement,
+  startBindingElement: CanvasEditorFlowchartNodeElement,
+  endBindingElement: CanvasEditorFlowchartNodeElement,
   elementsMap: ElementsMap,
   direction: LinkDirection,
   appState: AppState,
@@ -448,18 +448,18 @@ const createBindingArrow = (
     elementsMap as NonDeletedSceneElementsMap,
   );
 
-  const changedElements = new Map<string, OrderedExcalidrawElement>();
+  const changedElements = new Map<string, OrderedCanvasEditorElement>();
   changedElements.set(
     startBindingElement.id,
-    startBindingElement as OrderedExcalidrawElement,
+    startBindingElement as OrderedCanvasEditorElement,
   );
   changedElements.set(
     endBindingElement.id,
-    endBindingElement as OrderedExcalidrawElement,
+    endBindingElement as OrderedCanvasEditorElement,
   );
   changedElements.set(
     bindingArrow.id,
-    bindingArrow as OrderedExcalidrawElement,
+    bindingArrow as OrderedCanvasEditorElement,
   );
 
   LinearElementEditor.movePoints(bindingArrow, [
@@ -477,7 +477,7 @@ const createBindingArrow = (
         [startBindingElement.id, startBindingElement],
         [endBindingElement.id, endBindingElement],
         [bindingArrow.id, bindingArrow],
-      ] as [string, Ordered<ExcalidrawElement>][]),
+      ] as [string, Ordered<CanvasEditorElement>][]),
     ),
     { points: bindingArrow.points },
   );
@@ -491,12 +491,12 @@ const createBindingArrow = (
 export class FlowChartNavigator {
   isExploring: boolean = false;
   // nodes that are ONE link away (successor and predecessor both included)
-  private sameLevelNodes: ExcalidrawElement[] = [];
+  private sameLevelNodes: CanvasEditorElement[] = [];
   private sameLevelIndex: number = 0;
   // set it to the opposite of the defalut creation direction
   private direction: LinkDirection | null = null;
   // for speedier navigation
-  private visitedNodes: Set<ExcalidrawElement["id"]> = new Set();
+  private visitedNodes: Set<CanvasEditorElement["id"]> = new Set();
 
   clear() {
     this.isExploring = false;
@@ -507,10 +507,10 @@ export class FlowChartNavigator {
   }
 
   exploreByDirection(
-    element: ExcalidrawElement,
+    element: CanvasEditorElement,
     elementsMap: ElementsMap,
     direction: LinkDirection,
-  ): ExcalidrawElement["id"] | null {
+  ): CanvasEditorElement["id"] | null {
     if (!isBindableElement(element)) {
       return null;
     }
@@ -623,10 +623,10 @@ export class FlowChartCreator {
   isCreatingChart: boolean = false;
   private numberOfNodes: number = 0;
   private direction: LinkDirection | null = "right";
-  pendingNodes: PendingExcalidrawElements | null = null;
+  pendingNodes: PendingCanvasEditorElements | null = null;
 
   createNodes(
-    startNode: ExcalidrawFlowchartNodeElement,
+    startNode: CanvasEditorFlowchartNodeElement,
     elementsMap: ElementsMap,
     appState: AppState,
     direction: LinkDirection,
@@ -665,7 +665,7 @@ export class FlowChartCreator {
 
       invariant(
         frame && isFrameElement(frame),
-        "not an ExcalidrawFrameElement",
+        "not an CanvasEditorFrameElement",
       );
 
       if (
@@ -698,7 +698,7 @@ export class FlowChartCreator {
 }
 
 export const isNodeInFlowchart = (
-  element: ExcalidrawFlowchartNodeElement,
+  element: CanvasEditorFlowchartNodeElement,
   elementsMap: ElementsMap,
 ) => {
   for (const [, el] of elementsMap) {

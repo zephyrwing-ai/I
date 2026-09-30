@@ -1,8 +1,8 @@
-import type { RemoteExcalidrawElement } from "../../data/reconcile";
+import type { RemoteCanvasEditorElement } from "../../data/reconcile";
 import { reconcileElements } from "../../data/reconcile";
 import type {
-  ExcalidrawElement,
-  OrderedExcalidrawElement,
+  CanvasEditorElement,
+  OrderedCanvasEditorElement,
 } from "../../element/types";
 import { syncInvalidIndices } from "../../fractionalIndex";
 import { randomInteger } from "../../random";
@@ -17,7 +17,7 @@ type ElementLike = {
   index: string;
 };
 
-type Cache = Record<string, ExcalidrawElement | undefined>;
+type Cache = Record<string, CanvasEditorElement | undefined>;
 
 const createElement = (opts: { uid: string } | ElementLike) => {
   let uid: string;
@@ -53,12 +53,12 @@ const idsToElements = (ids: (Id | ElementLike)[], cache: Cache = {}) => {
         version: version ?? 0,
         versionNonce,
         ...cached,
-      } as ExcalidrawElement;
+      } as CanvasEditorElement;
       // @ts-ignore
       cache[uid] = elem;
       acc.push(elem);
       return acc;
-    }, [] as ExcalidrawElement[]),
+    }, [] as CanvasEditorElement[]),
   );
 };
 
@@ -73,7 +73,7 @@ const test = <U extends `${string}:${"L" | "R"}`>(
 
   const reconciled = reconcileElements(
     cloneJSON(_local),
-    cloneJSON(_remote) as RemoteExcalidrawElement[],
+    cloneJSON(_remote) as RemoteCanvasEditorElement[],
     {} as AppState,
   );
 
@@ -102,7 +102,7 @@ const test = <U extends `${string}:${"L" | "R"}`>(
     assert.deepEqual(
       reconcileElements(
         cloneJSON(_remote),
-        cloneJSON(_local as RemoteExcalidrawElement[]),
+        cloneJSON(_local as RemoteCanvasEditorElement[]),
         {} as AppState,
       ).map((x) => x.id),
       reconciledIds,
@@ -119,7 +119,7 @@ const test = <U extends `${string}:${"L" | "R"}`>(
     assert.deepEqual(
       reconcileElements(
         cloneJSON(_remote),
-        cloneJSON(reconciled as unknown as RemoteExcalidrawElement[]),
+        cloneJSON(reconciled as unknown as RemoteCanvasEditorElement[]),
         {} as AppState,
       ).map((x) => x.id),
       reconciledIds,
@@ -307,8 +307,8 @@ describe("elements reconciliation", () => {
       expected: Id[],
     ) => {
       const ret = reconcileElements(
-        local as unknown as OrderedExcalidrawElement[],
-        remote as unknown as RemoteExcalidrawElement[],
+        local as unknown as OrderedCanvasEditorElement[],
+        remote as unknown as RemoteCanvasEditorElement[],
         {} as AppState,
       );
 

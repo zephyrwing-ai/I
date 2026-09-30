@@ -1,19 +1,8 @@
 import { useEffect, useState } from "react";
 import { Icon, type IconName } from "../../components/Icon";
-import type { RunState, TurnState, ToolState } from "../../store/agentReducer";
-import { selectAnswerTurn } from "../../store/messageBlocks";
+import type { RunState, ToolState } from "../../store/agentReducer";
 import { MarkdownText } from "./MarkdownText";
 import { MessageMeta } from "./MessageMeta";
-
-/**
- * 计时是 Renderer 侧对事件的观察（事件不带时间戳；规范：Main 只发结构化运行事件）。
- * 只保留 run 级总时长：runStarted → runCompleted（含全部回合与工具调用）；
- * 回合级时间不展示。reducer 保持纯函数，不写入时间。
- */
-export interface RunTiming {
-  startedAt: number;
-  completedAt?: number;
-}
 
 /** <10s 保留一位小数，否则按秒取整；≥60s 转分钟：126s → "2m6s"；≥1h → "1h2m3s"。 */
 export function formatElapsed(milliseconds: number): string {
@@ -31,8 +20,6 @@ export function formatElapsed(milliseconds: number): string {
 const COLLAPSE_THRESHOLD = 2000;
 const PREVIEW_LENGTH = 600;
 
-export { selectAnswerTurn } from "../../store/messageBlocks";
-
 function formatInput(input: unknown): string {
   if (typeof input === "string") return input;
   try {
@@ -40,16 +27,6 @@ function formatInput(input: unknown): string {
   } catch {
     return "Unable to display parameters";
   }
-}
-
-/** 思考块：reasoning 通道的内容在折叠内以 markdown 结构直接展示（无标签），文本字样与用户消息一致（14px/24px 行高、0.02em 字距）。
- * 展示经 MarkdownText 统一管道（结构解析 → 标点规范化 → 渲染），数据层保持原始文本。 */
-function ThinkBlock({ text }: { text: string }) {
-  return (
-    <div className="think-block">
-      <MarkdownText className="think-text" text={text} />
-    </div>
-  );
 }
 
 /** 从工具输入里提取展示用文本（command/path/query/pattern 优先）。 */
@@ -129,92 +106,95 @@ function Chevron({ expanded }: { expanded: boolean }) {
   );
 }
 
-/**
- * 一次 run 的过程块：`Working for 27s`（运行中扫光）/ `Worked for 2m6s` 折叠行 + 展开内容。
- * 折叠内 = 思考块 + 过程文本 + 回合动作折叠；最终答案由 MessageStream 作为独立消息块渲染。
- */
-export function RunProcess({
+/** One steer-bounded assistant work group owns multiple model turns and their activity details. */
+export function AssistantMessage({
   run,
-  runTiming,
-}: {
-  run: RunState;
-  runTiming?: RunTiming;
-}) {
-  const [open, setOpen] = useState(false);
-  const working = runTiming !== undefined && runTiming.completedAt === undefined;
-  const [now, setNow] = useState<number>(() => (working && runTiming ? Date.now() : 0));
-  const answerTurn = selectAnswerTurn(run);
-
-  useEffect(() => {
-    if (!working || !runTiming) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(timer);
-  }, [working, runTiming]);
-
-  const persistedDuration = answerTurn?.assistantDurationMs;
-  const totalElapsed = working && runTiming
-    ? now - runTiming.startedAt
-    : persistedDuration ?? (runTiming ? (runTiming.completedAt ?? now) - runTiming.startedAt : undefined);
-  const turns = run.turnOrder
-    .map((turnId) => run.turns[turnId])
-    .filter((turn): turn is TurnState => Boolean(turn));
-
-  const retrying = turns.some((turn) => turn.status === "retrying");
-
-  return (
-    <section className="run-process">
-      <button type="button" className="run-fold" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        <span className={`turn-state${working ? " working" : ""}`}>
-          {retrying ? "Retrying response" : working ? "Working for" : "Worked for"}
-          {totalElapsed !== undefined && ` ${formatElapsed(totalElapsed)}`}
-        </span>
-        <Chevron expanded={open} />
-      </button>
-
-      <div className={`run-detail${open ? " is-open" : ""}`}>
-        <div className="run-detail-clip">
-          {turns.map((turn) => {
-            const isFinal = turn === answerTurn;
-            const tools = turn.toolOrder
-              .map((toolCallId) => turn.tools[toolCallId])
-              .filter((tool): tool is ToolState => Boolean(tool));
-            const showThink = Boolean(turn.reasoningContent);
-            const showText = !isFinal && Boolean(turn.assistantContent);
-            const showTools = tools.length > 0;
-            if (!showThink && !showText && !showTools) return null;
-            return (
-              <div className="fold-turn" key={turn.turnId}>
-                {showThink && <ThinkBlock text={turn.reasoningContent} />}
-                {showText && <MarkdownText className="model-text" text={turn.assistantContent} />}
-                {showTools && <TurnActionFold tools={tools} />}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-    </section>
-  );
-}
-
-export function FinalAnswer({
-  run,
-  runTiming,
+  turnIds,
+  answerTurnId,
+  showDuration = false,
+  isWorking = false,
   active = false,
 }: {
   run: RunState;
-  runTiming?: RunTiming;
+  turnIds: string[];
+  answerTurnId?: string;
+  showDuration?: boolean;
+  isWorking?: boolean;
   active?: boolean;
 }) {
-  const answerTurn = selectAnswerTurn(run);
-  if (!answerTurn?.assistantContent) return null;
-  const messageAt = answerTurn.assistantAt ?? runTiming?.completedAt;
+  const turns = turnIds.map((turnId) => run.turns[turnId]).filter((turn): turn is NonNullable<typeof turn> => Boolean(turn));
+  const answerTurn = answerTurnId ? run.turns[answerTurnId] : undefined;
+  const duration = showDuration && run.status === "completed"
+    ? run.finalDurationMs ?? (run.finalTurnId ? run.turns[run.finalTurnId]?.assistantDurationMs : undefined)
+    : undefined;
+  const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!isWorking) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [isWorking, run.startedAt]);
+
+  const hasActivity = turns.some((turn) => (
+    Boolean(turn.reasoningContent)
+    || turn.toolOrder.length > 0
+    || (turn.turnId !== answerTurnId && Boolean(turn.assistantContent))
+  ));
+  const hasWorkDisclosure = hasActivity || isWorking;
+  const startTime = run.startedAt ? Date.parse(run.startedAt) : Number.NaN;
+  const elapsed = Number.isFinite(startTime) ? Math.max(0, now - startTime) : undefined;
+  const workLabel = duration !== undefined
+    ? `Worked for ${formatElapsed(duration)}`
+    : `Working for${isWorking && elapsed !== undefined ? ` ${formatElapsed(elapsed)}` : ""}`;
+
   return (
     <div className={`model-message${active ? " search-active" : ""}`}>
-      <MarkdownText className="model-text final-answer" text={answerTurn.assistantContent} />
-      {messageAt !== undefined && (
-        <MessageMeta time={messageAt} text={answerTurn.assistantContent} copyLabel="Copy answer" />
+      {hasWorkDisclosure ? (
+        <section className={`run-work${open ? " is-open" : ""}`}>
+          {hasActivity ? (
+            <button type="button" className="run-work-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+              <span>{workLabel}</span>
+              <Chevron expanded={open} />
+            </button>
+          ) : (
+            <div className="run-work-label">{workLabel}</div>
+          )}
+          {hasActivity && (
+            <div className="run-work-detail">
+              <div className="run-work-clip">
+                {turns.map((turn) => {
+                  const tools = turn.toolOrder
+                    .map((toolCallId) => turn.tools[toolCallId])
+                    .filter((tool): tool is ToolState => Boolean(tool));
+                  const intermediateText = turn.turnId !== answerTurnId ? turn.assistantContent : "";
+                  if (!turn.reasoningContent && !intermediateText && tools.length === 0) return null;
+                  return (
+                    <div className="run-work-turn" key={turn.turnId}>
+                      {turn.reasoningContent && (
+                        <div className="think-block">
+                          <MarkdownText className="think-text" text={turn.reasoningContent} />
+                        </div>
+                      )}
+                      {intermediateText && <MarkdownText className="work-intermediate-text" text={intermediateText} />}
+                      {tools.length > 0 && <TurnActionFold tools={tools} />}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+      ) : duration !== undefined ? (
+        <div className="run-work-label">{workLabel}</div>
+      ) : null}
+      {answerTurn?.assistantContent && (
+        <MarkdownText
+          className="model-text final-answer"
+          text={answerTurn.assistantContent}
+        />
+      )}
+      {answerTurn?.assistantAt !== undefined && answerTurn.assistantContent && (
+        <MessageMeta time={answerTurn.assistantAt} text={answerTurn.assistantContent} copyLabel="Copy answer" />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 @import "../../css/variables.module.scss";
 
-.excalidraw {
+.agent-canvas {
   .sidebar-trigger {
     @include outlineButtonStyles;
     @include filledButtonOnCanvas;
@@ -32,7 +32,7 @@
     white-space: nowrap;
   }
 
-  &.excalidraw--mobile .default-sidebar-trigger .sidebar-trigger__label {
+  &.agent-canvas--mobile .default-sidebar-trigger .sidebar-trigger__label {
     display: none;
   }
 }

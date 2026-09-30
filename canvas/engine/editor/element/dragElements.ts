@@ -3,7 +3,7 @@ import type { Bounds } from "./bounds";
 import { getCommonBounds } from "./bounds";
 import { mutateElement } from "./mutateElement";
 import { getPerfectElementSize } from "./sizeHelpers";
-import type { NonDeletedExcalidrawElement } from "./types";
+import type { NonDeletedCanvasEditorElement } from "./types";
 import type {
   AppState,
   NormalizedZoomValue,
@@ -26,7 +26,7 @@ import { getMinTextElementWidth } from "./textMeasurements";
 
 export const dragSelectedElements = (
   pointerDownState: PointerDownState,
-  _selectedElements: NonDeletedExcalidrawElement[],
+  _selectedElements: NonDeletedCanvasEditorElement[],
   offset: { x: number; y: number },
   scene: Scene,
   snapOffset: {
@@ -61,7 +61,7 @@ export const dragSelectedElements = (
   // we do not want a frame and its elements to be selected at the same time
   // but when it happens (due to some bug), we want to avoid updating element
   // in the frame twice, hence the use of set
-  const elementsToUpdate = new Set<NonDeletedExcalidrawElement>(
+  const elementsToUpdate = new Set<NonDeletedCanvasEditorElement>(
     selectedElements,
   );
   const frames = selectedElements
@@ -139,7 +139,7 @@ const calculateOffset = (
 
 const updateElementCoords = (
   pointerDownState: PointerDownState,
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   dragOffset: { x: number; y: number },
 ) => {
   const originalElement =
@@ -155,7 +155,7 @@ const updateElementCoords = (
 };
 
 export const getDragOffsetXY = (
-  selectedElements: NonDeletedExcalidrawElement[],
+  selectedElements: NonDeletedCanvasEditorElement[],
   x: number,
   y: number,
 ): [number, number] => {
@@ -179,7 +179,7 @@ export const dragNewElement = ({
   originOffset = null,
   informMutation = true,
 }: {
-  newElement: NonDeletedExcalidrawElement;
+  newElement: NonDeletedCanvasEditorElement;
   elementType: AppState["activeTool"]["type"];
   originX: number;
   originY: number;

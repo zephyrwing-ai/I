@@ -1,25 +1,25 @@
 import type {
-  ExcalidrawElement,
-  ExcalidrawImageElement,
-  ExcalidrawTextElement,
-  ExcalidrawLinearElement,
-  ExcalidrawGenericElement,
+  CanvasEditorElement,
+  CanvasEditorImageElement,
+  CanvasEditorTextElement,
+  CanvasEditorLinearElement,
+  CanvasEditorGenericElement,
   NonDeleted,
   TextAlign,
   GroupId,
   VerticalAlign,
   Arrowhead,
-  ExcalidrawFreeDrawElement,
+  CanvasEditorFreeDrawElement,
   FontFamilyValues,
-  ExcalidrawTextContainer,
-  ExcalidrawFrameElement,
-  ExcalidrawEmbeddableElement,
-  ExcalidrawMagicFrameElement,
-  ExcalidrawIframeElement,
+  CanvasEditorTextContainer,
+  CanvasEditorFrameElement,
+  CanvasEditorEmbeddableElement,
+  CanvasEditorMagicFrameElement,
+  CanvasEditorIframeElement,
   ElementsMap,
-  ExcalidrawArrowElement,
+  CanvasEditorArrowElement,
   FixedSegment,
-  ExcalidrawElbowArrowElement,
+  CanvasEditorElbowArrowElement,
 } from "./types";
 import {
   arrayToMap,
@@ -50,7 +50,7 @@ import type { Radians } from "@agent-studio/canvas-math";
 import { normalizeText, measureText } from "./textMeasurements";
 
 export type ElementConstructorOpts = MarkOptional<
-  Omit<ExcalidrawGenericElement, "id" | "type" | "isDeleted" | "updated">,
+  Omit<CanvasEditorGenericElement, "id" | "type" | "isDeleted" | "updated">,
   | "width"
   | "height"
   | "angle"
@@ -74,7 +74,7 @@ export type ElementConstructorOpts = MarkOptional<
   | "customData"
 >;
 
-const _newElementBase = <T extends ExcalidrawElement>(
+const _newElementBase = <T extends CanvasEditorElement>(
   type: T["type"],
   {
     x,
@@ -97,7 +97,7 @@ const _newElementBase = <T extends ExcalidrawElement>(
     link = null,
     locked = DEFAULT_ELEMENT_PROPS.locked,
     ...rest
-  }: ElementConstructorOpts & Omit<Partial<ExcalidrawGenericElement>, "type">,
+  }: ElementConstructorOpts & Omit<Partial<CanvasEditorGenericElement>, "type">,
 ) => {
   // NOTE (mtolmacs): This is a temporary check to detect extremely large
   // element position or sizing
@@ -122,7 +122,7 @@ const _newElementBase = <T extends ExcalidrawElement>(
   }
 
   // assign type to guard against excess properties
-  const element: Merge<ExcalidrawGenericElement, { type: T["type"] }> = {
+  const element: Merge<CanvasEditorGenericElement, { type: T["type"] }> = {
     id: rest.id || randomId(),
     type,
     x,
@@ -156,26 +156,26 @@ const _newElementBase = <T extends ExcalidrawElement>(
 
 export const newElement = (
   opts: {
-    type: ExcalidrawGenericElement["type"];
+    type: CanvasEditorGenericElement["type"];
   } & ElementConstructorOpts,
-): NonDeleted<ExcalidrawGenericElement> =>
-  _newElementBase<ExcalidrawGenericElement>(opts.type, opts);
+): NonDeleted<CanvasEditorGenericElement> =>
+  _newElementBase<CanvasEditorGenericElement>(opts.type, opts);
 
 export const newEmbeddableElement = (
   opts: {
     type: "embeddable";
   } & ElementConstructorOpts,
-): NonDeleted<ExcalidrawEmbeddableElement> => {
-  return _newElementBase<ExcalidrawEmbeddableElement>("embeddable", opts);
+): NonDeleted<CanvasEditorEmbeddableElement> => {
+  return _newElementBase<CanvasEditorEmbeddableElement>("embeddable", opts);
 };
 
 export const newIframeElement = (
   opts: {
     type: "iframe";
   } & ElementConstructorOpts,
-): NonDeleted<ExcalidrawIframeElement> => {
+): NonDeleted<CanvasEditorIframeElement> => {
   return {
-    ..._newElementBase<ExcalidrawIframeElement>("iframe", opts),
+    ..._newElementBase<CanvasEditorIframeElement>("iframe", opts),
   };
 };
 
@@ -183,10 +183,10 @@ export const newFrameElement = (
   opts: {
     name?: string;
   } & ElementConstructorOpts,
-): NonDeleted<ExcalidrawFrameElement> => {
+): NonDeleted<CanvasEditorFrameElement> => {
   const frameElement = newElementWith(
     {
-      ..._newElementBase<ExcalidrawFrameElement>("frame", opts),
+      ..._newElementBase<CanvasEditorFrameElement>("frame", opts),
       type: "frame",
       name: opts?.name || null,
     },
@@ -200,10 +200,10 @@ export const newMagicFrameElement = (
   opts: {
     name?: string;
   } & ElementConstructorOpts,
-): NonDeleted<ExcalidrawMagicFrameElement> => {
+): NonDeleted<CanvasEditorMagicFrameElement> => {
   const frameElement = newElementWith(
     {
-      ..._newElementBase<ExcalidrawMagicFrameElement>("magicframe", opts),
+      ..._newElementBase<CanvasEditorMagicFrameElement>("magicframe", opts),
       type: "magicframe",
       name: opts?.name || null,
     },
@@ -216,8 +216,8 @@ export const newMagicFrameElement = (
 /** computes element x/y offset based on textAlign/verticalAlign */
 const getTextElementPositionOffsets = (
   opts: {
-    textAlign: ExcalidrawTextElement["textAlign"];
-    verticalAlign: ExcalidrawTextElement["verticalAlign"];
+    textAlign: CanvasEditorTextElement["textAlign"];
+    verticalAlign: CanvasEditorTextElement["verticalAlign"];
   },
   metrics: {
     width: number;
@@ -243,11 +243,11 @@ export const newTextElement = (
     fontFamily?: FontFamilyValues;
     textAlign?: TextAlign;
     verticalAlign?: VerticalAlign;
-    containerId?: ExcalidrawTextContainer["id"] | null;
-    lineHeight?: ExcalidrawTextElement["lineHeight"];
-    autoResize?: ExcalidrawTextElement["autoResize"];
+    containerId?: CanvasEditorTextContainer["id"] | null;
+    lineHeight?: CanvasEditorTextElement["lineHeight"];
+    autoResize?: CanvasEditorTextElement["autoResize"];
   } & ElementConstructorOpts,
-): NonDeleted<ExcalidrawTextElement> => {
+): NonDeleted<CanvasEditorTextElement> => {
   const fontFamily = opts.fontFamily || DEFAULT_FONT_FAMILY;
   const fontSize = opts.fontSize || DEFAULT_FONT_SIZE;
   const lineHeight = opts.lineHeight || getLineHeight(fontFamily);
@@ -264,8 +264,8 @@ export const newTextElement = (
     metrics,
   );
 
-  const textElementProps: ExcalidrawTextElement = {
-    ..._newElementBase<ExcalidrawTextElement>("text", opts),
+  const textElementProps: CanvasEditorTextElement = {
+    ..._newElementBase<CanvasEditorTextElement>("text", opts),
     text,
     fontSize,
     fontFamily,
@@ -281,7 +281,7 @@ export const newTextElement = (
     lineHeight,
   };
 
-  const textElement: ExcalidrawTextElement = newElementWith(
+  const textElement: CanvasEditorTextElement = newElementWith(
     textElementProps,
     {},
   );
@@ -290,7 +290,7 @@ export const newTextElement = (
 };
 
 const getAdjustedDimensions = (
-  element: ExcalidrawTextElement,
+  element: CanvasEditorTextElement,
   elementsMap: ElementsMap,
   nextText: string,
 ): {
@@ -417,8 +417,8 @@ const adjustXYWithRotation = (
 };
 
 export const refreshTextDimensions = (
-  textElement: ExcalidrawTextElement,
-  container: ExcalidrawTextContainer | null,
+  textElement: CanvasEditorTextElement,
+  container: CanvasEditorTextContainer | null,
   elementsMap: ElementsMap,
   text = textElement.text,
 ) => {
@@ -441,13 +441,13 @@ export const refreshTextDimensions = (
 export const newFreeDrawElement = (
   opts: {
     type: "freedraw";
-    points?: ExcalidrawFreeDrawElement["points"];
+    points?: CanvasEditorFreeDrawElement["points"];
     simulatePressure: boolean;
-    pressures?: ExcalidrawFreeDrawElement["pressures"];
+    pressures?: CanvasEditorFreeDrawElement["pressures"];
   } & ElementConstructorOpts,
-): NonDeleted<ExcalidrawFreeDrawElement> => {
+): NonDeleted<CanvasEditorFreeDrawElement> => {
   return {
-    ..._newElementBase<ExcalidrawFreeDrawElement>(opts.type, opts),
+    ..._newElementBase<CanvasEditorFreeDrawElement>(opts.type, opts),
     points: opts.points || [],
     pressures: opts.pressures || [],
     simulatePressure: opts.simulatePressure,
@@ -457,12 +457,12 @@ export const newFreeDrawElement = (
 
 export const newLinearElement = (
   opts: {
-    type: ExcalidrawLinearElement["type"];
-    points?: ExcalidrawLinearElement["points"];
+    type: CanvasEditorLinearElement["type"];
+    points?: CanvasEditorLinearElement["points"];
   } & ElementConstructorOpts,
-): NonDeleted<ExcalidrawLinearElement> => {
+): NonDeleted<CanvasEditorLinearElement> => {
   return {
-    ..._newElementBase<ExcalidrawLinearElement>(opts.type, opts),
+    ..._newElementBase<CanvasEditorLinearElement>(opts.type, opts),
     points: opts.points || [],
     lastCommittedPoint: null,
     startBinding: null,
@@ -474,19 +474,19 @@ export const newLinearElement = (
 
 export const newArrowElement = <T extends boolean>(
   opts: {
-    type: ExcalidrawArrowElement["type"];
+    type: CanvasEditorArrowElement["type"];
     startArrowhead?: Arrowhead | null;
     endArrowhead?: Arrowhead | null;
-    points?: ExcalidrawArrowElement["points"];
+    points?: CanvasEditorArrowElement["points"];
     elbowed?: T;
     fixedSegments?: FixedSegment[] | null;
   } & ElementConstructorOpts,
 ): T extends true
-  ? NonDeleted<ExcalidrawElbowArrowElement>
-  : NonDeleted<ExcalidrawArrowElement> => {
+  ? NonDeleted<CanvasEditorElbowArrowElement>
+  : NonDeleted<CanvasEditorArrowElement> => {
   if (opts.elbowed) {
     return {
-      ..._newElementBase<ExcalidrawElbowArrowElement>(opts.type, opts),
+      ..._newElementBase<CanvasEditorElbowArrowElement>(opts.type, opts),
       points: opts.points || [],
       lastCommittedPoint: null,
       startBinding: null,
@@ -497,11 +497,11 @@ export const newArrowElement = <T extends boolean>(
       fixedSegments: opts.fixedSegments || [],
       startIsSpecial: false,
       endIsSpecial: false,
-    } as NonDeleted<ExcalidrawElbowArrowElement>;
+    } as NonDeleted<CanvasEditorElbowArrowElement>;
   }
 
   return {
-    ..._newElementBase<ExcalidrawArrowElement>(opts.type, opts),
+    ..._newElementBase<CanvasEditorArrowElement>(opts.type, opts),
     points: opts.points || [],
     lastCommittedPoint: null,
     startBinding: null,
@@ -510,21 +510,21 @@ export const newArrowElement = <T extends boolean>(
     endArrowhead: opts.endArrowhead || null,
     elbowed: false,
   } as T extends true
-    ? NonDeleted<ExcalidrawElbowArrowElement>
-    : NonDeleted<ExcalidrawArrowElement>;
+    ? NonDeleted<CanvasEditorElbowArrowElement>
+    : NonDeleted<CanvasEditorArrowElement>;
 };
 
 export const newImageElement = (
   opts: {
-    type: ExcalidrawImageElement["type"];
-    status?: ExcalidrawImageElement["status"];
-    fileId?: ExcalidrawImageElement["fileId"];
-    scale?: ExcalidrawImageElement["scale"];
-    crop?: ExcalidrawImageElement["crop"];
+    type: CanvasEditorImageElement["type"];
+    status?: CanvasEditorImageElement["status"];
+    fileId?: CanvasEditorImageElement["fileId"];
+    scale?: CanvasEditorImageElement["scale"];
+    crop?: CanvasEditorImageElement["crop"];
   } & ElementConstructorOpts,
-): NonDeleted<ExcalidrawImageElement> => {
+): NonDeleted<CanvasEditorImageElement> => {
   return {
-    ..._newElementBase<ExcalidrawImageElement>("image", opts),
+    ..._newElementBase<CanvasEditorImageElement>("image", opts),
     // in the future we'll support changing stroke color for some SVG elements,
     // and `transparent` will likely mean "use original colors of the image"
     strokeColor: "transparent",
@@ -535,7 +535,7 @@ export const newImageElement = (
   };
 };
 
-// Simplified deep clone for the purpose of cloning ExcalidrawElement.
+// Simplified deep clone for the purpose of cloning CanvasEditorElement.
 //
 // Only clones plain objects and arrays. Doesn't clone Date, RegExp, Map, Set,
 // Typed arrays and other non-null objects.
@@ -543,7 +543,7 @@ export const newImageElement = (
 // Adapted from https://github.com/lukeed/klona
 //
 // The reason for `deepCopyElement()` wrapper is type safety (only allow
-// passing ExcalidrawElement as the top-level argument).
+// passing CanvasEditorElement as the top-level argument).
 const _deepCopyElement = (val: any, depth: number = 0) => {
   // only clone non-primitives
   if (val == null || typeof val !== "object") {
@@ -598,7 +598,7 @@ const _deepCopyElement = (val: any, depth: number = 0) => {
 };
 
 /**
- * Clones ExcalidrawElement data structure. Does not regenerate id, nonce, or
+ * Clones CanvasEditorElement data structure. Does not regenerate id, nonce, or
  * any value. The purpose is to to break object references for immutability
  * reasons, whenever we want to keep the original element, but ensure it's not
  * mutated.
@@ -606,7 +606,7 @@ const _deepCopyElement = (val: any, depth: number = 0) => {
  * Only clones plain objects and arrays. Doesn't clone Date, RegExp, Map, Set,
  * Typed arrays and other non-null objects.
  */
-export const deepCopyElement = <T extends ExcalidrawElement>(
+export const deepCopyElement = <T extends CanvasEditorElement>(
   val: T,
 ): Mutable<T> => {
   return _deepCopyElement(val);
@@ -641,7 +641,7 @@ const regenerateId = () => {
  * @param element Element to duplicate
  * @param overrides Any element properties to override
  */
-export const duplicateElement = <TElement extends ExcalidrawElement>(
+export const duplicateElement = <TElement extends CanvasEditorElement>(
   editingGroupId: AppState["editingGroupId"],
   groupIdMapForOperation: Map<GroupId, GroupId>,
   element: TElement,
@@ -684,23 +684,23 @@ export const duplicateElement = <TElement extends ExcalidrawElement>(
  * NOTE by default does not randomize or regenerate anything except the id.
  */
 export const duplicateElements = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   opts?: {
     /** NOTE also updates version flags and `updated` */
     randomizeSeed: boolean;
   },
 ) => {
-  const clonedElements: ExcalidrawElement[] = [];
+  const clonedElements: CanvasEditorElement[] = [];
 
   const origElementsMap = arrayToMap(elements);
 
   // used for for migrating old ids to new ids
   const elementNewIdsMap = new Map<
-    /* orig */ ExcalidrawElement["id"],
-    /* new */ ExcalidrawElement["id"]
+    /* orig */ CanvasEditorElement["id"],
+    /* new */ CanvasEditorElement["id"]
   >();
 
-  const maybeGetNewId = (id: ExcalidrawElement["id"]) => {
+  const maybeGetNewId = (id: CanvasEditorElement["id"]) => {
     // if we've already migrated the element id, return the new one directly
     if (elementNewIdsMap.has(id)) {
       return elementNewIdsMap.get(id)!;
@@ -719,7 +719,7 @@ export const duplicateElements = (
   const groupNewIdsMap = new Map</* orig */ GroupId, /* new */ GroupId>();
 
   for (const element of elements) {
-    const clonedElement: Mutable<ExcalidrawElement> = _deepCopyElement(element);
+    const clonedElement: Mutable<CanvasEditorElement> = _deepCopyElement(element);
 
     clonedElement.id = maybeGetNewId(element.id)!;
     if (isTestEnv()) {
@@ -748,7 +748,7 @@ export const duplicateElements = (
     if ("boundElements" in clonedElement && clonedElement.boundElements) {
       clonedElement.boundElements = clonedElement.boundElements.reduce(
         (
-          acc: Mutable<NonNullable<ExcalidrawElement["boundElements"]>>,
+          acc: Mutable<NonNullable<CanvasEditorElement["boundElements"]>>,
           binding,
         ) => {
           const newBindingId = maybeGetNewId(binding.id);

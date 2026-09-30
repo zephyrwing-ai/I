@@ -13,7 +13,7 @@ import type { SidebarProps, SidebarPropsContextValue } from "./common";
 import { SidebarPropsContext } from "./common";
 import { SidebarHeader } from "./SidebarHeader";
 import clsx from "clsx";
-import { useDevice, useExcalidrawSetAppState } from "../App";
+import { useDevice, useCanvasEditorSetAppState } from "../App";
 import { updateObject } from "../../utils";
 import { KEYS } from "../../keys";
 import { EVENT } from "../../constants";
@@ -55,7 +55,7 @@ export const SidebarInner = forwardRef(
       );
     }
 
-    const setAppState = useExcalidrawSetAppState();
+    const setAppState = useCanvasEditorSetAppState();
 
     const setIsSidebarDockedAtom = useSetAtom(isSidebarDockedAtom);
 

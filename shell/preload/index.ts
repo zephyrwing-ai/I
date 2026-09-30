@@ -11,6 +11,9 @@ import {
   type DeleteProviderResult,
   type CanvasContextDescriptor,
   type CanvasContextInput,
+  type CanvasEditCancel,
+  type CanvasEditRequest,
+  type CanvasEditResult,
   type CanvasDocumentResult,
   type CanvasSaveResult,
   type CanvasSaveRequest,
@@ -25,6 +28,8 @@ import {
   type ProjectDescriptor,
   type RunRequest,
   type RunStartAck,
+  type SteerRequest,
+  type SteerAck,
   type SaveProviderResult,
   type HistoryPageRequest,
   type HistoryPageResult,
@@ -32,6 +37,8 @@ import {
 
 const api: AgentAPI = {
   run: (req: RunRequest): Promise<RunStartAck> => ipcRenderer.invoke(IPC.run, req),
+
+  steer: (req: SteerRequest): Promise<SteerAck> => ipcRenderer.invoke(IPC.steer, req),
 
   stop: (): void => ipcRenderer.send(IPC.stop),
 
@@ -74,6 +81,22 @@ const api: AgentAPI = {
   prepareCanvasContext: (input: CanvasContextInput): Promise<CanvasContextDescriptor> => (
     ipcRenderer.invoke(IPC.prepareCanvasContext, input)
   ),
+
+  onCanvasEditRequest: (cb: (request: CanvasEditRequest) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, request: CanvasEditRequest): void => cb(request);
+    ipcRenderer.on(IPC.canvasEditRequest, listener);
+    return () => ipcRenderer.removeListener(IPC.canvasEditRequest, listener);
+  },
+
+  onCanvasEditCancel: (cb: (cancel: CanvasEditCancel) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, cancel: CanvasEditCancel): void => cb(cancel);
+    ipcRenderer.on(IPC.canvasEditCancel, listener);
+    return () => ipcRenderer.removeListener(IPC.canvasEditCancel, listener);
+  },
+
+  completeCanvasEdit: (result: CanvasEditResult): void => {
+    ipcRenderer.send(IPC.canvasEditResult, result);
+  },
 
   previewOutputFile: (runId: string, fileId: string): Promise<OutputFilePreviewResult> => (
     ipcRenderer.invoke(IPC.previewOutputFile, runId, fileId)

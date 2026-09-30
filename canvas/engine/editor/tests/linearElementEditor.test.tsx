@@ -1,11 +1,11 @@
 import React from "react";
 import type {
-  ExcalidrawElement,
-  ExcalidrawLinearElement,
-  ExcalidrawTextElementWithContainer,
+  CanvasEditorElement,
+  CanvasEditorLinearElement,
+  CanvasEditorTextElementWithContainer,
   FontString,
 } from "../element/types";
-import { Excalidraw, mutateElement } from "../index";
+import { CanvasEditor, mutateElement } from "../index";
 import { reseed } from "../random";
 import * as StaticScene from "../renderer/staticScene";
 import * as InteractiveCanvas from "../renderer/interactiveScene";
@@ -53,7 +53,7 @@ describe("Test Linear Elements", () => {
     renderInteractiveScene.mockClear();
     renderStaticScene.mockClear();
     reseed(7);
-    const comp = await render(<Excalidraw handleKeyboardGlobally={true} />);
+    const comp = await render(<CanvasEditor handleKeyboardGlobally={true} />);
     h.state.width = 1000;
     h.state.height = 1000;
     container = comp.container;
@@ -67,9 +67,9 @@ describe("Test Linear Elements", () => {
   const mouse = new Pointer("mouse");
 
   const createTwoPointerLinearElement = (
-    type: ExcalidrawLinearElement["type"],
-    roundness: ExcalidrawElement["roundness"] = null,
-    roughness: ExcalidrawLinearElement["roughness"] = 0,
+    type: CanvasEditorLinearElement["type"],
+    roundness: CanvasEditorElement["roundness"] = null,
+    roughness: CanvasEditorLinearElement["roughness"] = 0,
   ) => {
     const line = API.createElement({
       x: p1[0],
@@ -88,9 +88,9 @@ describe("Test Linear Elements", () => {
   };
 
   const createThreePointerLinearElement = (
-    type: ExcalidrawLinearElement["type"],
-    roundness: ExcalidrawElement["roundness"] = null,
-    roughness: ExcalidrawLinearElement["roughness"] = 0,
+    type: CanvasEditorLinearElement["type"],
+    roundness: CanvasEditorElement["roundness"] = null,
+    roughness: CanvasEditorLinearElement["roughness"] = 0,
   ) => {
     //dragging line from midpoint
     const p3 = [midpoint[0] + delta - p1[0], midpoint[1] + delta - p1[1]];
@@ -115,7 +115,7 @@ describe("Test Linear Elements", () => {
   };
 
   const enterLineEditingMode = (
-    line: ExcalidrawLinearElement,
+    line: CanvasEditorLinearElement,
     selectProgrammatically = false,
   ) => {
     if (selectProgrammatically) {
@@ -158,7 +158,7 @@ describe("Test Linear Elements", () => {
 
   it("should not drag line and add midpoint until dragged beyond a threshold", () => {
     createTwoPointerLinearElement("line");
-    const line = h.elements[0] as ExcalidrawLinearElement;
+    const line = h.elements[0] as CanvasEditorLinearElement;
     const originalX = line.x;
     const originalY = line.y;
     expect(line.points.length).toEqual(2);
@@ -180,11 +180,11 @@ describe("Test Linear Elements", () => {
 
   it("should allow dragging line from midpoint in 2 pointer lines outside editor", async () => {
     createTwoPointerLinearElement("line");
-    const line = h.elements[0] as ExcalidrawLinearElement;
+    const line = h.elements[0] as CanvasEditorLinearElement;
 
     expect(renderInteractiveScene.mock.calls.length).toMatchInlineSnapshot(`5`);
     expect(renderStaticScene.mock.calls.length).toMatchInlineSnapshot(`5`);
-    expect((h.elements[0] as ExcalidrawLinearElement).points.length).toEqual(2);
+    expect((h.elements[0] as CanvasEditorLinearElement).points.length).toEqual(2);
 
     // drag line from midpoint
     drag(midpoint, pointFrom(midpoint[0] + delta, midpoint[1] + delta));
@@ -241,7 +241,7 @@ describe("Test Linear Elements", () => {
   describe("Inside editor", () => {
     it("should not drag line and add midpoint when dragged irrespective of threshold", () => {
       createTwoPointerLinearElement("line");
-      const line = h.elements[0] as ExcalidrawLinearElement;
+      const line = h.elements[0] as CanvasEditorLinearElement;
       const originalX = line.x;
       const originalY = line.y;
       enterLineEditingMode(line);
@@ -260,7 +260,7 @@ describe("Test Linear Elements", () => {
     it("should allow dragging line from midpoint in 2 pointer lines", async () => {
       createTwoPointerLinearElement("line");
 
-      const line = h.elements[0] as ExcalidrawLinearElement;
+      const line = h.elements[0] as CanvasEditorLinearElement;
       enterLineEditingMode(line);
 
       // drag line from midpoint
@@ -292,7 +292,7 @@ describe("Test Linear Elements", () => {
     it("should update the midpoints when element roundness changed", async () => {
       createThreePointerLinearElement("line");
 
-      const line = h.elements[0] as ExcalidrawLinearElement;
+      const line = h.elements[0] as CanvasEditorLinearElement;
       expect(line.points.length).toEqual(3);
 
       enterLineEditingMode(line);
@@ -312,7 +312,7 @@ describe("Test Linear Elements", () => {
       expect(renderStaticScene.mock.calls.length).toMatchInlineSnapshot(`6`);
 
       const midPointsWithRoundEdge = LinearElementEditor.getEditorMidPoints(
-        h.elements[0] as ExcalidrawLinearElement,
+        h.elements[0] as CanvasEditorLinearElement,
         h.app.scene.getNonDeletedElementsMap(),
         h.state,
       );
@@ -340,7 +340,7 @@ describe("Test Linear Elements", () => {
         type: ROUNDNESS.PROPORTIONAL_RADIUS,
       });
 
-      const line = h.elements[0] as ExcalidrawLinearElement;
+      const line = h.elements[0] as CanvasEditorLinearElement;
       expect(line.points.length).toEqual(3);
       enterLineEditingMode(line);
 
@@ -405,7 +405,7 @@ describe("Test Linear Elements", () => {
       const firstSegmentMidpoint = pointFrom<GlobalPoint>(55, 45);
       const lastSegmentMidpoint = pointFrom<GlobalPoint>(75, 40);
 
-      let line: ExcalidrawLinearElement;
+      let line: CanvasEditorLinearElement;
 
       beforeEach(() => {
         line = createThreePointerLinearElement("line");
@@ -442,7 +442,7 @@ describe("Test Linear Elements", () => {
 
         expect(line.points.length).toEqual(5);
 
-        expect((h.elements[0] as ExcalidrawLinearElement).points)
+        expect((h.elements[0] as CanvasEditorLinearElement).points)
           .toMatchInlineSnapshot(`
             [
               [
@@ -552,7 +552,7 @@ describe("Test Linear Elements", () => {
       });
 
       it("should remove the midpoint when one of the points in the segment is deleted", async () => {
-        const line = h.elements[0] as ExcalidrawLinearElement;
+        const line = h.elements[0] as CanvasEditorLinearElement;
         enterLineEditingMode(line);
         const points = LinearElementEditor.getPointsGlobalCoordinates(
           line,
@@ -603,7 +603,7 @@ describe("Test Linear Elements", () => {
         76.08587175006699,
         43.294165939653226,
       );
-      let line: ExcalidrawLinearElement;
+      let line: CanvasEditorLinearElement;
 
       beforeEach(() => {
         line = createThreePointerLinearElement("line", {
@@ -639,7 +639,7 @@ describe("Test Linear Elements", () => {
         expect(renderStaticScene.mock.calls.length).toMatchInlineSnapshot(`7`);
         expect(line.points.length).toEqual(5);
 
-        expect((h.elements[0] as ExcalidrawLinearElement).points)
+        expect((h.elements[0] as CanvasEditorLinearElement).points)
           .toMatchInlineSnapshot(`
             [
               [
@@ -806,7 +806,7 @@ describe("Test Linear Elements", () => {
 
     it("in-editor dragging a line point covered by another element", () => {
       createTwoPointerLinearElement("line");
-      const line = h.elements[0] as ExcalidrawLinearElement;
+      const line = h.elements[0] as CanvasEditorLinearElement;
       API.setElements([
         line,
         API.createElement({
@@ -849,7 +849,7 @@ describe("Test Linear Elements", () => {
 
     const createBoundTextElement = (
       text: string,
-      container: ExcalidrawLinearElement,
+      container: CanvasEditorLinearElement,
     ) => {
       const textElement = API.createElement({
         type: "text",
@@ -859,7 +859,7 @@ describe("Test Linear Elements", () => {
         containerId: container.id,
         width: 30,
         height: 20,
-      }) as ExcalidrawTextElementWithContainer;
+      }) as CanvasEditorTextElementWithContainer;
 
       container = {
         ...container,
@@ -869,7 +869,7 @@ describe("Test Linear Elements", () => {
         }),
       };
 
-      const elements: ExcalidrawElement[] = [];
+      const elements: CanvasEditorElement[] = [];
       h.elements.forEach((element) => {
         if (element.id === container.id) {
           elements.push(container);
@@ -885,7 +885,7 @@ describe("Test Linear Elements", () => {
     describe("Test getBoundTextElementPosition", () => {
       it("should return correct position for 2 pointer arrow", () => {
         createTwoPointerLinearElement("arrow");
-        const arrow = h.elements[0] as ExcalidrawLinearElement;
+        const arrow = h.elements[0] as CanvasEditorLinearElement;
         const { textElement, container } = createBoundTextElement(
           DEFAULT_TEXT,
           arrow,
@@ -907,7 +907,7 @@ describe("Test Linear Elements", () => {
         createThreePointerLinearElement("arrow", {
           type: ROUNDNESS.PROPORTIONAL_RADIUS,
         });
-        const arrow = h.elements[0] as ExcalidrawLinearElement;
+        const arrow = h.elements[0] as CanvasEditorLinearElement;
         const { textElement, container } = createBoundTextElement(
           DEFAULT_TEXT,
           arrow,
@@ -930,7 +930,7 @@ describe("Test Linear Elements", () => {
         createThreePointerLinearElement("arrow", {
           type: ROUNDNESS.PROPORTIONAL_RADIUS,
         });
-        const arrow = h.elements[0] as ExcalidrawLinearElement;
+        const arrow = h.elements[0] as CanvasEditorLinearElement;
         const { textElement, container } = createBoundTextElement(
           DEFAULT_TEXT,
           arrow,
@@ -970,26 +970,26 @@ describe("Test Linear Elements", () => {
       createTwoPointerLinearElement("arrow");
       Keyboard.keyPress(KEYS.ENTER);
       const editor = document.querySelector(
-        ".excalidraw-textEditorContainer > textarea",
+        ".agent-canvas-textEditorContainer > textarea",
       ) as HTMLTextAreaElement;
       expect(editor).toMatchSnapshot();
     });
 
     it("should bind text to arrow when double clicked", async () => {
       createTwoPointerLinearElement("arrow");
-      const arrow = h.elements[0] as ExcalidrawLinearElement;
+      const arrow = h.elements[0] as CanvasEditorLinearElement;
 
       expect(h.elements.length).toBe(1);
       expect(h.elements[0].id).toBe(arrow.id);
       mouse.doubleClickAt(arrow.x, arrow.y);
       expect(h.elements.length).toBe(2);
 
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.type).toBe("text");
       expect(text.containerId).toBe(arrow.id);
       mouse.down();
       const editor = document.querySelector(
-        ".excalidraw-textEditorContainer > textarea",
+        ".agent-canvas-textEditorContainer > textarea",
       ) as HTMLTextAreaElement;
 
       fireEvent.change(editor, {
@@ -1001,7 +1001,7 @@ describe("Test Linear Elements", () => {
         { id: text.id, type: "text" },
       ]);
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).text,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).text,
       ).toMatchSnapshot();
     });
 
@@ -1015,11 +1015,11 @@ describe("Test Linear Elements", () => {
 
       expect(h.elements.length).toBe(2);
 
-      const textElement = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const textElement = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(textElement.type).toBe("text");
       expect(textElement.containerId).toBe(arrow.id);
       const editor = document.querySelector(
-        ".excalidraw-textEditorContainer > textarea",
+        ".agent-canvas-textEditorContainer > textarea",
       ) as HTMLTextAreaElement;
 
       fireEvent.change(editor, {
@@ -1030,7 +1030,7 @@ describe("Test Linear Elements", () => {
         { id: textElement.id, type: "text" },
       ]);
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).text,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).text,
       ).toMatchSnapshot();
     });
 
@@ -1042,7 +1042,7 @@ describe("Test Linear Elements", () => {
 
       expect(h.elements.length).toBe(2);
 
-      const text = h.elements[1] as ExcalidrawTextElementWithContainer;
+      const text = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(text.type).toBe("text");
       expect(text.containerId).toBeNull();
       expect(line.boundElements).toBeNull();
@@ -1058,7 +1058,7 @@ describe("Test Linear Elements", () => {
         type: ROUNDNESS.PROPORTIONAL_RADIUS,
       });
 
-      const arrow = h.elements[0] as ExcalidrawLinearElement;
+      const arrow = h.elements[0] as CanvasEditorLinearElement;
 
       const { textElement, container } = createBoundTextElement(
         DEFAULT_TEXT,
@@ -1119,7 +1119,7 @@ describe("Test Linear Elements", () => {
         }
       `);
       expect(
-        (h.elements[1] as ExcalidrawTextElementWithContainer).text,
+        (h.elements[1] as CanvasEditorTextElementWithContainer).text,
       ).toMatchSnapshot();
       expect(
         LinearElementEditor.getElementAbsoluteCoords(
@@ -1142,7 +1142,7 @@ describe("Test Linear Elements", () => {
     it("should resize and position the bound text correctly when 2 pointer linear element resized", () => {
       createTwoPointerLinearElement("arrow");
 
-      const arrow = h.elements[0] as ExcalidrawLinearElement;
+      const arrow = h.elements[0] as CanvasEditorLinearElement;
       const { textElement, container } = createBoundTextElement(
         DEFAULT_TEXT,
         arrow,
@@ -1185,7 +1185,7 @@ describe("Test Linear Elements", () => {
 
     it("should not render vertical align tool when element selected", () => {
       createTwoPointerLinearElement("arrow");
-      const arrow = h.elements[0] as ExcalidrawLinearElement;
+      const arrow = h.elements[0] as CanvasEditorLinearElement;
 
       createBoundTextElement(DEFAULT_TEXT, arrow);
       API.setSelectedElements([arrow]);
@@ -1211,12 +1211,12 @@ describe("Test Linear Elements", () => {
       mouse.select(arrow);
       Keyboard.keyPress(KEYS.ENTER);
       const editor = document.querySelector(
-        ".excalidraw-textEditorContainer > textarea",
+        ".agent-canvas-textEditorContainer > textarea",
       ) as HTMLTextAreaElement;
       fireEvent.change(editor, { target: { value: DEFAULT_TEXT } });
       Keyboard.exitTextEditor(editor);
 
-      const textElement = h.elements[2] as ExcalidrawTextElementWithContainer;
+      const textElement = h.elements[2] as CanvasEditorTextElementWithContainer;
 
       expect(arrow.endBinding?.elementId).toBe(rect.id);
       expect(arrow.width).toBe(400);
@@ -1258,7 +1258,7 @@ describe("Test Linear Elements", () => {
 
     it("should not render horizontal align tool when element selected", () => {
       createTwoPointerLinearElement("arrow");
-      const arrow = h.elements[0] as ExcalidrawLinearElement;
+      const arrow = h.elements[0] as CanvasEditorLinearElement;
 
       createBoundTextElement(DEFAULT_TEXT, arrow);
       API.setSelectedElements([arrow]);
@@ -1272,7 +1272,7 @@ describe("Test Linear Elements", () => {
       createTwoPointerLinearElement("arrow");
       const text = API.createElement({
         type: "text",
-        text: "Hello Excalidraw",
+        text: "Hello CanvasEditor",
       });
       expect(text.x).toBe(0);
       expect(text.y).toBe(0);
@@ -1327,9 +1327,9 @@ describe("Test Linear Elements", () => {
 
     it("should not update label position when arrow dragged", () => {
       createTwoPointerLinearElement("arrow");
-      let arrow = h.elements[0] as ExcalidrawLinearElement;
+      let arrow = h.elements[0] as CanvasEditorLinearElement;
       createBoundTextElement(DEFAULT_TEXT, arrow);
-      let label = h.elements[1] as ExcalidrawTextElementWithContainer;
+      let label = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(arrow.x).toBe(20);
       expect(arrow.y).toBe(20);
       expect(label.x).toBe(0);
@@ -1341,8 +1341,8 @@ describe("Test Linear Elements", () => {
       mouse.moveTo(arrow.x + 20, arrow.y + 30);
       mouse.up(arrow.x + 20, arrow.y + 30);
 
-      arrow = h.elements[0] as ExcalidrawLinearElement;
-      label = h.elements[1] as ExcalidrawTextElementWithContainer;
+      arrow = h.elements[0] as CanvasEditorLinearElement;
+      label = h.elements[1] as CanvasEditorTextElementWithContainer;
       expect(arrow.x).toBe(80);
       expect(arrow.y).toBe(100);
       expect(label.x).toBe(0);

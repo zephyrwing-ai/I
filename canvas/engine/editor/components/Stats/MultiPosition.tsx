@@ -1,7 +1,7 @@
 import type {
   ElementsMap,
-  ExcalidrawElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  NonDeletedCanvasEditorElement,
   NonDeletedSceneElementsMap,
 } from "../../element/types";
 import type Scene from "../../scene/Scene";
@@ -17,7 +17,7 @@ import { pointFrom, pointRotateRads } from "@agent-studio/canvas-math";
 
 interface MultiPositionProps {
   property: "x" | "y";
-  elements: readonly ExcalidrawElement[];
+  elements: readonly CanvasEditorElement[];
   elementsMap: ElementsMap;
   atomicUnits: AtomicUnit[];
   scene: Scene;
@@ -30,8 +30,8 @@ const moveElements = (
   property: MultiPositionProps["property"],
   changeInTopX: number,
   changeInTopY: number,
-  elements: readonly ExcalidrawElement[],
-  originalElements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
+  originalElements: readonly CanvasEditorElement[],
   elementsMap: NonDeletedSceneElementsMap,
   originalElementsMap: ElementsMap,
   scene: Scene,
@@ -71,9 +71,9 @@ const moveElements = (
 const moveGroupTo = (
   nextX: number,
   nextY: number,
-  originalElements: ExcalidrawElement[],
+  originalElements: CanvasEditorElement[],
   elementsMap: NonDeletedSceneElementsMap,
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   originalElementsMap: ElementsMap,
   scene: Scene,
 ) => {
@@ -230,7 +230,7 @@ const MultiPosition = ({
       atomicUnits.map((atomicUnit) => {
         const elementsInUnit = Object.keys(atomicUnit)
           .map((id) => elementsMap.get(id))
-          .filter((el) => el !== undefined) as ExcalidrawElement[];
+          .filter((el) => el !== undefined) as CanvasEditorElement[];
 
         // we're dealing with a group
         if (elementsInUnit.length > 1) {

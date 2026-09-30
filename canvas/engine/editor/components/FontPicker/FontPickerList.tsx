@@ -7,7 +7,7 @@ import React, {
   useCallback,
   type KeyboardEventHandler,
 } from "react";
-import { useApp, useAppProps, useExcalidrawContainer } from "../App";
+import { useApp, useAppProps, useCanvasEditorContainer } from "../App";
 import { PropertiesPopover } from "../PropertiesPopover";
 import { QuickSearch } from "../QuickSearch";
 import { ScrollableList } from "../ScrollableList";
@@ -55,7 +55,7 @@ export const FontPickerList = React.memo(
     onOpen,
     onClose,
   }: FontPickerListProps) => {
-    const { container } = useExcalidrawContainer();
+    const { container } = useCanvasEditorContainer();
     const { fonts } = useApp();
     const { showDeprecatedFonts } = useAppProps();
 

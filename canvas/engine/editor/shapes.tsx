@@ -42,8 +42,8 @@ import { LinearElementEditor } from "./element/linearElementEditor";
 import { getBoundTextElement } from "./element/textElement";
 import type {
   ElementsMap,
-  ExcalidrawElement,
-  ExcalidrawLinearElement,
+  CanvasEditorElement,
+  CanvasEditorLinearElement,
   NonDeleted,
 } from "./element/types";
 import { KEYS } from "./keys";
@@ -142,7 +142,7 @@ export const findShapeByKey = (key: string) => {
  * which is then used for hit detection
  */
 export const getElementShape = <Point extends GlobalPoint | LocalPoint>(
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   elementsMap: ElementsMap,
 ): GeometricShape<Point> => {
   switch (element.type) {
@@ -194,7 +194,7 @@ export const getElementShape = <Point extends GlobalPoint | LocalPoint>(
 };
 
 export const getBoundTextShape = <Point extends GlobalPoint | LocalPoint>(
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   elementsMap: ElementsMap,
 ): GeometricShape<Point> | null => {
   const boundTextElement = getBoundTextElement(element, elementsMap);
@@ -224,7 +224,7 @@ export const getBoundTextShape = <Point extends GlobalPoint | LocalPoint>(
 export const getControlPointsForBezierCurve = <
   P extends GlobalPoint | LocalPoint,
 >(
-  element: NonDeleted<ExcalidrawLinearElement>,
+  element: NonDeleted<CanvasEditorLinearElement>,
   endPoint: P,
 ) => {
   const shape = ShapeCache.generateElementShape(element, null);
@@ -283,7 +283,7 @@ export const getBezierXY = <P extends GlobalPoint | LocalPoint>(
 };
 
 const getPointsInBezierCurve = <P extends GlobalPoint | LocalPoint>(
-  element: NonDeleted<ExcalidrawLinearElement>,
+  element: NonDeleted<CanvasEditorLinearElement>,
   endPoint: P,
 ) => {
   const controlPoints: P[] = getControlPointsForBezierCurve(element, endPoint)!;
@@ -313,7 +313,7 @@ const getPointsInBezierCurve = <P extends GlobalPoint | LocalPoint>(
 };
 
 const getBezierCurveArcLengths = <P extends GlobalPoint | LocalPoint>(
-  element: NonDeleted<ExcalidrawLinearElement>,
+  element: NonDeleted<CanvasEditorLinearElement>,
   endPoint: P,
 ) => {
   const arcLengths: number[] = [];
@@ -332,7 +332,7 @@ const getBezierCurveArcLengths = <P extends GlobalPoint | LocalPoint>(
 };
 
 export const getBezierCurveLength = <P extends GlobalPoint | LocalPoint>(
-  element: NonDeleted<ExcalidrawLinearElement>,
+  element: NonDeleted<CanvasEditorLinearElement>,
   endPoint: P,
 ) => {
   const arcLengths = getBezierCurveArcLengths(element, endPoint);
@@ -341,7 +341,7 @@ export const getBezierCurveLength = <P extends GlobalPoint | LocalPoint>(
 
 // This maps interval to actual interval t on the curve so that when t = 0.5, its actually the point at 50% of the length
 export const mapIntervalToBezierT = <P extends GlobalPoint | LocalPoint>(
-  element: NonDeleted<ExcalidrawLinearElement>,
+  element: NonDeleted<CanvasEditorLinearElement>,
   endPoint: P,
   interval: number, // The interval between 0 to 1 for which you want to find the point on the curve,
 ) => {
@@ -381,7 +381,7 @@ export const mapIntervalToBezierT = <P extends GlobalPoint | LocalPoint>(
  * Get the axis-aligned bounding box for a given element
  */
 export const aabbForElement = (
-  element: Readonly<ExcalidrawElement>,
+  element: Readonly<CanvasEditorElement>,
   offset?: [number, number, number, number],
 ) => {
   const bbox = {
@@ -451,7 +451,7 @@ export const aabbsOverlapping = (a: Bounds, b: Bounds) =>
   pointInsideBounds(pointFrom(b[2], b[3]), a) ||
   pointInsideBounds(pointFrom(b[0], b[3]), a);
 
-export const getCornerRadius = (x: number, element: ExcalidrawElement) => {
+export const getCornerRadius = (x: number, element: CanvasEditorElement) => {
   if (
     element.roundness?.type === ROUNDNESS.PROPORTIONAL_RADIUS ||
     element.roundness?.type === ROUNDNESS.LEGACY
@@ -477,7 +477,7 @@ export const getCornerRadius = (x: number, element: ExcalidrawElement) => {
 // Checks if the first and last point are close enough
 // to be considered a loop
 export const isPathALoop = (
-  points: ExcalidrawLinearElement["points"],
+  points: CanvasEditorLinearElement["points"],
   /** supply if you want the loop detection to account for current zoom */
   zoomValue: Zoom["value"] = 1 as NormalizedZoomValue,
 ): boolean => {

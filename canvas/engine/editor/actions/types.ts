@@ -1,12 +1,12 @@
 import type React from "react";
 import type {
-  ExcalidrawElement,
-  OrderedExcalidrawElement,
+  CanvasEditorElement,
+  OrderedCanvasEditorElement,
 } from "../element/types";
 import type {
   AppClassProperties,
   AppState,
-  ExcalidrawProps,
+  CanvasEditorProps,
   BinaryFiles,
   UIAppState,
 } from "../types";
@@ -22,7 +22,7 @@ export type ActionSource =
 /** if false, the action should be prevented */
 export type ActionResult =
   | {
-      elements?: readonly ExcalidrawElement[] | null;
+      elements?: readonly CanvasEditorElement[] | null;
       appState?: Partial<AppState> | null;
       files?: BinaryFiles | null;
       captureUpdate: CaptureUpdateActionType;
@@ -31,7 +31,7 @@ export type ActionResult =
   | false;
 
 type ActionFn = (
-  elements: readonly OrderedExcalidrawElement[],
+  elements: readonly OrderedCanvasEditorElement[],
   appState: Readonly<AppState>,
   formData: any,
   app: AppClassProperties,
@@ -114,10 +114,10 @@ export type ActionName =
   | "wrapSelectionInFrame";
 
 export type PanelComponentProps = {
-  elements: readonly ExcalidrawElement[];
+  elements: readonly CanvasEditorElement[];
   appState: AppState;
   updateData: <T = any>(formData?: T) => void;
-  appProps: ExcalidrawProps;
+  appProps: CanvasEditorProps;
   data?: Record<string, any>;
   app: AppClassProperties;
 };
@@ -127,7 +127,7 @@ export interface Action {
   label:
     | string
     | ((
-        elements: readonly ExcalidrawElement[],
+        elements: readonly CanvasEditorElement[],
         appState: Readonly<AppState>,
         app: AppClassProperties,
       ) => string);
@@ -136,7 +136,7 @@ export interface Action {
     | React.ReactNode
     | ((
         appState: UIAppState,
-        elements: readonly ExcalidrawElement[],
+        elements: readonly CanvasEditorElement[],
       ) => React.ReactNode);
   PanelComponent?: React.FC<PanelComponentProps>;
   perform: ActionFn;
@@ -144,13 +144,13 @@ export interface Action {
   keyTest?: (
     event: React.KeyboardEvent | KeyboardEvent,
     appState: AppState,
-    elements: readonly ExcalidrawElement[],
+    elements: readonly CanvasEditorElement[],
     app: AppClassProperties,
   ) => boolean;
   predicate?: (
-    elements: readonly ExcalidrawElement[],
+    elements: readonly CanvasEditorElement[],
     appState: AppState,
-    appProps: ExcalidrawProps,
+    appProps: CanvasEditorProps,
     app: AppClassProperties,
   ) => boolean;
   checked?: (appState: Readonly<AppState>) => boolean;
@@ -170,7 +170,7 @@ export interface Action {
         action?: string;
         predicate?: (
           appState: Readonly<AppState>,
-          elements: readonly ExcalidrawElement[],
+          elements: readonly CanvasEditorElement[],
           value: any,
         ) => boolean;
       };

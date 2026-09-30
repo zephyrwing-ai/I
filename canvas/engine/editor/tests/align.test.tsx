@@ -1,6 +1,6 @@
 import React from "react";
 import { act, unmountComponent, render } from "./test-utils";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { defaultLang, setLanguage } from "../i18n";
 import { UI, Pointer, Keyboard } from "./helpers/ui";
 import { API } from "./helpers/api";
@@ -59,7 +59,7 @@ describe("aligning", () => {
     await act(() => {
       return setLanguage(defaultLang);
     });
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
   });
 
   it("aligns two objects correctly to the top", () => {

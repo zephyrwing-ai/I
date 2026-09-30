@@ -1,13 +1,13 @@
 import clsx from "clsx";
 import React from "react";
 import type { ActionManager } from "../actions/manager";
-import type { NonDeletedExcalidrawElement } from "../element/types";
+import type { NonDeletedCanvasEditorElement } from "../element/types";
 import type { Language } from "../i18n";
 import { t } from "../i18n";
 import type {
   AppProps,
   AppState,
-  ExcalidrawProps,
+  CanvasEditorProps,
   BinaryFiles,
   UIAppState,
   AppClassProperties,
@@ -20,7 +20,6 @@ import { ImageExportDialog } from "./ImageExportDialog";
 import { FixedSideContainer } from "./FixedSideContainer";
 import { LoadingMessage } from "./LoadingMessage";
 import { LockButton } from "./LockButton";
-import { MobileMenu } from "./MobileMenu";
 import { PasteChartDialog } from "./PasteChartDialog";
 import { Section } from "./Section";
 import Stack from "./Stack";
@@ -50,15 +49,16 @@ interface LayerUIProps {
   files: BinaryFiles;
   canvas: HTMLCanvasElement;
   setAppState: React.Component<any, AppState>["setState"];
-  elements: readonly NonDeletedExcalidrawElement[];
-  selectedElements: readonly NonDeletedExcalidrawElement[];
+  elements: readonly NonDeletedCanvasEditorElement[];
+  selectedElements: readonly NonDeletedCanvasEditorElement[];
   onLockToggle: () => void;
   onHandToolToggle: () => void;
+  temporaryHandActive: boolean;
   onPenModeToggle: AppClassProperties["togglePenMode"];
   showExitZenModeBtn: boolean;
   langCode: Language["code"];
-  renderTopRightUI?: ExcalidrawProps["renderTopRightUI"];
-  renderCustomStats?: ExcalidrawProps["renderCustomStats"];
+  renderTopRightUI?: CanvasEditorProps["renderTopRightUI"];
+  renderCustomStats?: CanvasEditorProps["renderCustomStats"];
   UIOptions: AppProps["UIOptions"];
   onExportImage: AppClassProperties["onExportImage"];
   renderWelcomeScreen: boolean;
@@ -89,6 +89,7 @@ const LayerUI = ({
   canvas,
   onLockToggle,
   onHandToolToggle,
+  temporaryHandActive,
   onPenModeToggle,
   showExitZenModeBtn,
   renderTopRightUI,
@@ -154,14 +155,14 @@ const LayerUI = ({
               />
               <div className="App-toolbar__divider" />
               <HandButton
-                checked={isHandToolActive(appState)}
+                checked={isHandToolActive(appState) || temporaryHandActive}
                 onChange={() => onHandToolToggle()}
                 title={t("toolBar.hand")}
-                isMobile
               />
               <ShapesSwitcher
                 appState={appState}
                 activeTool={appState.activeTool}
+                temporaryHandActive={temporaryHandActive}
                 UIOptions={UIOptions}
                 app={app}
               />
@@ -251,51 +252,24 @@ const LayerUI = ({
           }
         />
       )}
-      {device.editor.isMobile && (
-        <MobileMenu
-          app={app}
+      <div className="layer-ui__wrapper">
+        {renderWelcomeScreen && <tunnels.WelcomeScreenCenterTunnel.Out />}
+        {renderFixedSideContainer()}
+        {renderShapesToolbar()}
+        <Footer
           appState={appState}
-          elements={elements}
+          actionManager={actionManager}
+          showExitZenModeBtn={showExitZenModeBtn}
+        />
+        <OffscreenContentIndicator
+          appState={appState}
           selectedElements={selectedElements}
           scrollX={scrollX}
           scrollY={scrollY}
           offscreenContentTarget={offscreenContentTarget}
-          actionManager={actionManager}
-          renderImageExportDialog={renderImageExportDialog}
           setAppState={setAppState}
-          onLockToggle={onLockToggle}
-          onHandToolToggle={onHandToolToggle}
-          onPenModeToggle={onPenModeToggle}
-          renderTopRightUI={renderTopRightUI}
-          renderCustomStats={renderCustomStats}
-          renderWelcomeScreen={renderWelcomeScreen}
-          UIOptions={UIOptions}
         />
-      )}
-      {!device.editor.isMobile && (
-        <>
-          <div
-            className="layer-ui__wrapper"
-          >
-            {renderWelcomeScreen && <tunnels.WelcomeScreenCenterTunnel.Out />}
-            {renderFixedSideContainer()}
-            {renderShapesToolbar()}
-            <Footer
-              appState={appState}
-              actionManager={actionManager}
-              showExitZenModeBtn={showExitZenModeBtn}
-            />
-            <OffscreenContentIndicator
-              appState={appState}
-              selectedElements={selectedElements}
-              scrollX={scrollX}
-              scrollY={scrollY}
-              offscreenContentTarget={offscreenContentTarget}
-              setAppState={setAppState}
-            />
-          </div>
-        </>
-      )}
+      </div>
     </>
   );
 

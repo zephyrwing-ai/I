@@ -24,9 +24,9 @@ import {
   isTextElement,
 } from "../element/typeChecks";
 import type {
-  ExcalidrawElement,
-  ExcalidrawTextElementWithContainer,
-  NonDeletedExcalidrawElement,
+  CanvasEditorElement,
+  CanvasEditorTextElementWithContainer,
+  NonDeletedCanvasEditorElement,
 } from "../element/types";
 import { getContainingFrame } from "../frame";
 import { ShapeCache } from "../scene/ShapeCache";
@@ -56,7 +56,7 @@ const roughSVGDrawWithPrecision = (
 };
 
 const maybeWrapNodesInFrameClipPath = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   root: SVGElement,
   nodes: SVGElement[],
   frameRendering: AppState["frameRendering"],
@@ -77,7 +77,7 @@ const maybeWrapNodesInFrameClipPath = (
 };
 
 const renderElementToSvg = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   elementsMap: RenderableElementsMap,
   rsvg: RoughSVG,
   svgRoot: SVGElement,
@@ -97,7 +97,7 @@ const renderElementToSvg = (
 
       const boundTextCoords = LinearElementEditor.getBoundTextElementPosition(
         container,
-        element as ExcalidrawTextElementWithContainer,
+        element as CanvasEditorTextElementWithContainer,
         elementsMap,
       );
       cx = (x2 - x1) / 2 - (boundTextCoords.x - x1);
@@ -119,7 +119,7 @@ const renderElementToSvg = (
     root = anchorTag;
   }
 
-  const addToRoot = (node: SVGElement, element: ExcalidrawElement) => {
+  const addToRoot = (node: SVGElement, element: CanvasEditorElement) => {
     if (isTestEnv()) {
       node.setAttribute("data-id", element.id);
     }
@@ -192,7 +192,7 @@ const renderElementToSvg = (
       );
       addToRoot(node, element);
 
-      const label: ExcalidrawElement =
+      const label: CanvasEditorElement =
         createPlaceholderEmbeddableLabel(element);
       renderElementToSvg(
         label,
@@ -664,7 +664,7 @@ const renderElementToSvg = (
 };
 
 export const renderSceneToSvg = (
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   elementsMap: RenderableElementsMap,
   rsvg: RoughSVG,
   svgRoot: SVGElement,

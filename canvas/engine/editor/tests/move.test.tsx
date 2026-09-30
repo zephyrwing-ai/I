@@ -1,15 +1,15 @@
 import React from "react";
 import "../../utils/test-utils";
 import { render, fireEvent, act, unmountComponent } from "./test-utils";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import * as StaticScene from "../renderer/staticScene";
 import * as InteractiveCanvas from "../renderer/interactiveScene";
 import { reseed } from "../random";
 import { bindOrUnbindLinearElement } from "../element/binding";
 import type {
-  ExcalidrawLinearElement,
+  CanvasEditorLinearElement,
   NonDeleted,
-  ExcalidrawRectangleElement,
+  CanvasEditorRectangleElement,
 } from "../element/types";
 import { UI, Pointer, Keyboard } from "./helpers/ui";
 import { KEYS } from "../keys";
@@ -35,7 +35,7 @@ const { h } = window;
 
 describe("move element", () => {
   it("rectangle", async () => {
-    const { getByToolName, container } = await render(<Excalidraw />);
+    const { getByToolName, container } = await render(<CanvasEditor />);
     const canvas = container.querySelector("canvas.interactive")!;
 
     {
@@ -73,7 +73,7 @@ describe("move element", () => {
   });
 
   it("rectangles with binding arrow", async () => {
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
 
     // create elements
     const rectA = UI.createElement("rectangle", { size: 100 });
@@ -83,9 +83,9 @@ describe("move element", () => {
     act(() => {
       // bind line to two rectangles
       bindOrUnbindLinearElement(
-        arrow.get() as NonDeleted<ExcalidrawLinearElement>,
-        rectA.get() as ExcalidrawRectangleElement,
-        rectB.get() as ExcalidrawRectangleElement,
+        arrow.get() as NonDeleted<CanvasEditorLinearElement>,
+        rectA.get() as CanvasEditorRectangleElement,
+        rectB.get() as CanvasEditorRectangleElement,
         elementsMap,
         {} as Scene,
       );
@@ -131,7 +131,7 @@ describe("move element", () => {
 
 describe("duplicate element on move when ALT is clicked", () => {
   it("rectangle", async () => {
-    const { getByToolName, container } = await render(<Excalidraw />);
+    const { getByToolName, container } = await render(<CanvasEditor />);
     const canvas = container.querySelector("canvas.interactive")!;
 
     {

@@ -12,7 +12,7 @@ import {
 } from "../../element/textElement";
 import type {
   ElementsMap,
-  ExcalidrawElement,
+  CanvasEditorElement,
   NonDeletedSceneElementsMap,
 } from "../../element/types";
 import type Scene from "../../scene/Scene";
@@ -27,7 +27,7 @@ import { pointFrom, type GlobalPoint } from "@agent-studio/canvas-math";
 
 interface MultiDimensionProps {
   property: "width" | "height";
-  elements: readonly ExcalidrawElement[];
+  elements: readonly CanvasEditorElement[];
   elementsMap: NonDeletedSceneElementsMap;
   atomicUnits: AtomicUnit[];
   scene: Scene;
@@ -40,7 +40,7 @@ const getResizedUpdates = (
   anchorX: number,
   anchorY: number,
   scale: number,
-  origElement: ExcalidrawElement,
+  origElement: CanvasEditorElement,
 ) => {
   const offsetX = origElement.x - anchorX;
   const offsetY = origElement.y - anchorY;
@@ -66,8 +66,8 @@ const resizeElementInGroup = (
   anchorY: number,
   property: MultiDimensionProps["property"],
   scale: number,
-  latestElement: ExcalidrawElement,
-  origElement: ExcalidrawElement,
+  latestElement: CanvasEditorElement,
+  origElement: CanvasEditorElement,
   elementsMap: NonDeletedSceneElementsMap,
   originalElementsMap: ElementsMap,
 ) => {
@@ -109,8 +109,8 @@ const resizeGroup = (
   aspectRatio: number,
   anchor: GlobalPoint,
   property: MultiDimensionProps["property"],
-  latestElements: ExcalidrawElement[],
-  originalElements: ExcalidrawElement[],
+  latestElements: CanvasEditorElement[],
+  originalElements: CanvasEditorElement[],
   elementsMap: NonDeletedSceneElementsMap,
   originalElementsMap: ElementsMap,
 ) => {

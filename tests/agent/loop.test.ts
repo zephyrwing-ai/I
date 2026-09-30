@@ -6,6 +6,7 @@ import { createTransientHistoryRecorder } from "../../agent/memory/index.js";
 import { SqliteHistoryRepository, createHistoryRecorder } from "../../agent/memory/index.js";
 import type { ModelConfig } from "../../agent/model/index.js";
 import type { ModelMessage, ModelStreamEvent } from "../../agent/model/types.js";
+import { RunInputInbox } from "../../shell/main/run-input-inbox.js";
 
 function createTestRecorder(initial: ModelMessage[] = []): HistoryRecorder & { messages: ModelMessage[]; commits: string[] } {
   const messages = initial.slice();
@@ -32,6 +33,10 @@ function createTestRecorder(initial: ModelMessage[] = []): HistoryRecorder & { m
       commits.push("tool");
       messages.push(message);
     },
+    acceptRunInput: async () => { throw new Error("This test recorder has no pending input store."); },
+    applyRunInputs: async () => { throw new Error("This test recorder has no pending input store."); },
+    abandonRunInputs: async () => [],
+    finalizeAnswerDuration: async () => undefined,
     finishRun: async () => undefined,
     close: async () => undefined,
   };
@@ -78,6 +83,158 @@ test("session transcript accumulates across runs and seeds the model context", a
   // 会话存量跟着追加：两轮 = user/assistant x2
   assert.deepEqual(recorder.messages.map((message) => message.role), ["user", "assistant", "user", "assistant"]);
   assert.deepEqual(recorder.commits, ["user", "assistant", "user", "assistant"]);
+});
+
+test("steering accepted during streaming and a tool batch enters the next model request in FIFO order", async () => {
+  const repository = new SqliteHistoryRepository(":memory:");
+  const recorder = await createHistoryRecorder(repository, null);
+  const inbox = new RunInputInbox("run-steering-tools", null, recorder);
+  const seen: ModelMessage[][] = [];
+  const applied: string[][] = [];
+  let requestCount = 0;
+  const tool = {
+    definition: { name: "test", description: "test", parameters: { type: "object" as const, properties: {}, required: [] } },
+    recovery: { version: "1", mode: "safe" as const },
+    execute: async () => {
+      await inbox.accept("input-two", "第二条补充");
+      return { ok: true, output: "tool result", returncode: 0, truncated: false };
+    },
+  };
+  const result = await run("原始任务", { provider: "openai", model: "fake" }, {
+    runId: "run-steering-tools",
+    systemPrompt: "test",
+    cwd: process.cwd(),
+    tools: new Map([["test", tool]]),
+    recorder,
+    steeringInbox: inbox,
+    responseImpl: async function* (_config, messages): AsyncGenerator<ModelStreamEvent> {
+      seen.push(messages.map((message) => ({ ...message })));
+      requestCount += 1;
+      if (requestCount === 1) {
+        yield { type: "text_delta", delta: "正在处理" };
+        await inbox.accept("input-one", "第一条补充");
+        yield { type: "completed", content: "正在处理", toolCalls: [{ id: "steering-call", name: "test", input: {}, inputComplete: true }], stopReason: "tool_use" };
+        return;
+      }
+      yield { type: "completed", content: "完成", toolCalls: [], stopReason: "stop" };
+    },
+  }, {
+    onInputsApplied: ({ inputIds }) => applied.push(inputIds),
+  });
+
+  assert.equal(result.status, "completed", result.error?.message);
+  assert.deepEqual(applied, [["input-one", "input-two"]]);
+  assert.deepEqual(seen[1]?.map((message) => message.role), ["user", "assistant", "tool", "user", "user"]);
+  assert.deepEqual(seen[1]?.slice(-2).map((message) => message.content), ["第一条补充", "第二条补充"]);
+  const entries = await repository.listEntries(null);
+  assert.deepEqual(entries.slice(3, 5).map((entry) => entry.id), ["input-one", "input-two"]);
+  assert.deepEqual(entries.map((entry) => entry.type), ["user_message", "assistant_message", "tool_result", "user_message", "user_message", "assistant_message"]);
+  assert.equal(entries[1]?.durationMs, null);
+  assert.equal(typeof entries.at(-1)?.durationMs, "number");
+  await recorder.close();
+  repository.close();
+});
+
+test("a steering input received before a normal answer finishes keeps the run open", async () => {
+  const repository = new SqliteHistoryRepository(":memory:");
+  const recorder = await createHistoryRecorder(repository, null);
+  const inbox = new RunInputInbox("run-steering-answer", null, recorder);
+  const seen: ModelMessage[][] = [];
+  const appliedAt: number[] = [];
+  let now = 1_000;
+  let calls = 0;
+  const result = await run("原任务", { provider: "openai", model: "fake" }, {
+    runId: "run-steering-answer",
+    systemPrompt: "test",
+    cwd: process.cwd(),
+    tools: new Map(),
+    recorder,
+    steeringInbox: inbox,
+    clock: () => now,
+    responseImpl: async function* (_config, messages): AsyncGenerator<ModelStreamEvent> {
+      seen.push(messages.map((message) => ({ ...message })));
+      calls += 1;
+      if (calls === 1) {
+        await inbox.accept("answer-steer", "补充方向");
+        now = 1_600;
+        yield { type: "completed", content: "前一段回复", toolCalls: [], stopReason: "stop" };
+        return;
+      }
+      now = 2_400;
+      yield { type: "completed", content: "依据补充完成", toolCalls: [], stopReason: "stop" };
+    },
+  }, {
+    onInputsApplied: ({ startedAt }) => appliedAt.push(startedAt),
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(calls, 2);
+  assert.deepEqual(appliedAt, [1_600]);
+  assert.equal(result.finalDurationMs, 1_400);
+  assert.ok(result.finalTurnId);
+  assert.deepEqual(seen[1]?.map((message) => message.content), ["原任务", "前一段回复", "补充方向"]);
+  const assistantEntries = (await repository.listEntries(null)).filter((entry) => entry.type === "assistant_message");
+  assert.deepEqual(assistantEntries.map((entry) => entry.durationMs), [null, 1_400]);
+  assert.equal(assistantEntries[1]?.turnId, result.finalTurnId);
+  await assert.rejects(inbox.accept("late-steer", "迟到的补充"), /finishing/);
+  await recorder.close();
+  repository.close();
+});
+
+test("a single-turn answer attaches the whole run duration to its final assistant entry", async () => {
+  const repository = new SqliteHistoryRepository(":memory:");
+  const recorder = await createHistoryRecorder(repository, null);
+  let now = 5_000;
+  const result = await run("原任务", { provider: "openai", model: "fake" }, {
+    runId: "run-single-answer",
+    systemPrompt: "test",
+    cwd: process.cwd(),
+    tools: new Map(),
+    recorder,
+    clock: () => now,
+    responseImpl: async function* (): AsyncGenerator<ModelStreamEvent> {
+      now = 6_250;
+      yield { type: "completed", content: "完成", toolCalls: [], stopReason: "stop" };
+    },
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.finalDurationMs, 1_250);
+  const assistant = (await repository.listEntries(null)).find((entry) => entry.type === "assistant_message");
+  assert.equal(result.finalTurnId, assistant?.turnId);
+  assert.equal(assistant?.durationMs, 1_250);
+  await recorder.close();
+  repository.close();
+});
+
+test("cancelling a run archives accepted steering text and reports its input ID", async () => {
+  const repository = new SqliteHistoryRepository(":memory:");
+  const recorder = await createHistoryRecorder(repository, null);
+  const inbox = new RunInputInbox("run-cancel-steer", null, recorder);
+  const controller = new AbortController();
+  const result = await run("原任务", { provider: "openai", model: "fake" }, {
+    runId: "run-cancel-steer",
+    systemPrompt: "test",
+    cwd: process.cwd(),
+    tools: new Map(),
+    recorder,
+    steeringInbox: inbox,
+    signal: controller.signal,
+    responseImpl: async function* (): AsyncGenerator<ModelStreamEvent> {
+      await inbox.accept("cancelled-steer", "用户补充");
+      controller.abort();
+      yield { type: "completed", content: "中断前内容", toolCalls: [], stopReason: "stop" };
+    },
+  });
+
+  assert.equal(result.status, "cancelled");
+  assert.equal(result.finalTurnId, undefined);
+  assert.equal(result.finalDurationMs, undefined);
+  assert.deepEqual(result.unappliedInputIds, ["cancelled-steer"]);
+  assert.equal((await repository.getEntry("cancelled-steer"))?.status, "interrupted");
+  assert.deepEqual(recorder.snapshot().map((message) => message.content), ["原任务"]);
+  await recorder.close();
+  repository.close();
 });
 
 test("run-scoped canvas context is visible for one run but never enters the session snapshot", async () => {

@@ -2,7 +2,7 @@ import { KEYS } from "../keys";
 import { register } from "./register";
 import { selectGroupsForSelectedElements } from "../groups";
 import { getNonDeletedElements, isTextElement } from "../element";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import { isLinearElement } from "../element/typeChecks";
 import { LinearElementEditor } from "../element/linearElementEditor";
 import { selectAllIcon } from "../components/icons";
@@ -26,7 +26,7 @@ export const actionSelectAll = register({
           !(isTextElement(element) && element.containerId) &&
           !element.locked,
       )
-      .reduce((map: Record<ExcalidrawElement["id"], true>, element) => {
+      .reduce((map: Record<CanvasEditorElement["id"], true>, element) => {
         map[element.id] = true;
         return map;
       }, {});

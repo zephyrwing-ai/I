@@ -10,7 +10,7 @@ import {
   waitFor,
   unmountComponent,
 } from "./test-utils";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import * as StaticScene from "../renderer/staticScene";
 import { reseed } from "../random";
 import { UI, Pointer, Keyboard } from "./helpers/ui";
@@ -53,7 +53,7 @@ describe("contextMenu element", () => {
     reseed(7);
     setDateTimeForTests("201933152653");
 
-    await render(<Excalidraw handleKeyboardGlobally={true} />);
+    await render(<CanvasEditor handleKeyboardGlobally={true} />);
   });
 
   beforeAll(() => {

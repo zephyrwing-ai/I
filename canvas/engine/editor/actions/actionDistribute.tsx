@@ -7,7 +7,7 @@ import type { Distribution } from "../distribute";
 import { distributeElements } from "../distribute";
 import { getNonDeletedElements } from "../element";
 import { isFrameLikeElement } from "../element/typeChecks";
-import type { ExcalidrawElement } from "../element/types";
+import type { CanvasEditorElement } from "../element/types";
 import { updateFrameMembershipOfSelectedElements } from "../frame";
 import { t } from "../i18n";
 import { CODES, KEYS } from "../keys";
@@ -27,7 +27,7 @@ const enableActionGroup = (appState: AppState, app: AppClassProperties) => {
 };
 
 const distributeSelectedElements = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: Readonly<AppState>,
   app: AppClassProperties,
   distribution: Distribution,

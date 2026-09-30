@@ -1,6 +1,6 @@
 import React from "react";
 import { getCommonBounds } from "../element";
-import type { NonDeletedExcalidrawElement } from "../element/types";
+import type { NonDeletedCanvasEditorElement } from "../element/types";
 import { t } from "../i18n";
 import {
   sceneCoordsToViewportCoords,
@@ -14,7 +14,7 @@ import type { AppState, PointerCoords, UIAppState } from "../types";
 
 type OffscreenContentIndicatorProps = {
   appState: UIAppState;
-  selectedElements: readonly NonDeletedExcalidrawElement[];
+  selectedElements: readonly NonDeletedCanvasEditorElement[];
   scrollX: number;
   scrollY: number;
   offscreenContentTarget: PointerCoords | null;

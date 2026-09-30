@@ -1,4 +1,4 @@
-import type { AppState, ExcalidrawProps, UIAppState } from "../../types";
+import type { AppState, CanvasEditorProps, UIAppState } from "../../types";
 import {
   sceneCoordsToViewportCoords,
   viewportCoordsToSceneCoords,
@@ -8,8 +8,8 @@ import { getEmbedLink, embeddableURLValidator } from "../../element/embeddable";
 import { mutateElement } from "../../element/mutateElement";
 import type {
   ElementsMap,
-  ExcalidrawEmbeddableElement,
-  NonDeletedExcalidrawElement,
+  CanvasEditorEmbeddableElement,
+  NonDeletedCanvasEditorElement,
 } from "../../element/types";
 
 import { ToolButton } from "../ToolButton";
@@ -31,7 +31,7 @@ import { getSelectedElements } from "../../scene";
 import { hitElementBoundingBox } from "../../element/collision";
 import { isLocalLink, normalizeLink } from "../../data/url";
 import { trackEvent } from "../../analytics";
-import { useAppProps, useDevice, useExcalidrawAppState } from "../App";
+import { useAppProps, useDevice, useCanvasEditorAppState } from "../App";
 import { isEmbeddableElement } from "../../element/typeChecks";
 import { getLinkHandleFromCoords } from "./helpers";
 import { pointFrom, type GlobalPoint } from "@agent-studio/canvas-math";
@@ -48,7 +48,7 @@ const AUTO_HIDE_TIMEOUT = 500;
 let IS_HYPERLINK_TOOLTIP_VISIBLE = false;
 
 const embeddableLinkCache = new Map<
-  ExcalidrawEmbeddableElement["id"],
+  CanvasEditorEmbeddableElement["id"],
   string
 >();
 
@@ -60,19 +60,19 @@ export const Hyperlink = ({
   setToast,
   updateEmbedValidationStatus,
 }: {
-  element: NonDeletedExcalidrawElement;
+  element: NonDeletedCanvasEditorElement;
   elementsMap: ElementsMap;
   setAppState: React.Component<any, AppState>["setState"];
-  onLinkOpen: ExcalidrawProps["onLinkOpen"];
+  onLinkOpen: CanvasEditorProps["onLinkOpen"];
   setToast: (
     toast: { message: string; closable?: boolean; duration?: number } | null,
   ) => void;
   updateEmbedValidationStatus: (
-    element: ExcalidrawEmbeddableElement,
+    element: CanvasEditorEmbeddableElement,
     status: boolean,
   ) => void;
 }) => {
-  const appState = useExcalidrawAppState();
+  const appState = useCanvasEditorAppState();
   const appProps = useAppProps();
   const device = useDevice();
 
@@ -234,7 +234,7 @@ export const Hyperlink = ({
 
   return (
     <div
-      className="excalidraw-hyperlinkContainer"
+      className="agent-canvas-hyperlinkContainer"
       style={{
         top: `${y}px`,
         left: `${x}px`,
@@ -244,7 +244,7 @@ export const Hyperlink = ({
     >
       {isEditing ? (
         <input
-          className={clsx("excalidraw-hyperlinkContainer-input")}
+          className={clsx("agent-canvas-hyperlinkContainer-input")}
           placeholder={t("labels.link.hint")}
           ref={inputRef}
           value={inputVal}
@@ -265,12 +265,12 @@ export const Hyperlink = ({
       ) : element.link ? (
         <a
           href={normalizeLink(element.link || "")}
-          className="excalidraw-hyperlinkContainer-link"
+          className="agent-canvas-hyperlinkContainer-link"
           target={isLocalLink(element.link) ? "_self" : "_blank"}
           onClick={(event) => {
             if (element.link && onLinkOpen) {
               const customEvent = wrapEvent(
-                EVENT.EXCALIDRAW_LINK,
+                EVENT.CANVAS_LINK,
                 event.nativeEvent,
               );
               onLinkOpen(
@@ -290,11 +290,11 @@ export const Hyperlink = ({
           {element.link}
         </a>
       ) : (
-        <div className="excalidraw-hyperlinkContainer-link">
+        <div className="agent-canvas-hyperlinkContainer-link">
           {t("labels.link.empty")}
         </div>
       )}
-      <div className="excalidraw-hyperlinkContainer__buttons">
+      <div className="agent-canvas-hyperlinkContainer__buttons">
         {!isEditing && (
           <ToolButton
             type="button"
@@ -302,7 +302,7 @@ export const Hyperlink = ({
             aria-label={t("buttons.edit")}
             label={t("buttons.edit")}
             onClick={onEdit}
-            className="excalidraw-hyperlinkContainer--edit"
+            className="agent-canvas-hyperlinkContainer--edit"
             icon={FreedrawIcon}
           />
         )}
@@ -328,7 +328,7 @@ export const Hyperlink = ({
             aria-label={t("buttons.remove")}
             label={t("buttons.remove")}
             onClick={handleRemove}
-            className="excalidraw-hyperlinkContainer--remove"
+            className="agent-canvas-hyperlinkContainer--remove"
             icon={TrashIcon}
           />
         )}
@@ -338,7 +338,7 @@ export const Hyperlink = ({
 };
 
 const getCoordsForPopover = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   appState: AppState,
   elementsMap: ElementsMap,
 ) => {
@@ -353,7 +353,7 @@ const getCoordsForPopover = (
 };
 
 export const getContextMenuLabel = (
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   appState: UIAppState,
 ) => {
   const selectedElements = getSelectedElements(elements, appState);
@@ -367,7 +367,7 @@ export const getContextMenuLabel = (
 
 let HYPERLINK_TOOLTIP_TIMEOUT_ID: number | null = null;
 export const showHyperlinkTooltip = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   appState: AppState,
   elementsMap: ElementsMap,
 ) => {
@@ -381,7 +381,7 @@ export const showHyperlinkTooltip = (
 };
 
 const renderTooltip = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   appState: AppState,
   elementsMap: ElementsMap,
 ) => {
@@ -391,7 +391,7 @@ const renderTooltip = (
 
   const tooltipDiv = getTooltipDiv();
 
-  tooltipDiv.classList.add("excalidraw-tooltip--visible");
+  tooltipDiv.classList.add("agent-canvas-tooltip--visible");
   tooltipDiv.style.maxWidth = "20rem";
   tooltipDiv.textContent = isElementLink(element.link)
     ? t("labels.link.goToElement")
@@ -430,12 +430,12 @@ export const hideHyperlinkToolip = () => {
   }
   if (IS_HYPERLINK_TOOLTIP_VISIBLE) {
     IS_HYPERLINK_TOOLTIP_VISIBLE = false;
-    getTooltipDiv().classList.remove("excalidraw-tooltip--visible");
+    getTooltipDiv().classList.remove("agent-canvas-tooltip--visible");
   }
 };
 
 const shouldHideLinkPopup = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   elementsMap: ElementsMap,
   appState: AppState,
   [clientX, clientY]: GlobalPoint,

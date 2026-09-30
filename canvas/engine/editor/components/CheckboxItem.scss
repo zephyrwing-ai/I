@@ -1,7 +1,7 @@
 @use "sass:color";
 @import "../css/variables.module.scss";
 
-.excalidraw {
+.agent-canvas {
   .Checkbox {
     margin: 4px 0.3em;
     display: flex;
@@ -84,7 +84,7 @@
       align-items: center;
     }
 
-    .excalidraw-tooltip-icon {
+    .agent-canvas-tooltip-icon {
       width: 1em;
       height: 1em;
     }

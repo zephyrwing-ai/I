@@ -1,9 +1,9 @@
 import { isElementInViewport } from "../element/sizeHelpers";
 import { isImageElement } from "../element/typeChecks";
 import type {
-  ExcalidrawElement,
+  CanvasEditorElement,
   NonDeletedElementsMap,
-  NonDeletedExcalidrawElement,
+  NonDeletedCanvasEditorElement,
 } from "../element/types";
 import { renderInteractiveSceneThrottled } from "../renderer/interactiveScene";
 import { renderStaticSceneThrottled } from "../renderer/staticScene";
@@ -39,8 +39,8 @@ export class Renderer {
       scrollY: AppState["scrollY"];
       height: AppState["height"];
       width: AppState["width"];
-    }): readonly NonDeletedExcalidrawElement[] => {
-      const visibleElements: NonDeletedExcalidrawElement[] = [];
+    }): readonly NonDeletedCanvasEditorElement[] => {
+      const visibleElements: NonDeletedCanvasEditorElement[] = [];
       for (const element of elementsMap.values()) {
         if (
           isElementInViewport(
@@ -69,9 +69,9 @@ export class Renderer {
       newElementId,
       pendingImageElementId,
     }: {
-      elements: readonly NonDeletedExcalidrawElement[];
+      elements: readonly NonDeletedCanvasEditorElement[];
       editingTextElement: AppState["editingTextElement"];
-      newElementId: ExcalidrawElement["id"] | undefined;
+      newElementId: CanvasEditorElement["id"] | undefined;
       pendingImageElementId: AppState["pendingImageElementId"];
     }) => {
       const elementsMap = toBrandedType<RenderableElementsMap>(new Map());
@@ -128,7 +128,7 @@ export class Renderer {
         editingTextElement: AppState["editingTextElement"];
         /** note: first render of newElement will always bust the cache
          * (we'd have to prefilter elements outside of this function) */
-        newElementId: ExcalidrawElement["id"] | undefined;
+        newElementId: CanvasEditorElement["id"] | undefined;
         pendingImageElementId: AppState["pendingImageElementId"];
         sceneNonce: ReturnType<InstanceType<typeof Scene>["getSceneNonce"]>;
       }) => {

@@ -31,11 +31,11 @@ export type VerticalAlign = typeof VERTICAL_ALIGN[VerticalAlignKeys];
 export type FractionalIndex = string & { _brand: "franctionalIndex" };
 
 export type BoundElement = Readonly<{
-  id: ExcalidrawLinearElement["id"];
+  id: CanvasEditorLinearElement["id"];
   type: "arrow" | "text";
 }>;
 
-type _ExcalidrawElementBase = Readonly<{
+type _CanvasEditorElementBase = Readonly<{
   id: string;
   x: number;
   y: number;
@@ -79,23 +79,23 @@ type _ExcalidrawElementBase = Readonly<{
   customData?: Record<string, any>;
 }>;
 
-export type ExcalidrawSelectionElement = _ExcalidrawElementBase & {
+export type CanvasEditorSelectionElement = _CanvasEditorElementBase & {
   type: "selection";
 };
 
-export type ExcalidrawRectangleElement = _ExcalidrawElementBase & {
+export type CanvasEditorRectangleElement = _CanvasEditorElementBase & {
   type: "rectangle";
 };
 
-export type ExcalidrawDiamondElement = _ExcalidrawElementBase & {
+export type CanvasEditorDiamondElement = _CanvasEditorElementBase & {
   type: "diamond";
 };
 
-export type ExcalidrawEllipseElement = _ExcalidrawElementBase & {
+export type CanvasEditorEllipseElement = _CanvasEditorElementBase & {
   type: "ellipse";
 };
 
-export type ExcalidrawEmbeddableElement = _ExcalidrawElementBase &
+export type CanvasEditorEmbeddableElement = _CanvasEditorElementBase &
   Readonly<{
     type: "embeddable";
   }>;
@@ -111,16 +111,16 @@ export type MagicGenerationData =
       code: "ERR_GENERATION_INTERRUPTED" | string;
     };
 
-export type ExcalidrawIframeElement = _ExcalidrawElementBase &
+export type CanvasEditorIframeElement = _CanvasEditorElementBase &
   Readonly<{
     type: "iframe";
     // TODO move later to AI-specific frame
     customData?: { generationData?: MagicGenerationData };
   }>;
 
-export type ExcalidrawIframeLikeElement =
-  | ExcalidrawIframeElement
-  | ExcalidrawEmbeddableElement;
+export type CanvasEditorIframeLikeElement =
+  | CanvasEditorIframeElement
+  | CanvasEditorEmbeddableElement;
 
 export type IframeData =
   | {
@@ -141,7 +141,7 @@ export type ImageCrop = {
   naturalHeight: number;
 };
 
-export type ExcalidrawImageElement = _ExcalidrawElementBase &
+export type CanvasEditorImageElement = _CanvasEditorElementBase &
   Readonly<{
     type: "image";
     fileId: FileId | null;
@@ -153,83 +153,83 @@ export type ExcalidrawImageElement = _ExcalidrawElementBase &
     crop: ImageCrop | null;
   }>;
 
-export type InitializedExcalidrawImageElement = MarkNonNullable<
-  ExcalidrawImageElement,
+export type InitializedCanvasEditorImageElement = MarkNonNullable<
+  CanvasEditorImageElement,
   "fileId"
 >;
 
-export type ExcalidrawFrameElement = _ExcalidrawElementBase & {
+export type CanvasEditorFrameElement = _CanvasEditorElementBase & {
   type: "frame";
   name: string | null;
 };
 
-export type ExcalidrawMagicFrameElement = _ExcalidrawElementBase & {
+export type CanvasEditorMagicFrameElement = _CanvasEditorElementBase & {
   type: "magicframe";
   name: string | null;
 };
 
-export type ExcalidrawFrameLikeElement =
-  | ExcalidrawFrameElement
-  | ExcalidrawMagicFrameElement;
+export type CanvasEditorFrameLikeElement =
+  | CanvasEditorFrameElement
+  | CanvasEditorMagicFrameElement;
 
 /**
  * These are elements that don't have any additional properties.
  */
-export type ExcalidrawGenericElement =
-  | ExcalidrawSelectionElement
-  | ExcalidrawRectangleElement
-  | ExcalidrawDiamondElement
-  | ExcalidrawEllipseElement;
+export type CanvasEditorGenericElement =
+  | CanvasEditorSelectionElement
+  | CanvasEditorRectangleElement
+  | CanvasEditorDiamondElement
+  | CanvasEditorEllipseElement;
 
-export type ExcalidrawFlowchartNodeElement =
-  | ExcalidrawRectangleElement
-  | ExcalidrawDiamondElement
-  | ExcalidrawEllipseElement;
+export type CanvasEditorFlowchartNodeElement =
+  | CanvasEditorRectangleElement
+  | CanvasEditorDiamondElement
+  | CanvasEditorEllipseElement;
 
-export type ExcalidrawRectanguloidElement =
-  | ExcalidrawRectangleElement
-  | ExcalidrawImageElement
-  | ExcalidrawTextElement
-  | ExcalidrawFreeDrawElement
-  | ExcalidrawIframeLikeElement
-  | ExcalidrawFrameLikeElement
-  | ExcalidrawEmbeddableElement;
+export type CanvasEditorRectanguloidElement =
+  | CanvasEditorRectangleElement
+  | CanvasEditorImageElement
+  | CanvasEditorTextElement
+  | CanvasEditorFreeDrawElement
+  | CanvasEditorIframeLikeElement
+  | CanvasEditorFrameLikeElement
+  | CanvasEditorEmbeddableElement;
 
 /**
- * ExcalidrawElement should be JSON serializable and (eventually) contain
- * no computed data. The list of all ExcalidrawElements should be shareable
+ * CanvasEditorElement should be JSON serializable and (eventually) contain
+ * no computed data. The list of all CanvasEditorElements should be shareable
  * between peers and contain no state local to the peer.
  */
-export type ExcalidrawElement =
-  | ExcalidrawGenericElement
-  | ExcalidrawTextElement
-  | ExcalidrawLinearElement
-  | ExcalidrawArrowElement
-  | ExcalidrawFreeDrawElement
-  | ExcalidrawImageElement
-  | ExcalidrawFrameElement
-  | ExcalidrawMagicFrameElement
-  | ExcalidrawIframeElement
-  | ExcalidrawEmbeddableElement;
+export type CanvasEditorElement =
+  | CanvasEditorGenericElement
+  | CanvasEditorTextElement
+  | CanvasEditorLinearElement
+  | CanvasEditorArrowElement
+  | CanvasEditorFreeDrawElement
+  | CanvasEditorImageElement
+  | CanvasEditorFrameElement
+  | CanvasEditorMagicFrameElement
+  | CanvasEditorIframeElement
+  | CanvasEditorEmbeddableElement;
 
-export type ExcalidrawNonSelectionElement = Exclude<
-  ExcalidrawElement,
-  ExcalidrawSelectionElement
+export type CanvasEditorNonSelectionElement = Exclude<
+  CanvasEditorElement,
+  CanvasEditorSelectionElement
 >;
 
-export type Ordered<TElement extends ExcalidrawElement> = TElement & {
+export type Ordered<TElement extends CanvasEditorElement> = TElement & {
   index: FractionalIndex;
 };
 
-export type OrderedExcalidrawElement = Ordered<ExcalidrawElement>;
+export type OrderedCanvasEditorElement = Ordered<CanvasEditorElement>;
 
-export type NonDeleted<TElement extends ExcalidrawElement> = TElement & {
+export type NonDeleted<TElement extends CanvasEditorElement> = TElement & {
   isDeleted: boolean;
 };
 
-export type NonDeletedExcalidrawElement = NonDeleted<ExcalidrawElement>;
+export type NonDeletedCanvasEditorElement = NonDeleted<CanvasEditorElement>;
 
-export type ExcalidrawTextElement = _ExcalidrawElementBase &
+export type CanvasEditorTextElement = _CanvasEditorElementBase &
   Readonly<{
     type: "text";
     fontSize: number;
@@ -237,7 +237,7 @@ export type ExcalidrawTextElement = _ExcalidrawElementBase &
     text: string;
     textAlign: TextAlign;
     verticalAlign: VerticalAlign;
-    containerId: ExcalidrawGenericElement["id"] | null;
+    containerId: CanvasEditorGenericElement["id"] | null;
     originalText: string;
     /**
      * If `true` the width will fit the text. If `false`, the text will
@@ -253,31 +253,31 @@ export type ExcalidrawTextElement = _ExcalidrawElementBase &
     lineHeight: number & { _brand: "unitlessLineHeight" };
   }>;
 
-export type ExcalidrawBindableElement =
-  | ExcalidrawRectangleElement
-  | ExcalidrawDiamondElement
-  | ExcalidrawEllipseElement
-  | ExcalidrawTextElement
-  | ExcalidrawImageElement
-  | ExcalidrawIframeElement
-  | ExcalidrawEmbeddableElement
-  | ExcalidrawFrameElement
-  | ExcalidrawMagicFrameElement;
+export type CanvasEditorBindableElement =
+  | CanvasEditorRectangleElement
+  | CanvasEditorDiamondElement
+  | CanvasEditorEllipseElement
+  | CanvasEditorTextElement
+  | CanvasEditorImageElement
+  | CanvasEditorIframeElement
+  | CanvasEditorEmbeddableElement
+  | CanvasEditorFrameElement
+  | CanvasEditorMagicFrameElement;
 
-export type ExcalidrawTextContainer =
-  | ExcalidrawRectangleElement
-  | ExcalidrawDiamondElement
-  | ExcalidrawEllipseElement
-  | ExcalidrawArrowElement;
+export type CanvasEditorTextContainer =
+  | CanvasEditorRectangleElement
+  | CanvasEditorDiamondElement
+  | CanvasEditorEllipseElement
+  | CanvasEditorArrowElement;
 
-export type ExcalidrawTextElementWithContainer = {
-  containerId: ExcalidrawTextContainer["id"];
-} & ExcalidrawTextElement;
+export type CanvasEditorTextElementWithContainer = {
+  containerId: CanvasEditorTextContainer["id"];
+} & CanvasEditorTextElement;
 
 export type FixedPoint = [number, number];
 
 export type PointBinding = {
-  elementId: ExcalidrawBindableElement["id"];
+  elementId: CanvasEditorBindableElement["id"];
   focus: number;
   gap: number;
 };
@@ -308,7 +308,7 @@ export type Arrowhead =
   | "crowfoot_many"
   | "crowfoot_one_or_many";
 
-export type ExcalidrawLinearElement = _ExcalidrawElementBase &
+export type CanvasEditorLinearElement = _CanvasEditorElementBase &
   Readonly<{
     type: "line" | "arrow";
     points: readonly LocalPoint[];
@@ -325,14 +325,14 @@ export type FixedSegment = {
   index: number;
 };
 
-export type ExcalidrawArrowElement = ExcalidrawLinearElement &
+export type CanvasEditorArrowElement = CanvasEditorLinearElement &
   Readonly<{
     type: "arrow";
     elbowed: boolean;
   }>;
 
-export type ExcalidrawElbowArrowElement = Merge<
-  ExcalidrawArrowElement,
+export type CanvasEditorElbowArrowElement = Merge<
+  CanvasEditorArrowElement,
   {
     elbowed: true;
     startBinding: FixedPointBinding | null;
@@ -357,7 +357,7 @@ export type ExcalidrawElbowArrowElement = Merge<
   }
 >;
 
-export type ExcalidrawFreeDrawElement = _ExcalidrawElementBase &
+export type CanvasEditorFreeDrawElement = _CanvasEditorElementBase &
   Readonly<{
     type: "freedraw";
     points: readonly LocalPoint[];
@@ -368,22 +368,22 @@ export type ExcalidrawFreeDrawElement = _ExcalidrawElementBase &
 
 export type FileId = string & { _brand: "FileId" };
 
-export type ExcalidrawElementType = ExcalidrawElement["type"];
+export type CanvasEditorElementType = CanvasEditorElement["type"];
 
 /**
  * Map of excalidraw elements.
  * Unspecified whether deleted or non-deleted.
  * Can be a subset of Scene elements.
  */
-export type ElementsMap = Map<ExcalidrawElement["id"], ExcalidrawElement>;
+export type ElementsMap = Map<CanvasEditorElement["id"], CanvasEditorElement>;
 
 /**
  * Map of non-deleted elements.
  * Can be a subset of Scene elements.
  */
 export type NonDeletedElementsMap = Map<
-  ExcalidrawElement["id"],
-  NonDeletedExcalidrawElement
+  CanvasEditorElement["id"],
+  NonDeletedCanvasEditorElement
 > &
   MakeBrand<"NonDeletedElementsMap">;
 
@@ -392,8 +392,8 @@ export type NonDeletedElementsMap = Map<
  * Not a subset. Use this type when you need access to current Scene elements.
  */
 export type SceneElementsMap = Map<
-  ExcalidrawElement["id"],
-  Ordered<ExcalidrawElement>
+  CanvasEditorElement["id"],
+  Ordered<CanvasEditorElement>
 > &
   MakeBrand<"SceneElementsMap">;
 
@@ -402,11 +402,11 @@ export type SceneElementsMap = Map<
  * Not a subset. Use this type when you need access to current Scene elements.
  */
 export type NonDeletedSceneElementsMap = Map<
-  ExcalidrawElement["id"],
-  Ordered<NonDeletedExcalidrawElement>
+  CanvasEditorElement["id"],
+  Ordered<NonDeletedCanvasEditorElement>
 > &
   MakeBrand<"NonDeletedSceneElementsMap">;
 
 export type ElementsMapOrArray =
-  | readonly ExcalidrawElement[]
+  | readonly CanvasEditorElement[]
   | Readonly<ElementsMap>;

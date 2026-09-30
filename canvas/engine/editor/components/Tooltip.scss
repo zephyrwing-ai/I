@@ -1,7 +1,7 @@
 @import "../css/variables.module.scss";
 
 // container in body where the actual tooltip is appended to
-.excalidraw-tooltip {
+.agent-canvas-tooltip {
   --ui-font: Assistant, system-ui, BlinkMacSystemFont, -apple-system, Segoe UI,
     Roboto, Helvetica, Arial, sans-serif;
   font-family: var(--ui-font);
@@ -24,17 +24,17 @@
 
   display: none;
 
-  &.excalidraw-tooltip--visible {
+  &.agent-canvas-tooltip--visible {
     display: block;
   }
 }
 
 // wraps the element we want to apply the tooltip to
-.excalidraw-tooltip-wrapper {
+.agent-canvas-tooltip-wrapper {
   display: flex;
 }
 
-.excalidraw-tooltip-icon {
+.agent-canvas-tooltip-icon {
   width: 0.9em;
   height: 0.9em;
   margin-left: 5px;

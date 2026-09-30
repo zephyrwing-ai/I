@@ -42,17 +42,17 @@ import {
 import { type ElementUpdate } from "./mutateElement";
 import { isBindableElement } from "./typeChecks";
 import {
-  type ExcalidrawElbowArrowElement,
+  type CanvasEditorElbowArrowElement,
   type NonDeletedSceneElementsMap,
   type SceneElementsMap,
 } from "./types";
 import type {
   Arrowhead,
   ElementsMap,
-  ExcalidrawBindableElement,
+  CanvasEditorBindableElement,
   FixedPointBinding,
   FixedSegment,
-  NonDeletedExcalidrawElement,
+  NonDeletedCanvasEditorElement,
 } from "./types";
 import { distanceToBindableElement } from "./distance";
 
@@ -93,15 +93,15 @@ type ElbowArrowData = {
   endGlobalPoint: GlobalPoint;
   endHeading: Heading;
   commonBounds: Bounds;
-  hoveredStartElement: ExcalidrawBindableElement | null;
-  hoveredEndElement: ExcalidrawBindableElement | null;
+  hoveredStartElement: CanvasEditorBindableElement | null;
+  hoveredEndElement: CanvasEditorBindableElement | null;
 };
 
 const DEDUP_TRESHOLD = 1;
 export const BASE_PADDING = 40;
 
 const handleSegmentRenormalization = (
-  arrow: ExcalidrawElbowArrowElement,
+  arrow: CanvasEditorElbowArrowElement,
   elementsMap: NonDeletedSceneElementsMap,
 ) => {
   const nextFixedSegments: FixedSegment[] | null = arrow.fixedSegments
@@ -280,7 +280,7 @@ const handleSegmentRenormalization = (
 };
 
 const handleSegmentRelease = (
-  arrow: ExcalidrawElbowArrowElement,
+  arrow: CanvasEditorElbowArrowElement,
   fixedSegments: readonly FixedSegment[],
   elementsMap: NonDeletedSceneElementsMap,
 ) => {
@@ -460,13 +460,13 @@ const handleSegmentRelease = (
  *
  */
 const handleSegmentMove = (
-  arrow: ExcalidrawElbowArrowElement,
+  arrow: CanvasEditorElbowArrowElement,
   fixedSegments: readonly FixedSegment[],
   startHeading: Heading,
   endHeading: Heading,
-  hoveredStartElement: ExcalidrawBindableElement | null,
-  hoveredEndElement: ExcalidrawBindableElement | null,
-): ElementUpdate<ExcalidrawElbowArrowElement> => {
+  hoveredStartElement: CanvasEditorBindableElement | null,
+  hoveredEndElement: CanvasEditorBindableElement | null,
+): ElementUpdate<CanvasEditorElbowArrowElement> => {
   const activelyModifiedSegmentIdx = fixedSegments
     .map((segment, i) => {
       if (
@@ -701,15 +701,15 @@ const handleSegmentMove = (
 };
 
 const handleEndpointDrag = (
-  arrow: ExcalidrawElbowArrowElement,
+  arrow: CanvasEditorElbowArrowElement,
   updatedPoints: readonly LocalPoint[],
   fixedSegments: readonly FixedSegment[],
   startHeading: Heading,
   endHeading: Heading,
   startGlobalPoint: GlobalPoint,
   endGlobalPoint: GlobalPoint,
-  hoveredStartElement: ExcalidrawBindableElement | null,
-  hoveredEndElement: ExcalidrawBindableElement | null,
+  hoveredStartElement: CanvasEditorBindableElement | null,
+  hoveredEndElement: CanvasEditorBindableElement | null,
 ) => {
   let startIsSpecial = arrow.startIsSpecial ?? null;
   let endIsSpecial = arrow.endIsSpecial ?? null;
@@ -886,7 +886,7 @@ const MAX_POS = 1e6;
  *
  */
 export const updateElbowArrowPoints = (
-  arrow: Readonly<ExcalidrawElbowArrowElement>,
+  arrow: Readonly<CanvasEditorElbowArrowElement>,
   elementsMap: NonDeletedSceneElementsMap,
   updates: {
     points?: readonly LocalPoint[];
@@ -897,7 +897,7 @@ export const updateElbowArrowPoints = (
   options?: {
     isDragging?: boolean;
   },
-): ElementUpdate<ExcalidrawElbowArrowElement> => {
+): ElementUpdate<CanvasEditorElbowArrowElement> => {
   if (arrow.points.length < 2) {
     return { points: updates.points ?? arrow.points };
   }
@@ -1182,8 +1182,8 @@ const getElbowArrowData = (
   },
   elementsMap: NonDeletedSceneElementsMap,
   nextPoints: readonly LocalPoint[],
-  startElement: ExcalidrawBindableElement | null,
-  endElement: ExcalidrawBindableElement | null,
+  startElement: CanvasEditorBindableElement | null,
+  endElement: CanvasEditorBindableElement | null,
   options?: {
     isDragging?: boolean;
     zoom?: AppState["zoom"];
@@ -1223,7 +1223,7 @@ const getElbowArrowData = (
       ...arrow,
       elbowed: true,
       points: nextPoints,
-    } as ExcalidrawElbowArrowElement,
+    } as CanvasEditorElbowArrowElement,
     "start",
     arrow.startBinding?.fixedPoint,
     origStartGlobalPoint,
@@ -1236,7 +1236,7 @@ const getElbowArrowData = (
       ...arrow,
       elbowed: true,
       points: nextPoints,
-    } as ExcalidrawElbowArrowElement,
+    } as CanvasEditorElbowArrowElement,
     "end",
     arrow.endBinding?.fixedPoint,
     origEndGlobalPoint,
@@ -2051,7 +2051,7 @@ const commonAABB = (aabbs: Bounds[]): Bounds => [
 const getBindableElementForId = (
   id: string,
   elementsMap: ElementsMap,
-): ExcalidrawBindableElement | null => {
+): CanvasEditorBindableElement | null => {
   const element = elementsMap.get(id);
   if (element && isBindableElement(element)) {
     return element;
@@ -2063,8 +2063,8 @@ const getBindableElementForId = (
 const normalizeArrowElementUpdate = (
   global: GlobalPoint[],
   nextFixedSegments: readonly FixedSegment[] | null,
-  startIsSpecial?: ExcalidrawElbowArrowElement["startIsSpecial"],
-  endIsSpecial?: ExcalidrawElbowArrowElement["startIsSpecial"],
+  startIsSpecial?: CanvasEditorElbowArrowElement["startIsSpecial"],
+  endIsSpecial?: CanvasEditorElbowArrowElement["startIsSpecial"],
 ): {
   points: LocalPoint[];
   x: number;
@@ -2072,8 +2072,8 @@ const normalizeArrowElementUpdate = (
   width: number;
   height: number;
   fixedSegments: readonly FixedSegment[] | null;
-  startIsSpecial?: ExcalidrawElbowArrowElement["startIsSpecial"];
-  endIsSpecial?: ExcalidrawElbowArrowElement["startIsSpecial"];
+  startIsSpecial?: CanvasEditorElbowArrowElement["startIsSpecial"];
+  endIsSpecial?: CanvasEditorElbowArrowElement["startIsSpecial"];
 } => {
   const offsetX = global[0][0];
   const offsetY = global[0][1];
@@ -2182,12 +2182,12 @@ const neighborIndexToHeading = (idx: number): Heading => {
 };
 
 const getGlobalPoint = (
-  arrow: ExcalidrawElbowArrowElement,
+  arrow: CanvasEditorElbowArrowElement,
   startOrEnd: "start" | "end",
   fixedPointRatio: [number, number] | undefined | null,
   initialPoint: GlobalPoint,
-  boundElement?: ExcalidrawBindableElement | null,
-  hoveredElement?: ExcalidrawBindableElement | null,
+  boundElement?: CanvasEditorBindableElement | null,
+  hoveredElement?: CanvasEditorBindableElement | null,
   isDragging?: boolean,
 ): GlobalPoint => {
   if (isDragging) {
@@ -2226,7 +2226,7 @@ const getBindPointHeading = (
   p: GlobalPoint,
   otherPoint: GlobalPoint,
   elementsMap: NonDeletedSceneElementsMap | SceneElementsMap,
-  hoveredElement: ExcalidrawBindableElement | null | undefined,
+  hoveredElement: CanvasEditorBindableElement | null | undefined,
   origPoint: GlobalPoint,
 ): Heading =>
   getHeadingForElbowArrowSnap(
@@ -2250,7 +2250,7 @@ const getBindPointHeading = (
 const getHoveredElement = (
   origPoint: GlobalPoint,
   elementsMap: NonDeletedSceneElementsMap,
-  elements: readonly NonDeletedExcalidrawElement[],
+  elements: readonly NonDeletedCanvasEditorElement[],
   zoom?: AppState["zoom"],
 ) => {
   return getHoveredElementForBinding(

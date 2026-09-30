@@ -6,9 +6,9 @@ import Vietnamese from "./Nunito-Regular-XRXI3I6Li01BKofiOc5wtlZ2di8HDIkhdTs3j6z
 
 import { GOOGLE_FONTS_RANGES } from "../FontMetadata";
 
-import { type ExcalidrawFontFaceDescriptor } from "../Fonts";
+import { type CanvasEditorFontFaceDescriptor } from "../Fonts";
 
-export const NunitoFontFaces: ExcalidrawFontFaceDescriptor[] = [
+export const NunitoFontFaces: CanvasEditorFontFaceDescriptor[] = [
   {
     uri: CyrilicExt,
     descriptors: {

@@ -5,7 +5,7 @@ import {
   useHandleDropdownMenuItemClick,
 } from "./common";
 import MenuItemContent from "./DropdownMenuItemContent";
-import { useExcalidrawAppState } from "../App";
+import { useCanvasEditorAppState } from "../App";
 import { THEME } from "../../constants";
 import type { ValueOf } from "../../utility-types";
 
@@ -78,7 +78,7 @@ export const DropDownMenuItemBadge = ({
   type?: ValueOf<typeof DropDownMenuItemBadgeType>;
   children: React.ReactNode;
 }) => {
-  const { theme } = useExcalidrawAppState();
+  const { theme } = useCanvasEditorAppState();
   const style = {
     display: "inline-flex",
     marginLeft: "auto",

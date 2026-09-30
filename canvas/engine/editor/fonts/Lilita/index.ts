@@ -3,9 +3,9 @@ import LilitaLatinExt from "./Lilita-Regular-i7dPIFZ9Zz-WBtRtedDbYE98RXi4EwSsbg.
 
 import { GOOGLE_FONTS_RANGES } from "../FontMetadata";
 
-import { type ExcalidrawFontFaceDescriptor } from "../Fonts";
+import { type CanvasEditorFontFaceDescriptor } from "../Fonts";
 
-export const LilitaFontFaces: ExcalidrawFontFaceDescriptor[] = [
+export const LilitaFontFaces: CanvasEditorFontFaceDescriptor[] = [
   {
     uri: LilitaLatinExt,
     descriptors: { unicodeRange: GOOGLE_FONTS_RANGES.LATIN_EXT },

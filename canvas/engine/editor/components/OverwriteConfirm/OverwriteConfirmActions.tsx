@@ -1,6 +1,6 @@
 import React from "react";
 import { FilledButton } from "../FilledButton";
-import { useExcalidrawActionManager, useExcalidrawSetAppState } from "../App";
+import { useCanvasEditorActionManager, useCanvasEditorSetAppState } from "../App";
 import { actionSaveFileToDisk } from "../../actions";
 import { useI18n } from "../../i18n";
 import { actionChangeExportEmbedScene } from "../../actions/actionExport";
@@ -38,8 +38,8 @@ export const Action = ({
 
 export const ExportToImage = () => {
   const { t } = useI18n();
-  const actionManager = useExcalidrawActionManager();
-  const setAppState = useExcalidrawSetAppState();
+  const actionManager = useCanvasEditorActionManager();
+  const setAppState = useCanvasEditorSetAppState();
 
   return (
     <Action
@@ -57,7 +57,7 @@ export const ExportToImage = () => {
 
 export const SaveToDisk = () => {
   const { t } = useI18n();
-  const actionManager = useExcalidrawActionManager();
+  const actionManager = useCanvasEditorActionManager();
 
   return (
     <Action

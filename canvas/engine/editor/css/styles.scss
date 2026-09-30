@@ -22,13 +22,13 @@
   --sat: env(safe-area-inset-top);
 }
 
-body.excalidraw-cursor-resize,
-body.excalidraw-cursor-resize a:hover,
-body.excalidraw-cursor-resize * {
+body.agent-canvas-cursor-resize,
+body.agent-canvas-cursor-resize a:hover,
+body.agent-canvas-cursor-resize * {
   cursor: ew-resize;
 }
 
-.excalidraw {
+.agent-canvas {
   --ui-font: Assistant, system-ui, BlinkMacSystemFont, -apple-system, Segoe UI,
     Roboto, Helvetica, Arial, sans-serif;
   font-family: var(--ui-font);
@@ -60,7 +60,7 @@ body.excalidraw-cursor-resize * {
   //    component (e.g. if you select text in a sidebar)
   user-select: none;
 
-  .excalidraw-link,
+  .agent-canvas-link,
   a {
     font-weight: 500;
     text-decoration: none;
@@ -172,42 +172,6 @@ body.excalidraw-cursor-resize * {
     }
   }
 
-  .App-top-bar {
-    z-index: var(--zIndex-layerUI);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .App-bottom-bar {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    --bar-padding: calc(4 * var(--space-factor));
-    padding-top: #{"max(var(--bar-padding), var(--sat,0))"};
-    padding-right: var(--sar, 0);
-    padding-bottom: var(--sab, 0);
-    padding-left: var(--sal, 0);
-    z-index: 4;
-    display: flex;
-    align-items: flex-end;
-    pointer-events: none;
-
-    > .Island {
-      width: 100%;
-      max-width: 100%;
-      min-width: 100%;
-      box-sizing: border-box;
-      max-height: 100%;
-      display: flex;
-      flex-direction: column;
-      pointer-events: var(--ui-pointerEvents);
-
-    }
-  }
-
   .App-toolbar {
     width: 100%;
 
@@ -219,18 +183,6 @@ body.excalidraw-cursor-resize * {
       &.active {
         background-color: var(--color-primary);
       }
-    }
-  }
-
-  .App-toolbar-content {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px;
-
-    .dropdown-menu--mobile {
-      bottom: 55px;
-      top: auto;
     }
   }
 
@@ -250,25 +202,17 @@ body.excalidraw-cursor-resize * {
   }
 
   .layer-ui__wrapper > .shapes-section--bottom {
-    position: absolute;
     z-index: 8;
-    left: 50%;
-    bottom: calc(1rem + var(--sab, 0px));
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: center;
     width: max-content;
-    max-width: calc(100% - 2rem);
-    overflow: visible;
-    transform: translateX(-50%);
     pointer-events: auto !important;
-
-    & > * {
-      max-width: 100%;
-    }
 
     .App-toolbar {
       display: flex;
       width: max-content;
-      max-width: 100%;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       align-items: center;
       justify-content: center;
       padding: 0;
@@ -276,6 +220,10 @@ body.excalidraw-cursor-resize * {
       border-radius: 0;
       background: transparent;
       box-shadow: none;
+
+      & > * {
+        flex: none;
+      }
     }
   }
 
@@ -305,15 +253,14 @@ body.excalidraw-cursor-resize * {
   }
 
   .App-menu_bottom {
-    position: absolute;
-    bottom: 1rem;
+    grid-column: 1;
+    grid-row: 2;
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     cursor: default;
     pointer-events: none !important;
     box-sizing: border-box;
-    padding: 0 1rem;
 
     &--transition-left {
       section {
@@ -441,7 +388,7 @@ body.excalidraw-cursor-resize * {
     pointer-events: none !important;
   }
 
-  &.excalidraw--view-mode {
+  &.agent-canvas--view-mode {
     .App-menu {
       display: flex;
       justify-content: space-between;
@@ -455,7 +402,7 @@ body.excalidraw-cursor-resize * {
   }
 
   input[type="text"],
-  textarea:not(.excalidraw-wysiwyg) {
+  textarea:not(.agent-canvas-wysiwyg) {
     color: var(--text-primary-color);
     border: 1.5px solid var(--input-border-color);
     padding: 0.75rem;
@@ -476,7 +423,6 @@ body.excalidraw-cursor-resize * {
   }
 
   @media print {
-    .App-bottom-bar,
     .FixedSideContainer,
     .layer-ui__wrapper {
       display: none;
@@ -505,39 +451,6 @@ body.excalidraw-cursor-resize * {
     background: var(--scrollbar-thumb);
   }
 
-  .mobile-misc-tools-container {
-    position: absolute;
-    top: calc(5rem - var(--editor-container-padding));
-    right: calc(var(--editor-container-padding) * -1);
-    display: flex;
-    flex-direction: column;
-    border: 1px solid var(--sidebar-border-color);
-    border-top-left-radius: var(--border-radius-lg);
-    border-bottom-left-radius: var(--border-radius-lg);
-    border-right: 0;
-    overflow: hidden;
-
-    background-color: var(--island-bg-color);
-
-    .ToolIcon__icon {
-      width: 2rem;
-      height: 2rem;
-      border-radius: 0;
-    }
-
-    .default-sidebar-trigger {
-      border: 0;
-    }
-  }
-
-  .App-toolbar--mobile {
-    overflow: visible;
-    max-width: 98vw;
-
-    .ToolIcon__keybinding {
-      display: none;
-    }
-  }
   .UserList-Wrapper {
     margin: 0;
     padding: 0;
@@ -553,21 +466,21 @@ body.excalidraw-cursor-resize * {
     }
   }
 
-  .excalidraw__paragraph {
+  .agent-canvas__paragraph {
     margin: 1rem 0;
   }
 
   .Modal__content {
-    .excalidraw__paragraph:first-child {
+    .agent-canvas__paragraph:first-child {
       margin-top: 0;
     }
-    .excalidraw__paragraph + .excalidraw__paragraph {
+    .agent-canvas__paragraph + .agent-canvas__paragraph {
       margin-top: 0rem;
     }
   }
 }
 
-.ErrorSplash.excalidraw {
+.ErrorSplash.agent-canvas {
   min-height: 100vh;
   padding: 20px 0;
   overflow: auto;
@@ -620,8 +533,8 @@ body.excalidraw-cursor-resize * {
   }
 }
 
-.excalidraw__embeddable-container {
-  .excalidraw__embeddable-container__inner {
+.agent-canvas__embeddable-container {
+  .agent-canvas__embeddable-container__inner {
     overflow: hidden;
     display: flex;
     align-items: center;
@@ -629,7 +542,7 @@ body.excalidraw-cursor-resize * {
     border-radius: var(--embeddable-radius);
   }
 
-  .excalidraw__embeddable__outer {
+  .agent-canvas__embeddable__outer {
     width: 100%;
     height: 100%;
     & > * {
@@ -637,7 +550,7 @@ body.excalidraw-cursor-resize * {
     }
   }
 
-  .excalidraw__embeddable-hint {
+  .agent-canvas__embeddable-hint {
     position: absolute;
     z-index: 1;
     background: rgba(0, 0, 0, 0.5);

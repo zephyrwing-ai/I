@@ -1,4 +1,6 @@
 import type { ModelMessage } from "../../agent/model/types.js";
+import type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types.js";
+export type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types.js";
 
 export type Provider = "openai" | "anthropic" | "google";
 export type RunStatus = "completed" | "cancelled" | "failed";
@@ -64,7 +66,7 @@ export interface InputAttachmentDescriptor {
   byteSize: number;
 }
 
-/** Serializable Excalidraw state kept outside the model conversation history. */
+/** Serializable CanvasEditor state kept outside the model conversation history. */
 export interface CanvasElementRecord {
   [key: string]: unknown;
 }
@@ -86,11 +88,20 @@ export interface CanvasDocument {
 
 export type CanvasContextScope = "selection";
 
+export interface CanvasSelectionBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface CanvasContextInput {
   projectId: string | null;
   scope: CanvasContextScope;
   selectedElementIds: string[];
   serializedJSON: string;
+  coordinateSpace: "scene";
+  selectionBounds: CanvasSelectionBounds;
   visual?: {
     mediaType: "image/png";
     dataURL: string;
@@ -130,6 +141,17 @@ export interface RunRequest {
   projectId?: string | null;
 }
 
+export interface SteerRequest {
+  runId: string;
+  projectId: string | null;
+  inputId: string;
+  task: string;
+}
+
+export type SteerAck =
+  | { ok: true; runId: string; projectId: string | null; inputId: string; acceptOrder: number; acceptedAt: number }
+  | { ok: false; error: string };
+
 export interface ProjectDescriptor {
   projectId: string | null;
   displayName: string;
@@ -162,7 +184,7 @@ export type RunError = {
   retryable?: boolean;
 };
 
-export type RunStartAck = { ok: true; runId: string } | { ok: false; error: string };
+export type RunStartAck = { ok: true; runId: string; inputId: string } | { ok: false; error: string };
 
 export interface HistoryPageRequest {
   cursor: string | null;
@@ -244,10 +266,12 @@ export type AgentEvent =
   | { type: "outputFileRegistered"; runId: string; file: OutputFileDescriptor }
   | { type: "turnRetrying"; runId: string; turnId: string; attempt: number; nextAttempt: number; reason: string; delayMs: number; maxAttempts: number }
   | { type: "turnCompleted"; runId: string; turnId: string }
-  | { type: "runCompleted"; runId: string; status: RunStatus; error?: RunError; turnCount: number };
+  | { type: "inputsApplied"; runId: string; inputIds: string[]; startedAt: number }
+  | { type: "runCompleted"; runId: string; status: RunStatus; error?: RunError; turnCount: number; unappliedInputIds?: string[]; finalTurnId?: string; finalDurationMs?: number };
 
 export interface AgentAPI {
   run(req: RunRequest): Promise<RunStartAck>;
+  steer(req: SteerRequest): Promise<SteerAck>;
   stop(): void;
   loadHistoryPage(request: HistoryPageRequest): Promise<HistoryPageResult>;
   getActiveProject(): Promise<ProjectDescriptor>;
@@ -263,6 +287,9 @@ export interface AgentAPI {
   loadCanvasDocument(projectId: string | null): Promise<CanvasDocumentResult>;
   saveCanvasDocument(request: CanvasSaveRequest): Promise<CanvasSaveResult>;
   prepareCanvasContext(input: CanvasContextInput): Promise<CanvasContextDescriptor>;
+  onCanvasEditRequest(cb: (request: CanvasEditRequest) => void): () => void;
+  onCanvasEditCancel(cb: (cancel: CanvasEditCancel) => void): () => void;
+  completeCanvasEdit(result: CanvasEditResult): void;
   previewOutputFile(runId: string, fileId: string): Promise<OutputFilePreviewResult>;
   openOutputFile(runId: string, fileId: string): Promise<OpenOutputFileResult>;
   onEvent(cb: (e: AgentEvent) => void): () => void;
@@ -270,6 +297,7 @@ export interface AgentAPI {
 
 export const IPC = {
   run: "agent:run",
+  steer: "agent:steer",
   stop: "agent:stop",
   event: "agent:event",
   loadHistoryPage: "history:load-page",
@@ -286,6 +314,9 @@ export const IPC = {
   loadCanvasDocument: "canvas:load-document",
   saveCanvasDocument: "canvas:save-document",
   prepareCanvasContext: "canvas:prepare-context",
+  canvasEditRequest: "canvas:edit-request",
+  canvasEditCancel: "canvas:edit-cancel",
+  canvasEditResult: "canvas:edit-result",
   previewOutputFile: "output-files:preview",
   openOutputFile: "output-files:open",
 } as const;

@@ -1,6 +1,6 @@
 import React from "react";
 import { KEYS } from "../keys";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { API } from "./helpers/api";
 import { Keyboard } from "./helpers/ui";
 import { fireEvent, render, waitFor } from "./test-utils";
@@ -8,7 +8,7 @@ import { fireEvent, render, waitFor } from "./test-utils";
 describe("shortcuts", () => {
   it("Clear canvas shortcut should display confirm dialog", async () => {
     await render(
-      <Excalidraw
+      <CanvasEditor
         initialData={{ elements: [API.createElement({ type: "rectangle" })] }}
         handleKeyboardGlobally
       />,

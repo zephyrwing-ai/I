@@ -6,7 +6,7 @@ import { getElementAbsoluteCoords } from "../../element/bounds";
 import { hitElementBoundingBox } from "../../element/collision";
 import type {
   ElementsMap,
-  NonDeletedExcalidrawElement,
+  NonDeletedCanvasEditorElement,
 } from "../../element/types";
 import { DEFAULT_LINK_SIZE } from "../../renderer/renderElement";
 import type { AppState, UIAppState } from "../../types";
@@ -53,7 +53,7 @@ export const getLinkHandleFromCoords = (
 };
 
 export const isPointHittingLinkIcon = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   elementsMap: ElementsMap,
   appState: AppState,
   [x, y]: GlobalPoint,
@@ -74,7 +74,7 @@ export const isPointHittingLinkIcon = (
 };
 
 export const isPointHittingLink = (
-  element: NonDeletedExcalidrawElement,
+  element: NonDeletedCanvasEditorElement,
   elementsMap: ElementsMap,
   appState: AppState,
   [x, y]: GlobalPoint,

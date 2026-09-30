@@ -1,6 +1,5 @@
 /* Only UI fonts here, which are needed before the editor initializes. */
-/* These cannot be dynamically prepended with `EXCALIDRAW_ASSET_PATH`. */
-/* WARN: The following content is replaced during excalidraw-app build  */
+/* These cannot be dynamically prepended with `AGENT_CANVAS_ASSET_PATH`. */
 
 @font-face {
   font-family: "Assistant";

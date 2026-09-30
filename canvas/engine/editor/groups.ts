@@ -1,8 +1,8 @@
 import type {
   GroupId,
-  ExcalidrawElement,
+  CanvasEditorElement,
   NonDeleted,
-  NonDeletedExcalidrawElement,
+  NonDeletedCanvasEditorElement,
   ElementsMapOrArray,
   ElementsMap,
 } from "./element/types";
@@ -19,7 +19,7 @@ import type { Mutable } from "./utility-types";
 export const selectGroup = (
   groupId: GroupId,
   appState: InteractiveCanvasAppState,
-  elements: readonly NonDeleted<ExcalidrawElement>[],
+  elements: readonly NonDeleted<CanvasEditorElement>[],
 ): Pick<
   InteractiveCanvasAppState,
   "selectedGroupIds" | "selectedElementIds" | "editingGroupId"
@@ -64,14 +64,14 @@ export const selectGroupsForSelectedElements = (function () {
     "selectedGroupIds" | "editingGroupId" | "selectedElementIds"
   >;
 
-  let lastSelectedElements: readonly NonDeleted<ExcalidrawElement>[] | null =
+  let lastSelectedElements: readonly NonDeleted<CanvasEditorElement>[] | null =
     null;
-  let lastElements: readonly NonDeleted<ExcalidrawElement>[] | null = null;
+  let lastElements: readonly NonDeleted<CanvasEditorElement>[] | null = null;
   let lastReturnValue: SelectGroupsReturnType | null = null;
 
   const _selectGroups = (
-    selectedElements: readonly NonDeleted<ExcalidrawElement>[],
-    elements: readonly NonDeleted<ExcalidrawElement>[],
+    selectedElements: readonly NonDeleted<CanvasEditorElement>[],
+    elements: readonly NonDeleted<CanvasEditorElement>[],
     appState: Pick<AppState, "selectedElementIds" | "editingGroupId">,
     prevAppState: InteractiveCanvasAppState,
   ): SelectGroupsReturnType => {
@@ -159,7 +159,7 @@ export const selectGroupsForSelectedElements = (function () {
    */
   const selectGroupsForSelectedElements = (
     appState: Pick<AppState, "selectedElementIds" | "editingGroupId">,
-    elements: readonly NonDeletedExcalidrawElement[],
+    elements: readonly NonDeletedCanvasEditorElement[],
     prevAppState: InteractiveCanvasAppState,
     /**
      * supply null in cases where you don't have access to App instance and
@@ -209,12 +209,12 @@ export const selectGroupsForSelectedElements = (function () {
  */
 export const isSelectedViaGroup = (
   appState: InteractiveCanvasAppState,
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
 ) => getSelectedGroupForElement(appState, element) != null;
 
 export const getSelectedGroupForElement = (
   appState: InteractiveCanvasAppState,
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
 ) =>
   element.groupIds
     .filter((groupId) => groupId !== appState.editingGroupId)
@@ -230,7 +230,7 @@ export const getSelectedGroupIds = (
 // given a list of elements, return the the actual group ids that should be selected
 // or used to update the elements
 export const selectGroupsFromGivenElements = (
-  elements: readonly NonDeleted<ExcalidrawElement>[],
+  elements: readonly NonDeleted<CanvasEditorElement>[],
   appState: InteractiveCanvasAppState,
 ) => {
   let nextAppState: InteractiveCanvasAppState = {
@@ -260,7 +260,7 @@ export const selectGroupsFromGivenElements = (
 
 export const editGroupForSelectedElement = (
   appState: AppState,
-  element: NonDeleted<ExcalidrawElement>,
+  element: NonDeleted<CanvasEditorElement>,
 ): AppState => {
   return {
     ...appState,
@@ -272,14 +272,14 @@ export const editGroupForSelectedElement = (
   };
 };
 
-export const isElementInGroup = (element: ExcalidrawElement, groupId: string) =>
+export const isElementInGroup = (element: CanvasEditorElement, groupId: string) =>
   element.groupIds.includes(groupId);
 
 export const getElementsInGroup = (
   elements: ElementsMapOrArray,
   groupId: string,
 ) => {
-  const elementsInGroup: ExcalidrawElement[] = [];
+  const elementsInGroup: CanvasEditorElement[] = [];
   for (const element of elements.values()) {
     if (isElementInGroup(element, groupId)) {
       elementsInGroup.push(element);
@@ -289,12 +289,12 @@ export const getElementsInGroup = (
 };
 
 export const getSelectedGroupIdForElement = (
-  element: ExcalidrawElement,
+  element: CanvasEditorElement,
   selectedGroupIds: { [groupId: string]: boolean },
 ) => element.groupIds.find((groupId) => selectedGroupIds[groupId]);
 
 export const getNewGroupIdsForDuplication = (
-  groupIds: ExcalidrawElement["groupIds"],
+  groupIds: CanvasEditorElement["groupIds"],
   editingGroupId: AppState["editingGroupId"],
   mapper: (groupId: GroupId) => GroupId,
 ) => {
@@ -312,7 +312,7 @@ export const getNewGroupIdsForDuplication = (
 };
 
 export const addToGroup = (
-  prevGroupIds: ExcalidrawElement["groupIds"],
+  prevGroupIds: CanvasEditorElement["groupIds"],
   newGroupId: GroupId,
   editingGroupId: AppState["editingGroupId"],
 ) => {
@@ -328,19 +328,19 @@ export const addToGroup = (
 };
 
 export const removeFromSelectedGroups = (
-  groupIds: ExcalidrawElement["groupIds"],
+  groupIds: CanvasEditorElement["groupIds"],
   selectedGroupIds: { [groupId: string]: boolean },
 ) => groupIds.filter((groupId) => !selectedGroupIds[groupId]);
 
 export const getMaximumGroups = (
-  elements: ExcalidrawElement[],
+  elements: CanvasEditorElement[],
   elementsMap: ElementsMap,
-): ExcalidrawElement[][] => {
-  const groups: Map<String, ExcalidrawElement[]> = new Map<
+): CanvasEditorElement[][] => {
+  const groups: Map<String, CanvasEditorElement[]> = new Map<
     String,
-    ExcalidrawElement[]
+    CanvasEditorElement[]
   >();
-  elements.forEach((element: ExcalidrawElement) => {
+  elements.forEach((element: CanvasEditorElement) => {
     const groupId =
       element.groupIds.length === 0
         ? element.id
@@ -378,7 +378,7 @@ export const getNonDeletedGroupIds = (elements: ElementsMap) => {
 };
 
 export const elementsAreInSameGroup = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
 ) => {
   const allGroups = elements.flatMap((element) => element.groupIds);
   const groupCount = new Map<string, number>();
@@ -394,6 +394,6 @@ export const elementsAreInSameGroup = (
   return maxGroup === elements.length;
 };
 
-export const isInGroup = (element: NonDeletedExcalidrawElement) => {
+export const isInGroup = (element: NonDeletedCanvasEditorElement) => {
   return element.groupIds.length > 0;
 };

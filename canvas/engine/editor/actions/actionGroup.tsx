@@ -18,9 +18,9 @@ import { getNonDeletedElements } from "../element";
 import { randomId } from "../random";
 import { ToolButton } from "../components/ToolButton";
 import type {
-  ExcalidrawElement,
-  ExcalidrawTextElement,
-  OrderedExcalidrawElement,
+  CanvasEditorElement,
+  CanvasEditorTextElement,
+  OrderedCanvasEditorElement,
 } from "../element/types";
 import type { AppClassProperties, AppState } from "../types";
 import { isBoundToContainer } from "../element/typeChecks";
@@ -36,7 +36,7 @@ import {
 import { syncMovedIndices } from "../fractionalIndex";
 import { CaptureUpdateAction } from "../store";
 
-const allElementsInSameGroup = (elements: readonly ExcalidrawElement[]) => {
+const allElementsInSameGroup = (elements: readonly CanvasEditorElement[]) => {
   if (elements.length >= 2) {
     const groupIds = elements[0].groupIds;
     for (const groupId of groupIds) {
@@ -54,7 +54,7 @@ const allElementsInSameGroup = (elements: readonly ExcalidrawElement[]) => {
 };
 
 const enableActionGroup = (
-  elements: readonly ExcalidrawElement[],
+  elements: readonly CanvasEditorElement[],
   appState: AppState,
   app: AppClassProperties,
 ) => {
@@ -155,7 +155,7 @@ export const actionGroup = register({
     const elementsInGroup = getElementsInGroup(nextElements, newGroupId);
     const lastElementInGroup = elementsInGroup[elementsInGroup.length - 1];
     const lastGroupElementIndex = nextElements.lastIndexOf(
-      lastElementInGroup as OrderedExcalidrawElement,
+      lastElementInGroup as OrderedCanvasEditorElement,
     );
     const elementsAfterGroup = nextElements.slice(lastGroupElementIndex + 1);
     const elementsBeforeGroup = nextElements
@@ -217,7 +217,7 @@ export const actionUngroup = register({
 
     let nextElements = [...elements];
 
-    const boundTextElementIds: ExcalidrawTextElement["id"][] = [];
+    const boundTextElementIds: CanvasEditorTextElement["id"][] = [];
     nextElements = nextElements.map((element) => {
       if (isBoundToContainer(element)) {
         boundTextElementIds.push(element.id);
@@ -273,7 +273,7 @@ export const actionUngroup = register({
     updateAppState.selectedElementIds = Object.entries(
       updateAppState.selectedElementIds,
     ).reduce(
-      (acc: { [key: ExcalidrawElement["id"]]: true }, [id, selected]) => {
+      (acc: { [key: CanvasEditorElement["id"]]: true }, [id, selected]) => {
         if (selected && !boundTextElementIds.includes(id)) {
           acc[id] = true;
         }

@@ -1,11 +1,11 @@
 import React from "react";
 import { fireEvent, queryByTestId, render, waitFor } from "./test-utils";
-import { Excalidraw } from "../index";
+import { CanvasEditor } from "../index";
 import { API } from "./helpers/api";
 import { getDefaultAppState } from "../appState";
 import { EXPORT_DATA_TYPES, MIME_TYPES } from "../constants";
 import { Pointer, UI } from "./helpers/ui";
-import type { ExcalidrawTextElement } from "../element/types";
+import type { CanvasEditorTextElement } from "../element/types";
 
 const { h } = window;
 
@@ -15,7 +15,7 @@ describe("appState", () => {
     const exportBackground = !defaultAppState.exportBackground;
 
     await render(
-      <Excalidraw
+      <CanvasEditor
         initialData={{
           appState: {
             exportBackground,
@@ -35,7 +35,7 @@ describe("appState", () => {
       new Blob(
         [
           JSON.stringify({
-            type: EXPORT_DATA_TYPES.excalidraw,
+            type: EXPORT_DATA_TYPES.canvas,
             appState: {
               viewBackgroundColor: "#000",
             },
@@ -57,7 +57,7 @@ describe("appState", () => {
 
   it("changing fontSize with text tool selected (no element created yet)", async () => {
     const { container } = await render(
-      <Excalidraw
+      <CanvasEditor
         initialData={{
           appState: {
             currentItemFontSize: 30,
@@ -76,6 +76,6 @@ describe("appState", () => {
 
     mouse.clickAt(100, 100);
 
-    expect((h.elements[0] as ExcalidrawTextElement).fontSize).toBe(16);
+    expect((h.elements[0] as CanvasEditorTextElement).fontSize).toBe(16);
   });
 });
