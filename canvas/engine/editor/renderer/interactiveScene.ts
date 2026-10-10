@@ -14,7 +14,6 @@ import {
 } from "../scene/scrollbars";
 
 import { renderSelectionElement } from "../renderer/renderElement";
-import { getClientColor, renderRemoteCursors } from "../clients";
 import {
   isSelectedViaGroup,
   getSelectedGroupIds,
@@ -29,7 +28,7 @@ import {
   getOmitSidesForDevice,
   shouldShowBoundingBox,
 } from "../element/transformHandles";
-import { arrayToMap, invariant, throttleRAF } from "../utils";
+import { invariant, throttleRAF } from "../utils";
 import {
   DEFAULT_TRANSFORM_HANDLE_SPACING,
   FRAME_STYLE,
@@ -349,7 +348,6 @@ type ElementSelectionBorder = {
   dashed?: boolean;
   cx: number;
   cy: number;
-  activeEmbeddable: boolean;
   padding?: number;
 };
 
@@ -397,7 +395,6 @@ const renderSelectionBorder = (
     cx,
     cy,
     dashed,
-    activeEmbeddable,
   } = elementProperties;
   const elementWidth = x2 - x1;
   const elementHeight = y2 - y1;
@@ -418,7 +415,7 @@ const renderSelectionBorder = (
 
   context.save();
   context.translate(appState.scrollX, appState.scrollY);
-  context.lineWidth = (activeEmbeddable ? 4 : 1) / appState.zoom.value;
+  context.lineWidth = 1 / appState.zoom.value;
 
   const count = selectionColors.length;
   for (let index = 0; index < count; ++index) {
@@ -444,16 +441,12 @@ const renderSelectionBorder = (
         outlineRadius,
       );
 
-    if (activeEmbeddable) {
-      stroke();
-    } else {
-      strokeSelectionOutline(
-        context,
-        appState,
-        selectionColors[index],
-        stroke,
-      );
-    }
+    strokeSelectionOutline(
+      context,
+      appState,
+      selectionColors[index],
+      stroke,
+    );
   }
   context.restore();
 };
@@ -530,7 +523,6 @@ const renderElementsBoxHighlight = (
       dashed: false,
       cx: x1 + (x2 - x1) / 2,
       cy: y1 + (y2 - y1) / 2,
-      activeEmbeddable: false,
     };
   };
 
@@ -906,9 +898,7 @@ const _renderInteractiveScene = ({
     isFrameLikeElement(element),
   );
 
-  // Getting the element using LinearElementEditor during collab mismatches version - being one head of visible elements due to
-  // ShapeCache returns empty hence making sure that we get the
-  // correct element from visible elements
+  // Use the visible element version so its rendered shape and handles agree.
   if (
     selectedElements.length === 1 &&
     appState.editingLinearElement?.elementId === selectedElements[0].id
@@ -962,73 +952,40 @@ const _renderInteractiveScene = ({
     const selectionColor = renderConfig.selectionColor || oc.black;
 
     if (showBoundingBox) {
-      // Optimisation for finding quickly relevant element ids
-      const locallySelectedIds = arrayToMap(selectedElements);
-
       const selections: ElementSelectionBorder[] = [];
 
-      for (const element of elementsMap.values()) {
-        const selectionColors = [];
-        const remoteClients = renderConfig.remoteSelectedElementIds.get(
-          element.id,
-        );
+      for (const selectedElement of selectedElements) {
+        const element = elementsMap.get(selectedElement.id);
         if (
-          !(
-            // Elbow arrow elements cannot be selected when bound on either end
-            (
-              isSingleLinearElementSelected &&
-              isElbowArrow(element) &&
-              (element.startBinding || element.endBinding)
-            )
-          )
+          !element ||
+          isSelectedViaGroup(appState, element) ||
+          (isSingleLinearElementSelected &&
+            isElbowArrow(element) &&
+            (element.startBinding || element.endBinding))
         ) {
-          // local user
-          if (
-            locallySelectedIds.has(element.id) &&
-            !isSelectedViaGroup(appState, element)
-          ) {
-            selectionColors.push(selectionColor);
-          }
-          // remote users
-          if (remoteClients) {
-            selectionColors.push(
-              ...remoteClients.map((socketId) => {
-                const background = getClientColor(
-                  socketId,
-                  appState.collaborators.get(socketId),
-                );
-                return background;
-              }),
-            );
-          }
+          continue;
         }
 
-        if (selectionColors.length) {
-          const [x1, y1, x2, y2, cx, cy] = getElementAbsoluteCoords(
-            element,
-            elementsMap,
-            true,
-          );
-          selections.push({
-            angle: element.angle,
-            x1,
-            y1,
-            x2,
-            y2,
-            selectionColors,
-            dashed: !!remoteClients,
-            cx,
-            cy,
-            activeEmbeddable:
-              appState.activeEmbeddable?.element === element &&
-              appState.activeEmbeddable.state === "active",
-            padding:
-              element.id === appState.croppingElementId ||
-              isImageElement(element)
-                ? 0
-                : undefined,
-          });
-        }
+        const [x1, y1, x2, y2, cx, cy] = getElementAbsoluteCoords(
+          element,
+          elementsMap,
+          true,
+        );
+        selections.push({
+          angle: element.angle,
+          x1,
+          y1,
+          x2,
+          y2,
+          selectionColors: [selectionColor],
+          dashed: false,
+          cx,
+          cy,
+          padding:
+            element.id === appState.croppingElementId || isImageElement(element)
+              ? 0
+              : undefined,
+        });
       }
 
       const addSelectionForGroupId = (groupId: GroupId) => {
@@ -1044,7 +1001,6 @@ const _renderInteractiveScene = ({
           dashed: true,
           cx: x1 + (x2 - x1) / 2,
           cy: y1 + (y2 - y1) / 2,
-          activeEmbeddable: false,
         });
       };
 
@@ -1196,14 +1152,6 @@ const _renderInteractiveScene = ({
   renderSnaps(context, appState);
 
   context.restore();
-
-  renderRemoteCursors({
-    context,
-    renderConfig,
-    appState,
-    normalizedWidth,
-    normalizedHeight,
-  });
 
   // Paint scrollbars
   let scrollBars;

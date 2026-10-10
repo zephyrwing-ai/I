@@ -117,6 +117,8 @@ test("saved credentials are required to refresh an edit without entering a repla
 
   assert.ok(!buttonWithText(withCredential, "Fetch model list").includes("disabled"));
   assert.ok(buttonWithText(withoutCredential, "Fetch model list").includes('disabled=""'));
+  assert.ok(inputBy(withoutCredential, 'placeholder="Enter an API Key"').includes('value=""'));
+  assert.ok(buttonWithText(withoutCredential, "Save provider").includes('disabled=""'));
 });
 
 test("running state locks editor mutations but still allows abandoning the draft", () => {

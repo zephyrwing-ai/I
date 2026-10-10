@@ -159,6 +159,7 @@ test("agentReducer projects one run from streamed content through cancellation",
     runId: "run-1",
     turnId: "turn-1",
     content: "正在检查目录",
+    completedAt: 2_000,
     toolCalls: [{ id: "tool-1", name: "bash", input: { command: "pwd" }, inputComplete: true }],
     stopReason: "tool_use",
   });
@@ -251,17 +252,26 @@ test("accepted steering bubbles keep stable IDs as a new assistant turn starts b
     state = agentReducer(state, { type: "steerAccepted", runId: "run-steer", projectId: null, inputId, task, acceptOrder, acceptedAt: 1_000 + acceptOrder });
   }
   const before = buildMessageBlockRecords(state);
-  assert.deepEqual(before.map((block) => block.blockId), ["run-steer:task", "run-steer:work:run-steer:task", "s1", "s2", "run-steer:work:s2"]);
+  assert.deepEqual(before.map((block) => block.blockId), ["run-steer:task", "run-steer:work:run-steer:task", "s1", "s2"]);
   assert.deepEqual(before.map((block) => block.kind), ["user", "assistant", "user", "user"]);
+  assert.deepEqual(before.filter((block) => block.kind === "assistant").map((block) => ({
+    anchor: block.anchorInputId, turns: block.turnIds, working: block.isWorking,
+  })), [{ anchor: "run-steer:task", turns: ["turn-old"], working: true }]);
+  assert.deepEqual(state.runs["run-steer"].pendingInputIds, ["s1", "s2"]);
+
+  state = event(state, { type: "assistantDelta", runId: "run-steer", turnId: "turn-old", delta: "继续输出" });
+  assert.equal(buildMessageBlockRecords(state).find((block) => block.blockId === "run-steer:work:run-steer:task")?.text, "旧回复继续输出");
 
   state = event(state, { type: "turnCompleted", runId: "run-steer", turnId: "turn-old" });
   state = event(state, { type: "inputsApplied", runId: "run-steer", inputIds: ["s1", "s2"], startedAt: 2_000 });
+  assert.deepEqual(buildMessageBlockRecords(state).filter((block) => block.kind === "assistant").map((block) => block.blockId), ["run-steer:work:run-steer:task"]);
   state = event(state, { type: "turnStarted", runId: "run-steer", turnId: "turn-new", turnOrdinal: 2 });
   state = event(state, { type: "assistantDelta", runId: "run-steer", turnId: "turn-new", delta: "新回复" });
   const after = buildMessageBlockRecords(state);
   assert.deepEqual(after.filter((block) => block.kind === "user").map((block) => block.blockId), ["run-steer:task", "s1", "s2"]);
   assert.ok(after.findIndex((block) => block.blockId === "s2") < after.findIndex((block) => block.blockId === "run-steer:work:s2"));
   assert.deepEqual(state.runs["run-steer"].pendingInputIds, []);
+  assert.deepEqual(after.filter((block) => block.kind === "assistant").map((block) => block.isWorking), [false, true]);
 
   state = event(state, { type: "runCompleted", runId: "run-steer", status: "completed", turnCount: 2, finalTurnId: "turn-new", finalDurationMs: 800 });
   assert.deepEqual(buildMessageBlockRecords(state).filter((block) => block.kind === "assistant").map((block) => block.showDuration), [false, true]);
@@ -271,6 +281,33 @@ test("accepted steering bubbles keep stable IDs as a new assistant turn starts b
     { kind: "user", inputId: "s1" },
     { kind: "user", inputId: "s2" },
     { kind: "assistant", turnId: "turn-new" },
+  ]);
+});
+
+test("a steer ACK before a queued turn start cannot reanchor that turn when the input is later applied", () => {
+  let state = acceptRun("run-queued", "原任务");
+  state = agentReducer(state, {
+    type: "steerAccepted", runId: "run-queued", projectId: null, inputId: "steer", task: "补充", acceptOrder: 1, acceptedAt: 1_500,
+  });
+  assert.equal(state.runs["run-queued"].appliedInputId, "run-queued:task");
+  state = event(state, { type: "turnStarted", runId: "run-queued", turnId: "turn-old", turnOrdinal: 1 });
+  state = event(state, { type: "reasoningDelta", runId: "run-queued", turnId: "turn-old", delta: "继续处理原任务" });
+  const oldBlocks = buildMessageBlockRecords(state);
+  assert.deepEqual(oldBlocks.map((block) => block.blockId), ["run-queued:task", "run-queued:work:run-queued:task", "steer"]);
+  assert.equal(state.runs["run-queued"].turns["turn-old"].anchorInputId, "run-queued:task");
+
+  state = event(state, { type: "inputsApplied", runId: "run-queued", inputIds: ["steer"], startedAt: 2_000 });
+  assert.equal(state.runs["run-queued"].appliedInputId, "steer");
+  assert.equal(state.runs["run-queued"].turns["turn-old"].anchorInputId, "run-queued:task");
+  assert.deepEqual(buildMessageBlockRecords(state), oldBlocks);
+
+  state = event(state, { type: "turnStarted", runId: "run-queued", turnId: "turn-new", turnOrdinal: 2 });
+  assert.equal(state.runs["run-queued"].turns["turn-new"].anchorInputId, "steer");
+  assert.deepEqual(buildMessageBlockRecords(state).filter((block) => block.kind === "assistant").map((block) => ({
+    id: block.blockId, turns: block.turnIds, working: block.isWorking,
+  })), [
+    { id: "run-queued:work:run-queued:task", turns: ["turn-old"], working: false },
+    { id: "run-queued:work:steer", turns: ["turn-new"], working: true },
   ]);
 });
 
@@ -295,6 +332,7 @@ test("tool-call completion keeps assistant text and tools in the same turn block
     runId: "run-tool-text",
     turnId: "turn-1",
     content: "先查看目录",
+    completedAt: 2_000,
     toolCalls: [{ id: "call-1", name: "list_dir", input: { path: "." }, inputComplete: true }],
     stopReason: "tool_use",
   });
@@ -309,7 +347,7 @@ test("FIFO ACK order, application before ACK and late ACK preserve one timeline 
   state = event(state, { type: "assistantDelta", runId: "run-order", turnId: "turn-a", delta: "A" });
   state = agentReducer(state, { type: "steerAccepted", runId: "run-order", projectId: null, inputId: "second", task: "第二条", acceptOrder: 2, acceptedAt: 2_000 });
   state = agentReducer(state, { type: "steerAccepted", runId: "run-order", projectId: null, inputId: "first", task: "第一条", acceptOrder: 1, acceptedAt: 1_900 });
-  assert.deepEqual(buildMessageBlockRecords(state).map((block) => block.blockId), ["run-order:task", "run-order:work:run-order:task", "first", "second", "run-order:work:second"]);
+  assert.deepEqual(buildMessageBlockRecords(state).map((block) => block.blockId), ["run-order:task", "run-order:work:run-order:task", "first", "second"]);
 
   state = event(state, { type: "inputsApplied", runId: "run-order", inputIds: ["first", "second", "third"], startedAt: 3_000 });
   const appliedTimeline = state.runs["run-order"].timeline;
@@ -317,10 +355,16 @@ test("FIFO ACK order, application before ACK and late ACK preserve one timeline 
   assert.strictEqual(state.runs["run-order"].timeline, appliedTimeline);
   state = event(state, { type: "turnStarted", runId: "run-order", turnId: "turn-b", turnOrdinal: 2 });
   state = event(state, { type: "assistantDelta", runId: "run-order", turnId: "turn-b", delta: "B" });
+  const timelineBeforeLateAck = state.runs["run-order"].timeline;
+  const groupsBeforeLateAck = buildMessageBlockRecords(state).filter((block) => block.kind === "assistant");
+  assert.deepEqual(groupsBeforeLateAck.map((block) => block.blockId), ["run-order:work:run-order:task", "run-order:work:third"]);
   state = agentReducer(state, { type: "steerAccepted", runId: "run-order", projectId: null, inputId: "third", task: "第三条", acceptOrder: 3, acceptedAt: 2_100 });
   assert.deepEqual(buildMessageBlockRecords(state).map((block) => block.blockId), [
-    "run-order:task", "run-order:work:run-order:task", "first", "second", "run-order:work:second", "third", "run-order:work:third",
+    "run-order:task", "run-order:work:run-order:task", "first", "second", "third", "run-order:work:third",
   ]);
+  assert.strictEqual(state.runs["run-order"].timeline, timelineBeforeLateAck);
+  assert.deepEqual(buildMessageBlockRecords(state).filter((block) => block.kind === "assistant"), groupsBeforeLateAck);
+  assert.deepEqual(state.runs["run-order"].timeline.filter((item) => item.kind === "user").map((item) => item.inputId), ["run-order:task", "first", "second", "third"]);
   assert.deepEqual(state.runs["run-order"].pendingInputIds, []);
   assert.equal(state.runs["run-order"].inputs.third.status, "applied");
 });

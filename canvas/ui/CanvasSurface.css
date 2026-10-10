@@ -81,7 +81,7 @@
 .canvas-panel-error { gap: 10px; }
 .canvas-panel-error button { min-height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-secondary); }
 .canvas-panel-status { position: absolute; z-index: 14; left: 12px; bottom: 74px; max-width: min(420px, calc(100% - 24px)); margin: 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-strong-translucent); color: var(--text-muted); font-size: 10px; line-height: 14px; pointer-events: none; }
-.canvas-panel-status.has-action { display: flex; align-items: center; gap: 8px; pointer-events: auto; }
+.canvas-panel-status.has-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; pointer-events: auto; }
 .canvas-panel-status button { border: 0; background: transparent; color: var(--text); text-decoration: underline; }
 .canvas-selection-actions { position: absolute; z-index: 15; display: flex; align-items: stretch; gap: 0; box-sizing: border-box; height: var(--canvas-toolbar-hit-size); padding: 0; overflow: hidden; border: 1px solid var(--canvas-floating-border); border-radius: var(--canvas-floating-radius); background: var(--canvas-floating-background); box-shadow: var(--canvas-floating-shadow); transform: translate(-50%, -100%); }
 .canvas-selection-actions.placement-below { transform: translateX(-50%); }

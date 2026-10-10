@@ -11,7 +11,6 @@ export const actionToggleCropEditor = register({
   label: "helpDialog.cropStart",
   icon: cropIcon,
   viewMode: true,
-  trackEvent: { category: "menu" },
   keywords: ["image", "crop"],
   perform(elements, appState, _, app) {
     const selectedElement = app.scene.getSelectedElements({

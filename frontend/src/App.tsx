@@ -188,8 +188,8 @@ export default function App() {
         dispatch({ type: "runRejected", error: ack.error });
         return false;
       }
-      // 任务发送时间由 Renderer 侧观察（事件不带时间戳），仅供用户消息时间戳行展示。
-      dispatch({ type: "runAccepted", runId: ack.runId, inputId: ack.inputId, projectId: req.projectId ?? null, task: req.task, taskAt: Date.now() });
+      // Main's admission timestamp is shared with the persisted user entry.
+      dispatch({ type: "runAccepted", runId: ack.runId, inputId: ack.inputId, projectId: req.projectId ?? null, task: req.task, taskAt: ack.createdAt });
       return true;
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });

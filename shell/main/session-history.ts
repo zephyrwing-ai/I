@@ -4,6 +4,7 @@ import type {
   HistoryPageRequest,
   HistoryPageResult,
 } from "../shared/ipc.js";
+import { readPublicToolResult } from "../shared/tool-result.js";
 
 export const DEFAULT_HISTORY_PAGE_LIMIT = 100;
 export const MAX_HISTORY_PAGE_LIMIT = 200;
@@ -43,7 +44,11 @@ function normalizePageRequest(request: unknown): NormalizedPageRequest {
   return { beforeOrder, limit };
 }
 
-function toHistoryEntry(entry: HistoryEntry): HistoryPageEntry {
+function toHistoryEntry(entry: HistoryEntry, outcome?: unknown): HistoryPageEntry {
+  const toolResult = outcome === undefined ? undefined : readPublicToolResult(outcome);
+  if (outcome !== undefined && !toolResult) {
+    throw new HistoryError(`Stored tool outcome is invalid for entry ${entry.id}.`, "storage");
+  }
   return {
     entryId: entry.id,
     entryOrder: entry.entryOrder,
@@ -56,8 +61,9 @@ function toHistoryEntry(entry: HistoryEntry): HistoryPageEntry {
     revision: entry.revision,
     payload: entry.payload,
     createdAt: entry.createdAt,
-    updatedAt: entry.updatedAt,
+    completedAt: entry.completedAt,
     durationMs: entry.durationMs,
+    ...(toolResult ? { toolResult } : {}),
   };
 }
 
@@ -96,10 +102,14 @@ export class HistoryService {
     if (nextCursor !== null && request.beforeOrder !== null && Number(nextCursor) >= request.beforeOrder) {
       throw new HistoryError("The history page cursor did not advance to older records.", "storage");
     }
+    const toolEntryIds = entries.filter((entry) => entry.type === "tool_result").map((entry) => entry.id);
+    const outcomes = toolEntryIds.length > 0
+      ? await this.repository.getToolOutcomesForEntries(scope, toolEntryIds)
+      : new Map<string, unknown>();
     const latest = await this.repository.listLatestEntries(scope, 1);
     return {
       projectId: scope,
-      entries: entries.map(toHistoryEntry),
+      entries: entries.map((entry) => toHistoryEntry(entry, outcomes.get(entry.id))),
       nextCursor,
       hasMore,
       snapshotOrder: latest[0]?.entryOrder ?? 0,

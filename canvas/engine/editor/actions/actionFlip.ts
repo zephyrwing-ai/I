@@ -32,7 +32,6 @@ export const actionFlipHorizontal = register({
   name: "flipHorizontal",
   label: "labels.flipHorizontal",
   icon: flipHorizontal,
-  trackEvent: { category: "element" },
   perform: (elements, appState, _, app) => {
     return {
       elements: updateFrameMembershipOfSelectedElements(
@@ -57,7 +56,6 @@ export const actionFlipVertical = register({
   name: "flipVertical",
   label: "labels.flipVertical",
   icon: flipVertical,
-  trackEvent: { category: "element" },
   perform: (elements, appState, _, app) => {
     return {
       elements: updateFrameMembershipOfSelectedElements(

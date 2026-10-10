@@ -10,6 +10,7 @@ import type {
   ProviderProfileInput,
   ProviderProfileSummary,
 } from "../shared/ipc.js";
+import { haveSameProviderOrigin } from "../shared/provider-origin.js";
 import { inferProviderFromBaseURL, type ProviderDiscoveryConnection } from "./provider-model-discovery.js";
 
 const STORE_VERSION = 3;
@@ -95,7 +96,7 @@ export class ProviderStore {
         : -1;
       const existing = existingIndex >= 0 ? this.profiles[existingIndex] : undefined;
       const providerProfileId = existing?.providerProfileId ?? normalized.providerProfileId ?? randomUUID();
-      const encryptedApiKey = this.resolveEncryptedSecret(normalized.apiKey, existing);
+      const encryptedApiKey = this.resolveEncryptedSecret(normalized.apiKey, existing, normalized.baseURL);
       const previousModels = new Map(existing?.models.map((model) => [model.modelId, model]) ?? []);
       const profile: StoredProfile = {
         providerProfileId,
@@ -150,7 +151,9 @@ export class ProviderStore {
         provider: profile.provider,
         modelId: model.modelId,
         baseURL: profile.baseURL,
-        getApiKey: () => this.requireCredential(profile.providerProfileId),
+        // Capture the same immutable profile as baseURL, so later edits cannot
+        // pair this run's address with another connection's credential.
+        getApiKey: async () => this.requireCredential(profile),
       };
     }
     throw new Error("The selected model does not exist or is unavailable. Choose another model.");
@@ -163,7 +166,11 @@ export class ProviderStore {
       ? this.profiles.find((profile) => profile.providerProfileId === input.providerProfileId)
       : undefined;
     if (input.providerProfileId && !existing) throw new Error("The provider does not exist or has already been deleted.");
-    const apiKey = input.apiKey?.trim() || (existing ? await this.requireCredential(existing.providerProfileId) : "");
+    let apiKey = input.apiKey?.trim() || "";
+    if (!apiKey && existing) {
+      this.assertCredentialOrigin(existing, baseURL);
+      apiKey = this.requireCredential(existing);
+    }
     if (!apiKey) throw new Error("Enter an API Key.");
     return { provider: inferProviderFromBaseURL(baseURL), baseURL, apiKey };
   }
@@ -172,7 +179,7 @@ export class ProviderStore {
     await this.ensureLoaded();
     const profile = this.profiles.find((candidate) => candidate.providerProfileId === providerProfileId);
     if (!profile) throw new Error("The provider does not exist or has already been deleted.");
-    return { provider: profile.provider, baseURL: profile.baseURL, apiKey: await this.requireCredential(profile.providerProfileId) };
+    return { provider: profile.provider, baseURL: profile.baseURL, apiKey: this.requireCredential(profile) };
   }
 
   async applyRefresh(providerProfileId: string, discovered: DiscoveredModel[]): Promise<ProviderProfileSummary> {
@@ -269,19 +276,24 @@ export class ProviderStore {
     };
   }
 
-  private resolveEncryptedSecret(apiKey: string | undefined, existing: StoredProfile | undefined): string {
+  private resolveEncryptedSecret(apiKey: string | undefined, existing: StoredProfile | undefined, baseURL: string): string {
     if (!apiKey) {
       if (!existing?.encryptedApiKey) throw new Error("A provider requires an API Key.");
+      this.assertCredentialOrigin(existing, baseURL);
       return existing.encryptedApiKey;
     }
     if (!this.codec.available()) throw new Error("System credential encryption is currently unavailable. The API Key was not saved.");
     return this.codec.encrypt(apiKey);
   }
 
-  private async requireCredential(providerProfileId: string): Promise<string> {
-    await this.ensureLoaded();
-    const profile = this.profiles.find((candidate) => candidate.providerProfileId === providerProfileId);
-    if (!profile?.encryptedApiKey) throw new Error("No API Key is configured for this provider. Open Settings and enter one.");
+  private assertCredentialOrigin(profile: StoredProfile, baseURL: string): void {
+    if (!haveSameProviderOrigin(profile.baseURL, baseURL)) {
+      throw new Error("Enter an API Key for the new provider address.");
+    }
+  }
+
+  private requireCredential(profile: StoredProfile): string {
+    if (!profile.encryptedApiKey) throw new Error("No API Key is configured for this provider. Open Settings and enter one.");
     return this.decryptSecret(profile);
   }
 

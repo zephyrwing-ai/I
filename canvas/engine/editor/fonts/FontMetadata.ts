@@ -1,10 +1,3 @@
-import type { JSX } from "react";
-import {
-  FreedrawIcon,
-  FontFamilyNormalIcon,
-  FontFamilyHeadingIcon,
-  FontFamilyCodeIcon,
-} from "../components/icons";
 import { FONT_FAMILY, FONT_FAMILY_FALLBACKS } from "../constants";
 
 /**
@@ -22,16 +15,8 @@ export interface FontMetadata {
     /** harcoded unitless line-height, https://github.com/excalidraw/pull/6360#issuecomment-1477635971 */
     lineHeight: number;
   };
-  /** element to be displayed as an icon  */
-  icon?: JSX.Element;
-  /** flag to indicate a deprecated font */
-  deprecated?: true;
-  /** flag to indicate a server-side only font */
-  serverSide?: true;
   /** flag to indiccate a local-only font */
   local?: true;
-  /** flag to indicate a fallback font */
-  fallback?: true;
 }
 
 export const FONT_METADATA: Record<number, FontMetadata> = {
@@ -42,7 +27,6 @@ export const FONT_METADATA: Record<number, FontMetadata> = {
       descender: -374,
       lineHeight: 1.25,
     },
-    icon: FreedrawIcon,
   },
   [FONT_FAMILY.Nunito]: {
     metrics: {
@@ -51,7 +35,6 @@ export const FONT_METADATA: Record<number, FontMetadata> = {
       descender: -353,
       lineHeight: 1.35,
     },
-    icon: FontFamilyNormalIcon,
   },
   [FONT_FAMILY["Lilita One"]]: {
     metrics: {
@@ -60,7 +43,6 @@ export const FONT_METADATA: Record<number, FontMetadata> = {
       descender: -220,
       lineHeight: 1.15,
     },
-    icon: FontFamilyHeadingIcon,
   },
   [FONT_FAMILY["Comic Shanns"]]: {
     metrics: {
@@ -69,7 +51,6 @@ export const FONT_METADATA: Record<number, FontMetadata> = {
       descender: -250,
       lineHeight: 1.25,
     },
-    icon: FontFamilyCodeIcon,
   },
   [FONT_FAMILY.Virgil]: {
     metrics: {
@@ -78,8 +59,6 @@ export const FONT_METADATA: Record<number, FontMetadata> = {
       descender: -374,
       lineHeight: 1.25,
     },
-    icon: FreedrawIcon,
-    deprecated: true,
   },
   [FONT_FAMILY.Helvetica]: {
     metrics: {
@@ -88,8 +67,6 @@ export const FONT_METADATA: Record<number, FontMetadata> = {
       descender: -471,
       lineHeight: 1.15,
     },
-    icon: FontFamilyNormalIcon,
-    deprecated: true,
     local: true,
   },
   [FONT_FAMILY.Cascadia]: {
@@ -99,17 +76,6 @@ export const FONT_METADATA: Record<number, FontMetadata> = {
       descender: -480,
       lineHeight: 1.2,
     },
-    icon: FontFamilyCodeIcon,
-    deprecated: true,
-  },
-  [FONT_FAMILY["Liberation Sans"]]: {
-    metrics: {
-      unitsPerEm: 2048,
-      ascender: 1854,
-      descender: -434,
-      lineHeight: 1.15,
-    },
-    serverSide: true,
   },
   [FONT_FAMILY_FALLBACKS.Xiaolai]: {
     metrics: {
@@ -118,7 +84,6 @@ export const FONT_METADATA: Record<number, FontMetadata> = {
       descender: -144,
       lineHeight: 1.15,
     },
-    fallback: true,
   },
   [FONT_FAMILY_FALLBACKS["Segoe UI Emoji"]]: {
     metrics: {
@@ -129,7 +94,6 @@ export const FONT_METADATA: Record<number, FontMetadata> = {
       lineHeight: 1.25,
     },
     local: true,
-    fallback: true,
   },
 };
 

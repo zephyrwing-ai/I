@@ -1,6 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import { Icon } from "./Icon";
 import type { SearchResult } from "../store/search";
+import applicationMetadata from "../../../package.json";
 
 interface TopBarProps {
   outputOpen: boolean;
@@ -19,7 +20,7 @@ interface TopBarProps {
 export function TopBar({ outputOpen, outputCount, canvasOpen = false, searchOpen, settingsOpen, searchButtonRef, settingsButtonRef, onOutput, onCanvas = () => undefined, onSearch, onSettings }: TopBarProps) {
   return (
     <header className="topbar">
-      <h1 className="sr-only">Agent Workbench</h1>
+      <h1 className="sr-only">{applicationMetadata.productName}</h1>
       <div className="topbar-actions">
         <button className={`icon-button ${outputOpen ? "active" : ""}`} onClick={onOutput} title={outputOpen ? "Hide output files" : "Show output files"} aria-label={outputOpen ? "Hide output files" : "Show output files"} aria-expanded={outputOpen} aria-controls="right-sidebar">
           <Icon name={outputOpen ? "sidebar" : "sidebar-collapsed"} width="18" height="18" strokeWidth={2} />

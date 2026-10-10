@@ -46,7 +46,7 @@ export const ExportToImage = () => {
       title={t("overwriteConfirm.action.exportToImage.title")}
       actionLabel={t("overwriteConfirm.action.exportToImage.button")}
       onClick={() => {
-        actionManager.executeAction(actionChangeExportEmbedScene, "ui", true);
+        actionManager.executeAction(actionChangeExportEmbedScene, true);
         setAppState({ openDialog: { name: "imageExport" } });
       }}
     >
@@ -64,7 +64,7 @@ export const SaveToDisk = () => {
       title={t("overwriteConfirm.action.saveToDisk.title")}
       actionLabel={t("overwriteConfirm.action.saveToDisk.button")}
       onClick={() => {
-        actionManager.executeAction(actionSaveFileToDisk, "ui");
+        actionManager.executeAction(actionSaveFileToDisk);
       }}
     >
       {t("overwriteConfirm.action.saveToDisk.description")}

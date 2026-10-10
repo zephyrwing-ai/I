@@ -90,7 +90,7 @@ export const SidebarInner = forwardRef(
 
     const device = useDevice();
 
-    const closeLibrary = useCallback(() => {
+    const closeSidebar = useCallback(() => {
       const isDialogOpen = !!document.querySelector(".Dialog");
 
       // Prevent closing if any dialog is open
@@ -104,16 +104,15 @@ export const SidebarInner = forwardRef(
       islandRef,
       useCallback(
         (event) => {
-          // If click on the library icon, do nothing so that LibraryButton
-          // can toggle library menu
+          // Sidebar triggers own the open/close toggle.
           if ((event.target as Element).closest(".sidebar-trigger")) {
             return;
           }
           if (!docked || !device.editor.canFitSidebar) {
-            closeLibrary();
+            closeSidebar();
           }
         },
-        [closeLibrary, docked, device.editor.canFitSidebar],
+        [closeSidebar, docked, device.editor.canFitSidebar],
       ),
     );
 
@@ -123,14 +122,14 @@ export const SidebarInner = forwardRef(
           event.key === KEYS.ESCAPE &&
           (!docked || !device.editor.canFitSidebar)
         ) {
-          closeLibrary();
+          closeSidebar();
         }
       };
       document.addEventListener(EVENT.KEYDOWN, handleKeyDown);
       return () => {
         document.removeEventListener(EVENT.KEYDOWN, handleKeyDown);
       };
-    }, [closeLibrary, docked, device.editor.canFitSidebar]);
+    }, [closeSidebar, docked, device.editor.canFitSidebar]);
 
     return (
       <Island

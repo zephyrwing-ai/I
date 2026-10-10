@@ -6,15 +6,14 @@ import type { CanvasEditorElement, FileId } from "../element/types";
 import { CanvasError, ImageSceneDataError } from "../errors";
 import { calculateScrollCenter } from "../scene";
 import { decodeSvgBase64Payload } from "../scene/export";
-import type { AppState, DataURL, LibraryItem } from "../types";
+import type { AppState, DataURL } from "../types";
 import type { ValueOf } from "../utility-types";
 import { bytesToHexString, isPromiseLike } from "../utils";
 import { base64ToString, stringToBase64, toByteString } from "./encode";
 import type { FileSystemHandle } from "./filesystem";
 import { nativeFileSystemSupported } from "./filesystem";
-import { isValidCanvasEditorData, isValidLibrary } from "./json";
-import { restore, restoreLibraryItems } from "./restore";
-import type { ImportedLibraryData } from "./types";
+import { isValidCanvasEditorData } from "./json";
+import { restore } from "./restore";
 
 const parseFileContents = async (blob: Blob | File): Promise<string> => {
   let contents: string;
@@ -118,7 +117,7 @@ export const isSupportedImageFile = (
   return isSupportedImageFileType(type);
 };
 
-export const loadSceneOrLibraryFromBlob = async (
+export const loadFromBlob = async (
   blob: Blob | File,
   /** @see restore.localAppState */
   localAppState: AppState | null,
@@ -141,31 +140,23 @@ export const loadSceneOrLibraryFromBlob = async (
       throw error;
     }
     if (isValidCanvasEditorData(data)) {
-      return {
-        type: MIME_TYPES.canvas,
-        data: restore(
-          {
-            elements: clearElementsForExport(data.elements || []),
-            appState: {
-              theme: localAppState?.theme,
-              fileHandle: fileHandle || blob.handle || null,
-              ...cleanAppStateForExport(data.appState || {}),
-              ...(localAppState
-                ? calculateScrollCenter(data.elements || [], localAppState)
-                : {}),
-            },
-            files: data.files,
+      return restore(
+        {
+          elements: clearElementsForExport(data.elements || []),
+          appState: {
+            theme: localAppState?.theme,
+            fileHandle: fileHandle || blob.handle || null,
+            ...cleanAppStateForExport(data.appState || {}),
+            ...(localAppState
+              ? calculateScrollCenter(data.elements || [], localAppState)
+              : {}),
           },
-          localAppState,
-          localElements,
-          { repairBindings: true, refreshDimensions: false },
-        ),
-      };
-    } else if (isValidLibrary(data)) {
-      return {
-        type: MIME_TYPES.canvaslib,
-        data,
-      };
+          files: data.files,
+        },
+        localAppState,
+        localElements,
+        { repairBindings: true, refreshDimensions: false },
+      );
     }
     throw new Error("Error: invalid file");
   } catch (error: any) {
@@ -176,44 +167,6 @@ export const loadSceneOrLibraryFromBlob = async (
   }
 };
 
-export const loadFromBlob = async (
-  blob: Blob,
-  /** @see restore.localAppState */
-  localAppState: AppState | null,
-  localElements: readonly CanvasEditorElement[] | null,
-  /** FileSystemHandle. Defaults to `blob.handle` if defined, otherwise null. */
-  fileHandle?: FileSystemHandle | null,
-) => {
-  const ret = await loadSceneOrLibraryFromBlob(
-    blob,
-    localAppState,
-    localElements,
-    fileHandle,
-  );
-  if (ret.type !== MIME_TYPES.canvas) {
-    throw new Error("Error: invalid file");
-  }
-  return ret.data;
-};
-
-export const parseLibraryJSON = (
-  json: string,
-  defaultStatus: LibraryItem["status"] = "unpublished",
-) => {
-  const data: ImportedLibraryData | undefined = JSON.parse(json);
-  if (!isValidLibrary(data)) {
-    throw new Error("Invalid library");
-  }
-  const libraryItems = data.libraryItems || data.library;
-  return restoreLibraryItems(libraryItems, defaultStatus);
-};
-
-export const loadLibraryFromBlob = async (
-  blob: Blob,
-  defaultStatus: LibraryItem["status"] = "unpublished",
-) => {
-  return parseLibraryJSON(await parseFileContents(blob), defaultStatus);
-};
 
 export const canvasToBlob = async (
   canvas: HTMLCanvasElement | Promise<HTMLCanvasElement>,
@@ -443,17 +396,11 @@ export const createFile = (
 
 /** attempts to detect correct mimeType if none is set, or if an image
  * has an incorrect extension.
- * Infers legacy scene/library MIME types from their file extensions.
+ * Infers legacy scene MIME types from their file extensions.
  */
 export const normalizeFile = async (file: File) => {
   if (!file.type) {
-    if (file?.name?.endsWith(".excalidrawlib")) {
-      file = createFile(
-        await blobToArrayBuffer(file),
-        MIME_TYPES.canvaslib,
-        file.name,
-      );
-    } else if (file?.name?.endsWith(".excalidraw")) {
+    if (file?.name?.endsWith(".excalidraw")) {
       file = createFile(
         await blobToArrayBuffer(file),
         MIME_TYPES.canvas,

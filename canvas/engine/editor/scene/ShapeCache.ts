@@ -7,8 +7,6 @@ import type {
 import { elementWithCanvasCache } from "../renderer/renderElement";
 import { _generateElementShape } from "./Shape";
 import type { ElementShape, ElementShapes } from "./types";
-import { COLOR_PALETTE } from "../colors";
-import type { AppState, EmbedsValidationStatus } from "../types";
 
 export class ShapeCache {
   private static rg = new RoughGenerator();
@@ -50,8 +48,6 @@ export class ShapeCache {
     element: T,
     renderConfig: {
       isExporting: boolean;
-      canvasBackgroundColor: AppState["viewBackgroundColor"];
-      embedsValidationStatus: EmbedsValidationStatus;
     } | null,
   ) => {
     // when exporting, always regenerated to guarantee the latest shape
@@ -67,15 +63,7 @@ export class ShapeCache {
 
     elementWithCanvasCache.delete(element);
 
-    const shape = _generateElementShape(
-      element,
-      ShapeCache.rg,
-      renderConfig || {
-        isExporting: false,
-        canvasBackgroundColor: COLOR_PALETTE.white,
-        embedsValidationStatus: null,
-      },
-    ) as T["type"] extends keyof ElementShapes
+    const shape = _generateElementShape(element, ShapeCache.rg) as T["type"] extends keyof ElementShapes
       ? ElementShapes[T["type"]]
       : Drawable | null;
 

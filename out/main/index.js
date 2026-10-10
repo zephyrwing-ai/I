@@ -1,13 +1,23 @@
-import { app, safeStorage, BrowserWindow, dialog, ipcMain, shell, webContents } from "electron";
-import { resolve, basename, relative, sep, extname, dirname, isAbsolute, join } from "node:path";
-import { randomUUID, createHash } from "node:crypto";
+import { app, Menu, safeStorage, BrowserWindow, dialog, webContents, ipcMain, shell } from "electron";
+import { mkdtempSync, writeFileSync, constants, mkdirSync } from "node:fs";
+import { resolve, basename, relative, sep, extname, dirname, join as join$1, isAbsolute, parse } from "node:path";
+import { randomUUID, createHash, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { realpath, stat, readFile, open, mkdir, writeFile, rename, opendir, lstat, readdir, rm } from "node:fs/promises";
-import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { join } from "path";
+import fs, { realpath, stat, readFile, open, mkdir, writeFile, rename, opendir, lstat, readdir, rm } from "node:fs/promises";
+import childProcess, { spawn, fork } from "node:child_process";
 import { tmpdir } from "node:os";
+import { isUtf8, Buffer as Buffer$1 } from "node:buffer";
+import { rgPath } from "@vscode/ripgrep";
+import { M as MAX_CLI_BYTES, b as isCliRequest, i as isCliReply } from "./protocol-BcvILXCM.js";
 import { DatabaseSync } from "node:sqlite";
-import { Buffer as Buffer$1 } from "node:buffer";
+const appIconPath = join(import.meta.dirname, "./chunks/app-icon-BW5706cq.png");
+const name = "agent-studio";
+const productName$1 = "I";
+const applicationMetadata = {
+  name,
+  productName: productName$1
+};
 const IPC = {
   run: "agent:run",
   steer: "agent:steer",
@@ -45,73 +55,73 @@ class OutputFileRegistry {
       this.runs.set(runId, files);
       while (this.runs.size > 12) this.runs.delete(this.runs.keys().next().value);
     }
-    const byPath = new Map([...files.values()].map((record) => [record.path, record]));
+    const byPath = new Map([...files.values()].map((record2) => [record2.path, record2]));
     const descriptors = [];
-    for (const artifact of artifacts) {
-      const normalizedPath = resolve(artifact.path);
+    for (const artifact2 of artifacts) {
+      const normalizedPath = resolve(artifact2.path);
       const existing = byPath.get(normalizedPath);
-      if (artifact.operation === "updated" && !existing) continue;
+      if (artifact2.operation === "updated" && !existing) continue;
       const fileId = existing?.descriptor.fileId ?? randomUUID();
       const descriptor = {
         runId,
         fileId,
         name: basename(normalizedPath),
-        displayPath: displayPath(cwd, normalizedPath),
+        displayPath: displayPath$1(cwd, normalizedPath),
         operation: existing ? "updated" : "created",
-        mediaType: artifact.mediaType,
-        byteSize: artifact.byteSize,
-        updatedAt: artifact.updatedAt
+        mediaType: artifact2.mediaType,
+        byteSize: artifact2.byteSize,
+        updatedAt: artifact2.updatedAt
       };
-      const record = { descriptor, path: normalizedPath };
-      files.set(fileId, record);
-      byPath.set(normalizedPath, record);
+      const record2 = { descriptor, path: normalizedPath };
+      files.set(fileId, record2);
+      byPath.set(normalizedPath, record2);
       descriptors.push(descriptor);
     }
     return descriptors;
   }
   async preview(runId, fileId) {
-    const record = this.get(runId, fileId);
-    if (!record) return failure$1("not_found", "The output file does not exist or is no longer valid.");
-    const verified = await verifyRecord(record);
+    const record2 = this.get(runId, fileId);
+    if (!record2) return failure$1("not_found", "The output file does not exist or is no longer valid.");
+    const verified = await verifyRecord(record2);
     if (!verified.ok) return failure$1("not_found", verified.message);
     const fileStats = verified.stats;
     const updatedAt = fileStats.mtime.toISOString();
     const byteSize = Number(fileStats.size);
-    if (IMAGE_MEDIA_TYPES.has(record.descriptor.mediaType)) {
-      if (byteSize > MAX_IMAGE_BYTES$1) return failure$1("too_large", "The image exceeds 5 MB and cannot be previewed inline.", record.descriptor.mediaType, byteSize);
+    if (IMAGE_MEDIA_TYPES.has(record2.descriptor.mediaType)) {
+      if (byteSize > MAX_IMAGE_BYTES$1) return failure$1("too_large", "The image exceeds 5 MB and cannot be previewed inline.", record2.descriptor.mediaType, byteSize);
       try {
-        const content = await readFile(record.path);
+        const content = await readFile(record2.path);
         return {
           ok: true,
           kind: "image",
-          mediaType: record.descriptor.mediaType,
-          dataUrl: `data:${record.descriptor.mediaType};base64,${content.toString("base64")}`,
+          mediaType: record2.descriptor.mediaType,
+          dataUrl: `data:${record2.descriptor.mediaType};base64,${content.toString("base64")}`,
           byteSize,
           updatedAt
         };
       } catch {
-        return failure$1("read_failed", "Failed to read the image.", record.descriptor.mediaType, byteSize);
+        return failure$1("read_failed", "Failed to read the image.", record2.descriptor.mediaType, byteSize);
       }
     }
-    if (!isTextMediaType(record.descriptor.mediaType)) {
+    if (!isTextMediaType(record2.descriptor.mediaType)) {
       return {
         ok: true,
         kind: "unsupported",
-        mediaType: record.descriptor.mediaType,
+        mediaType: record2.descriptor.mediaType,
         byteSize,
         updatedAt
       };
     }
     try {
       const size = Math.min(byteSize, MAX_TEXT_BYTES);
-      const handle = await open(record.path, "r");
+      const handle = await open(record2.path, "r");
       try {
         const buffer = Buffer.alloc(size);
         const { bytesRead } = await handle.read(buffer, 0, size, 0);
         return {
           ok: true,
           kind: "text",
-          mediaType: record.descriptor.mediaType,
+          mediaType: record2.descriptor.mediaType,
           content: buffer.subarray(0, bytesRead).toString("utf8"),
           truncated: byteSize > MAX_TEXT_BYTES,
           byteSize,
@@ -121,7 +131,7 @@ class OutputFileRegistry {
         await handle.close();
       }
     } catch {
-      return failure$1("read_failed", "Failed to read the file.", record.descriptor.mediaType, byteSize);
+      return failure$1("read_failed", "Failed to read the file.", record2.descriptor.mediaType, byteSize);
     }
   }
   resolveForOpen(runId, fileId) {
@@ -131,27 +141,27 @@ class OutputFileRegistry {
     return this.runs.get(runId)?.get(fileId);
   }
 }
-async function validateOutputForOpen(record) {
+async function validateOutputForOpen(record2) {
   try {
-    const canonical2 = await realpath(record.path);
-    if (canonical2 !== record.path) return { ok: false, error: "The output file path has changed." };
-    const fileStats = await stat(canonical2);
+    const canonical = await realpath(record2.path);
+    if (canonical !== record2.path) return { ok: false, error: "The output file path has changed." };
+    const fileStats = await stat(canonical);
     if (!fileStats.isFile()) return { ok: false, error: "The output target is no longer a file." };
-    return { ok: true, path: canonical2 };
+    return { ok: true, path: canonical };
   } catch {
     return { ok: false, error: "The output file does not exist or cannot be accessed." };
   }
 }
-function displayPath(cwd, path) {
+function displayPath$1(cwd, path) {
   const relativePath = relative(resolve(cwd), path);
   if (relativePath && relativePath !== ".." && !relativePath.startsWith(`..${sep}`)) return relativePath;
   return path;
 }
-async function verifyRecord(record) {
+async function verifyRecord(record2) {
   try {
-    const canonical2 = await realpath(record.path);
-    if (canonical2 !== record.path) return { ok: false, message: "The output file path has changed." };
-    const stats = await stat(canonical2);
+    const canonical = await realpath(record2.path);
+    if (canonical !== record2.path) return { ok: false, message: "The output file path has changed." };
+    const stats = await stat(canonical);
     if (!stats.isFile()) return { ok: false, message: "The output target is no longer a file." };
     return { ok: true, stats };
   } catch {
@@ -197,15 +207,15 @@ class InputAttachmentRegistry {
     const uniqueIds = [...new Set(attachmentIds)];
     const attachments = [];
     for (const attachmentId of uniqueIds) {
-      const record = this.records.get(attachmentId);
-      if (!record) throw new Error("The attachment does not exist or is no longer valid. Upload it again.");
+      const record2 = this.records.get(attachmentId);
+      if (!record2) throw new Error("The attachment does not exist or is no longer valid. Upload it again.");
       try {
-        const path = await realpath(record.path);
+        const path = await realpath(record2.path);
         const fileStats = await stat(path);
-        if (path !== record.path || !fileStats.isFile()) throw new Error();
-        attachments.push({ ...record.descriptor, path });
+        if (path !== record2.path || !fileStats.isFile()) throw new Error();
+        attachments.push({ ...record2.descriptor, path });
       } catch {
-        throw new Error(`The attachment “${record.descriptor.name}” does not exist or cannot be accessed. Upload it again.`);
+        throw new Error(`The attachment “${record2.descriptor.name}” does not exist or cannot be accessed. Upload it again.`);
       }
     }
     return attachments;
@@ -250,6 +260,18 @@ function mediaTypeForPath$1(path) {
       return "application/pdf";
     default:
       return "application/octet-stream";
+  }
+}
+function haveSameProviderOrigin(left, right) {
+  const leftOrigin = providerOrigin(left);
+  return leftOrigin !== null && leftOrigin === providerOrigin(right);
+}
+function providerOrigin(baseURL) {
+  try {
+    const url = new URL(baseURL.trim());
+    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : null;
+  } catch {
+    return null;
   }
 }
 class ProviderDiscoveryError extends Error {
@@ -402,10 +424,10 @@ function parseModelPage(payload) {
   const models = [];
   for (const item of list) {
     if (!item || typeof item !== "object") continue;
-    const record = item;
+    const record2 = item;
     models.push({
-      id: typeof record.id === "string" ? record.id : "",
-      displayName: firstString(record.display_name, record.name, record.id)
+      id: typeof record2.id === "string" ? record2.id : "",
+      displayName: firstString(record2.display_name, record2.name, record2.id)
     });
   }
   return models;
@@ -461,7 +483,7 @@ class ProviderStore {
       const existingIndex = normalized.providerProfileId ? this.profiles.findIndex((profile2) => profile2.providerProfileId === normalized.providerProfileId) : -1;
       const existing = existingIndex >= 0 ? this.profiles[existingIndex] : void 0;
       const providerProfileId = existing?.providerProfileId ?? normalized.providerProfileId ?? randomUUID();
-      const encryptedApiKey = this.resolveEncryptedSecret(normalized.apiKey, existing);
+      const encryptedApiKey = this.resolveEncryptedSecret(normalized.apiKey, existing, normalized.baseURL);
       const previousModels = new Map(existing?.models.map((model) => [model.modelId, model]) ?? []);
       const profile = {
         providerProfileId,
@@ -510,7 +532,9 @@ class ProviderStore {
         provider: profile.provider,
         modelId: model.modelId,
         baseURL: profile.baseURL,
-        getApiKey: () => this.requireCredential(profile.providerProfileId)
+        // Capture the same immutable profile as baseURL, so later edits cannot
+        // pair this run's address with another connection's credential.
+        getApiKey: async () => this.requireCredential(profile)
       };
     }
     throw new Error("The selected model does not exist or is unavailable. Choose another model.");
@@ -520,7 +544,11 @@ class ProviderStore {
     const baseURL = normalizeBaseURL(input.baseURL);
     const existing = input.providerProfileId ? this.profiles.find((profile) => profile.providerProfileId === input.providerProfileId) : void 0;
     if (input.providerProfileId && !existing) throw new Error("The provider does not exist or has already been deleted.");
-    const apiKey = input.apiKey?.trim() || (existing ? await this.requireCredential(existing.providerProfileId) : "");
+    let apiKey = input.apiKey?.trim() || "";
+    if (!apiKey && existing) {
+      this.assertCredentialOrigin(existing, baseURL);
+      apiKey = this.requireCredential(existing);
+    }
     if (!apiKey) throw new Error("Enter an API Key.");
     return { provider: inferProviderFromBaseURL(), baseURL, apiKey };
   }
@@ -528,7 +556,7 @@ class ProviderStore {
     await this.ensureLoaded();
     const profile = this.profiles.find((candidate) => candidate.providerProfileId === providerProfileId);
     if (!profile) throw new Error("The provider does not exist or has already been deleted.");
-    return { provider: profile.provider, baseURL: profile.baseURL, apiKey: await this.requireCredential(profile.providerProfileId) };
+    return { provider: profile.provider, baseURL: profile.baseURL, apiKey: this.requireCredential(profile) };
   }
   async applyRefresh(providerProfileId, discovered) {
     return this.serialize(async () => {
@@ -621,18 +649,22 @@ class ProviderStore {
       }))
     };
   }
-  resolveEncryptedSecret(apiKey, existing) {
+  resolveEncryptedSecret(apiKey, existing, baseURL) {
     if (!apiKey) {
       if (!existing?.encryptedApiKey) throw new Error("A provider requires an API Key.");
+      this.assertCredentialOrigin(existing, baseURL);
       return existing.encryptedApiKey;
     }
     if (!this.codec.available()) throw new Error("System credential encryption is currently unavailable. The API Key was not saved.");
     return this.codec.encrypt(apiKey);
   }
-  async requireCredential(providerProfileId) {
-    await this.ensureLoaded();
-    const profile = this.profiles.find((candidate) => candidate.providerProfileId === providerProfileId);
-    if (!profile?.encryptedApiKey) throw new Error("No API Key is configured for this provider. Open Settings and enter one.");
+  assertCredentialOrigin(profile, baseURL) {
+    if (!haveSameProviderOrigin(profile.baseURL, baseURL)) {
+      throw new Error("Enter an API Key for the new provider address.");
+    }
+  }
+  requireCredential(profile) {
+    if (!profile.encryptedApiKey) throw new Error("No API Key is configured for this provider. Open Settings and enter one.");
     return this.decryptSecret(profile);
   }
   decryptSecret(profile) {
@@ -647,8 +679,8 @@ class ProviderStore {
   }
 }
 function normalizeInput(input) {
-  const name = input.name.trim();
-  if (!name) throw new Error("Enter a provider name.");
+  const name2 = input.name.trim();
+  if (!name2) throw new Error("Enter a provider name.");
   const baseURL = normalizeBaseURL(input.baseURL);
   const models = input.models.map((model) => ({
     id: model.id.trim(),
@@ -660,7 +692,7 @@ function normalizeInput(input) {
   }
   return {
     providerProfileId: input.providerProfileId,
-    name,
+    name: name2,
     baseURL,
     apiKey: input.apiKey?.trim() || void 0,
     models
@@ -718,6 +750,24 @@ function migrateLegacyProfile(profile) {
 function defaultBaseURL(_provider) {
   return "https://api.deepseek.com/v1";
 }
+class RepositoryError extends Error {
+  constructor(message, code, options = {}) {
+    super(message, options);
+    this.code = code;
+    this.name = "RepositoryError";
+    this.retryable = options.retryable ?? false;
+  }
+  code;
+  retryable;
+}
+class ToolAttemptBlockedError extends RepositoryError {
+  constructor(reason, message) {
+    super(message, "conflict", { retryable: false });
+    this.reason = reason;
+    this.name = "ToolAttemptBlockedError";
+  }
+  reason;
+}
 class ModelAdapterError extends Error {
   constructor(kind, message, retryable = false) {
     super(message);
@@ -727,6 +777,28 @@ class ModelAdapterError extends Error {
   }
   kind;
   retryable;
+}
+function readModelMessage(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const message = value;
+  if (!["user", "assistant", "tool"].includes(message.role) || typeof message.content !== "string") return void 0;
+  for (const field of ["reasoning", "toolCallId", "toolName"]) {
+    if (message[field] !== void 0 && typeof message[field] !== "string") return void 0;
+  }
+  if (message.isError !== void 0 && typeof message.isError !== "boolean") return void 0;
+  if (message.toolCalls !== void 0) {
+    if (!Array.isArray(message.toolCalls) || !message.toolCalls.every((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      const call = item;
+      return typeof call.id === "string" && typeof call.name === "string" && typeof call.inputComplete === "boolean" && call.input !== null && typeof call.input === "object" && !Array.isArray(call.input);
+    })) return void 0;
+  }
+  if (message.media !== void 0) {
+    if (!message.media || typeof message.media !== "object" || Array.isArray(message.media)) return void 0;
+    const media = message.media;
+    if (typeof media.mediaType !== "string" || typeof media.dataUrl !== "string") return void 0;
+  }
+  return value;
 }
 async function* response(config, messages, system, tools, signal) {
   switch (config.provider) {
@@ -738,78 +810,71 @@ async function* response(config, messages, system, tools, signal) {
   }
 }
 function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const serialized = JSON.stringify(value);
+  if (serialized === void 0) throw new TypeError("Value must be JSON serializable.");
+  return encodeCanonical(JSON.parse(serialized));
+}
+function encodeCanonical(value) {
+  if (Array.isArray(value)) return `[${value.map(encodeCanonical).join(",")}]`;
   if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+    return `{${Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, item]) => `${JSON.stringify(key)}:${encodeCanonical(item)}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
+function jsonEqual(left, right) {
+  return canonicalJson(left) === canonicalJson(right);
+}
 function toolInputHash(toolName, toolVersion, input) {
+  return toolInputHashFromJson(toolName, toolVersion, canonicalJson(input));
+}
+function toolInputHashFromJson(toolName, toolVersion, inputJson) {
   return createHash("sha256").update(`${toolName}
 ${toolVersion}
-${canonicalJson(input)}`, "utf8").digest("hex");
+${inputJson}`, "utf8").digest("hex");
 }
-function resolveToolPath(value, cwd) {
-  return isAbsolute(value) ? value : resolve(cwd, value);
+function record(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function hashText(value) {
-  return createHash("sha256").update(value, "utf8").digest("hex");
+function artifact(value) {
+  return record(value) && typeof value.path === "string" && (value.operation === "created" || value.operation === "updated") && typeof value.mediaType === "string" && typeof value.byteSize === "number" && Number.isSafeInteger(value.byteSize) && value.byteSize >= 0 && typeof value.updatedAt === "string";
 }
-function checkpointForTextFile(path, beforeContent, afterContent, operation, mediaType) {
-  const data = {
-    path,
-    beforeHash: beforeContent === null ? null : hashText(beforeContent),
-    afterHash: hashText(afterContent),
-    operation,
-    mediaType,
-    byteSize: Buffer.byteLength(afterContent, "utf8")
+function readToolResult(value) {
+  if (!record(value) || typeof value.ok !== "boolean" || typeof value.output !== "string" || typeof value.returncode !== "number" || !Number.isSafeInteger(value.returncode) || typeof value.truncated !== "boolean" || value.error !== void 0 && typeof value.error !== "string" || value.fullOutputPath !== void 0 && typeof value.fullOutputPath !== "string") return void 0;
+  if (value.media !== void 0 && (!record(value.media) || typeof value.media.mediaType !== "string" || typeof value.media.dataUrl !== "string")) return void 0;
+  if (value.artifacts !== void 0 && (!Array.isArray(value.artifacts) || !value.artifacts.every(artifact))) return void 0;
+  return value;
+}
+function readToolCheckpoint(value) {
+  if (!record(value) || typeof value.version !== "number" || !Number.isSafeInteger(value.version) || value.version < 1 || typeof value.kind !== "string" || !value.kind || !record(value.data)) return void 0;
+  return { version: value.version, kind: value.kind, data: value.data };
+}
+function toolOutcomeStatus(result) {
+  return result.error === "cancelled" ? "cancelled" : result.error === "interrupted" ? "interrupted" : result.ok ? "succeeded" : "failed";
+}
+function toolResultMessage(call, result) {
+  const note = result.truncated && result.fullOutputPath ? `
+Full output: ${result.fullOutputPath}` : "";
+  return {
+    role: "tool",
+    content: `<returncode>${result.returncode}</returncode>
+<output>
+${result.output}
+</output>${note}`,
+    toolCallId: call.id,
+    toolName: call.name,
+    isError: !result.ok,
+    ...result.media ? { media: result.media } : {}
   };
-  return { version: 1, kind: "text_file", data };
-}
-async function readTextFileIfPresent(path) {
-  try {
-    const file = await readFile(path);
-    return { exists: true, content: file.toString("utf8") };
-  } catch {
-    return { exists: false, content: "" };
-  }
-}
-async function reconcileTextFile(checkpoint, context, label) {
-  if (!checkpoint || checkpoint.kind !== "text_file" || checkpoint.version !== 1) {
-    return { kind: "interrupted", reason: `${label} recovery checkpoint is unavailable or unsupported.` };
-  }
-  const data = checkpoint.data;
-  let current;
-  try {
-    current = await readTextFileIfPresent(data.path);
-    if (current.exists) await stat(data.path);
-  } catch {
-    return { kind: "interrupted", reason: `${label} recovery could not inspect ${data.path}.` };
-  }
-  const currentHash = current.exists ? hashText(current.content) : null;
-  if (currentHash === data.afterHash) {
-    const result = {
-      ok: true,
-      output: `${label} was already applied and its result was recovered: ${data.path}`,
-      returncode: 0,
-      truncated: false,
-      artifacts: [{
-        path: data.path,
-        operation: data.operation,
-        mediaType: data.mediaType,
-        byteSize: data.byteSize,
-        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-      }]
-    };
-    return { kind: "succeeded", result };
-  }
-  if (currentHash === data.beforeHash) return { kind: "retry", reason: `${label} was not published; retrying from the recorded before state.` };
-  return { kind: "interrupted", reason: `${label} target differs from both recorded before and after states: ${data.path}` };
 }
 const DEFAULT_MODEL_RETRY = {
   maxAttempts: 3,
   baseDelayMs: 1e3,
   maxDelayMs: 8e3
+};
+const DEFAULT_COMMIT_RETRY = {
+  maxAttempts: 3,
+  baseDelayMs: 250,
+  maxDelayMs: 1e3
 };
 const DEFAULT_SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
 async function collectTurn(modelConfig, messages, system, tools, ctx, events, recorder, signal, responseImpl) {
@@ -845,12 +910,16 @@ async function run(task, modelConfig, config, events = {}) {
   const startedAt = new Date(runStartedAt).toISOString();
   const messages = [...config.recorder?.snapshot() ?? []];
   const userMessage = { role: "user", content: task };
+  const initialUserEntryId = config.initialUserEntryId ?? randomUUID();
+  const initialUserCreatedAt = config.initialUserCreatedAt ?? runStartedAt;
   const tools = [...config.tools.values()].map((tool) => tool.definition);
   const retryConfig = { ...DEFAULT_MODEL_RETRY, ...config.modelRetry };
+  const commitRetryConfig = { ...DEFAULT_COMMIT_RETRY, ...config.commitRetry };
   let turnOrdinal = 0;
   let currentTurnId;
   let attempt = 0;
   let finished = false;
+  let initialUserCommitted = false;
   let readyInputs = [];
   const finish = async (status, error, finalTurnId) => {
     if (finished) return { runId: config.runId, status, error, turnCount: turnOrdinal };
@@ -859,13 +928,23 @@ async function run(task, modelConfig, config, events = {}) {
     let finalError = error;
     let unappliedInputIds = [];
     try {
+      if (status === "cancelled") {
+        await config.cancellationBarrier?.();
+        await config.recorder?.requestRunCancellation(config.runId);
+        if (!initialUserCommitted && config.recorder) {
+          await config.recorder.archiveUnappliedUser(userMessage, { runId: config.runId, entryId: initialUserEntryId, createdAt: initialUserCreatedAt });
+          unappliedInputIds.push(initialUserEntryId);
+        }
+        await recoverOpenToolInvocations(config, config.runId, true);
+      }
       await config.recorder?.finishRun({ runId: config.runId, status });
     } catch (finishError) {
       finalStatus = "failed";
       finalError = toAgentError(finishError);
     }
     try {
-      unappliedInputIds = await config.steeringInbox?.closeAndAbandon(finalStatus) ?? [];
+      const abandoned = await config.steeringInbox?.closeAndAbandon(finalStatus) ?? [];
+      unappliedInputIds = [.../* @__PURE__ */ new Set([...unappliedInputIds, ...abandoned])];
     } catch (abandonError) {
       finalStatus = "failed";
       finalError = toAgentError(abandonError);
@@ -907,13 +986,16 @@ async function run(task, modelConfig, config, events = {}) {
     events.onInputsApplied?.({ runId: config.runId, inputIds, startedAt: clock() });
   };
   try {
-    await recoverOpenToolInvocations(config, messages);
+    if (config.signal?.aborted) return finish("cancelled");
+    await recoverOpenToolInvocations(config);
+    if (config.signal?.aborted) return finish("cancelled");
     if (config.recorder) messages.splice(0, messages.length, ...config.recorder.snapshot());
   } catch (error) {
     return finish("failed", toAgentError(error));
   }
   try {
-    await config.recorder?.commitUser(userMessage, { runId: config.runId, entryId: config.initialUserEntryId });
+    await config.recorder?.commitUser(userMessage, { runId: config.runId, entryId: initialUserEntryId, createdAt: initialUserCreatedAt });
+    initialUserCommitted = true;
   } catch (error) {
     return finish("failed", toAgentError(error));
   }
@@ -966,13 +1048,23 @@ async function run(task, modelConfig, config, events = {}) {
     }
     if (outcome.kind === "answer" || outcome.kind === "tool_calls") {
       const message = assistantMessage(outcome.response);
+      const commitContext = { ...ctx, entryId: randomUUID(), completedAt: clock() };
+      let invocations = /* @__PURE__ */ new Map();
       try {
-        await config.recorder?.finishAssistantAttempt(ctx, "completed", message);
+        const inputs = outcome.kind === "tool_calls" ? planToolBatch(outcome.response.toolCalls, ctx, config) : [];
+        await commitWithRetry(async () => {
+          if (config.recorder) {
+            const records = await config.recorder.finishAssistantAttempt(commitContext, "completed", message, inputs);
+            invocations = new Map(records.map((record2) => [record2.toolCallId, record2]));
+          }
+        }, commitRetryConfig, config.signal);
       } catch (error) {
+        if (config.signal?.aborted) return finish("cancelled");
         return finish("failed", toAgentError(error));
       }
+      if (config.signal?.aborted) return finish("cancelled");
       messages.push(message);
-      events.onAssistantCompleted?.(outcome.response, ctx);
+      events.onAssistantCompleted?.(outcome.response, { ...ctx, completedAt: commitContext.completedAt });
       if (outcome.kind === "answer") {
         events.onTurnCompleted?.(ctx);
         try {
@@ -986,45 +1078,30 @@ async function run(task, modelConfig, config, events = {}) {
         }
         return finish("completed", void 0, ctx.turnId);
       }
-      let invocations;
-      try {
-        invocations = await registerToolBatch(outcome.response.toolCalls, ctx, config);
-      } catch (error) {
-        return finish("failed", toAgentError(error));
-      }
       for (const call of outcome.response.toolCalls) {
         if (config.signal?.aborted) return finish("cancelled");
         events.onToolStart?.(call, ctx);
         const invocation = invocations.get(call.id);
-        let executionInvocation = invocation;
         let toolResult;
-        if (invocation?.phase === "completed" || invocation?.phase === "outcome_ready") {
-          toolResult = toolResultFromInvocation(invocation);
-        } else {
-          const recovered = invocation?.phase === "effect_pending" ? await recoverToolInvocation(call, invocation, config) : void 0;
-          if (recovered?.kind === "succeeded") toolResult = recovered.result;
-          else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
-          else {
-            if (invocation && config.recorder) executionInvocation = await config.recorder.beginToolAttempt(invocation.id);
-            try {
-              toolResult = await executeTool(call, config.tools, executionInvocation?.cwd ?? config.cwd, config.signal, executionInvocation);
-            } catch (error) {
-              toolResult = interruptedToolResult(error instanceof Error ? error.message : String(error));
+        let toolMessage;
+        try {
+          let executionInvocation = invocation;
+          if (invocation?.phase === "completed" || invocation?.phase === "outcome_ready") {
+            toolResult = toolResultFromInvocation(invocation);
+          } else {
+            const recovered = invocation?.phase === "effect_pending" ? await recoverToolInvocation(call, invocation, config) : void 0;
+            if (recovered?.kind === "succeeded") toolResult = recovered.result;
+            else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
+            else {
+              const executed = await executeToolAttempt(call, config, invocation);
+              executionInvocation = executed.invocation;
+              toolResult = executed.result;
             }
           }
-        }
-        const toolMessage = { role: "tool", content: formatToolResult(toolResult), toolCallId: call.id, toolName: call.name, isError: !toolResult.ok, media: toolResult.media };
-        const resultEntryId = executionInvocation?.resultEntryId ?? randomUUID();
-        try {
-          if (executionInvocation && config.recorder) {
-            await config.recorder.saveToolOutcome(executionInvocation.id, {
-              status: toolOutcomeStatus(toolResult),
-              outcome: toolResult
-            });
-          }
-          await config.recorder?.commitToolResult(toolMessage, { ...ctx, toolCallId: call.id, entryId: resultEntryId });
-          if (executionInvocation && config.recorder) await config.recorder.completeToolInvocation(executionInvocation.id, resultEntryId);
+          toolMessage = await materializeToolResult(call, toolResult, config, executionInvocation, ctx);
         } catch (error) {
+          if (error instanceof ToolAttemptBlockedError && error.reason === "cancelled") return finish("cancelled");
+          if (config.signal?.aborted && !(error instanceof RepositoryError)) return finish("cancelled");
           return finish("failed", toAgentError(error));
         }
         messages.push(toolMessage);
@@ -1126,6 +1203,7 @@ function retryFailureMessage(reason) {
   return messages[reason];
 }
 function waitForRetryDelay(delayMs, signal) {
+  if (signal?.aborted) return Promise.resolve(false);
   if (delayMs <= 0) return Promise.resolve(!signal?.aborted);
   return new Promise((resolve2) => {
     let settled = false;
@@ -1133,91 +1211,91 @@ function waitForRetryDelay(delayMs, signal) {
     const finish = (value) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       resolve2(value);
     };
     signal?.addEventListener("abort", onAbort, { once: true });
-    setTimeout(() => finish(!signal?.aborted), delayMs);
+    const timer = setTimeout(() => finish(!signal?.aborted), delayMs);
   });
 }
-async function recoverOpenToolInvocations(config, messages) {
+async function commitWithRetry(operation, policy, signal) {
+  for (let attempt = 1; ; attempt += 1) {
+    signal?.throwIfAborted();
+    try {
+      await operation();
+      return;
+    } catch (error) {
+      if (!(error instanceof RepositoryError) || !error.retryable || attempt >= policy.maxAttempts) throw error;
+      const delayMs = Math.min(policy.maxDelayMs, policy.baseDelayMs * 2 ** (attempt - 1));
+      if (!await waitForRetryDelay(delayMs, signal)) throw error;
+    }
+  }
+}
+async function recoverOpenToolInvocations(config, runId, forceCancellation = false) {
   const recorder = config.recorder;
-  if (!recorder || typeof recorder.listOpenToolInvocations !== "function") return;
-  const records = await recorder.listOpenToolInvocations();
+  if (!recorder) return;
+  const records = await recorder.listOpenToolInvocations(runId);
+  let recoveryCancelled = forceCancellation;
+  const persistRecoveryCancellation = async () => {
+    if (!config.signal?.aborted || recoveryCancelled) return;
+    for (const queuedRun of new Set(records.map((record2) => record2.runId))) await recorder.requestRunCancellation(queuedRun);
+    recoveryCancelled = true;
+  };
   for (const invocation of records) {
     if (invocation.phase === "completed") continue;
-    let input;
-    try {
-      const parsed = JSON.parse(invocation.inputJson);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Tool input must be an object.");
-      input = parsed;
-    } catch (error) {
-      const result = interruptedToolResult(error instanceof Error ? error.message : String(error));
-      await recorder.saveToolOutcome(invocation.id, { status: "interrupted", outcome: result });
-      continue;
-    }
-    const call = { id: invocation.toolCallId, name: invocation.toolName, input, inputComplete: true };
+    await persistRecoveryCancellation();
+    const cancelled = recoveryCancelled || await recorder.isRunCancelled(invocation.runId);
+    const call = await recorder.getToolInvocationCall(invocation.id);
     let executionInvocation = invocation;
     let toolResult;
     if (invocation.phase === "outcome_ready") {
       toolResult = toolResultFromInvocation(invocation);
+    } else if (cancelled) {
+      toolResult = invocation.phase === "planned" ? cancelledToolResult("This tool call was not executed because the user stopped its run.") : interruptedToolResult("The user stopped this run after execution began. Its effects require confirmation; it was not replayed.");
     } else {
-      const recovered = invocation.phase === "effect_pending" ? await recoverToolInvocation(call, invocation, config) : invocation.phase === "planned" && config.tools.get(call.name)?.recovery.resumePlanned === false ? { kind: "interrupted", reason: `Tool ${call.name} belongs to an earlier run and requires a new request.` } : void 0;
-      if (recovered?.kind === "succeeded") toolResult = recovered.result;
-      else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
-      else {
-        executionInvocation = await recorder.beginToolAttempt(invocation.id);
-        try {
-          toolResult = await executeTool(call, config.tools, executionInvocation.cwd, config.signal, executionInvocation);
-        } catch (error) {
+      try {
+        const registeredTool = config.tools.get(call.name);
+        const recovered = invocation.phase === "effect_pending" ? await recoverToolInvocation(call, invocation, config) : !invocation.cwd || !registeredTool || registeredTool.recovery.resumePlanned === false || registeredTool.recovery.version !== invocation.toolVersion ? { kind: "interrupted", reason: `Tool ${call.name} belongs to an earlier run and requires a new request.` } : void 0;
+        if (recovered?.kind === "succeeded") toolResult = recovered.result;
+        else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
+        else if (config.signal?.aborted) {
+          toolResult = invocation.phase === "planned" ? cancelledToolResult("The user stopped recovery before this tool could execute.") : interruptedToolResult("The user stopped tool recovery; no replay was started.");
+        } else {
+          const executed = await executeToolAttempt(call, config, invocation);
+          executionInvocation = executed.invocation ?? invocation;
+          toolResult = executed.result;
+        }
+      } catch (error) {
+        if (error instanceof ToolAttemptBlockedError && error.reason === "cancelled") {
+          toolResult = invocation.phase === "planned" ? cancelledToolResult("The run was stopped before execution intent could commit.") : interruptedToolResult("The run was stopped before recovery execution intent could commit.");
+        } else {
+          if (error instanceof RepositoryError) throw error;
           toolResult = interruptedToolResult(error instanceof Error ? error.message : String(error));
         }
       }
     }
-    const toolMessage = {
-      role: "tool",
-      content: formatToolResult(toolResult),
-      toolCallId: call.id,
-      toolName: call.name,
-      isError: !toolResult.ok,
-      media: toolResult.media
-    };
-    const resultEntryId = executionInvocation.resultEntryId ?? randomUUID();
-    await recorder.saveToolOutcome(executionInvocation.id, { status: toolOutcomeStatus(toolResult), outcome: toolResult });
-    await recorder.commitToolResult(toolMessage, {
+    await persistRecoveryCancellation();
+    await materializeToolResult(call, toolResult, config, executionInvocation, {
       runId: invocation.runId,
       turnId: invocation.turnId,
-      turnOrdinal: invocation.ordinal,
-      toolCallId: call.id,
-      entryId: resultEntryId
+      turnOrdinal: invocation.ordinal
     });
-    await recorder.completeToolInvocation(executionInvocation.id, resultEntryId);
-    if (!messages.some((message) => message.role === "tool" && message.toolCallId === call.id)) messages.push(toolMessage);
   }
 }
-async function registerToolBatch(calls, ctx, config) {
-  const records = /* @__PURE__ */ new Map();
-  const recorder = config.recorder;
-  if (!recorder || typeof recorder.registerToolInvocation !== "function" || typeof recorder.getToolInvocation !== "function") return records;
+function planToolBatch(calls, ctx, config) {
+  const inputs = [];
+  if (!config.recorder) return inputs;
   for (const [ordinal, call] of calls.entries()) {
-    const existing = await recorder.getToolInvocation(ctx.runId, call.id);
     const tool = config.tools.get(call.name);
     const toolVersion = tool?.recovery.version ?? "unknown";
     const recoveryMode = tool?.recovery.mode ?? "never";
     const inputJson = canonicalJson(call.input);
     const inputHash = toolInputHash(call.name, toolVersion, call.input);
-    if (existing) {
-      if (existing.inputHash !== inputHash || existing.toolName !== call.name) throw new Error(`Tool call identity conflict: ${call.id}`);
-      records.set(call.id, existing);
-      continue;
-    }
-    const checkpoint = tool?.recovery.prepare ? await tool.recovery.prepare(call.input, { cwd: config.cwd, toolCallId: call.id }) : void 0;
-    const assistantEntryId = await recorder.getAssistantEntryId?.(ctx.turnId) ?? `${ctx.turnId}:assistant:${ctx.attempt}`;
-    const record = await recorder.registerToolInvocation({
+    inputs.push({
       runId: ctx.runId,
       turnId: ctx.turnId,
       cwd: config.cwd,
-      assistantEntryId,
       toolCallId: call.id,
       ordinal,
       toolName: call.name,
@@ -1225,16 +1303,16 @@ async function registerToolBatch(calls, ctx, config) {
       inputJson,
       inputHash,
       recoveryModeSnapshot: recoveryMode,
-      resultEntryId: randomUUID(),
-      checkpoint
+      resultEntryId: randomUUID()
     });
-    records.set(call.id, record);
   }
-  return records;
+  return inputs;
 }
 async function recoverToolInvocation(call, invocation, config) {
   const tool = config.tools.get(call.name);
   if (!tool || !config.recorder) return { kind: "interrupted", reason: `Tool ${call.name} is unavailable during recovery.` };
+  if (!invocation.cwd) return { kind: "interrupted", reason: "The original execution directory is unavailable. This tool requires a new request." };
+  if (config.signal?.aborted || await config.recorder.isRunCancelled(invocation.runId)) return { kind: "interrupted", reason: "The user stopped this run; automatic replay is disabled." };
   if (invocation.phase !== "effect_pending") return void 0;
   if (tool.recovery.version !== invocation.toolVersion) {
     return { kind: "interrupted", reason: `Tool ${call.name} version ${invocation.toolVersion} requires a matching recovery implementation.` };
@@ -1244,52 +1322,103 @@ async function recoverToolInvocation(call, invocation, config) {
     return { kind: "interrupted", reason: `Tool ${call.name} has no recovery reconciler.` };
   }
   if (invocation.recoveryModeSnapshot === "reconcile" && tool.recovery.reconcile) {
-    const recovered = await tool.recovery.reconcile(call.input, invocation.checkpoint, {
+    if (config.signal?.aborted) return { kind: "interrupted", reason: "The user stopped tool recovery; reconciliation was not started." };
+    const checkpoint = invocationCheckpoint(invocation);
+    const recovered = await tool.recovery.reconcile(call.input, checkpoint, {
       cwd: invocation.cwd,
       signal: config.signal,
       invocationId: invocation.id,
       toolCallId: call.id,
       attempt: invocation.attemptCount,
-      checkpoint: invocation.checkpoint
+      checkpoint
     });
     if (recovered.kind !== "retry") return recovered;
   }
   return { kind: "retry", reason: "tool recovery permits another execution attempt" };
 }
 function toolResultFromInvocation(invocation) {
-  const outcome = invocation.outcomeJson;
-  if (outcome && typeof outcome === "object" && "ok" in outcome && "output" in outcome) return outcome;
-  return interruptedToolResult("The persisted tool outcome is missing or invalid.");
+  const result = readToolResult(invocation.outcomeJson);
+  if (!result || toolOutcomeStatus(result) !== invocation.outcomeStatus) {
+    throw new RepositoryError(`Invalid persisted tool outcome: ${invocation.id}`, "storage");
+  }
+  return result;
 }
 function interruptedToolResult(reason) {
   return { ok: false, output: reason, returncode: -1, truncated: false, error: "interrupted" };
 }
-function toolOutcomeStatus(result) {
-  return result.error === "interrupted" ? "interrupted" : result.ok ? "succeeded" : "failed";
+function cancelledToolResult(reason) {
+  return { ok: false, output: reason, returncode: -1, truncated: false, error: "cancelled" };
 }
-async function executeTool(call, tools, cwd, signal, invocation) {
-  if (!call.inputComplete) return invalidResult("The tool arguments were truncated by the model response and were not executed. Please regenerate the complete tool call.", "truncated_arguments");
-  const tool = tools.get(call.name);
-  if (!tool) return invalidResult(`Unknown tool: ${call.name}`, "unknown_tool");
-  return tool.execute(call.input, {
-    cwd,
-    signal,
+function invocationCheckpoint(invocation) {
+  if (invocation.checkpoint == null) return void 0;
+  const checkpoint = readToolCheckpoint(invocation.checkpoint);
+  if (!checkpoint) throw new RepositoryError(`Invalid tool checkpoint: ${invocation.id}`, "storage");
+  return checkpoint;
+}
+async function executeToolAttempt(call, config, invocation) {
+  const immediate = (result) => ({ result, invocation });
+  if (config.signal?.aborted) return immediate(invocation?.phase === "effect_pending" ? interruptedToolResult("The user stopped recovery before a new execution attempt.") : cancelledToolResult("The user stopped before this tool could execute."));
+  if (invocation?.phase === "planned" && await config.recorder?.isToolInvocationBlocked(invocation.id)) {
+    return immediate(interruptedToolResult("This tool call was skipped because an earlier call in its batch has an uncertain outcome."));
+  }
+  if (!call.inputComplete) return immediate(invalidResult("The tool arguments were truncated by the model response and were not executed. Please regenerate the complete tool call.", "truncated_arguments"));
+  const tool = config.tools.get(call.name);
+  if (!tool) return immediate(invalidResult(`Unknown tool: ${call.name}`, "unknown_tool"));
+  const preparationContext = {
+    cwd: invocation?.cwd ?? config.cwd,
+    signal: config.signal,
     invocationId: invocation?.id,
     toolCallId: call.id,
-    attempt: invocation?.attemptCount,
-    checkpoint: invocation?.checkpoint
-  });
+    attempt: (invocation?.attemptCount ?? 0) + 1
+  };
+  let prepared;
+  try {
+    prepared = tool.prepare ? await tool.prepare(call.input, preparationContext) : { kind: "ready", execute: (context) => tool.execute(call.input, context) };
+    if (prepared.kind === "result") {
+      const result = readToolResult(prepared.result);
+      if (!result || result.ok) throw new Error("Preparation must return a valid unsuccessful result or a prepared execution.");
+      return immediate(result);
+    }
+    if (prepared.checkpoint && !readToolCheckpoint(prepared.checkpoint)) throw new Error("Preparation returned an invalid checkpoint.");
+  } catch (error) {
+    return immediate(config.signal?.aborted ? cancelledToolResult("The user stopped during tool preparation.") : invalidResult(error instanceof Error ? error.message : String(error), "preparation_failed"));
+  }
+  if (config.signal?.aborted) return immediate(cancelledToolResult("The user stopped before execution intent was persisted."));
+  let executing = invocation;
+  try {
+    if (invocation && config.recorder) executing = await config.recorder.beginToolAttempt(invocation.id, prepared.checkpoint);
+  } catch (error) {
+    if (error instanceof ToolAttemptBlockedError && error.reason === "prior_interrupted") {
+      return immediate(interruptedToolResult("This tool call was skipped because an earlier call in its batch has an uncertain outcome."));
+    }
+    throw error;
+  }
+  if (config.signal?.aborted) return { result: interruptedToolResult("The user stopped after intent was persisted; execution was not started."), invocation: executing };
+  try {
+    const result = await prepared.execute({ ...preparationContext, attempt: executing?.attemptCount ?? 1, checkpoint: prepared.checkpoint });
+    const validated = readToolResult(result);
+    if (!validated) throw new Error(`Tool ${call.name} returned an invalid result.`);
+    return { result: validated, invocation: executing };
+  } catch (error) {
+    return { result: interruptedToolResult(error instanceof Error ? error.message : String(error)), invocation: executing };
+  }
+}
+async function materializeToolResult(call, result, config, invocation, context) {
+  if (!readToolResult(result)) throw new Error(`Tool ${call.name} returned an invalid result.`);
+  const message = toolResultMessage(call, result);
+  const entryId = invocation?.resultEntryId ?? randomUUID();
+  await commitWithRetry(async () => {
+    if (invocation && config.recorder) {
+      const outcome = { status: toolOutcomeStatus(result), outcome: result };
+      if (invocation.phase === "planned") await config.recorder.settleUnstartedToolInvocation(invocation.id, outcome);
+      else if (invocation.phase === "effect_pending") await config.recorder.saveToolOutcome(invocation.id, outcome);
+    }
+    await config.recorder?.commitToolResult(message, { ...context, toolCallId: call.id, entryId, invocationId: invocation?.id });
+  }, { ...DEFAULT_COMMIT_RETRY, ...config.commitRetry });
+  return message;
 }
 function invalidResult(output, error) {
   return { ok: false, output, returncode: -1, truncated: false, error };
-}
-function formatToolResult(result) {
-  const note = result.truncated && result.fullOutputPath ? `
-Full output: ${result.fullOutputPath}` : "";
-  return `<returncode>${result.returncode}</returncode>
-<output>
-${result.output}
-</output>${note}`;
 }
 const MAX_OUTPUT = 1e4;
 const TRUNCATE_KEEP = 6e3;
@@ -1358,8 +1487,8 @@ function spawnCommand(cmd, cwd, opts) {
       cleanup();
       const raw = chunks.join("");
       if (raw.length > MAX_OUTPUT) {
-        const dir = mkdtempSync(join(tmpdir(), "ts-agent-"));
-        const fullPath = join(dir, "full_output.log");
+        const dir = mkdtempSync(join$1(tmpdir(), "ts-agent-"));
+        const fullPath = join$1(dir, "full_output.log");
         writeFileSync(fullPath, raw);
         const tail = raw.slice(-TRUNCATE_KEEP);
         resolve2({
@@ -1410,7 +1539,7 @@ async function snapshotDirectory(cwd) {
           complete = false;
           return { files, complete };
         }
-        const entryPath = join(current.path, entry.name);
+        const entryPath = join$1(current.path, entry.name);
         let stats;
         try {
           stats = await lstat(entryPath);
@@ -1574,7 +1703,7 @@ const READ_TOOL = {
 };
 const DEFAULT_MAX_LINES = 1e3;
 const MAX_LINES = 5e3;
-const MAX_LINE_DISPLAY$1 = 2e3;
+const MAX_LINE_DISPLAY = 2e3;
 const IMAGE_EXTENSIONS = /* @__PURE__ */ new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 function createReadTool() {
   return {
@@ -1626,7 +1755,7 @@ function createReadTool() {
       const nextStart = linesTruncated ? from + page.length : void 0;
       const rel = relative(context.cwd, target) || target;
       const rendered = page.map((line, i) => {
-        const display = line.length > MAX_LINE_DISPLAY$1 ? `${line.slice(0, MAX_LINE_DISPLAY$1)} …(Line too long; truncated)` : line;
+        const display = line.length > MAX_LINE_DISPLAY ? `${line.slice(0, MAX_LINE_DISPLAY)} …(Line too long; truncated)` : line;
         return `${from + i}: ${display}`;
       });
       const rangeNote = linesTruncated ? `Read lines ${from}-${from + page.length - 1} of ${lines.length}; continue with start=${nextStart}` : `Read ${lines.length} lines`;
@@ -1658,6 +1787,459 @@ function mimeForExtension(ext) {
       return "application/octet-stream";
   }
 }
+class FilePublicationError extends Error {
+  constructor(code, message, published = false) {
+    super(message);
+    this.code = code;
+    this.published = published;
+  }
+  code;
+  published;
+}
+function hashBytes(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+function isRecord$3(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function hasCode(error, code) {
+  return isRecord$3(error) && error.code === code;
+}
+function checkFileCancellation(context) {
+  if (context.signal?.aborted) throw new FilePublicationError("cancelled", "The attempt was cancelled before publication.");
+}
+function fileErrorResult(label, error, fallback = "write_failed") {
+  const code = error instanceof FilePublicationError ? error.code : hasCode(error, "EACCES") || hasCode(error, "EPERM") ? "permission_denied" : hasCode(error, "ENOENT") ? "not_found" : fallback;
+  return { ok: false, output: `${label} failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: code };
+}
+async function physicalPath(path, depth = 0) {
+  if (depth > 64) throw new FilePublicationError("unsupported_file", "The target's symbolic link chain is too deep.");
+  try {
+    return await fs.realpath(path);
+  } catch (error) {
+    if (!hasCode(error, "ENOENT")) throw error;
+  }
+  try {
+    const entry = await fs.lstat(path);
+    if (entry.isSymbolicLink()) return physicalPath(resolve(dirname(path), await fs.readlink(path)), depth + 1);
+    return await fs.realpath(path);
+  } catch (error) {
+    if (!hasCode(error, "ENOENT")) throw error;
+  }
+  const parent = dirname(path);
+  if (parent === path) throw new FilePublicationError("not_found", `The filesystem root is unavailable: ${path}`);
+  return resolve(await physicalPath(parent, depth + 1), basename(path));
+}
+function assertRegular(stats, path) {
+  if (stats.isDirectory()) throw new FilePublicationError("target_is_directory", `The target is a directory: ${path}`);
+  if (!stats.isFile()) throw new FilePublicationError("unsupported_file", `Atomic publication requires a regular file: ${path}`);
+  if (stats.nlink !== 1) throw new FilePublicationError("unsupported_file", `Atomic publication requires a single-link file: ${path}`);
+}
+function sameMetadata(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode && left.uid === right.uid && left.gid === right.gid && left.nlink === right.nlink && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
+}
+function sameFileState(left, right) {
+  if (!left.exists || !right.exists) return left.exists === right.exists;
+  return left.hash === right.hash && sameMetadata(left, right);
+}
+async function readRegularFile(path) {
+  let entry;
+  try {
+    entry = await fs.lstat(path);
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) return { state: { exists: false }, bytes: null };
+    throw error;
+  }
+  assertRegular(entry, path);
+  const handle = await fs.open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const before = await handle.stat();
+    assertRegular(before, path);
+    if (!sameMetadata(entry, before)) throw new FilePublicationError("file_changed", `The target changed while opening: ${path}`);
+    const bytes = await handle.readFile();
+    const after = await handle.stat();
+    const current = await fs.lstat(path);
+    if (!sameMetadata(before, after) || !sameMetadata(after, current) || bytes.length !== after.size) {
+      throw new FilePublicationError("file_changed", `The target changed while reading: ${path}`);
+    }
+    return {
+      state: {
+        exists: true,
+        hash: hashBytes(bytes),
+        dev: after.dev,
+        ino: after.ino,
+        mode: after.mode,
+        uid: after.uid,
+        gid: after.gid,
+        nlink: after.nlink,
+        size: after.size,
+        mtimeMs: after.mtimeMs,
+        ctimeMs: after.ctimeMs
+      },
+      bytes
+    };
+  } finally {
+    await handle.close();
+  }
+}
+async function observeFile(path) {
+  const targetPath = await physicalPath(path);
+  const file = await readRegularFile(targetPath);
+  if (await physicalPath(path) !== targetPath) throw new FilePublicationError("file_changed", `The target's symbolic link changed: ${path}`);
+  return { path, targetPath, ...file };
+}
+function stagingName(invocationId, attempt, token) {
+  return `.agent-file-${hashBytes(Buffer.from(invocationId)).slice(0, 24)}-${attempt}-${token}.tmp`;
+}
+function containsDirectory(ancestor, directory) {
+  const suffix = relative(ancestor, directory);
+  return suffix !== ".." && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix);
+}
+async function establishedDirectory(parent) {
+  for (let path = parent; ; path = dirname(path)) {
+    try {
+      const entry = await fs.lstat(path);
+      if (!entry.isDirectory()) throw new FilePublicationError("file_changed", `The publication ancestor is not a physical directory: ${path}`);
+      return { path, dev: entry.dev, ino: entry.ino };
+    } catch (error) {
+      if (!hasCode(error, "ENOENT") || dirname(path) === path) throw error;
+    }
+  }
+}
+async function syncPublicationDirectories(targetPath, boundary, parentHandle) {
+  const parent = dirname(targetPath);
+  const stop = boundary?.path ?? parse(parent).root;
+  if (!containsDirectory(stop, parent)) throw new FilePublicationError("interrupted", "The durability boundary is outside the target's directory chain.");
+  for (let path = parent; ; path = dirname(path)) {
+    const retained = path === parent && parentHandle !== void 0;
+    const handle = retained ? parentHandle : await fs.open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    try {
+      const opened = await handle.stat();
+      const entry = await fs.lstat(path);
+      if (!opened.isDirectory() || !entry.isDirectory() || opened.dev !== entry.dev || opened.ino !== entry.ino || boundary && path === stop && (opened.dev !== boundary.dev || opened.ino !== boundary.ino)) {
+        throw new FilePublicationError("interrupted", `The durability directory identity changed: ${path}`);
+      }
+      await handle.sync();
+      const current = await fs.lstat(path);
+      if (!current.isDirectory() || opened.dev !== current.dev || opened.ino !== current.ino) {
+        throw new FilePublicationError("interrupted", `The durability directory changed while syncing: ${path}`);
+      }
+    } finally {
+      if (!retained) await handle.close();
+    }
+    if (path === stop) return;
+  }
+}
+async function syncObservedFile(source) {
+  const expected = source.state;
+  if (!expected.exists) throw new FilePublicationError("interrupted", "The recovered target is absent during durability confirmation.");
+  const handle = await fs.open(source.targetPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const opened = await handle.stat();
+    assertRegular(opened, source.targetPath);
+    if (!sameMetadata(expected, opened)) throw new FilePublicationError("interrupted", "The recovered target changed before file sync.");
+    await handle.sync();
+    if (!sameMetadata(expected, await handle.stat()) || !sameMetadata(expected, await fs.lstat(source.targetPath))) {
+      throw new FilePublicationError("interrupted", "The recovered target changed during file sync.");
+    }
+  } finally {
+    await handle.close();
+  }
+}
+async function planFilePublication(source, bytes, context) {
+  checkFileCancellation(context);
+  if (source.state.exists) await fs.access(source.targetPath, constants.W_OK);
+  if (context.invocationId !== void 0 && (!context.invocationId || context.invocationId.includes("\0"))) {
+    throw new FilePublicationError("invalid_arguments", "The invocation identity must be a non-empty string without NUL.");
+  }
+  const attempt = context.attempt ?? 1;
+  if (!Number.isSafeInteger(attempt) || attempt < 1) throw new FilePublicationError("invalid_arguments", "The attempt must be a positive integer.");
+  const token = randomBytes(16).toString("hex");
+  const invocationId = context.invocationId ?? `direct:${token}`;
+  const directoryBoundary = await establishedDirectory(dirname(source.targetPath));
+  checkFileCancellation(context);
+  return {
+    source: { ...source, bytes: null },
+    bytes,
+    afterHash: hashBytes(bytes),
+    afterMode: source.state.exists ? source.state.mode & 4095 : 438 & ~process.umask(),
+    cwd: resolve(context.cwd),
+    invocationId: context.invocationId,
+    attempt: context.attempt,
+    directoryBoundary,
+    staging: { invocationId, attempt, token, relativePath: stagingName(invocationId, attempt, token) }
+  };
+}
+const publicationQueues = /* @__PURE__ */ new Map();
+async function waitForTurn(previous, signal) {
+  if (!signal) return previous;
+  if (signal.aborted) throw new FilePublicationError("cancelled", "The attempt was cancelled while waiting for publication.");
+  let onAbort = () => {
+  };
+  const cancelled = new Promise((_, reject) => {
+    onAbort = () => reject(new FilePublicationError("cancelled", "The attempt was cancelled while waiting for publication."));
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    await Promise.race([previous, cancelled]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+async function withFilePublicationLock(path, signal, action) {
+  const previous = publicationQueues.get(path) ?? Promise.resolve();
+  let release = () => {
+  };
+  const gate = new Promise((done) => {
+    release = done;
+  });
+  const tail = previous.then(() => gate);
+  publicationQueues.set(path, tail);
+  try {
+    await waitForTurn(previous, signal);
+    return await action();
+  } finally {
+    release();
+    void tail.then(() => {
+      if (publicationQueues.get(path) === tail) publicationQueues.delete(path);
+    });
+  }
+}
+async function verifySource(source) {
+  const current = await observeFile(source.path);
+  if (current.targetPath !== source.targetPath || !sameFileState(source.state, current.state)) {
+    throw new FilePublicationError("file_changed", `The target differs from the prepared source: ${source.path}`);
+  }
+  if (current.state.exists) await fs.access(current.targetPath, constants.W_OK);
+}
+async function cleanupCreatedStage(path, created) {
+  let entry;
+  try {
+    entry = await fs.lstat(path);
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) return;
+    throw error;
+  }
+  if (!entry.isFile() || entry.nlink !== 1 || entry.dev !== created.dev || entry.ino !== created.ino || entry.birthtimeMs !== created.birthtimeMs) {
+    throw new FilePublicationError("interrupted", "The staging identity changed; its path requires inspection.");
+  }
+  await fs.unlink(path);
+}
+async function publishFile(plan, context) {
+  checkFileCancellation(context);
+  await verifySource(plan.source);
+  const parent = dirname(plan.source.targetPath);
+  await fs.mkdir(parent, { recursive: true });
+  const directory = await fs.open(parent, constants.O_RDONLY | constants.O_DIRECTORY);
+  let stage;
+  let created;
+  let closed = false;
+  let published = false;
+  let renameStarted = false;
+  let failure2;
+  const stagingPath = resolve(parent, plan.staging.relativePath);
+  try {
+    const directoryState = await directory.stat();
+    checkFileCancellation(context);
+    stage = await fs.open(stagingPath, "wx", 384);
+    created = await stage.stat();
+    await stage.writeFile(plan.bytes);
+    if (plan.source.state.exists) {
+      const before = plan.source.state;
+      if (created.uid !== before.uid || created.gid !== before.gid) await stage.chown(before.uid, before.gid);
+    }
+    await stage.chmod(plan.afterMode);
+    await stage.sync();
+    await stage.close();
+    closed = true;
+    const staged = await readRegularFile(stagingPath);
+    if (!staged.state.exists || staged.state.dev !== created.dev || staged.state.ino !== created.ino || staged.state.hash !== plan.afterHash || (staged.state.mode & 4095) !== plan.afterMode || plan.source.state.exists && (staged.state.uid !== plan.source.state.uid || staged.state.gid !== plan.source.state.gid)) {
+      throw new FilePublicationError("file_changed", "The prepared staging bytes or identity changed before publication.");
+    }
+    const currentDirectory = await fs.stat(parent);
+    if (directoryState.dev !== currentDirectory.dev || directoryState.ino !== currentDirectory.ino) {
+      throw new FilePublicationError("file_changed", "The publication directory changed during staging.");
+    }
+    await verifySource(plan.source);
+    checkFileCancellation(context);
+    renameStarted = true;
+    await fs.rename(stagingPath, plan.source.targetPath);
+    published = true;
+    await syncPublicationDirectories(plan.source.targetPath, plan.directoryBoundary, directory);
+  } catch (error) {
+    failure2 = renameStarted ? new FilePublicationError("interrupted", `${published ? "The file was published; directory durability confirmation failed" : "The publication outcome requires inspection"}: ${error instanceof Error ? error.message : String(error)}`, published) : error;
+  } finally {
+    try {
+      if (stage && !closed) await stage.close();
+    } catch (error) {
+      failure2 ??= error;
+    }
+    try {
+      if (created && !published) await cleanupCreatedStage(stagingPath, created);
+      else if (stage && !created) throw new FilePublicationError("interrupted", "The created staging inode could not be inspected; its receipt requires inspection.");
+    } catch (error) {
+      failure2 = new FilePublicationError("interrupted", `Staging cleanup requires inspection: ${error instanceof Error ? error.message : String(error)}`, published);
+    }
+    try {
+      await directory.close();
+    } catch (error) {
+      failure2 ??= new FilePublicationError(published ? "interrupted" : "write_failed", `Directory close failed: ${String(error)}`, published);
+    }
+  }
+  if (failure2 !== void 0) throw failure2;
+}
+function filePublicationExecution(plan, checkpoint, label, output, mediaType) {
+  const success = () => ({ ok: true, output, returncode: 0, truncated: false, artifacts: [{
+    path: plan.source.path,
+    operation: plan.source.state.exists ? "updated" : "created",
+    mediaType,
+    byteSize: plan.bytes.length,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  }] });
+  let execution;
+  return { kind: "ready", checkpoint, execute(context) {
+    if (resolve(context.cwd) !== plan.cwd || context.invocationId !== plan.invocationId || context.attempt !== plan.attempt) {
+      return Promise.resolve(fileErrorResult(label, new FilePublicationError("invalid_arguments", "The prepared plan belongs to a different invocation, attempt, or workspace.")));
+    }
+    execution ??= withFilePublicationLock(plan.source.targetPath, context.signal, async () => {
+      await publishFile(plan, context);
+      return success();
+    }).catch((error) => {
+      const result = fileErrorResult(label, error);
+      if (error instanceof FilePublicationError && error.published) result.artifacts = success().artifacts;
+      return result;
+    });
+    return execution;
+  } };
+}
+function resolveToolPath(value, cwd) {
+  return resolve(cwd, value);
+}
+function checkpointForFilePublication(plan, mediaType) {
+  return { version: 2, kind: "text_file", data: {
+    path: plan.source.path,
+    targetPath: plan.source.targetPath,
+    before: { ...plan.source.state },
+    beforeHash: plan.source.state.exists ? plan.source.state.hash : null,
+    afterHash: plan.afterHash,
+    afterMode: plan.afterMode,
+    operation: plan.source.state.exists ? "updated" : "created",
+    mediaType,
+    byteSize: plan.bytes.length,
+    staging: { ...plan.staging },
+    directoryBoundary: { ...plan.directoryBoundary }
+  } };
+}
+function validPath(value) {
+  return typeof value === "string" && value.length > 0 && !value.includes("\0") && isAbsolute(value) && resolve(value) === value;
+}
+function validHash(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+function nonnegativeInteger(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function parseBefore(value) {
+  if (!isRecord$3(value)) return void 0;
+  if (value.exists === false) return { exists: false };
+  if (value.exists !== true || !validHash(value.hash) || !nonnegativeInteger(value.dev) || !nonnegativeInteger(value.ino) || !nonnegativeInteger(value.mode) || (value.mode & constants.S_IFMT) !== constants.S_IFREG || !nonnegativeInteger(value.uid) || !nonnegativeInteger(value.gid) || value.nlink !== 1 || !nonnegativeInteger(value.size) || typeof value.mtimeMs !== "number" || !Number.isFinite(value.mtimeMs) || typeof value.ctimeMs !== "number" || !Number.isFinite(value.ctimeMs)) return void 0;
+  return {
+    exists: true,
+    hash: value.hash,
+    dev: value.dev,
+    ino: value.ino,
+    mode: value.mode,
+    uid: value.uid,
+    gid: value.gid,
+    nlink: value.nlink,
+    size: value.size,
+    mtimeMs: value.mtimeMs,
+    ctimeMs: value.ctimeMs
+  };
+}
+function parseStaging(value, context) {
+  if (!isRecord$3(value) || typeof value.invocationId !== "string" || !value.invocationId || value.invocationId.includes("\0") || !nonnegativeInteger(value.attempt) || value.attempt < 1 || typeof value.token !== "string" || !/^[a-f0-9]{32}$/.test(value.token) || typeof value.relativePath !== "string" || value.relativePath !== stagingName(value.invocationId, value.attempt, value.token) || context.invocationId !== void 0 && context.invocationId !== value.invocationId || context.attempt !== void 0 && context.attempt !== value.attempt) return void 0;
+  return { invocationId: value.invocationId, attempt: value.attempt, token: value.token, relativePath: value.relativePath };
+}
+function parseFileCheckpoint(checkpoint, context) {
+  if (!isRecord$3(checkpoint) || checkpoint.kind !== "text_file" || checkpoint.version !== 1 && checkpoint.version !== 2 || !isRecord$3(checkpoint.data)) return void 0;
+  const data = checkpoint.data;
+  if (!validPath(data.path) || data.beforeHash !== null && !validHash(data.beforeHash) || !validHash(data.afterHash) || data.operation !== "created" && data.operation !== "updated" || data.operation === "created" !== (data.beforeHash === null) || typeof data.mediaType !== "string" || !data.mediaType || !nonnegativeInteger(data.byteSize)) return void 0;
+  const common = {
+    path: data.path,
+    beforeHash: data.beforeHash,
+    afterHash: data.afterHash,
+    operation: data.operation,
+    mediaType: data.mediaType,
+    byteSize: data.byteSize
+  };
+  if (checkpoint.version === 1) return { ...common, version: 1 };
+  const before = parseBefore(data.before);
+  const staging = parseStaging(data.staging, context);
+  if (!validPath(data.targetPath) || !before || !staging || (before.exists ? before.hash : null) !== data.beforeHash || !nonnegativeInteger(data.afterMode) || data.afterMode > 4095 || before.exists && (before.mode & 4095) !== data.afterMode) return void 0;
+  let directoryBoundary;
+  if (data.directoryBoundary !== void 0) {
+    const boundary = data.directoryBoundary;
+    if (!isRecord$3(boundary) || !validPath(boundary.path) || !nonnegativeInteger(boundary.dev) || !nonnegativeInteger(boundary.ino) || !containsDirectory(boundary.path, dirname(data.targetPath))) return void 0;
+    directoryBoundary = { path: boundary.path, dev: boundary.dev, ino: boundary.ino };
+  }
+  return { ...common, version: 2, targetPath: data.targetPath, before, afterMode: data.afterMode, staging, directoryBoundary };
+}
+function samePermissions(before, current) {
+  return current.mode === before.mode && current.uid === before.uid && current.gid === before.gid;
+}
+async function cleanupRecordedStaging(data) {
+  const path = resolve(dirname(data.targetPath), data.staging.relativePath);
+  const staged = await readRegularFile(path);
+  if (!staged.state.exists) return;
+  if (staged.state.hash !== data.afterHash || staged.state.size !== data.byteSize || (staged.state.mode & 4095) !== data.afterMode || data.before.exists && !samePermissions(data.before, staged.state)) {
+    throw new Error("Staging bytes or metadata differ from the attempt receipt.");
+  }
+  const entry = await fs.lstat(path);
+  if (!entry.isFile() || entry.nlink !== 1 || entry.dev !== staged.state.dev || entry.ino !== staged.state.ino) {
+    throw new Error("Staging identity changed during recovery inspection.");
+  }
+  await fs.unlink(path);
+}
+async function reconcileTextFile(checkpoint, context, label, inputPath) {
+  const data = parseFileCheckpoint(checkpoint, context);
+  if (!data || typeof inputPath !== "string" || !inputPath.trim() || inputPath.includes("\0") || resolveToolPath(inputPath, context.cwd) !== data.path) {
+    return { kind: "interrupted", reason: `${label} recovery checkpoint is unavailable or unsupported.` };
+  }
+  try {
+    const observed = await observeFile(data.path);
+    const targetPath = data.version === 2 ? data.targetPath : observed.targetPath;
+    return await withFilePublicationLock(targetPath, context.signal, async () => {
+      const current = await observeFile(data.path);
+      if (current.targetPath !== targetPath) return { kind: "interrupted", reason: `${label} symbolic link target differs from its checkpoint.` };
+      const state = current.state;
+      const currentHash = state.exists ? state.hash : null;
+      const after = state.exists && currentHash === data.afterHash && state.size === data.byteSize && (data.version === 1 || (state.mode & 4095) === data.afterMode && (!data.before.exists || samePermissions(data.before, state)));
+      const before = currentHash === data.beforeHash && (data.version === 1 || sameFileState(state, data.before));
+      if (!after && !before || currentHash === data.afterHash && !after) return { kind: "interrupted", reason: `${label} target differs from both recorded before and after states: ${data.path}` };
+      if (data.version === 2) await cleanupRecordedStaging(data);
+      if (after) {
+        await syncObservedFile(current);
+        await syncPublicationDirectories(targetPath, data.version === 2 ? data.directoryBoundary : void 0);
+        const durable = await observeFile(data.path);
+        if (durable.targetPath !== targetPath || !sameFileState(current.state, durable.state)) {
+          return { kind: "interrupted", reason: `${label} target changed during durability confirmation: ${data.path}` };
+        }
+        const result = {
+          ok: true,
+          output: `${label} was already applied and its result was recovered: ${data.path}`,
+          returncode: 0,
+          truncated: false,
+          artifacts: [{ path: data.path, operation: data.operation, mediaType: data.mediaType, byteSize: data.byteSize, updatedAt: (/* @__PURE__ */ new Date()).toISOString() }]
+        };
+        return { kind: "succeeded", result };
+      }
+      return { kind: "retry", reason: `${label} was not published; retrying from the recorded before state.` };
+    });
+  } catch (error) {
+    return { kind: "interrupted", reason: `${label} recovery could not verify ${data.path}: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
 const WRITE_TOOL = {
   name: "write",
   description: "Create a file, or overwrite an existing file with the full given content. Creates missing parent directories.",
@@ -1676,56 +2258,34 @@ function createWriteTool() {
     recovery: {
       version: "1",
       mode: "reconcile",
-      async prepare(input, context) {
-        if (typeof input.path !== "string" || typeof input.content !== "string") return void 0;
-        const target = resolveToolPath(input.path, context.cwd);
-        const previous = await readTextFileIfPresent(target);
-        return checkpointForTextFile(target, previous.exists ? previous.content : null, input.content, previous.exists ? "updated" : "created", mediaTypeForPath(target));
-      },
-      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Write")
+      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Write", input.path)
     },
+    prepare: prepareWrite,
     async execute(input, context) {
-      if (typeof input.path !== "string" || input.path.trim() === "") {
-        return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
-      }
-      if (typeof input.content !== "string") {
-        return { ok: false, output: "Tool parameter content must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
-      }
-      const target = isAbsolute(input.path) ? input.path : resolve(context.cwd, input.path);
-      let exists = false;
-      try {
-        const stats = await stat(target);
-        if (stats.isDirectory()) {
-          return { ok: false, output: `Target is a directory; Write expects a file: ${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
-        }
-        exists = true;
-      } catch {
-        exists = false;
-      }
-      try {
-        await mkdir(dirname(target), { recursive: true });
-        await writeFile(target, input.content, "utf8");
-      } catch (error) {
-        return { ok: false, output: `Write failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
-      }
-      const bytes = Buffer.byteLength(input.content, "utf8");
-      const rel = relative(context.cwd, target) || target;
-      const operation = exists ? "updated" : "created";
-      return {
-        ok: true,
-        output: `Wrote ${rel} (${bytes} bytes, ${operation === "created" ? "created" : "overwritten"})`,
-        returncode: 0,
-        truncated: false,
-        artifacts: [{
-          path: target,
-          operation,
-          mediaType: mediaTypeForPath(target),
-          byteSize: bytes,
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-        }]
-      };
+      const prepared = await prepareWrite(input, context);
+      return prepared.kind === "result" ? prepared.result : prepared.execute(context);
     }
   };
+}
+async function prepareWrite(input, context) {
+  if (typeof input.path !== "string" || input.path.trim() === "" || input.path.includes("\0")) {
+    return { kind: "result", result: { ok: false, output: "Tool parameter path must be a non-empty string without NUL.", returncode: -1, truncated: false, error: "invalid_arguments" } };
+  }
+  if (typeof input.content !== "string") {
+    return { kind: "result", result: { ok: false, output: "Tool parameter content must be a string.", returncode: -1, truncated: false, error: "invalid_arguments" } };
+  }
+  try {
+    checkFileCancellation(context);
+    const target = resolveToolPath(input.path, context.cwd);
+    const source = await observeFile(target);
+    const plan = await planFilePublication(source, Buffer.from(input.content, "utf8"), context);
+    const mediaType = mediaTypeForPath(target);
+    const rel = relative(context.cwd, target) || target;
+    const output = `Wrote ${rel} (${plan.bytes.length} bytes, ${source.state.exists ? "overwritten" : "created"})`;
+    return filePublicationExecution(plan, checkpointForFilePublication(plan, mediaType), "Write", output, mediaType);
+  } catch (error) {
+    return { kind: "result", result: fileErrorResult("Write", error, "read_failed") };
+  }
 }
 const EDIT_TOOL = {
   name: "edit",
@@ -1757,137 +2317,170 @@ function createEditTool() {
     recovery: {
       version: "1",
       mode: "reconcile",
-      prepare: prepareEditCheckpoint,
-      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Edit")
+      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Edit", input.path)
     },
+    prepare: prepareEdit,
     async execute(input, context) {
-      if (typeof input.path !== "string" || input.path.trim() === "") {
-        return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
-      }
-      if (!Array.isArray(input.edits) || input.edits.length === 0) {
-        return { ok: false, output: "Tool parameter edits must be a non-empty array.", returncode: -1, truncated: false, error: "invalid_arguments" };
-      }
-      const edits = [];
-      for (const [i, item] of input.edits.entries()) {
-        const oldText = item.oldText;
-        const newText = item.newText;
-        if (typeof oldText !== "string" || oldText.length === 0) {
-          return { ok: false, output: `Edit ${i + 1}: oldText must be a non-empty string.`, returncode: -1, truncated: false, error: "invalid_arguments" };
-        }
-        if (typeof newText !== "string") {
-          return { ok: false, output: `Edit ${i + 1}: newText must be a string.`, returncode: -1, truncated: false, error: "invalid_arguments" };
-        }
-        edits.push({ oldText, newText });
-      }
-      const target = isAbsolute(input.path) ? input.path : resolve(context.cwd, input.path);
-      let stats;
-      try {
-        stats = await stat(target);
-      } catch {
-        return { ok: false, output: `File not found: ${input.path}`, returncode: -1, truncated: false, error: "not_found" };
-      }
-      if (stats.isDirectory()) {
-        return { ok: false, output: `Target is a directory; Edit expects a file: ${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
-      }
-      let original;
-      try {
-        const buffer = await readFile(target);
-        if (buffer.includes(0)) {
-          return { ok: false, output: `File is not editable text (contains binary data): ${input.path}`, returncode: -1, truncated: false, error: "binary_file" };
-        }
-        original = buffer.toString("utf8");
-      } catch (error) {
-        return { ok: false, output: `Read failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "read_failed" };
-      }
-      const matches = [];
-      for (const [order, edit] of edits.entries()) {
-        const positions = [];
-        for (let at = original.indexOf(edit.oldText); at !== -1; at = original.indexOf(edit.oldText, at + 1)) {
-          positions.push(at);
-        }
-        if (positions.length === 0) {
-          return { ok: false, output: `Edit ${order + 1}: oldText was not found in the file: ${JSON.stringify(edit.oldText.slice(0, 200))}`, returncode: -1, truncated: false, error: "text_not_found" };
-        }
-        if (positions.length > 1) {
-          return { ok: false, output: `Edit ${order + 1}: oldText matched ${positions.length} locations; exactly one match is required: ${JSON.stringify(edit.oldText.slice(0, 200))}`, returncode: -1, truncated: false, error: "text_not_unique" };
-        }
-        matches.push({ index: positions[0], length: edit.oldText.length, edit, order });
-      }
-      matches.sort((a, b) => a.index - b.index);
-      for (let i = 1; i < matches.length; i += 1) {
-        const prev = matches[i - 1];
-        const curr = matches[i];
-        if (curr.index < prev.index + prev.length) {
-          return { ok: false, output: `Overlapping edits: ${prev.order + 1} and ${curr.order + 1}`, returncode: -1, truncated: false, error: "edits_overlap" };
-        }
-      }
-      let updated = original;
-      for (const match of [...matches].sort((a, b) => b.index - a.index)) {
-        updated = updated.slice(0, match.index) + match.edit.newText + updated.slice(match.index + match.length);
-      }
-      try {
-        await writeFile(target, updated, "utf8");
-      } catch (error) {
-        return { ok: false, output: `Write failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
-      }
-      const firstLine = (original.slice(0, matches[0].index).match(/\n/g) ?? []).length + 1;
-      const rel = relative(context.cwd, target) || target;
-      const lines = matches.map((m) => `  #${m.order + 1} line ${(original.slice(0, m.index).match(/\n/g) ?? []).length + 1} ${JSON.stringify(m.edit.oldText.slice(0, 200))} → ${JSON.stringify(m.edit.newText.slice(0, 200))}`).join("\n");
-      return {
-        ok: true,
-        output: `<file>${rel}</file>
-Edit count: ${matches.length}
-First change: line ${firstLine}
-<diff>
-${lines}
-</diff>`,
-        returncode: 0,
-        truncated: false,
-        artifacts: [{
-          path: target,
-          operation: "updated",
-          mediaType: mediaTypeForPath(target),
-          byteSize: Buffer.byteLength(updated, "utf8"),
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-        }]
-      };
+      const prepared = await prepareEdit(input, context);
+      return prepared.kind === "result" ? prepared.result : prepared.execute(context);
     }
   };
 }
-async function prepareEditCheckpoint(input, context) {
-  if (typeof input.path !== "string" || !Array.isArray(input.edits)) return void 0;
-  const edits = [];
-  for (const item of input.edits) {
-    if (!item || typeof item !== "object") return void 0;
-    const record = item;
-    if (typeof record.oldText !== "string" || record.oldText.length === 0 || typeof record.newText !== "string") return void 0;
-    edits.push({ oldText: record.oldText, newText: record.newText });
-  }
-  const target = resolveToolPath(input.path, context.cwd);
-  let original;
+async function prepareEdit(input, context) {
   try {
-    const buffer = await readFile(target);
-    if (buffer.includes(0)) return void 0;
-    original = buffer.toString("utf8");
-  } catch {
-    return void 0;
+    if (typeof input.path !== "string" || input.path.trim() === "" || input.path.includes("\0")) {
+      throw new FilePublicationError("invalid_arguments", "Tool parameter path must be a non-empty string without NUL.");
+    }
+    if (!Array.isArray(input.edits) || input.edits.length === 0) {
+      throw new FilePublicationError("invalid_arguments", "Tool parameter edits must be a non-empty array.");
+    }
+    const edits = [];
+    for (const [i, item] of input.edits.entries()) {
+      if (!isRecord$3(item) || typeof item.oldText !== "string" || item.oldText.length === 0 || item.oldText.includes("\0")) {
+        throw new FilePublicationError("invalid_arguments", `Edit ${i + 1}: oldText must be a non-empty string without NUL.`);
+      }
+      if (typeof item.newText !== "string" || item.newText.includes("\0")) {
+        throw new FilePublicationError("invalid_arguments", `Edit ${i + 1}: newText must be a string without NUL.`);
+      }
+      edits.push({ oldText: item.oldText, newText: item.newText });
+    }
+    checkFileCancellation(context);
+    const target = resolveToolPath(input.path, context.cwd);
+    const source = await observeFile(target);
+    if (!source.bytes) throw new FilePublicationError("not_found", `File not found: ${input.path}`);
+    if (source.bytes.includes(0)) throw new FilePublicationError("binary_file", `File contains NUL bytes: ${input.path}`);
+    if (!isUtf8(source.bytes)) throw new FilePublicationError("invalid_encoding", `File must contain valid UTF-8: ${input.path}`);
+    const original = source.bytes.toString("utf8");
+    const matches = [];
+    for (const [order, edit] of edits.entries()) {
+      let count = 0;
+      let index = -1;
+      for (let at = original.indexOf(edit.oldText); at !== -1; at = original.indexOf(edit.oldText, at + 1)) {
+        count += 1;
+        index = at;
+      }
+      if (count !== 1) throw new FilePublicationError(
+        count === 0 ? "text_not_found" : "text_not_unique",
+        `Edit ${order + 1}: oldText ${count === 0 ? "was not found" : `matched ${count} locations; exactly one match is required`}: ${JSON.stringify(edit.oldText.slice(0, 200))}`
+      );
+      matches.push({ index, length: edit.oldText.length, edit, order });
+    }
+    matches.sort((left, right) => left.index - right.index);
+    for (let i = 1; i < matches.length; i += 1) {
+      const prev = matches[i - 1];
+      const curr = matches[i];
+      if (curr.index < prev.index + prev.length) throw new FilePublicationError("edits_overlap", `Overlapping edits: ${prev.order + 1} and ${curr.order + 1}`);
+    }
+    const parts = [];
+    const lines = [];
+    let offset = 0;
+    let line = 1;
+    let firstLine = 1;
+    for (const match of matches) {
+      const unchanged = original.slice(offset, match.index);
+      line += (unchanged.match(/\n/g) ?? []).length;
+      if (lines.length === 0) firstLine = line;
+      parts.push(unchanged, match.edit.newText);
+      lines.push(`  #${match.order + 1} line ${line} ${JSON.stringify(match.edit.oldText.slice(0, 200))} → ${JSON.stringify(match.edit.newText.slice(0, 200))}`);
+      line += (match.edit.oldText.match(/\n/g) ?? []).length;
+      offset = match.index + match.length;
+    }
+    parts.push(original.slice(offset));
+    const plan = await planFilePublication(source, Buffer.from(parts.join(""), "utf8"), context);
+    const mediaType = mediaTypeForPath(target);
+    const rel = relative(context.cwd, target) || target;
+    const output = `<file>${rel}</file>
+Edit count: ${matches.length}
+First change: line ${firstLine}
+<diff>
+${lines.join("\n")}
+</diff>`;
+    return filePublicationExecution(plan, checkpointForFilePublication(plan, mediaType), "Edit", output, mediaType);
+  } catch (error) {
+    return { kind: "result", result: fileErrorResult("Edit", error, "read_failed") };
   }
-  const matches = [];
-  for (const edit of edits) {
-    const positions = [];
-    for (let at = original.indexOf(edit.oldText); at !== -1; at = original.indexOf(edit.oldText, at + 1)) positions.push(at);
-    if (positions.length !== 1) return void 0;
-    matches.push({ index: positions[0], length: edit.oldText.length, edit });
-  }
-  matches.sort((left, right) => left.index - right.index);
-  for (let i = 1; i < matches.length; i += 1) {
-    if (matches[i].index < matches[i - 1].index + matches[i - 1].length) return void 0;
-  }
-  let updated = original;
-  for (const match of [...matches].sort((left, right) => right.index - left.index)) {
-    updated = updated.slice(0, match.index) + match.edit.newText + updated.slice(match.index + match.length);
-  }
-  return checkpointForTextFile(target, original, updated, "updated", mediaTypeForPath(target));
+}
+function runRipgrep(options) {
+  if (options.signal?.aborted) return Promise.resolve({ code: null, stop: "cancelled", diagnostic: "" });
+  return new Promise((resolve2) => {
+    let child;
+    try {
+      child = childProcess.spawn(rgPath, ["--no-config", ...options.args], {
+        cwd: options.cwd,
+        shell: false,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+    } catch (error) {
+      resolve2({ code: null, stop: "execution_failed", diagnostic: diagnosticText(error) });
+      return;
+    }
+    let frameParts = [];
+    let frameBytes = 0;
+    const stderr = [];
+    let stderrBytes = 0;
+    let stop;
+    let failure2 = "";
+    let killTimer;
+    const halt = (reason) => {
+      if (stop) return;
+      stop = reason;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), 250);
+      killTimer.unref();
+    };
+    const abort = () => halt("cancelled");
+    const failed = (error) => {
+      failure2 = diagnosticText(error);
+      halt("execution_failed");
+    };
+    child.stdout.on("data", (chunk) => {
+      if (stop) return;
+      let offset = 0;
+      while (offset < chunk.length && !stop) {
+        const end = chunk.indexOf(options.delimiter, offset);
+        const next = end < 0 ? chunk.length : end;
+        const length = next - offset;
+        if (length > 0) frameParts.push(chunk.subarray(offset, next));
+        frameBytes += length;
+        if (end < 0) return;
+        try {
+          const frame = frameParts.length === 1 ? frameParts[0] : Buffer.concat(frameParts, frameBytes);
+          options.onFrame(frame);
+        } catch (error) {
+          failure2 = diagnosticText(error);
+          halt("invalid_output");
+        }
+        frameParts = [];
+        frameBytes = 0;
+        offset = end + 1;
+      }
+    });
+    child.stdout.on("end", () => {
+      if (!stop && frameBytes > 0) {
+        failure2 = "Ripgrep returned an incomplete protocol record.";
+        halt("invalid_output");
+      }
+    });
+    child.stdout.on("error", failed);
+    child.stderr.on("data", (chunk) => {
+      stderr.push(chunk);
+      stderrBytes += chunk.length;
+    });
+    child.stderr.on("error", failed);
+    child.on("error", failed);
+    child.once("close", (code, signal) => {
+      if (killTimer) clearTimeout(killTimer);
+      options.signal?.removeEventListener("abort", abort);
+      const diagnostic = [failure2, Buffer.concat(stderr, stderrBytes).toString("utf8"), signal && !stop ? `Ripgrep exited on signal ${signal}.` : ""].filter(Boolean).join("\n");
+      resolve2({ code, stop: options.signal?.aborted ? "cancelled" : stop, diagnostic });
+    });
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) abort();
+  });
+}
+function diagnosticText(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 const LIST_DIR_TOOL = {
   name: "list_dir",
@@ -1903,20 +2496,19 @@ const LIST_DIR_TOOL = {
 };
 const FIND_FILES_TOOL = {
   name: "find_files",
-  description: "Find files whose name or path relative to the search directory contains the pattern (case-insensitive)",
+  description: "Find files by a case-insensitive literal substring of their relative path. Respects ignore rules and returns all matching paths.",
   parameters: {
     type: "object",
     properties: {
       pattern: { type: "string", description: "Substring to match against file names or relative paths" },
-      path: { type: "string", description: "Search directory, absolute or relative to the workspace root (default workspace root)" },
-      limit: { type: "integer", description: "Maximum results (default 100)" }
+      path: { type: "string", description: "Search directory, absolute or relative to the workspace root (default workspace root)" }
     },
     required: ["pattern"]
   }
 };
 const SEARCH_CONTENT_TOOL = {
   name: "search_content",
-  description: "Search lines of text files, returning file path, line number and matching lines (respects workspace ignore rules)",
+  description: "Search text files for a literal keyword using ripgrep and workspace ignore rules. Returns all matches with paths, line numbers and full matching lines.",
   parameters: {
     type: "object",
     properties: {
@@ -1924,18 +2516,13 @@ const SEARCH_CONTENT_TOOL = {
       path: { type: "string", description: "Directory to search, absolute or relative to the workspace root (default workspace root)" },
       types: { type: "array", description: 'File extensions to include (e.g. ["ts", "md"]); all text-typed files by default', items: { type: "string", description: "extension without dot" } },
       caseSensitive: { type: "boolean", description: "Whether the match is case-sensitive (default false)" },
-      contextLines: { type: "integer", description: "Lines of context around each match (default 0, max 5)" },
-      limit: { type: "integer", description: "Maximum matches (default 100)" }
+      contextLines: { type: "integer", description: "Lines of context around each match (non-negative safe integer, default 0)" }
     },
     required: ["text"]
   }
 };
-const DEFAULT_LIMIT = 100;
 const LIST_DEFAULT_LIMIT = 200;
 const LIST_MAX_LIMIT = 1e3;
-const MAX_CONTEXT_LINES = 5;
-const MAX_SCAN_FILES = 2e4;
-const MAX_LINE_DISPLAY = 300;
 function createQueryTools() {
   return [
     { definition: LIST_DIR_TOOL, recovery: { version: "1", mode: "safe" }, execute: listDir },
@@ -1956,33 +2543,6 @@ async function statOrError(target, inputPath) {
     return { stats };
   } catch {
     return { error: fail(`Path not found: ${inputPath ?? target}`, "not_found") };
-  }
-}
-async function* walkFiles(root, signal) {
-  const stack = [root];
-  let scanned = 0;
-  while (stack.length > 0) {
-    if (signal?.aborted) return;
-    const current = stack.pop();
-    let entries;
-    try {
-      entries = await readdir(current, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      const full = join(current, entry.name);
-      if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory()) {
-        if (SNAPSHOT_IGNORED_DIRECTORIES.has(entry.name)) continue;
-        stack.push(full);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      scanned += 1;
-      if (scanned > MAX_SCAN_FILES) return;
-      yield full;
-    }
   }
 }
 async function listDir(input, context) {
@@ -2025,40 +2585,7 @@ async function findFiles(input, context) {
   if (input.path !== void 0 && typeof input.path !== "string") {
     return fail("Tool parameter path must be a string.", "invalid_arguments");
   }
-  let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : DEFAULT_LIMIT;
-  limit = Math.min(Math.max(limit, 1), 1e3);
-  const needle = input.pattern.toLowerCase();
-  const target = toAbs(input.path, context.cwd);
-  const { stats, error } = await statOrError(target, input.path);
-  if (error) return error;
-  if (!stats?.isDirectory()) {
-    return fail(`Target is not a directory: ${input.path ?? target}`, "not_a_directory");
-  }
-  const matches = [];
-  for await (const file of walkFiles(target, context.signal)) {
-    if (matches.length >= limit) {
-      return {
-        ok: true,
-        output: `<search_root>${relative(context.cwd, target) || "."}</search_root>
-${matches.join("\n")}
-Found ${limit} matches; the result limit was reached, so not all files may have been searched.`,
-        returncode: 0,
-        truncated: true
-      };
-    }
-    const relativeToDir = relative(target, file).split(sep).join("/");
-    if (relativeToDir.toLowerCase().includes(needle)) {
-      matches.push(relativeToDir);
-    }
-  }
-  matches.sort();
-  return {
-    ok: true,
-    output: `<search_root>${relative(context.cwd, target) || "."}</search_root>
-${matches.join("\n") || "(No matching files)"}`,
-    returncode: 0,
-    truncated: false
-  };
+  return executeSearch(input, context, "files");
 }
 async function searchContent(input, context) {
   if (typeof input.text !== "string" || input.text === "") {
@@ -2067,72 +2594,126 @@ async function searchContent(input, context) {
   if (input.path !== void 0 && typeof input.path !== "string") {
     return fail("Tool parameter path must be a string.", "invalid_arguments");
   }
-  let limit = typeof input.limit === "number" && Number.isInteger(input.limit) ? input.limit : DEFAULT_LIMIT;
-  limit = Math.min(Math.max(limit, 1), 1e3);
-  const contextLines = Math.min(Math.max(typeof input.contextLines === "number" ? input.contextLines : 0, 0), MAX_CONTEXT_LINES);
-  const caseSensitive = input.caseSensitive === true;
-  const types = Array.isArray(input.types) ? input.types.filter((t) => typeof t === "string").map((t) => t.toLowerCase().replace(/^\./, "")) : void 0;
+  return executeSearch(input, context, "content");
+}
+async function executeSearch(input, context, mode) {
+  if (context.signal?.aborted) return { ...fail("Query cancelled; results are incomplete.", "cancelled"), truncated: true };
+  const keyword = mode === "files" ? input.pattern : input.text;
+  if (keyword.includes("\0") || input.path?.includes("\0")) return fail("Query parameters must contain valid text and paths.", "invalid_arguments");
   const target = toAbs(input.path, context.cwd);
   const { stats, error } = await statOrError(target, input.path);
+  if (context.signal?.aborted) return { ...fail("Query cancelled; results are incomplete.", "cancelled"), truncated: true };
   if (error) return error;
-  if (!stats?.isDirectory()) {
-    return fail(`Target is not a directory: ${input.path ?? target}`, "not_a_directory");
+  if (!stats?.isDirectory()) return fail(`Target is not a directory: ${input.path ?? target}`, "not_a_directory");
+  if (mode === "content" && input.contextLines !== void 0 && (typeof input.contextLines !== "number" || !Number.isSafeInteger(input.contextLines) || input.contextLines < 0)) {
+    return fail("Tool parameter contextLines must be a non-negative safe integer.", "invalid_arguments");
   }
-  const needle = caseSensitive ? input.text : input.text.toLowerCase();
-  const lines = [];
-  let matched = 0;
-  let reachedLimit = false;
-  let reachedScanCap = false;
-  for await (const file of walkFiles(target, context.signal)) {
-    if (matched >= limit) {
-      reachedLimit = true;
-      break;
+  const contextLines = mode === "content" ? input.contextLines ?? 0 : 0;
+  const types = Array.isArray(input.types) ? input.types.filter((t) => typeof t === "string").map((t) => t.toLowerCase().replace(/^\./, "")) : void 0;
+  if (types?.some((type) => type.includes("\0"))) return fail("File extensions must contain valid text.", "invalid_arguments");
+  const header = `<search_root>${displayPath(relative(context.cwd, target) || ".")}</search_root>`;
+  const rows = [];
+  const pathNeedle = keyword.toLowerCase();
+  const args = ["--hidden", "--no-require-git", "--color=never"];
+  if (mode === "files") args.push("--files", "--null");
+  else {
+    args.push("--json", "--fixed-strings", "--context", String(contextLines));
+    if (input.caseSensitive !== true) args.push("--ignore-case");
+    if (types?.length) {
+      args.push("--type-clear", "agentquery");
+      for (const type of types) args.push("--type-add", `agentquery:${extensionGlob(type)}`);
+      args.push("--type", "agentquery");
     }
-    if (types) {
-      const ext = extname(file).toLowerCase().replace(/^\./, "");
-      if (!types.includes(ext)) continue;
-    }
-    let buffer;
-    try {
-      buffer = await readFile(file);
-    } catch {
-      continue;
-    }
-    if (buffer.includes(0)) continue;
-    const text = buffer.toString("utf8");
-    const fileLines = text.split("\n");
-    for (let i = 0; i < fileLines.length; i += 1) {
-      if (matched >= limit) {
-        reachedLimit = true;
-        break;
+    args.push("--regexp", keyword);
+  }
+  for (const directory of SNAPSHOT_IGNORED_DIRECTORIES) args.push("--glob", `!**/${directory}/**`);
+  args.push("--", ".");
+  let lastMatch;
+  let pending = [];
+  const outcome = mode === "content" && (keyword.includes("\n") || types?.length === 0) ? { code: 1, diagnostic: "" } : await runRipgrep({
+    args,
+    cwd: target,
+    signal: context.signal,
+    delimiter: mode === "files" ? 0 : 10,
+    onFrame(frame) {
+      if (mode === "files") {
+        const file2 = normalizePath(frame.toString("utf8"));
+        if (!file2.toLowerCase().includes(pathNeedle)) return;
+        rows.push(displayPath(file2));
+        return;
       }
-      const line = fileLines[i];
-      const hay = caseSensitive ? line : line.toLowerCase();
-      if (!hay.includes(needle)) continue;
-      matched += 1;
-      lines.push(`${relative(target, file).split(sep).join("/")}:${i + 1}: ${truncateLine(line)}`);
-      if (contextLines > 0) {
-        for (let c = Math.max(0, i - contextLines); c <= Math.min(fileLines.length - 1, i + contextLines); c += 1) {
-          if (c === i) continue;
-          lines.push(`  ${c + 1}: ${truncateLine(fileLines[c])}`);
+      const event = JSON.parse(frame.toString("utf8"));
+      if (event.type === "begin" || event.type === "end") {
+        lastMatch = void 0;
+        pending = [];
+        return;
+      }
+      if (event.type === "summary") return;
+      if (event.type !== "match" && event.type !== "context") throw new Error("Unexpected ripgrep event.");
+      const file = normalizePath(decodeField(event.data.path));
+      if (types && !types.includes(extname(file).toLowerCase().replace(/^\./, ""))) return;
+      const line = event.data.line_number;
+      if (typeof line !== "number" || !Number.isSafeInteger(line) || line < 1) throw new Error("Invalid ripgrep line number.");
+      const content = decodeField(event.data.lines).replace(/\r?\n$/, "");
+      const row = `${displayPath(file)}:${line}: ${content}`;
+      if (event.type === "context") {
+        if (lastMatch !== void 0 && line <= lastMatch + contextLines) {
+          rows.push(row);
+          return;
         }
+        pending.push(row);
+        if (pending.length > contextLines) pending.shift();
+        return;
       }
+      for (const contextRow of pending) rows.push(contextRow);
+      pending = [];
+      lastMatch = line;
+      rows.push(row);
     }
-    if (reachedLimit) break;
-  }
-  const suffix = [];
-  if (reachedLimit) suffix.push(`The match limit of ${limit} was reached; not all files may have been searched.`);
+  });
+  if (mode === "files") rows.sort();
+  return searchResult(header, rows, outcome, mode);
+}
+function searchResult(header, rows, outcome, mode) {
+  const reasons = {
+    cancelled: "Query cancelled; results are incomplete.",
+    invalid_output: "Ripgrep returned invalid output; results are incomplete.",
+    execution_failed: "Ripgrep execution failed; results are incomplete."
+  };
+  const abnormalExit = outcome.code !== null && outcome.code !== 0 && outcome.code !== 1;
+  const failed = Boolean(outcome.stop) || outcome.code !== 0 && outcome.code !== 1;
+  const notes = [
+    outcome.stop ? reasons[outcome.stop] : failed ? `Ripgrep exited with code ${outcome.code ?? "unknown"}; results are incomplete.` : "",
+    outcome.stop && abnormalExit ? `Ripgrep exited with code ${outcome.code}; results are incomplete.` : "",
+    outcome.diagnostic
+  ].filter(Boolean);
+  const empty = failed ? "(Partial results: 0 rows retained)" : mode === "files" ? "(No matching files)" : "(No matching content)";
   return {
-    ok: true,
-    output: `<search_root>${relative(context.cwd, target) || "."}</search_root>
-${lines.join("\n") || "(No matching content)"}${suffix.length ? `
-${suffix.join("\n")}` : ""}`,
-    returncode: 0,
-    truncated: reachedLimit || reachedScanCap
+    ok: !failed,
+    output: [header, rows.join("\n") || empty, ...notes].join("\n"),
+    returncode: failed ? abnormalExit ? outcome.code : -1 : 0,
+    truncated: failed,
+    ...failed ? { error: outcome.stop === "cancelled" ? "cancelled" : outcome.stop === "invalid_output" ? "invalid_output" : "execution_failed" } : {}
   };
 }
-function truncateLine(line) {
-  return line.length > MAX_LINE_DISPLAY ? `${line.slice(0, MAX_LINE_DISPLAY)} …(Line truncated)` : line;
+function decodeField(field) {
+  if (typeof field !== "object" || field === null) throw new Error("Invalid ripgrep text field.");
+  if ("text" in field && typeof field.text === "string") return field.text;
+  if ("bytes" in field && typeof field.bytes === "string") return Buffer.from(field.bytes, "base64").toString("utf8");
+  throw new Error("Invalid ripgrep text encoding.");
+}
+function normalizePath(file) {
+  return file.split(sep).join("/").replace(/^\.\//, "");
+}
+function displayPath(file) {
+  return /[\r\n\x00-\x1f]/.test(file) ? JSON.stringify(file) : file;
+}
+function escapeGlob(value) {
+  return value.replace(/[\\*?\[\]{}]/g, "\\$&");
+}
+function extensionGlob(extension) {
+  if (extension === "" || /[^\x00-\x7f]/.test(extension)) return "*";
+  return `*.${escapeGlob(extension).replace(/[a-z]/g, (letter) => `[${letter}${letter.toUpperCase()}]`)}`;
 }
 function createToolRegistry(ops) {
   const tools = [
@@ -2163,7 +2744,7 @@ const CREATE_FIELDS = /* @__PURE__ */ new Set(["type", "x", "y", "width", "heigh
 const CHANGE_FIELDS = /* @__PURE__ */ new Set(["x", "y", "width", "height", "angle", "text", "points", "scale", "crop"]);
 const CANVAS_EDIT_TOOL = {
   name: "canvas_edit",
-  description: "Create elements from the user's instructions. To update, delete, duplicate, group, lock, or reorder existing elements, use the elements explicitly supplied through Use selection. Operations apply to the live scene; targets must come from that reference or an earlier successful canvas_edit result. A conflict returns the affected current elements. Use one call for related operations.",
+  description: "Create elements from the user's instructions. To update, delete, duplicate, group, lock, or reorder existing elements, use the elements explicitly supplied through Use selection. Operations apply to the live scene; targets must come from that reference or an earlier successful canvas_edit result. A conflict returns the affected current elements. Use one call for related operations. The editor applies changes to its live scene and a successful result confirms project persistence. Canvas scene files are managed by the application's save pipeline. An outcome_unknown error means an edit may already have applied; ask the user to verify the Canvas and provide a fresh reference before retrying.",
   parameters: {
     type: "object",
     properties: {
@@ -2213,6 +2794,7 @@ const CANVAS_EDIT_TOOL = {
               required: []
             },
             direction: { type: "string", description: "Reorder direction", enum: [...DIRECTIONS] },
+            axis: { type: "string", description: "Image flip axis", enum: ["horizontal", "vertical"] },
             locked: { type: "boolean", description: "Lock state" },
             offsetX: { type: "number", description: "Duplicate X offset" },
             offsetY: { type: "number", description: "Duplicate Y offset" }
@@ -2323,7 +2905,7 @@ function createCanvasEditTool(scope) {
       }
       if (!result.ok) {
         const payload = {
-          status: result.conflicts?.length ? "conflict" : "failed",
+          status: result.conflicts?.length || result.error === "persistence_conflict" ? "conflict" : "failed",
           error: result.error,
           conflicts: (result.conflicts ?? []).map((conflict) => ({
             id: conflict.id,
@@ -2333,7 +2915,8 @@ function createCanvasEditTool(scope) {
           ...visibleAffected.length ? { appliedInMemory: true, totalAffected: visibleAffected.length, elements: visibleAffected.slice(0, 64).map(compactElement) } : {},
           ...result.createdIds?.length ? { createdIds: result.createdIds } : {}
         };
-        return failure(JSON.stringify(payload), result.conflicts?.length ? "canvas_conflict" : "canvas_edit_failed");
+        const error = result.conflicts?.length ? "canvas_conflict" : result.error === "persistence_conflict" || result.error === "persistence_failed" ? result.error : "canvas_edit_failed";
+        return failure(JSON.stringify(payload), error);
       }
       const compactElements = visibleAffected.map(compactElement);
       return {
@@ -2435,6 +3018,27 @@ function compactElement(element) {
     ...element.crop && typeof element.crop === "object" ? { crop: element.crop } : {}
   };
 }
+function toPublicToolResult(result) {
+  return {
+    ok: result.ok,
+    output: result.output,
+    returncode: result.returncode,
+    truncated: result.truncated,
+    error: result.error
+  };
+}
+function readPublicToolResult(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const result = value;
+  if (typeof result.ok !== "boolean" || typeof result.output !== "string" || typeof result.returncode !== "number" || !Number.isSafeInteger(result.returncode) || typeof result.truncated !== "boolean" || result.error !== void 0 && typeof result.error !== "string") return void 0;
+  return toPublicToolResult({
+    ok: result.ok,
+    output: result.output,
+    returncode: result.returncode,
+    truncated: result.truncated,
+    error: result.error
+  });
+}
 const MAX_PENDING_INPUTS = 32;
 const MAX_INPUT_CHARS = 2e4;
 class RunInputInbox {
@@ -2467,12 +3071,12 @@ class RunInputInbox {
     if (this.queued.length + this.inFlight.size >= MAX_PENDING_INPUTS) {
       throw new Error("The current run has reached its pending input limit.");
     }
-    const result = this.recorder.acceptRunInput({ inputId, runId: this.runId, content: normalized }).then((record) => {
-      if (record.state === "accepted" && !this.queuedIds.has(inputId)) {
-        this.queued.push(record);
+    const result = this.recorder.acceptRunInput({ inputId, runId: this.runId, content: normalized }).then((record2) => {
+      if (record2.state === "accepted" && !this.queuedIds.has(inputId)) {
+        this.queued.push(record2);
         this.queuedIds.add(inputId);
       }
-      return record;
+      return record2;
     });
     this.requests.set(inputId, { content: normalized, result });
     this.inFlight.add(result);
@@ -2523,6 +3127,8 @@ class RunInputInbox {
   }
 }
 const SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
+const CANVAS_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+Live Canvas edits use canvas_edit. Submit element operations to the current editor, which owns the live scene and project persistence. Existing targets come from Use selection or successful Canvas edits in this run. A persistence_conflict result pauses Canvas saving; ask the user to resolve it using the Canvas controls. File tools serve project files and user-requested exports.`;
 const MAX_CANVAS_EDIT_BASE_ELEMENTS = 1e3;
 class AgentRunner {
   constructor(registerArtifacts, canvasEdit) {
@@ -2567,7 +3173,8 @@ class AgentRunner {
     this.controller = new AbortController();
     this.active = true;
     const inbox = new RunInputInbox(runId, req.projectId, recorder);
-    this.activeRun = { runId, projectId: req.projectId, ownerWebContentsId: req.ownerWebContentsId, inbox };
+    const activeRun = { runId, projectId: req.projectId, ownerWebContentsId: req.ownerWebContentsId, inbox, recorder };
+    this.activeRun = activeRun;
     const emitOnce = /* @__PURE__ */ (() => {
       let completed = false;
       return (event) => {
@@ -2617,13 +3224,15 @@ class AgentRunner {
     setImmediate(() => {
       void run(req.task, modelConfig, {
         runId,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: tools.has("canvas_edit") ? CANVAS_SYSTEM_PROMPT : SYSTEM_PROMPT,
         cwd: req.cwd,
         tools,
         signal: this.controller.signal,
         recorder,
         initialUserEntryId: req.initialUserEntryId,
+        initialUserCreatedAt: req.initialUserCreatedAt,
         steeringInbox: inbox,
+        cancellationBarrier: () => activeRun.cancellation ?? Promise.resolve(),
         runScopedContext: [
           ...req.runScopedContext ?? [],
           ...req.canvasContexts?.map(toModelMessage) ?? []
@@ -2652,7 +3261,16 @@ class AgentRunner {
   stop(senderWebContentsId) {
     if (senderWebContentsId !== void 0 && this.activeRun?.ownerWebContentsId !== void 0 && this.activeRun.ownerWebContentsId !== senderWebContentsId) return;
     if (this.active) {
-      this.activeRun?.inbox.stopAdmission();
+      const active = this.activeRun;
+      active?.inbox.stopAdmission();
+      if (active && !active.cancellation) {
+        try {
+          active.cancellation = active.recorder.requestRunCancellation(active.runId);
+        } catch (error) {
+          active.cancellation = Promise.reject(error);
+        }
+        void active.cancellation.catch(() => void 0);
+      }
       this.controller.abort();
     }
   }
@@ -2690,15 +3308,6 @@ ${context.text}`,
     ...context.visual ? { media: { mediaType: context.visual.mediaType, dataUrl: context.visual.dataURL } } : {}
   };
 }
-function toPublicToolResult(result) {
-  return {
-    ok: result.ok,
-    output: result.output,
-    returncode: result.returncode,
-    truncated: result.truncated,
-    error: result.error
-  };
-}
 const DEFAULT_HISTORY_PAGE_LIMIT = 100;
 const MAX_HISTORY_PAGE_LIMIT = 200;
 class HistoryError extends Error {
@@ -2728,7 +3337,11 @@ function normalizePageRequest(request) {
   }
   return { beforeOrder, limit };
 }
-function toHistoryEntry(entry) {
+function toHistoryEntry(entry, outcome) {
+  const toolResult = outcome === void 0 ? void 0 : readPublicToolResult(outcome);
+  if (outcome !== void 0 && !toolResult) {
+    throw new HistoryError(`Stored tool outcome is invalid for entry ${entry.id}.`, "storage");
+  }
   return {
     entryId: entry.id,
     entryOrder: entry.entryOrder,
@@ -2741,8 +3354,9 @@ function toHistoryEntry(entry) {
     revision: entry.revision,
     payload: entry.payload,
     createdAt: entry.createdAt,
-    updatedAt: entry.updatedAt,
-    durationMs: entry.durationMs
+    completedAt: entry.completedAt,
+    durationMs: entry.durationMs,
+    ...toolResult ? { toolResult } : {}
   };
 }
 class HistoryService {
@@ -2776,10 +3390,12 @@ class HistoryService {
     if (nextCursor !== null && request.beforeOrder !== null && Number(nextCursor) >= request.beforeOrder) {
       throw new HistoryError("The history page cursor did not advance to older records.", "storage");
     }
+    const toolEntryIds = entries.filter((entry) => entry.type === "tool_result").map((entry) => entry.id);
+    const outcomes = toolEntryIds.length > 0 ? await this.repository.getToolOutcomesForEntries(scope, toolEntryIds) : /* @__PURE__ */ new Map();
     const latest = await this.repository.listLatestEntries(scope, 1);
     return {
       projectId: scope,
-      entries: entries.map(toHistoryEntry),
+      entries: entries.map((entry) => toHistoryEntry(entry, outcomes.get(entry.id))),
       nextCursor,
       hasMore,
       snapshotOrder: latest[0]?.entryOrder ?? 0
@@ -2943,11 +3559,11 @@ async function readDirectoryEntries(directory, depth) {
   }
   return { entries, totalEntries, unreadable: false };
 }
-function isNoisyName(name, isDirectory) {
-  if (name.startsWith(".")) return true;
+function isNoisyName(name2, isDirectory) {
+  if (name2.startsWith(".")) return true;
   if (!isDirectory) return false;
-  const normalized = name.toLowerCase();
-  return IGNORED_DIRECTORY_NAMES.has(normalized) || /^node-compile-cache(?:[-_.].*)?$/i.test(name) || /^tsx-\d+$/i.test(name);
+  const normalized = name2.toLowerCase();
+  return IGNORED_DIRECTORY_NAMES.has(normalized) || /^node-compile-cache(?:[-_.].*)?$/i.test(name2) || /^tsx-\d+$/i.test(name2);
 }
 function compareEntries(left, right, depth) {
   const priorityDelta = entryPriority(left, depth) - entryPriority(right, depth);
@@ -2991,7 +3607,7 @@ async function scanTree(directory, depth, budget) {
         node.childrenOmittedReason = "tree-budget";
         treeBudgetReached = true;
       } else {
-        const children = await scanTree(join(directory, entry.name), depth + 1, budget);
+        const children = await scanTree(join$1(directory, entry.name), depth + 1, budget);
         node.children = children.entries;
         if (children.omittedEntries > 0) node.omittedEntries = children.omittedEntries;
         if (children.unreadable) node.childrenOmittedReason = "unreadable";
@@ -3075,9 +3691,9 @@ function appendTreeEntries(entries, depth, lines) {
     if (entry.children?.length) appendTreeEntries(entry.children, depth + 1, lines);
   }
 }
-function formatEntryName(name) {
-  if (!/[\u0000-\u001f\u007f<>]/.test(name)) return name;
-  return JSON.stringify(name).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+function formatEntryName(name2) {
+  if (!/[\u0000-\u001f\u007f<>]/.test(name2)) return name2;
+  return JSON.stringify(name2).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
 }
 const CONTEXT_TTL_MS = 10 * 60 * 1e3;
 const MAX_CONTEXTS = 32;
@@ -3171,7 +3787,7 @@ class CanvasContextRegistry {
   }
   prune() {
     const now2 = Date.now();
-    for (const [id, record] of this.contexts) if (record.expiresAt <= now2) this.contexts.delete(id);
+    for (const [id, record2] of this.contexts) if (record2.expiresAt <= now2) this.contexts.delete(id);
   }
 }
 function parseSelection(serializedJSON) {
@@ -3246,28 +3862,30 @@ class CanvasDocumentStore {
     await this.pendingSaves.get(scope);
     const paths = this.paths(scope);
     const stored = await readStoredDocument(paths.documentPath);
-    if (!stored) return { document: emptyCanvasDocument(), revision: 0 };
-    const files = {};
-    for (const [id, file] of Object.entries(stored.files ?? {})) {
-      validateFileId(id);
+    if (!stored) return { document: emptyCanvasDocument(), version: persistenceVersion(null) };
+    const files = /* @__PURE__ */ Object.create(null);
+    for (const [id, file] of Object.entries(stored.files)) {
       const asset = await readFile(this.assetPath(paths.directory, id, file));
       const { assetName: _assetName, ...metadata } = file;
       files[id] = { ...metadata, dataURL: toDataURL(file.mimeType, asset) };
     }
     return {
       document: {
-        elements: Array.isArray(stored.elements) ? stored.elements : [],
-        appState: isObject(stored.appState) ? stored.appState : {},
+        elements: stored.elements,
+        appState: stored.appState,
         files
       },
-      revision: stored.revision
+      version: persistenceVersion(stored)
     };
   }
-  save(projectId, document) {
+  save(projectId, document, expectedVersion) {
     const scope = canvasScopeKey(projectId);
-    validateDocument(document);
+    const snapshot = structuredClone(document);
+    const baseline = { ...expectedVersion };
+    validateDocument(snapshot);
+    validateVersion(baseline);
     const previous = this.pendingSaves.get(scope) ?? Promise.resolve();
-    const result = previous.then(() => this.write(this.paths(scope), document));
+    const result = previous.then(() => this.write(this.paths(scope), snapshot, baseline));
     const settled = result.then(() => void 0, () => void 0);
     this.pendingSaves.set(scope, settled);
     void settled.then(() => {
@@ -3275,10 +3893,11 @@ class CanvasDocumentStore {
     });
     return result;
   }
-  async write(paths, document) {
-    await mkdir(paths.directory, { recursive: true });
+  async write(paths, document, expectedVersion) {
     const previous = await readStoredDocument(paths.documentPath);
-    const storedFiles = {};
+    const previousVersion = persistenceVersion(previous);
+    const storedFiles = /* @__PURE__ */ Object.create(null);
+    const assets = /* @__PURE__ */ new Map();
     for (const [id, file] of Object.entries(document.files)) {
       const metadata = {
         id,
@@ -3291,27 +3910,37 @@ class CanvasDocumentStore {
         const bytes = decodeDataURL(file.dataURL, file.mimeType);
         const digest = createHash("sha256").update(bytes).digest("hex");
         metadata.assetName = `${id}.${digest}.${fileExtension(file.mimeType)}`;
-        const assetPath = join(paths.directory, metadata.assetName);
-        try {
-          await stat(assetPath);
-        } catch (error) {
-          if (error.code !== "ENOENT") throw error;
-          await writeAtomic(assetPath, bytes);
-        }
+        assets.set(join$1(paths.directory, metadata.assetName), bytes);
       } else {
         const oldFile = previous?.files?.[id];
         if (oldFile?.mimeType === file.mimeType && oldFile.assetName) metadata.assetName = oldFile.assetName;
-        await stat(this.assetPath(paths.directory, id, metadata));
+        assets.set(this.assetPath(paths.directory, id, metadata), null);
       }
       storedFiles[id] = metadata;
     }
-    const nextRevision = (previous?.revision ?? 0) + 1;
     const stored = {
-      revision: nextRevision,
+      revision: previousVersion.revision + 1,
       elements: document.elements,
       appState: document.appState,
       files: storedFiles
     };
+    const nextVersion = persistenceVersion(stored);
+    const sameContent = nextVersion.fingerprint === previousVersion.fingerprint;
+    if (!sameContent && !sameVersion(expectedVersion, previousVersion)) return { status: "conflict", version: previousVersion };
+    if (!sameContent && !Number.isSafeInteger(stored.revision)) throw new Error("The canvas revision limit has been reached.");
+    if (assets.size > 0 || !sameContent) await mkdir(paths.directory, { recursive: true });
+    for (const [assetPath, bytes] of assets) {
+      try {
+        const asset = await stat(assetPath);
+        if (!asset.isFile()) throw new Error("The canvas image asset is invalid.");
+      } catch (error) {
+        if (error.code !== "ENOENT" || bytes === null) throw error;
+        await writeAtomic(assetPath, bytes);
+      }
+    }
+    const currentVersion = persistenceVersion(await readStoredDocument(paths.documentPath));
+    if (nextVersion.fingerprint === currentVersion.fingerprint) return { status: "saved", version: currentVersion };
+    if (!sameVersion(previousVersion, currentVersion)) return { status: "conflict", version: currentVersion };
     await writeAtomic(paths.documentPath, JSON.stringify(stored));
     for (const [id, oldFile] of Object.entries(previous?.files ?? {})) {
       const replacement = storedFiles[id];
@@ -3321,18 +3950,18 @@ class CanvasDocumentStore {
       } catch {
       }
     }
-    return nextRevision;
+    return { status: "saved", version: nextVersion };
   }
   paths(scope) {
-    const directory = join(this.userDataPath, "canvases", scope);
-    return { directory, documentPath: join(directory, "scene.json") };
+    const directory = join$1(this.userDataPath, "canvases", scope);
+    return { directory, documentPath: join$1(directory, "scene.json") };
   }
   assetPath(directory, id, file) {
     if (file.assetName !== void 0) {
       if (!isAssetName(id, file.assetName)) throw new Error("The canvas image asset path is invalid.");
-      return join(directory, file.assetName);
+      return join$1(directory, file.assetName);
     }
-    return join(directory, `${id}.${fileExtension(file.mimeType)}`);
+    return join$1(directory, `${id}.${fileExtension(file.mimeType)}`);
   }
 }
 function canvasScopeKey(projectId) {
@@ -3353,9 +3982,45 @@ async function readStoredDocument(path) {
     if (error.code === "ENOENT") return null;
     throw error;
   }
-  const stored = JSON.parse(serialized);
-  stored.revision = Number.isSafeInteger(stored.revision) && stored.revision >= 0 ? stored.revision : 0;
+  const parsed = JSON.parse(serialized);
+  if (!isObject(parsed)) throw new Error("The stored canvas document is invalid.");
+  const stored = {
+    revision: parsed.revision === void 0 ? 0 : parsed.revision,
+    elements: parsed.elements === void 0 ? [] : parsed.elements,
+    appState: parsed.appState === void 0 ? {} : parsed.appState,
+    files: parsed.files === void 0 ? {} : parsed.files
+  };
+  if (!Number.isSafeInteger(stored.revision) || stored.revision < 0) {
+    throw new Error("The stored canvas revision is invalid.");
+  }
+  validateDocument(stored);
+  for (const [id, file] of Object.entries(stored.files)) {
+    if (file.assetName !== void 0 && (typeof file.assetName !== "string" || !isAssetName(id, file.assetName))) {
+      throw new Error("The canvas image asset path is invalid.");
+    }
+  }
   return stored;
+}
+function persistenceVersion(document) {
+  const { elements, appState, files } = document ?? emptyCanvasDocument();
+  return {
+    revision: document?.revision ?? 0,
+    fingerprint: createHash("sha256").update(canonicalJSON({ elements, appState, files })).digest("hex")
+  };
+}
+function canonicalJSON(value) {
+  return JSON.stringify(value, (_key, item) => {
+    if (!isObject(item)) return item;
+    return Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]]));
+  });
+}
+function sameVersion(a, b) {
+  return a.revision === b.revision && a.fingerprint === b.fingerprint;
+}
+function validateVersion(version) {
+  if (!Number.isSafeInteger(version.revision) || version.revision < 0 || !/^[a-f0-9]{64}$/.test(version.fingerprint)) {
+    throw new Error("The canvas persistence version is invalid.");
+  }
 }
 async function writeAtomic(path, contents) {
   const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
@@ -3370,13 +4035,17 @@ function validateDocument(document) {
   if (!document || !Array.isArray(document.elements) || document.elements.length > MAX_ELEMENTS) {
     throw new Error("The canvas scene is invalid or too large.");
   }
+  if (document.elements.some((element) => !isObject(element))) throw new Error("The canvas scene contains an invalid element.");
   if (!isObject(document.appState) || !isObject(document.files) || Object.keys(document.files).length > MAX_FILES) {
     throw new Error("The canvas state is invalid.");
   }
   for (const [id, file] of Object.entries(document.files)) {
     validateFileId(id);
-    if (!file || typeof file.mimeType !== "string" || !/^image\/[a-z0-9.+-]{1,64}$/i.test(file.mimeType)) {
+    if (!isObject(file) || typeof file.mimeType !== "string" || !/^image\/[a-z0-9.+-]{1,64}$/i.test(file.mimeType)) {
       throw new Error("The canvas contains an unsupported image asset.");
+    }
+    if (file.id !== id || !Number.isFinite(file.created) || file.lastRetrieved !== void 0 && !Number.isFinite(file.lastRetrieved) || file.version !== void 0 && !Number.isFinite(file.version) || file.dataURL !== void 0 && typeof file.dataURL !== "string") {
+      throw new Error("The canvas image metadata is invalid.");
     }
     if (file.dataURL) decodeDataURL(file.dataURL, file.mimeType);
   }
@@ -3384,8 +4053,8 @@ function validateDocument(document) {
 function validateFileId(id) {
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new Error("The canvas contains an unsupported image asset.");
 }
-function isAssetName(id, name) {
-  return name.startsWith(`${id}.`) && /^[a-zA-Z0-9_-]+\.[a-f0-9]{64}\.[a-zA-Z0-9]+$/.test(name);
+function isAssetName(id, name2) {
+  return name2.startsWith(`${id}.`) && /^[a-zA-Z0-9_-]+\.[a-f0-9]{64}\.[a-zA-Z0-9]+$/.test(name2);
 }
 function fileExtension(mimeType) {
   return mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin";
@@ -3526,21 +4195,170 @@ function isRecord(value) {
 function isRecordArray(value) {
   return Array.isArray(value) && value.every(isRecord);
 }
-const SCHEMA_VERSION = 8;
-function hasTable(database, name) {
-  const row = database.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+class CanvasCliExecutor {
+  constructor(apply, options = {}) {
+    this.apply = apply;
+    this.cliPath = options.cliPath ?? fileURLToPath(new URL("./canvas-cli.js", import.meta.url));
+    this.execPath = options.execPath ?? process.execPath;
+    this.execArgv = [...options.execArgv ?? []];
+    this.timeoutMs = options.timeoutMs ?? 25e3;
+  }
+  apply;
+  cliPath;
+  execPath;
+  execArgv;
+  timeoutMs;
+  active = /* @__PURE__ */ new Set();
+  disposed = false;
+  execute(ownerWebContentsId, body, signal) {
+    if (signal?.aborted) return Promise.reject(new CanvasEditBridgeError("cancelled", "The run stopped before the Canvas CLI began."));
+    if (this.disposed) return Promise.reject(new CanvasEditBridgeError("canvas_unavailable", "The Canvas CLI executor has closed."));
+    const snapshot = structuredClone(body);
+    const operationsJSON = JSON.stringify(snapshot.operations);
+    const input = JSON.stringify({ operations: snapshot.operations });
+    if (Buffer.byteLength(input) > MAX_CLI_BYTES) {
+      return Promise.reject(new CanvasEditBridgeError("canvas_unavailable", "The Canvas CLI command exceeds its size limit."));
+    }
+    return new Promise((resolve2, reject) => {
+      const controller = new AbortController();
+      const chunks = [];
+      let size = 0;
+      let settled = false;
+      let dispatched = false;
+      let child;
+      let timer;
+      let expectedReply;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        this.active.delete(onDispose);
+        if (result instanceof Error) {
+          controller.abort();
+          if (child && child.exitCode === null && child.signalCode === null) terminateChild(child);
+          reject(result);
+        } else {
+          resolve2(result);
+        }
+      };
+      const failure2 = (message) => new CanvasEditBridgeError(dispatched ? "outcome_unknown" : "canvas_unavailable", message);
+      const onAbort = () => finish(new CanvasEditBridgeError(dispatched ? "outcome_unknown" : "cancelled", dispatched ? "The Canvas CLI stopped during application; its outcome could not be confirmed." : "The run stopped before the Canvas CLI command was applied."));
+      const onDispose = () => finish(failure2("The Canvas CLI executor closed before confirmation."));
+      this.active.add(onDispose);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      try {
+        child = fork(this.cliPath, ["apply"], {
+          execPath: this.execPath,
+          execArgv: this.execArgv,
+          stdio: ["pipe", "pipe", "pipe", "ipc"],
+          serialization: "json",
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }
+        });
+      } catch (error) {
+        finish(failure2(error instanceof Error ? error.message : String(error)));
+        return;
+      }
+      const processChild = child;
+      timer = setTimeout(() => finish(failure2("The Canvas CLI exceeded its confirmation deadline.")), this.timeoutMs);
+      processChild.stdout.on("data", (data) => {
+        size += data.length;
+        if (size > MAX_CLI_BYTES) finish(failure2("The Canvas CLI reply exceeds its size limit."));
+        else chunks.push(data);
+      });
+      processChild.stderr.on("data", () => void 0);
+      processChild.stdin.on("error", () => finish(failure2("The Canvas CLI input channel closed.")));
+      processChild.on("error", (error) => finish(failure2(error.message)));
+      processChild.on("message", (message) => {
+        if (settled) return;
+        if (dispatched || !isCliRequest(message) || JSON.stringify(message.operations) !== operationsJSON) {
+          finish(failure2("The Canvas CLI sent a command outside its bound invocation."));
+          return;
+        }
+        dispatched = true;
+        void Promise.resolve().then(() => this.apply(ownerWebContentsId, snapshot, controller.signal)).then((result) => {
+          if (result.runId !== snapshot.runId || result.projectId !== snapshot.projectId) {
+            throw new Error("The Canvas reply belongs to another run or project.");
+          }
+          return { kind: "canvas:result", result: transportResult(result) };
+        }).catch((error) => ({
+          kind: "canvas:error",
+          code: error instanceof CanvasEditBridgeError ? error.code : "outcome_unknown",
+          message: error instanceof Error ? error.message : String(error)
+        })).then((reply) => {
+          if (settled) return;
+          expectedReply = reply;
+          try {
+            processChild.send(reply, (error) => {
+              if (error) finish(failure2("The Canvas CLI result channel closed."));
+            });
+          } catch {
+            finish(failure2("The Canvas CLI result channel closed."));
+          }
+        });
+      });
+      processChild.once("close", (code) => {
+        if (settled) return;
+        let reply;
+        try {
+          reply = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        } catch {
+        }
+        if (!isCliReply(reply) || dispatched && (!expectedReply || JSON.stringify(reply) !== JSON.stringify(expectedReply))) {
+          finish(failure2("The Canvas CLI exited without a valid confirmation."));
+        } else if (reply.kind === "canvas:error") {
+          finish(code === 1 ? Object.assign(new Error(reply.message), { code: reply.code }) : failure2("The Canvas CLI exited with an invalid status."));
+        } else if (!dispatched || code !== (reply.result.ok ? 0 : 1)) {
+          finish(failure2("The Canvas CLI confirmation does not match the editor result."));
+        } else {
+          finish(reply.result);
+        }
+      });
+      processChild.stdin.end(input);
+    });
+  }
+  dispose() {
+    this.disposed = true;
+    for (const cancel of [...this.active]) cancel();
+  }
+}
+function terminateChild(child) {
+  const timer = setTimeout(() => child.kill("SIGKILL"), 1e3);
+  timer.unref();
+  child.once("close", () => clearTimeout(timer));
+  child.kill();
+}
+function transportResult(result) {
+  return {
+    requestId: result.requestId,
+    runId: result.runId,
+    projectId: result.projectId,
+    ok: result.ok,
+    ...result.changed === void 0 ? {} : { changed: result.changed },
+    ...result.appliedElements ? { appliedElements: result.appliedElements } : {},
+    ...result.createdIds ? { createdIds: result.createdIds } : {},
+    ...result.conflicts ? { conflicts: result.conflicts } : {},
+    ...result.error ? { error: result.error } : {}
+  };
+}
+const SCHEMA_VERSION = 10;
+function hasTable(database, name2) {
+  const row = database.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(name2);
   return row?.present === 1;
 }
 function hasColumn(database, table, column) {
   const rows = database.prepare(`PRAGMA table_info(${table})`).all();
   return rows.some((row) => row.name === column);
 }
-function migrateCompletedAtToDurationMs(database) {
+function migrateMessageTimes(database, preserveLegacyDuration) {
   if (!hasColumn(database, "entries", "duration_ms")) {
     database.exec("ALTER TABLE entries ADD COLUMN duration_ms INTEGER");
   }
-  if (!hasColumn(database, "entries", "completed_at")) return;
-  database.exec(`
+  if (preserveLegacyDuration && hasColumn(database, "entries", "completed_at")) database.exec(`
     UPDATE entries AS assistant
     SET duration_ms = MAX(0, assistant.completed_at - (
       SELECT user_entry.created_at
@@ -3563,7 +4381,17 @@ function migrateCompletedAtToDurationMs(database) {
           AND user_entry.type = 'user_message'
       )
   `);
-  database.exec("ALTER TABLE entries DROP COLUMN completed_at");
+  if (!hasColumn(database, "entries", "completed_at")) {
+    database.exec("ALTER TABLE entries ADD COLUMN completed_at INTEGER");
+  }
+  if (hasColumn(database, "entries", "updated_at")) {
+    database.exec(`
+      UPDATE entries SET completed_at = COALESCE(completed_at, updated_at)
+      WHERE type = 'assistant_message' AND status = 'completed';
+      ALTER TABLE entries DROP COLUMN updated_at;
+    `);
+  }
+  database.exec("UPDATE entries SET completed_at = NULL WHERE type != 'assistant_message' OR status != 'completed'");
 }
 function createProjectSchema(database) {
   database.exec(`
@@ -3598,7 +4426,7 @@ function createProjectSchema(database) {
       payload_version INTEGER NOT NULL DEFAULT 1,
       payload_json TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
+      completed_at INTEGER,
       duration_ms INTEGER
     );
 
@@ -3656,12 +4484,19 @@ function createProjectSchema(database) {
 
     CREATE INDEX IF NOT EXISTS tool_invocations_project_phase_idx
       ON tool_invocations (project_id, phase, ordinal ASC);
+
+    CREATE TABLE IF NOT EXISTS run_cancellations (
+      run_id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      cancelled_at INTEGER NOT NULL
+    );
   `);
 }
 function migrateLegacySessionSchema(database) {
   const legacyCompletedAt = hasColumn(database, "entries", "completed_at") ? "completed_at" : "NULL";
   const legacyDurationMs = hasColumn(database, "entries", "duration_ms") ? "duration_ms" : "NULL";
   const legacyCwd = hasColumn(database, "tool_invocations", "cwd") ? "cwd" : "''";
+  const legacyToolInvocations = hasTable(database, "tool_invocations");
   database.exec("PRAGMA foreign_keys = OFF");
   database.exec("BEGIN IMMEDIATE");
   try {
@@ -3739,7 +4574,7 @@ function migrateLegacySessionSchema(database) {
         UNIQUE (run_id, tool_call_id)
       );
 
-      INSERT INTO tool_invocations_project_new
+      ${legacyToolInvocations ? `INSERT INTO tool_invocations_project_new
         (id, project_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
          tool_name, tool_version, input_json, input_hash, phase, outcome_status, outcome_json,
          recovery_mode_snapshot, attempt_count, checkpoint_json, result_entry_id, created_at, updated_at)
@@ -3748,7 +4583,7 @@ function migrateLegacySessionSchema(database) {
         recovery_mode_snapshot, attempt_count, checkpoint_json, result_entry_id, created_at, updated_at
       FROM tool_invocations;
 
-      DROP TABLE tool_invocations;
+      DROP TABLE tool_invocations;` : ""}
       ALTER TABLE tool_invocations_project_new RENAME TO tool_invocations;
       DROP TABLE sessions;
 
@@ -3778,7 +4613,8 @@ function migrateLegacySessionSchema(database) {
       CREATE INDEX pending_run_inputs_recovery_idx
         ON pending_run_inputs (state, accept_order);
     `);
-    migrateCompletedAtToDurationMs(database);
+    createProjectSchema(database);
+    migrateMessageTimes(database, true);
     database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     database.exec("COMMIT");
   } catch (error) {
@@ -3804,31 +4640,39 @@ function initializeSchema(database) {
     return;
   }
   createProjectSchema(database);
-  migrateCompletedAtToDurationMs(database);
-  database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-}
-class RepositoryError extends Error {
-  constructor(message, code) {
-    super(message);
-    this.code = code;
-    this.name = "RepositoryError";
+  if (version < SCHEMA_VERSION) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      migrateMessageTimes(database, version < 9);
+      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
   }
-  code;
+}
+function isJsonObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function sqliteRepositoryError(error, prefix = "") {
+  const errcode = error !== null && typeof error === "object" && "errcode" in error ? error.errcode : void 0;
+  const primaryCode = typeof errcode === "number" ? errcode & 255 : void 0;
+  return new RepositoryError(`${prefix}${error instanceof Error ? error.message : String(error)}`, primaryCode === 19 ? "conflict" : "storage", {
+    cause: error,
+    // Only lock contention is known to be transient; IO, corruption and full disks are not retried.
+    retryable: primaryCode === 5 || primaryCode === 6
+  });
 }
 function now() {
   return Date.now();
 }
-function canonical$1(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical$1).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonical$1(item)}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
 function serializeJson(value, field) {
-  const serialized = JSON.stringify(value);
-  if (serialized === void 0) throw new RepositoryError(`${field} must be JSON serializable.`, "invalid");
-  return serialized;
+  try {
+    return canonicalJson(value);
+  } catch (cause) {
+    throw new RepositoryError(`${field} must be JSON serializable.`, "invalid", { cause });
+  }
 }
 function parseJson(value, field) {
   if (value === null || value === void 0) return null;
@@ -3847,15 +4691,15 @@ function parsePayload(value) {
   } catch {
     throw new RepositoryError("Stored entry payload is invalid JSON.", "storage");
   }
-  if (!parsed || typeof parsed !== "object" || !["user", "assistant", "tool"].includes(parsed.role) || typeof parsed.content !== "string") {
-    throw new RepositoryError("Stored entry payload is not a ModelMessage.", "storage");
-  }
-  return parsed;
+  const message = readModelMessage(parsed);
+  if (!message) throw new RepositoryError("Stored entry payload is not a ModelMessage.", "storage");
+  return message;
 }
 function validatePayloadForType(type, payload, toolCallId) {
+  if (!readModelMessage(payload)) throw new RepositoryError("Entry payload must be a valid ModelMessage.", "invalid");
   const expectedRole = type === "user_message" ? "user" : type === "assistant_message" ? "assistant" : "tool";
   if (payload.role !== expectedRole) throw new RepositoryError(`${type} payload must use role ${expectedRole}.`, "invalid");
-  if (type === "tool_result" && !toolCallId) throw new RepositoryError("tool_result requires toolCallId.", "invalid");
+  if (type === "tool_result" && (!toolCallId || payload.toolCallId !== toolCallId)) throw new RepositoryError("tool_result requires a matching toolCallId.", "invalid");
 }
 function rowToProject(row) {
   return {
@@ -3878,6 +4722,7 @@ function rowToProjectContext(row) {
   };
 }
 function rowToEntry(row) {
+  if (Number(row.payload_version) !== 1) throw new RepositoryError(`Unsupported stored payload version: ${row.payload_version}`, "storage");
   return {
     id: String(row.id),
     projectId: row.project_id === null || row.project_id === void 0 ? null : String(row.project_id),
@@ -3891,7 +4736,7 @@ function rowToEntry(row) {
     payloadVersion: Number(row.payload_version),
     payload: parsePayload(row.payload_json),
     createdAt: Number(row.created_at),
-    updatedAt: Number(row.updated_at),
+    completedAt: row.completed_at === null || row.completed_at === void 0 ? null : Number(row.completed_at),
     durationMs: row.duration_ms === null || row.duration_ms === void 0 ? null : Number(row.duration_ms)
   };
 }
@@ -3996,67 +4841,69 @@ class SqliteHistoryRepository {
     this.database.prepare("UPDATE project_context SET dirty = 1 WHERE project_id = ?").run(projectId);
   }
   async appendEntry(projectId, entry) {
+    return this.transaction(() => this.appendEntryInTransaction(projectId, entry));
+  }
+  appendEntryInTransaction(projectId, entry) {
     validatePayloadForType(entry.type, entry.payload, entry.toolCallId);
-    return this.transaction(() => {
-      if (projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)) {
-        throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
-      }
-      const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id);
-      if (existingRow) {
-        const existing = rowToEntry(existingRow);
-        const same = existing.projectId === projectId && existing.type === entry.type && existing.status === entry.status && existing.runId === entry.runId && existing.turnId === (entry.turnId ?? null) && existing.toolCallId === (entry.toolCallId ?? null) && existing.payloadVersion === (entry.payloadVersion ?? 1) && canonical$1(existing.payload) === canonical$1(entry.payload);
-        if (same) return existing;
-        throw new RepositoryError(`Entry already exists with different content: ${entry.id}`, "conflict");
-      }
-      const timestamp = entry.createdAt ?? now();
-      const updatedAt = entry.updatedAt ?? timestamp;
-      const nextOrder = Number(this.database.prepare("SELECT COALESCE(MAX(entry_order), 0) + 1 AS next_order FROM entries").get().next_order);
-      this.database.prepare(`
-        INSERT INTO entries
-          (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
-           revision, payload_version, payload_json, created_at, updated_at, duration_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        entry.id,
-        projectId,
-        nextOrder,
-        entry.type,
-        entry.status,
-        entry.runId,
-        entry.turnId ?? null,
-        entry.toolCallId ?? null,
-        entry.revision ?? 0,
-        entry.payloadVersion ?? 1,
-        JSON.stringify(entry.payload),
-        timestamp,
-        updatedAt,
-        entry.durationMs ?? null
-      );
-      return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id));
-    });
+    if (projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)) {
+      throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
+    }
+    const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id);
+    if (existingRow) {
+      const existing = rowToEntry(existingRow);
+      const same = existing.projectId === projectId && existing.type === entry.type && existing.status === entry.status && existing.runId === entry.runId && existing.turnId === (entry.turnId ?? null) && existing.toolCallId === (entry.toolCallId ?? null) && existing.payloadVersion === (entry.payloadVersion ?? 1) && canonicalJson(existing.payload) === canonicalJson(entry.payload);
+      if (same) return existing;
+      throw new RepositoryError(`Entry already exists with different content: ${entry.id}`, "conflict");
+    }
+    const completedAt = entry.type === "assistant_message" && entry.status === "completed" ? entry.completedAt ?? now() : null;
+    const timestamp = entry.createdAt ?? completedAt ?? now();
+    const nextOrder = Number(this.database.prepare("SELECT COALESCE(MAX(entry_order), 0) + 1 AS next_order FROM entries").get().next_order);
+    this.database.prepare(`
+      INSERT INTO entries
+        (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
+         revision, payload_version, payload_json, created_at, completed_at, duration_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      entry.id,
+      projectId,
+      nextOrder,
+      entry.type,
+      entry.status,
+      entry.runId,
+      entry.turnId ?? null,
+      entry.toolCallId ?? null,
+      entry.revision ?? 0,
+      entry.payloadVersion ?? 1,
+      JSON.stringify(entry.payload),
+      timestamp,
+      completedAt,
+      entry.durationMs ?? null
+    );
+    return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id));
   }
   async updateEntry(entryId, expectedRevision, patch) {
-    return this.transaction(() => {
-      const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId);
-      if (!existingRow) throw new RepositoryError(`Entry not found: ${entryId}`, "not_found");
-      const existing = rowToEntry(existingRow);
-      if (existing.revision !== expectedRevision) throw new RepositoryError(`Entry revision conflict: ${entryId}`, "conflict");
-      const updatedAt = patch.updatedAt ?? now();
-      const nextStatus = patch.status ?? existing.status;
-      const nextPayload = patch.payload ?? existing.payload;
-      const nextPayloadVersion = patch.payloadVersion ?? existing.payloadVersion;
-      const nextTurnId = patch.turnId === void 0 ? existing.turnId : patch.turnId;
-      const nextToolCallId = patch.toolCallId === void 0 ? existing.toolCallId : patch.toolCallId;
-      const nextDurationMs = patch.durationMs === void 0 ? existing.durationMs : patch.durationMs;
-      validatePayloadForType(existing.type, nextPayload, nextToolCallId);
-      this.database.prepare(`
-        UPDATE entries
-        SET status = ?, turn_id = ?, tool_call_id = ?, revision = revision + 1,
-            payload_version = ?, payload_json = ?, updated_at = ?, duration_ms = ?
-        WHERE id = ? AND revision = ?
-      `).run(nextStatus, nextTurnId, nextToolCallId, nextPayloadVersion, JSON.stringify(nextPayload), updatedAt, nextDurationMs, entryId, expectedRevision);
-      return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId));
-    });
+    return this.transaction(() => this.updateEntryInTransaction(entryId, expectedRevision, patch));
+  }
+  updateEntryInTransaction(entryId, expectedRevision, patch) {
+    const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId);
+    if (!existingRow) throw new RepositoryError(`Entry not found: ${entryId}`, "not_found");
+    const existing = rowToEntry(existingRow);
+    if (existing.revision !== expectedRevision) throw new RepositoryError(`Entry revision conflict: ${entryId}`, "conflict");
+    const nextStatus = patch.status ?? existing.status;
+    const completedAt = existing.type === "assistant_message" && nextStatus === "completed" ? existing.completedAt ?? patch.completedAt ?? now() : null;
+    const nextPayload = patch.payload ?? existing.payload;
+    const nextPayloadVersion = patch.payloadVersion ?? existing.payloadVersion;
+    const nextTurnId = patch.turnId === void 0 ? existing.turnId : patch.turnId;
+    const nextToolCallId = patch.toolCallId === void 0 ? existing.toolCallId : patch.toolCallId;
+    const nextDurationMs = patch.durationMs === void 0 ? existing.durationMs : patch.durationMs;
+    validatePayloadForType(existing.type, nextPayload, nextToolCallId);
+    this.database.prepare(`
+      UPDATE entries
+      SET status = ?, turn_id = ?, tool_call_id = ?, revision = revision + 1,
+          payload_version = ?, payload_json = ?, completed_at = ?, duration_ms = ?
+      WHERE id = ? AND revision = ?
+    `).run(nextStatus, nextTurnId, nextToolCallId, nextPayloadVersion, JSON.stringify(nextPayload), completedAt, nextDurationMs, entryId, expectedRevision);
+    return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId));
   }
   async getEntry(entryId) {
     const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId);
@@ -4093,6 +4940,24 @@ class SqliteHistoryRepository {
       LIMIT ?
     `).all(projectId, beforeOrder, limit);
     return rows.map(rowToEntry);
+  }
+  async getToolOutcomesForEntries(projectId, entryIds) {
+    const ids = [...new Set(entryIds)];
+    if (ids.length === 0) return /* @__PURE__ */ new Map();
+    const rows = this.database.prepare(`
+      SELECT e.id AS entry_id, t.outcome_json
+      FROM entries e
+      JOIN tool_invocations t ON t.result_entry_id = e.id
+        AND t.project_id IS e.project_id
+        AND t.run_id = e.run_id
+        AND t.turn_id = e.turn_id
+        AND t.tool_call_id = e.tool_call_id
+      WHERE e.project_id IS ? AND e.type = 'tool_result'
+        AND t.phase IN ('outcome_ready', 'completed')
+        AND t.outcome_json IS NOT NULL
+        AND e.id IN (${ids.map(() => "?").join(", ")})
+    `).all(projectId, ...ids);
+    return new Map(rows.map((row) => [String(row.entry_id), parseJson(row.outcome_json, "tool outcome")]));
   }
   async acceptRunInput(projectId, input) {
     if (!input.inputId || !input.runId || typeof input.content !== "string" || !input.content.trim()) {
@@ -4207,94 +5072,232 @@ class SqliteHistoryRepository {
     });
   }
   async registerToolInvocation(input) {
-    this.validateToolInvocationInput(input);
+    return (await this.registerToolBatch([input]))[0];
+  }
+  async registerToolBatch(inputs) {
+    if (inputs.length === 0) throw new RepositoryError("A tool batch cannot be empty.", "invalid");
+    this.validateToolBatchInputs(inputs);
+    const first = inputs[0];
+    return this.transaction(() => {
+      if (first.projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(first.projectId)) {
+        throw new RepositoryError(`Project not found: ${first.projectId}`, "not_found");
+      }
+      return inputs.map((input) => this.registerToolInvocationInTransaction(input));
+    });
+  }
+  async commitAssistantAttempt(projectId, assistant, plans) {
+    const entry = assistant.entry;
+    validatePayloadForType(entry.type, entry.payload, entry.toolCallId);
+    if (entry.type !== "assistant_message" || entry.status === "streaming" || !entry.turnId) {
+      throw new RepositoryError("Assistant completion requires a terminal assistant entry and turn identity.", "invalid");
+    }
+    const inputs = plans.map((plan) => ({ ...plan, projectId, assistantEntryId: entry.id }));
+    this.validateToolBatchInputs(inputs);
+    const calls = entry.status === "completed" ? entry.payload.toolCalls ?? [] : [];
+    if (calls.length !== plans.length || plans.some((plan, index) => {
+      const call = calls[index];
+      return plan.runId !== entry.runId || plan.turnId !== entry.turnId || plan.ordinal !== index || call.id !== plan.toolCallId || call.name !== plan.toolName || !call.inputComplete || !jsonEqual(call.input, JSON.parse(plan.inputJson));
+    })) throw new RepositoryError("The assistant response must match its entire tool plan.", "invalid");
+    return this.transaction(() => {
+      const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id);
+      const previous = row ? rowToEntry(row) : void 0;
+      if (previous && (previous.projectId !== projectId || previous.type !== entry.type || previous.runId !== entry.runId || previous.turnId !== entry.turnId)) {
+        throw new RepositoryError("The assistant entry belongs to a different scope or attempt.", "conflict");
+      }
+      let committed;
+      if (previous && previous.status !== "streaming") {
+        if (previous.status !== entry.status || !jsonEqual(previous.payload, entry.payload)) {
+          throw new RepositoryError(`Assistant entry already exists with different content: ${entry.id}`, "conflict");
+        }
+        committed = previous;
+      } else if (assistant.expectedRevision === null) {
+        committed = this.appendEntryInTransaction(projectId, entry);
+      } else {
+        if (!previous) throw new RepositoryError(`Assistant draft not found: ${entry.id}`, "not_found");
+        committed = this.updateEntryInTransaction(entry.id, assistant.expectedRevision, {
+          status: entry.status,
+          payload: entry.payload,
+          completedAt: entry.completedAt
+        });
+      }
+      const invocations = inputs.map((input) => this.registerToolInvocationInTransaction(input));
+      return { assistant: committed, invocations };
+    });
+  }
+  validateToolBatchInputs(inputs) {
+    const first = inputs[0];
+    if (!first) return;
+    const callIds = /* @__PURE__ */ new Set();
+    for (const [index, input] of inputs.entries()) {
+      this.validateToolInvocationInput(input);
+      if (input.projectId !== first.projectId || input.runId !== first.runId || input.turnId !== first.turnId || input.assistantEntryId !== first.assistantEntryId || callIds.has(input.toolCallId) || inputs.length > 1 && input.ordinal !== index) {
+        throw new RepositoryError("Tool batch scope, call identities and ordinal order must be consistent.", "invalid");
+      }
+      callIds.add(input.toolCallId);
+    }
+  }
+  registerToolInvocationInTransaction(input) {
     const id = input.id ?? randomUUID();
     const resultEntryId = input.resultEntryId ?? randomUUID();
     const timestamp = input.createdAt ?? now();
     const updatedAt = input.updatedAt ?? timestamp;
     const checkpointJson = input.checkpoint === void 0 ? null : serializeJson(input.checkpoint, "checkpoint");
-    return this.transaction(() => {
-      if (input.projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(input.projectId)) {
-        throw new RepositoryError(`Project not found: ${input.projectId}`, "not_found");
+    const previous = this.database.prepare("SELECT * FROM tool_invocations WHERE run_id = ? AND tool_call_id = ?").get(input.runId, input.toolCallId);
+    if (previous) {
+      const existing = rowToToolInvocation(previous);
+      if (existing.projectId !== input.projectId || existing.turnId !== input.turnId || existing.assistantEntryId !== input.assistantEntryId || existing.cwd !== input.cwd || existing.toolName !== input.toolName || existing.toolVersion !== input.toolVersion || existing.ordinal !== input.ordinal || existing.inputHash !== input.inputHash || canonicalJson(JSON.parse(existing.inputJson)) !== canonicalJson(JSON.parse(input.inputJson)) || existing.recoveryModeSnapshot !== input.recoveryModeSnapshot || input.resultEntryId !== void 0 && input.resultEntryId !== existing.resultEntryId) {
+        throw new RepositoryError(`Tool call identity conflict: ${input.toolCallId}`, "conflict");
       }
-      try {
-        this.database.prepare(`
-          INSERT INTO tool_invocations
-            (id, project_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
-             tool_name, tool_version, input_json, input_hash, phase, outcome_status,
-             outcome_json, recovery_mode_snapshot, attempt_count, checkpoint_json,
-             result_entry_id, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, ?, 0, ?, ?, ?, ?)
-        `).run(
-          id,
-          input.projectId,
-          input.runId,
-          input.turnId,
-          input.cwd,
-          input.assistantEntryId,
-          input.toolCallId,
-          input.ordinal,
-          input.toolName,
-          input.toolVersion,
-          input.inputJson,
-          input.inputHash,
-          input.recoveryModeSnapshot,
-          checkpointJson,
-          resultEntryId,
-          timestamp,
-          updatedAt
-        );
-      } catch (error) {
-        throw new RepositoryError(`Failed to register tool invocation: ${error instanceof Error ? error.message : String(error)}`, "conflict");
-      }
-      return this.getToolInvocationById(id);
+      return existing;
+    }
+    try {
+      this.database.prepare(`
+        INSERT INTO tool_invocations
+          (id, project_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
+           tool_name, tool_version, input_json, input_hash, phase, outcome_status,
+           outcome_json, recovery_mode_snapshot, attempt_count, checkpoint_json,
+           result_entry_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, ?, 0, ?, ?, ?, ?)
+      `).run(
+        id,
+        input.projectId,
+        input.runId,
+        input.turnId,
+        input.cwd,
+        input.assistantEntryId,
+        input.toolCallId,
+        input.ordinal,
+        input.toolName,
+        input.toolVersion,
+        input.inputJson,
+        input.inputHash,
+        input.recoveryModeSnapshot,
+        checkpointJson,
+        resultEntryId,
+        timestamp,
+        updatedAt
+      );
+    } catch (error) {
+      throw sqliteRepositoryError(error, "Failed to register tool invocation: ");
+    }
+    return this.getToolInvocationById(id);
+  }
+  async requestRunCancellation(projectId, runId) {
+    if (!runId) throw new RepositoryError("runId is required for cancellation.", "invalid");
+    this.transaction(() => {
+      const existing = this.database.prepare("SELECT project_id FROM run_cancellations WHERE run_id = ?").get(runId);
+      if (existing && existing.project_id !== projectId) throw new RepositoryError(`Run cancellation scope conflict: ${runId}`, "conflict");
+      this.database.prepare("INSERT INTO run_cancellations (run_id, project_id, cancelled_at) VALUES (?, ?, ?) ON CONFLICT(run_id) DO NOTHING").run(runId, projectId, now());
     });
   }
-  async beginToolAttempt(invocationId) {
+  async isRunCancelled(projectId, runId) {
+    return Boolean(this.database.prepare("SELECT 1 FROM run_cancellations WHERE run_id = ? AND project_id IS ?").get(runId, projectId));
+  }
+  async isToolInvocationBlocked(invocationId) {
+    const invocation = this.getToolInvocationById(invocationId);
+    if (!invocation) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
+    return this.hasPriorInterruptedInvocation(invocation);
+  }
+  async getToolInvocationCall(invocationId) {
+    return this.transaction(() => {
+      const invocation = this.getToolInvocationById(invocationId);
+      if (!invocation) throw new RepositoryError(`Stored tool invocation not found: ${invocationId}`, "storage");
+      const input = parseJson(invocation.inputJson, "tool input");
+      if (!isJsonObject(input)) throw new RepositoryError(`Stored tool input must be an object: ${invocationId}`, "storage");
+      const hash = toolInputHash(invocation.toolName, invocation.toolVersion, input);
+      const legacyHash = toolInputHashFromJson(invocation.toolName, invocation.toolVersion, invocation.inputJson);
+      if (invocation.inputHash !== hash && invocation.inputHash !== legacyHash) {
+        throw new RepositoryError(`Stored tool input hash does not match: ${invocationId}`, "storage");
+      }
+      const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(invocation.assistantEntryId);
+      if (!row) throw new RepositoryError(`Stored tool invocation has no source Assistant: ${invocationId}`, "storage");
+      const assistant = rowToEntry(row);
+      const call = assistant.payload.toolCalls?.[invocation.ordinal];
+      if (assistant.type !== "assistant_message" || assistant.status !== "completed" || assistant.payload.role !== "assistant" || assistant.projectId !== invocation.projectId || assistant.runId !== invocation.runId || assistant.turnId !== invocation.turnId || !call || call.id !== invocation.toolCallId || call.name !== invocation.toolName || !call.inputComplete || !jsonEqual(call.input, input)) {
+        throw new RepositoryError(`Stored tool invocation differs from its source Assistant: ${invocationId}`, "storage");
+      }
+      return call;
+    });
+  }
+  hasPriorInterruptedInvocation(invocation) {
+    return Boolean(this.database.prepare(`
+      SELECT 1 FROM tool_invocations
+      WHERE project_id IS ? AND run_id = ? AND assistant_entry_id = ? AND ordinal < ? AND outcome_status = 'interrupted'
+      LIMIT 1
+    `).get(invocation.projectId, invocation.runId, invocation.assistantEntryId, invocation.ordinal));
+  }
+  async beginToolAttempt(invocationId, checkpoint) {
+    if (checkpoint !== void 0 && !readToolCheckpoint(checkpoint)) throw new RepositoryError("Tool checkpoint must contain a version, kind and data object.", "invalid");
+    const checkpointJson = checkpoint === void 0 ? null : serializeJson(checkpoint, "checkpoint");
     return this.transaction(() => {
       const existing = this.getToolInvocationById(invocationId);
       if (!existing) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
-      if (existing.phase === "effect_pending") {
-        this.database.prepare("UPDATE tool_invocations SET attempt_count = attempt_count + 1, updated_at = ? WHERE id = ? AND phase = 'effect_pending'").run(now(), invocationId);
-        return this.getToolInvocationById(invocationId);
+      if (this.database.prepare("SELECT 1 FROM run_cancellations WHERE run_id = ? AND project_id IS ?").get(existing.runId, existing.projectId)) {
+        throw new ToolAttemptBlockedError("cancelled", `Cancelled run cannot start a tool attempt: ${existing.runId}`);
       }
-      if (existing.phase !== "planned") throw new RepositoryError(`Tool invocation cannot begin from phase ${existing.phase}: ${invocationId}`, "conflict");
-      this.database.prepare("UPDATE tool_invocations SET phase = 'effect_pending', attempt_count = attempt_count + 1, updated_at = ? WHERE id = ? AND phase = 'planned'").run(now(), invocationId);
+      if (existing.phase !== "planned" && existing.phase !== "effect_pending") throw new RepositoryError(`Tool invocation cannot begin from phase ${existing.phase}: ${invocationId}`, "conflict");
+      if (existing.phase === "planned" && this.hasPriorInterruptedInvocation(existing)) {
+        throw new ToolAttemptBlockedError("prior_interrupted", `A prior tool invocation was interrupted: ${invocationId}`);
+      }
+      this.database.prepare("UPDATE tool_invocations SET phase = 'effect_pending', attempt_count = attempt_count + 1, checkpoint_json = ?, updated_at = ? WHERE id = ? AND phase = ?").run(checkpointJson, now(), invocationId, existing.phase);
       return this.getToolInvocationById(invocationId);
     });
   }
   async saveToolOutcome(invocationId, outcome) {
+    return this.persistToolOutcome(invocationId, outcome, "effect_pending");
+  }
+  async settleUnstartedToolInvocation(invocationId, outcome) {
+    if (outcome.status === "succeeded") {
+      throw new RepositoryError("An unstarted invocation can only be failed, cancelled or interrupted.", "invalid");
+    }
+    return this.persistToolOutcome(invocationId, outcome, "planned");
+  }
+  persistToolOutcome(invocationId, outcome, expectedPhase) {
+    const result = readToolResult(outcome.outcome);
+    if (!result || toolOutcomeStatus(result) !== outcome.status) throw new RepositoryError("Tool outcome must contain a valid result with matching status.", "invalid");
+    if (outcome.checkpoint !== void 0 && !readToolCheckpoint(outcome.checkpoint)) throw new RepositoryError("Tool checkpoint must contain a version, kind and data object.", "invalid");
     const outcomeJson = serializeJson(outcome.outcome, "tool outcome");
     const checkpointJson = outcome.checkpoint === void 0 ? null : serializeJson(outcome.checkpoint, "checkpoint");
     return this.transaction(() => {
       const existing = this.getToolInvocationById(invocationId);
       if (!existing) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
       if (existing.phase === "outcome_ready" || existing.phase === "completed") {
-        if (existing.outcomeStatus !== outcome.status || canonical$1(existing.outcomeJson) !== canonical$1(outcome.outcome)) throw new RepositoryError(`Tool outcome already exists with different content: ${invocationId}`, "conflict");
+        if (existing.outcomeStatus !== outcome.status || canonicalJson(existing.outcomeJson) !== canonicalJson(outcome.outcome)) throw new RepositoryError(`Tool outcome already exists with different content: ${invocationId}`, "conflict");
         return existing;
       }
-      if (existing.phase !== "effect_pending") throw new RepositoryError(`Tool invocation cannot save outcome from phase ${existing.phase}: ${invocationId}`, "conflict");
+      if (existing.phase !== expectedPhase) throw new RepositoryError(`Tool invocation cannot save outcome from phase ${existing.phase}: ${invocationId}`, "conflict");
       this.database.prepare(`
         UPDATE tool_invocations
         SET phase = 'outcome_ready', outcome_status = ?, outcome_json = ?,
             checkpoint_json = COALESCE(?, checkpoint_json), updated_at = ?
-        WHERE id = ? AND phase = 'effect_pending'
-      `).run(outcome.status, outcomeJson, checkpointJson, outcome.updatedAt ?? now(), invocationId);
+        WHERE id = ? AND phase = ?
+      `).run(outcome.status, outcomeJson, checkpointJson, outcome.updatedAt ?? now(), invocationId, expectedPhase);
       return this.getToolInvocationById(invocationId);
     });
   }
-  async completeToolInvocation(invocationId, resultEntryId) {
-    if (!resultEntryId) throw new RepositoryError("resultEntryId is required.", "invalid");
+  async commitToolResult(projectId, entry, invocationId) {
+    validatePayloadForType(entry.type, entry.payload, entry.toolCallId);
+    if (entry.type !== "tool_result" || entry.status !== "completed") throw new RepositoryError("Tool result materialization requires a completed tool message.", "invalid");
     return this.transaction(() => {
+      if (!invocationId) return this.appendEntryInTransaction(projectId, entry);
       const existing = this.getToolInvocationById(invocationId);
       if (!existing) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
-      if (existing.phase === "completed") {
-        if (existing.resultEntryId !== resultEntryId) throw new RepositoryError(`Tool invocation already completed with a different result: ${invocationId}`, "conflict");
-        return existing;
+      if (existing.projectId !== projectId || existing.runId !== entry.runId || existing.turnId !== entry.turnId || existing.toolCallId !== entry.toolCallId || existing.resultEntryId !== null && existing.resultEntryId !== entry.id) {
+        throw new RepositoryError(`Tool result identity conflict: ${invocationId}`, "conflict");
       }
-      if (existing.phase !== "outcome_ready") throw new RepositoryError(`Tool invocation cannot complete from phase ${existing.phase}: ${invocationId}`, "conflict");
-      this.database.prepare("UPDATE tool_invocations SET phase = 'completed', result_entry_id = ?, updated_at = ? WHERE id = ? AND phase = 'outcome_ready'").run(resultEntryId, now(), invocationId);
-      return this.getToolInvocationById(invocationId);
+      if (existing.phase !== "outcome_ready" && existing.phase !== "completed") throw new RepositoryError(`Tool invocation cannot materialize from phase ${existing.phase}: ${invocationId}`, "conflict");
+      if (existing.phase === "completed" && !this.database.prepare("SELECT 1 FROM entries WHERE id = ?").get(entry.id)) {
+        throw new RepositoryError(`Completed invocation has no persisted result message: ${invocationId}`, "storage");
+      }
+      const result = readToolResult(existing.outcomeJson);
+      if (!result || toolOutcomeStatus(result) !== existing.outcomeStatus) throw new RepositoryError(`Stored tool outcome is invalid: ${invocationId}`, "storage");
+      const expectedMessage = toolResultMessage({ id: existing.toolCallId, name: existing.toolName }, result);
+      if (!jsonEqual(expectedMessage, entry.payload)) throw new RepositoryError(`Tool message differs from its persisted outcome: ${invocationId}`, "conflict");
+      const committed = this.appendEntryInTransaction(projectId, entry);
+      if (existing.phase !== "completed") {
+        this.database.prepare("UPDATE tool_invocations SET phase = 'completed', result_entry_id = ?, updated_at = ? WHERE id = ? AND phase = 'outcome_ready'").run(committed.id, now(), invocationId);
+      }
+      return committed;
     });
   }
   async getToolInvocation(projectId, runId, toolCallId) {
@@ -4302,24 +5305,32 @@ class SqliteHistoryRepository {
     return row ? rowToToolInvocation(row) : null;
   }
   async listOpenToolInvocations(projectId, runId) {
-    const rows = runId ? this.database.prepare("SELECT * FROM tool_invocations WHERE project_id IS ? AND run_id = ? AND phase != 'completed' ORDER BY ordinal ASC, created_at ASC, id ASC").all(projectId, runId) : this.database.prepare("SELECT * FROM tool_invocations WHERE project_id IS ? AND phase != 'completed' ORDER BY ordinal ASC, created_at ASC, id ASC").all(projectId);
+    const rows = runId ? this.database.prepare("SELECT t.* FROM tool_invocations t LEFT JOIN entries e ON e.id = t.assistant_entry_id WHERE t.project_id IS ? AND t.run_id = ? AND t.phase != 'completed' ORDER BY COALESCE(e.entry_order, t.created_at), t.ordinal ASC, t.id ASC").all(projectId, runId) : this.database.prepare("SELECT t.* FROM tool_invocations t LEFT JOIN entries e ON e.id = t.assistant_entry_id WHERE t.project_id IS ? AND t.phase != 'completed' ORDER BY COALESCE(e.entry_order, t.created_at), t.ordinal ASC, t.id ASC").all(projectId);
     return rows.map(rowToToolInvocation);
   }
   close() {
     this.database.close();
   }
   transaction(operation) {
-    this.database.exec("BEGIN IMMEDIATE");
+    let began = false;
     try {
+      this.database.exec("BEGIN IMMEDIATE");
+      began = true;
       const result = operation();
       this.database.exec("COMMIT");
       return result;
     } catch (error) {
-      try {
-        this.database.exec("ROLLBACK");
-      } catch {
+      let safeToRetry = !began;
+      if (began) {
+        try {
+          this.database.exec("ROLLBACK");
+          safeToRetry = true;
+        } catch {
+        }
       }
-      throw error;
+      const failure2 = error instanceof RepositoryError ? error : sqliteRepositoryError(error);
+      if (failure2.retryable && !safeToRetry) throw new RepositoryError(failure2.message, failure2.code, { cause: failure2 });
+      throw failure2;
     }
   }
   validateHistoryLimit(limit) {
@@ -4356,8 +5367,8 @@ class SqliteHistoryRepository {
     this.database.prepare(`
       INSERT INTO entries
         (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
-         revision, payload_version, payload_json, created_at, updated_at, duration_ms)
-      VALUES (?, ?, ?, 'user_message', ?, ?, NULL, NULL, 0, 1, ?, ?, ?, NULL)
+         revision, payload_version, payload_json, created_at, completed_at, duration_ms)
+      VALUES (?, ?, ?, 'user_message', ?, ?, NULL, NULL, 0, 1, ?, ?, NULL, NULL)
     `).run(
       item.inputId,
       item.projectId,
@@ -4365,8 +5376,7 @@ class SqliteHistoryRepository {
       state === "applied" ? "completed" : "interrupted",
       item.runId,
       JSON.stringify({ role: "user", content: item.content }),
-      item.acceptedAt,
-      timestamp
+      item.acceptedAt
     );
     const changed = this.database.prepare(`
       UPDATE pending_run_inputs
@@ -4395,17 +5405,15 @@ class SqliteHistoryRepository {
 const DRAFT_FLUSH_INTERVAL_MS = 500;
 const DRAFT_FLUSH_BYTES = 4096;
 function cloneMessage(message) {
-  return JSON.parse(JSON.stringify(message));
-}
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
+  let normalized;
+  try {
+    normalized = JSON.parse(JSON.stringify(message));
+  } catch (cause) {
+    throw new RepositoryError("History message must be JSON serializable.", "storage", { cause });
   }
-  return JSON.stringify(value);
-}
-function isSameMessage(left, right) {
-  return canonical(left) === canonical(right);
+  const copy = readModelMessage(normalized);
+  if (!copy) throw new RepositoryError("History message must be a valid ModelMessage.", "storage");
+  return copy;
 }
 function freezeSnapshot(messages) {
   return messages.map((message) => Object.freeze(cloneMessage(message)));
@@ -4414,7 +5422,10 @@ function validateMessage(message, role) {
   if (message.role !== role) throw new RepositoryError(`Expected a ${role} message.`, "invalid");
 }
 function draftKey(context) {
-  return `${context.turnId}:${context.attempt ?? 1}`;
+  return JSON.stringify([context.turnId, context.attempt ?? 1]);
+}
+function toolEntryKey(runId, toolCallId) {
+  return JSON.stringify([runId, toolCallId]);
 }
 class DefaultHistoryRecorder {
   projectId;
@@ -4425,19 +5436,23 @@ class DefaultHistoryRecorder {
   initialUserEntries = /* @__PURE__ */ new Map();
   toolEntries = /* @__PURE__ */ new Map();
   assistantEntries = /* @__PURE__ */ new Map();
+  assistantAttempts = /* @__PURE__ */ new Map();
   writeChain = Promise.resolve();
-  backgroundError;
+  draftErrors = /* @__PURE__ */ new Map();
   closed = false;
   constructor(projectId, repository, entries = []) {
     this.projectId = projectId;
     this.repository = repository;
     for (const entry of [...entries].sort((left, right) => left.entryOrder - right.entryOrder)) {
+      if (entry.projectId !== projectId) throw new RepositoryError("History entry belongs to a different scope.", "conflict");
       if (entry.type === "user_message") {
         if (!this.initialUserEntries.has(entry.runId)) {
           this.initialUserEntries.set(entry.runId, { entryId: entry.id, message: cloneMessage(entry.payload) });
         }
       }
-      if (entry.type === "tool_result" && entry.toolCallId) this.toolEntries.set(entry.toolCallId, { entryId: entry.id, message: cloneMessage(entry.payload) });
+      if (entry.type === "tool_result" && entry.toolCallId && entry.status === "completed") {
+        this.toolEntries.set(toolEntryKey(entry.runId, entry.toolCallId), { ...entry, payload: cloneMessage(entry.payload) });
+      }
       if (entry.type === "assistant_message" && entry.turnId) this.assistantEntries.set(entry.turnId, entry.id);
       this.appendCompletedEntry(entry);
     }
@@ -4449,6 +5464,12 @@ class DefaultHistoryRecorder {
     return Promise.resolve(this.assistantEntries.get(turnId) ?? null);
   }
   commitUser(message, context) {
+    return this.persistInitialUser(message, context, "completed");
+  }
+  archiveUnappliedUser(message, context) {
+    return this.persistInitialUser(message, context, "interrupted");
+  }
+  persistInitialUser(message, context, status) {
     validateMessage(message, "user");
     this.ensureOpen();
     const copy = cloneMessage(message);
@@ -4458,7 +5479,7 @@ class DefaultHistoryRecorder {
         if (context.entryId && previous.entryId !== context.entryId) {
           throw new RepositoryError(`The initial user entry ID changed for run ${context.runId}.`, "conflict");
         }
-        if (!isSameMessage(previous.message, copy)) {
+        if (!jsonEqual(previous.message, copy)) {
           throw new RepositoryError(`A different initial user message already belongs to run ${context.runId}.`, "conflict");
         }
         return;
@@ -4467,9 +5488,10 @@ class DefaultHistoryRecorder {
       const entry = await this.repository.appendEntry(this.projectId, {
         id: entryId,
         type: "user_message",
-        status: "completed",
+        status,
         runId: context.runId,
-        payload: copy
+        payload: copy,
+        createdAt: context.createdAt
       });
       this.initialUserEntries.set(context.runId, { entryId, message: copy });
       this.appendCompletedEntry(entry);
@@ -4502,25 +5524,9 @@ class DefaultHistoryRecorder {
   recordAssistantDelta(kind, delta, context) {
     this.ensureOpen();
     if (!delta) return;
-    const key = draftKey(context);
-    let draft = this.activeDrafts.get(key);
-    if (!draft) {
-      draft = {
-        key,
-        entryId: randomUUID(),
-        runId: context.runId,
-        turnId: context.turnId,
-        turnOrdinal: context.turnOrdinal,
-        attempt: context.attempt ?? 1,
-        message: { role: "assistant", content: "" },
-        revision: null,
-        pendingBytes: 0,
-        dirty: false,
-        timer: void 0,
-        terminal: false
-      };
-      this.activeDrafts.set(key, draft);
-    }
+    if (this.assistantAttempts.has(draftKey(context))) throw new RepositoryError("Assistant attempt is already terminal.", "conflict");
+    const draft = this.prepareDraft(context);
+    if (draft.terminal) throw new RepositoryError("Assistant attempt is already terminal.", "conflict");
     if (kind === "text") draft.message.content += delta;
     else draft.message.reasoning = (draft.message.reasoning ?? "") + delta;
     draft.pendingBytes += Buffer$1.byteLength(delta, "utf8");
@@ -4530,49 +5536,27 @@ class DefaultHistoryRecorder {
     } else if (draft.timer === void 0) {
       draft.timer = setTimeout(() => {
         draft.timer = void 0;
-        void this.enqueue(() => this.flushDraft(draft));
+        void this.enqueueResult(() => this.flushDraft(draft)).catch(() => void 0);
       }, DRAFT_FLUSH_INTERVAL_MS);
     }
   }
-  finishAssistantAttempt(context, status, message) {
+  async finishAssistantAttempt(context, status, message, plans = []) {
     this.ensureOpen();
-    const key = draftKey(context);
-    let draft = this.activeDrafts.get(key);
     if (message) validateMessage(message, "assistant");
-    if (!draft) {
-      draft = {
-        key,
-        entryId: randomUUID(),
-        runId: context.runId,
-        turnId: context.turnId,
-        turnOrdinal: context.turnOrdinal,
-        attempt: context.attempt ?? 1,
-        message: cloneMessage(message ?? { role: "assistant", content: "" }),
-        revision: null,
-        pendingBytes: 0,
-        dirty: true,
-        timer: void 0,
-        terminal: true
-      };
-      this.activeDrafts.set(key, draft);
-    } else {
-      if (draft.terminal && message && !isSameMessage(draft.message, message)) {
-        return Promise.reject(new RepositoryError(`Assistant message already committed for attempt ${key}.`, "conflict"));
+    const pending = this.activeDrafts.get(draftKey(context)) ?? this.assistantAttempts.get(draftKey(context));
+    if (pending?.timer !== void 0) clearTimeout(pending.timer);
+    if (pending) pending.timer = void 0;
+    const frozenContext = { ...context, createdAt: context.createdAt ?? pending?.createdAt ?? Date.now(), completedAt: context.completedAt ?? Date.now() };
+    const copy = cloneMessage(message ?? pending?.message ?? { role: "assistant", content: "" });
+    const planCopy = JSON.parse(JSON.stringify(plans));
+    return this.enqueueResult(() => {
+      const draft = this.prepareDraft(frozenContext);
+      if (draft.terminal && (draft.finalStatus !== status || !jsonEqual(draft.message, copy) || !jsonEqual(draft.plans, planCopy))) {
+        throw new RepositoryError(`Assistant terminal content changed for attempt ${draft.key}.`, "conflict");
       }
-      if (draft.terminal) return this.waitForWrites();
-      if (message) draft.message = cloneMessage(message);
-      draft.dirty = true;
-      draft.terminal = true;
-      if (draft.timer !== void 0) clearTimeout(draft.timer);
-      draft.timer = void 0;
-    }
-    draft.finalStatus = status;
-    return this.enqueueAndCheck(async () => {
-      await this.flushDraft(draft);
+      this.prepareTerminal(draft, status, copy, planCopy, frozenContext.completedAt);
+      return this.commitDraft(draft);
     });
-  }
-  commitAssistant(message, context) {
-    return this.finishAssistantAttempt(context, "completed", message);
   }
   commitToolResult(message, context) {
     validateMessage(message, "tool");
@@ -4580,24 +5564,32 @@ class DefaultHistoryRecorder {
     if (!message.toolCallId || message.toolCallId !== context.toolCallId) {
       return Promise.reject(new RepositoryError(`Tool result does not match ${context.toolCallId}.`, "invalid"));
     }
-    const previous = this.toolEntries.get(context.toolCallId);
-    if (previous) {
-      if (!isSameMessage(previous.message, message)) return Promise.reject(new RepositoryError(`Tool result already exists with different content: ${context.toolCallId}`, "conflict"));
-      return this.waitForWrites();
-    }
-    const entryId = context.entryId ?? randomUUID();
+    const key = toolEntryKey(context.runId, context.toolCallId);
     const copy = cloneMessage(message);
-    this.toolEntries.set(context.toolCallId, { entryId, message: copy });
-    return this.enqueueAndCheck(async () => {
-      const entry = await this.repository.appendEntry(this.projectId, {
+    return this.enqueueResult(async () => {
+      const previous = this.toolEntries.get(key);
+      if (previous) {
+        if (context.entryId !== void 0 && previous.id !== context.entryId) {
+          throw new RepositoryError(`Tool result entry ID changed for run ${context.runId}, call ${context.toolCallId}.`, "conflict");
+        }
+        if (previous.turnId !== context.turnId || !jsonEqual(previous.payload, copy)) {
+          throw new RepositoryError(`Tool result already exists with different content for run ${context.runId}, call ${context.toolCallId}.`, "conflict");
+        }
+        if (context.invocationId === void 0) return;
+      }
+      const entryId = previous?.id ?? context.entryId ?? randomUUID();
+      const entry = await this.repository.commitToolResult(this.projectId, {
         id: entryId,
         type: "tool_result",
         status: "completed",
         runId: context.runId,
         turnId: context.turnId,
         toolCallId: context.toolCallId,
-        payload: copy
-      });
+        payload: copy,
+        createdAt: previous?.createdAt ?? context.createdAt,
+        completedAt: previous?.completedAt ?? context.completedAt
+      }, context.invocationId);
+      this.toolEntries.set(key, entry);
       this.appendCompletedEntry(entry);
     });
   }
@@ -4605,17 +5597,33 @@ class DefaultHistoryRecorder {
     this.ensureOpen();
     return this.enqueueResult(() => this.repository.registerToolInvocation({ ...input, projectId: this.projectId }));
   }
-  beginToolAttempt(invocationId) {
+  requestRunCancellation(runId) {
     this.ensureOpen();
-    return this.enqueueResult(() => this.repository.beginToolAttempt(invocationId));
+    return this.repository.requestRunCancellation(this.projectId, runId);
+  }
+  isRunCancelled(runId) {
+    this.ensureOpen();
+    return this.repository.isRunCancelled(this.projectId, runId);
+  }
+  isToolInvocationBlocked(invocationId) {
+    this.ensureOpen();
+    return this.writeChain.then(() => this.repository.isToolInvocationBlocked(invocationId));
+  }
+  getToolInvocationCall(invocationId) {
+    this.ensureOpen();
+    return this.writeChain.then(() => this.repository.getToolInvocationCall(invocationId));
+  }
+  beginToolAttempt(invocationId, checkpoint) {
+    this.ensureOpen();
+    return this.enqueueResult(() => this.repository.beginToolAttempt(invocationId, checkpoint));
   }
   saveToolOutcome(invocationId, outcome) {
     this.ensureOpen();
     return this.enqueueResult(() => this.repository.saveToolOutcome(invocationId, outcome));
   }
-  completeToolInvocation(invocationId, resultEntryId) {
+  settleUnstartedToolInvocation(invocationId, outcome) {
     this.ensureOpen();
-    return this.enqueueResult(() => this.repository.completeToolInvocation(invocationId, resultEntryId));
+    return this.enqueueResult(() => this.repository.settleUnstartedToolInvocation(invocationId, outcome));
   }
   getToolInvocation(runId, toolCallId) {
     this.ensureOpen();
@@ -4623,7 +5631,7 @@ class DefaultHistoryRecorder {
   }
   listOpenToolInvocations(runId) {
     this.ensureOpen();
-    return this.waitForWrites().then(() => this.repository.listOpenToolInvocations(this.projectId, runId));
+    return this.writeChain.then(() => this.repository.listOpenToolInvocations(this.projectId, runId));
   }
   async finishRun(result) {
     this.ensureOpen();
@@ -4631,10 +5639,11 @@ class DefaultHistoryRecorder {
       if (draft.runId !== result.runId) continue;
       if (draft.timer !== void 0) clearTimeout(draft.timer);
       draft.timer = void 0;
-      draft.terminal = true;
-      draft.dirty = true;
-      draft.finalStatus = result.status === "completed" ? "completed" : result.status === "cancelled" ? "interrupted" : "failed";
-      await this.enqueue(() => this.flushDraft(draft));
+      await this.enqueueResult(() => {
+        if (this.activeDrafts.get(draft.key) !== draft) return Promise.resolve([]);
+        this.prepareTerminal(draft, result.status === "completed" ? "completed" : result.status === "cancelled" ? "interrupted" : "failed", draft.message, result.status === "completed" ? draft.plans : []);
+        return this.commitDraft(draft);
+      });
     }
     await this.waitForWrites();
   }
@@ -4643,10 +5652,11 @@ class DefaultHistoryRecorder {
     for (const draft of this.activeDrafts.values()) {
       if (draft.timer !== void 0) clearTimeout(draft.timer);
       draft.timer = void 0;
-      draft.terminal = true;
-      draft.dirty = true;
-      draft.finalStatus = "interrupted";
-      await this.enqueue(() => this.flushDraft(draft));
+      await this.enqueueResult(() => {
+        if (this.activeDrafts.get(draft.key) !== draft) return Promise.resolve([]);
+        this.prepareTerminal(draft, "interrupted", draft.message, []);
+        return this.commitDraft(draft);
+      });
     }
     await this.waitForWrites();
     this.closed = true;
@@ -4656,44 +5666,130 @@ class DefaultHistoryRecorder {
       clearTimeout(draft.timer);
       draft.timer = void 0;
     }
-    if (immediate) void this.enqueue(() => this.flushDraft(draft));
+    if (immediate) void this.enqueueResult(() => this.flushDraft(draft)).catch(() => void 0);
+  }
+  prepareDraft(context) {
+    const key = draftKey(context);
+    const existing = this.activeDrafts.get(key) ?? this.assistantAttempts.get(key);
+    if (existing) {
+      if (existing.runId !== context.runId || existing.turnOrdinal !== context.turnOrdinal || existing.contextEntryId !== void 0 && context.entryId !== void 0 && existing.contextEntryId !== context.entryId) {
+        throw new RepositoryError(`Assistant attempt identity changed: ${key}.`, "conflict");
+      }
+      existing.contextEntryId ??= context.entryId;
+      return existing;
+    }
+    const draft = {
+      key,
+      entryId: context.entryId ?? randomUUID(),
+      contextEntryId: context.entryId,
+      runId: context.runId,
+      turnId: context.turnId,
+      turnOrdinal: context.turnOrdinal,
+      attempt: context.attempt ?? 1,
+      createdAt: context.createdAt ?? Date.now(),
+      message: { role: "assistant", content: "" },
+      revision: null,
+      pendingBytes: 0,
+      dirty: false,
+      timer: void 0,
+      terminal: false,
+      plans: []
+    };
+    this.activeDrafts.set(key, draft);
+    return draft;
+  }
+  async commitDraft(draft) {
+    const savedAttempt = this.assistantAttempts.has(draft.key);
+    let committedEntry;
+    try {
+      const previousId = this.assistantEntries.get(draft.turnId);
+      const previous = draft.revision === null && previousId ? await this.repository.getEntry(previousId) : null;
+      if (previous?.status === "completed") committedEntry = previous;
+      if (previous) {
+        if (previous.projectId !== this.projectId || previous.runId !== draft.runId || previous.turnId !== draft.turnId) {
+          throw new RepositoryError(`Assistant attempt belongs to a different identity: ${draft.key}.`, "conflict");
+        }
+        if (previous.status === "completed") {
+          if (previous.status !== draft.finalStatus || !jsonEqual(previous.payload, draft.message)) {
+            throw new RepositoryError(`Assistant attempt already exists with different content: ${draft.key}.`, "conflict");
+          }
+          draft.entryId = previous.id;
+          draft.revision = null;
+          draft.createdAt = previous.createdAt;
+          draft.completedAt = previous.completedAt ?? void 0;
+        }
+      }
+      const result = await this.repository.commitAssistantAttempt(this.projectId, {
+        entry: {
+          id: draft.entryId,
+          type: "assistant_message",
+          status: draft.finalStatus,
+          runId: draft.runId,
+          turnId: draft.turnId,
+          payload: cloneMessage(draft.message),
+          createdAt: draft.createdAt,
+          completedAt: draft.finalStatus === "completed" ? draft.completedAt : null
+        },
+        expectedRevision: draft.revision
+      }, draft.plans);
+      draft.entryId = result.assistant.id;
+      draft.revision = result.assistant.revision;
+      draft.dirty = false;
+      this.assistantEntries.set(draft.turnId, result.assistant.id);
+      this.assistantAttempts.set(draft.key, draft);
+      this.appendCompletedEntry(result.assistant);
+      this.activeDrafts.delete(draft.key);
+      this.draftErrors.delete(draft.key);
+      return result.invocations;
+    } catch (error) {
+      if (savedAttempt || committedEntry) {
+        this.activeDrafts.delete(draft.key);
+        this.draftErrors.delete(draft.key);
+      } else this.draftErrors.set(draft.key, error);
+      throw error;
+    }
+  }
+  prepareTerminal(draft, status, message, plans, completedAt = Date.now()) {
+    if (draft.timer !== void 0) clearTimeout(draft.timer);
+    draft.timer = void 0;
+    draft.message = message;
+    draft.plans = plans;
+    draft.terminal = true;
+    draft.dirty = true;
+    draft.finalStatus = status;
+    if (status === "completed") draft.completedAt ??= completedAt;
   }
   async flushDraft(draft) {
-    if (!draft.dirty && draft.revision !== null) return;
-    const finalStatus = draft.finalStatus;
-    const status = finalStatus ?? (draft.terminal ? "completed" : "streaming");
-    const completedAt = status === "completed" ? Date.now() : void 0;
+    if (draft.terminal || !draft.dirty) return;
+    const message = cloneMessage(draft.message);
+    const pendingBytes = draft.pendingBytes;
     let entry;
-    if (draft.revision === null) {
-      entry = await this.repository.appendEntry(this.projectId, {
-        id: draft.entryId,
-        type: "assistant_message",
-        status,
-        runId: draft.runId,
-        turnId: draft.turnId,
-        payload: cloneMessage(draft.message),
-        updatedAt: completedAt
-      });
-    } else {
-      entry = await this.repository.updateEntry(draft.entryId, draft.revision, {
-        status,
-        payload: cloneMessage(draft.message),
-        updatedAt: completedAt
-      });
+    try {
+      if (draft.revision === null) {
+        entry = await this.repository.appendEntry(this.projectId, {
+          id: draft.entryId,
+          type: "assistant_message",
+          status: "streaming",
+          runId: draft.runId,
+          turnId: draft.turnId,
+          payload: message,
+          createdAt: draft.createdAt
+        });
+      } else {
+        entry = await this.repository.updateEntry(draft.entryId, draft.revision, {
+          status: "streaming",
+          payload: message
+        });
+      }
+    } catch (error) {
+      this.draftErrors.set(draft.key, error);
+      throw error;
     }
+    this.draftErrors.delete(draft.key);
     draft.revision = entry.revision;
     this.assistantEntries.set(draft.turnId, entry.id);
-    draft.pendingBytes = 0;
-    draft.dirty = false;
-    this.appendCompletedEntry(entry);
-    if (draft.terminal) this.activeDrafts.delete(draft.key);
-  }
-  enqueue(operation) {
-    const next = this.writeChain.then(operation, operation);
-    this.writeChain = next.catch((error) => {
-      this.backgroundError = error;
-    });
-    return next;
+    draft.pendingBytes -= pendingBytes;
+    draft.dirty = draft.terminal || !jsonEqual(draft.message, message);
   }
   appendCompletedEntry(entry) {
     if (entry.status !== "completed" || this.completedEntryIds.has(entry.id)) return;
@@ -4705,13 +5801,9 @@ class DefaultHistoryRecorder {
     this.writeChain = next.then(() => void 0, () => void 0);
     return next;
   }
-  async enqueueAndCheck(operation) {
-    await this.enqueue(operation);
-    await this.waitForWrites();
-  }
   async waitForWrites() {
     await this.writeChain;
-    if (this.backgroundError) throw this.backgroundError;
+    if (this.draftErrors.size > 0) throw this.draftErrors.values().next().value;
   }
   ensureOpen() {
     if (this.closed) throw new RepositoryError("History recorder is closed.", "storage");
@@ -4753,18 +5845,24 @@ async function createHistoryRecorder(repository, projectId) {
   return new DefaultHistoryRecorder(projectId, repository, entries);
 }
 const mainProcessDirectory = fileURLToPath(new URL(".", import.meta.url));
+const { name: storageIdentity, productName } = applicationMetadata;
+app.setName(storageIdentity);
+const userDataDirectory = app.commandLine.getSwitchValue("user-data-dir") || join$1(app.getPath("appData"), storageIdentity);
+mkdirSync(userDataDirectory, { recursive: true });
+app.setPath("userData", userDataDirectory);
+app.setPath("sessionData", userDataDirectory);
 function createWindow() {
   const win = new BrowserWindow({
     width: 1180,
     height: 820,
     minWidth: 840,
     minHeight: 560,
-    title: "",
+    title: productName,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 20 },
     show: false,
     webPreferences: {
-      preload: join(mainProcessDirectory, "../preload/index.cjs"),
+      preload: join$1(mainProcessDirectory, "../preload/index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
@@ -4777,7 +5875,7 @@ function createWindow() {
   if (process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void win.loadFile(join(mainProcessDirectory, "../renderer/index.html"));
+    void win.loadFile(join$1(mainProcessDirectory, "../renderer/index.html"));
   }
   win.once("ready-to-show", () => {
     win.show();
@@ -4804,6 +5902,7 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
       const resolvedCanvasContexts = canvasContexts.peekMany(canvasContextIds, projectId);
       const historyRecorder = await getHistoryRecorder(projectId);
       const inputId = randomUUID();
+      const createdAt = Date.now();
       if (projects.activeScope !== projectId) {
         return { ok: false, error: "The selected project changed. Send the task again." };
       }
@@ -4815,6 +5914,7 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
         historyRecorder,
         runId,
         initialUserEntryId: inputId,
+        initialUserCreatedAt: createdAt,
         ownerWebContentsId: event.sender.id,
         runScopedContext: active.projectContext,
         canvasContexts: resolvedCanvasContexts,
@@ -4825,7 +5925,7 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
       canvasContexts.consumeMany(canvasContextIds);
-      return { ok: true, runId: handle.runId, inputId };
+      return { ok: true, runId: handle.runId, inputId, createdAt };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -4948,7 +6048,7 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
     if (!request || !activatedCanvasProjects.has(request.projectId)) {
       throw new Error("The canvas project identity is invalid.");
     }
-    return { revision: await canvasDocuments.save(request.projectId, request.document) };
+    return canvasDocuments.save(request.projectId, request.document, request.expectedVersion);
   });
   ipcMain.handle(IPC.prepareCanvasContext, async (_event, input) => {
     if (!input || input.projectId !== projects.activeScope) {
@@ -4969,16 +6069,40 @@ function registerIpc(runner, providers, outputFiles, inputAttachments, canvasCon
     if (typeof runId !== "string" || typeof fileId !== "string" || !runId || !fileId) {
       return { ok: false, error: "The output file identity is missing." };
     }
-    const record = outputFiles.resolveForOpen(runId, fileId);
-    if (!record) return { ok: false, error: "The output file does not exist or is no longer valid." };
-    const validated = await validateOutputForOpen(record);
+    const record2 = outputFiles.resolveForOpen(runId, fileId);
+    if (!record2) return { ok: false, error: "The output file does not exist or is no longer valid." };
+    const validated = await validateOutputForOpen(record2);
     if (!validated.ok) return { ok: false, error: validated.error };
     const error = await shell.openPath(validated.path);
     return error ? { ok: false, error } : { ok: true };
   });
 }
 app.whenReady().then(async () => {
-  const historyRepository = new SqliteHistoryRepository(join(app.getPath("userData"), "agent-sessions.sqlite"));
+  app.setAboutPanelOptions({ applicationName: productName });
+  if (process.platform === "darwin") {
+    app.dock?.setIcon(appIconPath);
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      {
+        label: productName,
+        submenu: [
+          { role: "about", label: `About ${productName}` },
+          { type: "separator" },
+          { role: "services" },
+          { type: "separator" },
+          { role: "hide", label: `Hide ${productName}` },
+          { role: "hideOthers" },
+          { role: "unhide" },
+          { type: "separator" },
+          { role: "quit", label: `Quit ${productName}` }
+        ]
+      },
+      { role: "fileMenu" },
+      { role: "editMenu" },
+      { role: "viewMenu" },
+      { role: "windowMenu" }
+    ]));
+  }
+  const historyRepository = new SqliteHistoryRepository(join$1(app.getPath("userData"), "agent-sessions.sqlite"));
   const projects = new ProjectRegistry(historyRepository);
   const historyService = new HistoryService(() => projects.activeScope, historyRepository);
   const recorders = /* @__PURE__ */ new Map();
@@ -4994,7 +6118,7 @@ app.whenReady().then(async () => {
   await getHistoryRecorder(null);
   let closing = false;
   const providers = new ProviderStore(
-    join(app.getPath("userData"), "provider-profiles.json"),
+    join$1(app.getPath("userData"), "provider-profiles.json"),
     {
       available: () => safeStorage.isEncryptionAvailable(),
       encrypt: (secret) => safeStorage.encryptString(secret).toString("base64"),
@@ -5026,17 +6150,18 @@ app.whenReady().then(async () => {
       return () => owner.removeListener("destroyed", callback);
     }
   });
+  const canvasCli = new CanvasCliExecutor((ownerWebContentsId, request, signal) => {
+    if (projects.activeScope !== request.projectId) {
+      throw new CanvasEditBridgeError("canvas_unavailable", "The Canvas project changed before the edit could be applied.");
+    }
+    return canvasEditBridge.request(ownerWebContentsId, request, signal);
+  });
   const runner = new AgentRunner((runId, cwd, artifacts, projectId) => {
     void projects.markContextDirty(projectId);
     return outputFiles.register(runId, cwd, artifacts);
   }, {
     enableCreateWithoutSelection: true,
-    execute: (ownerWebContentsId, request, signal) => {
-      if (projects.activeScope !== request.projectId) {
-        throw new Error("The Canvas project changed before the edit could be applied.");
-      }
-      return canvasEditBridge.request(ownerWebContentsId, request, signal);
-    }
+    execute: (ownerWebContentsId, request, signal) => canvasCli.execute(ownerWebContentsId, request, signal)
   });
   registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, canvasDocuments, canvasEditBridge, projects, historyService, getHistoryRecorder);
   createWindow();
@@ -5045,6 +6170,7 @@ app.whenReady().then(async () => {
     event.preventDefault();
     closing = true;
     runner.stop();
+    canvasCli.dispose();
     canvasEditBridge.dispose();
     void (async () => {
       try {

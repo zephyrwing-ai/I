@@ -164,13 +164,11 @@ export const exportToSvg = async ({
   appState = getDefaultAppState(),
   files = {},
   exportPadding,
-  renderEmbeddables,
   exportingFrame,
   skipInliningFonts,
   reuseImages,
 }: Omit<ExportOpts, "getDimensions"> & {
   exportPadding?: number;
-  renderEmbeddables?: boolean;
   skipInliningFonts?: true;
   reuseImages?: boolean;
 }): Promise<SVGSVGElement> => {
@@ -187,7 +185,6 @@ export const exportToSvg = async ({
 
   return _exportToSvg(restoredElements, exportAppState, files, {
     exportingFrame,
-    renderEmbeddables,
     skipInliningFonts,
     reuseImages,
   });

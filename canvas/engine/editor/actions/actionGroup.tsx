@@ -74,7 +74,6 @@ export const actionGroup = register({
   name: "group",
   label: "labels.group",
   icon: (appState) => <GroupIcon theme={appState.theme} />,
-  trackEvent: { category: "element" },
   perform: (elements, appState, _, app) => {
     const selectedElements = getRootElements(
       app.scene.getSelectedElements({
@@ -202,7 +201,6 @@ export const actionUngroup = register({
   name: "ungroup",
   label: "labels.ungroup",
   icon: (appState) => <UngroupIcon theme={appState.theme} />,
-  trackEvent: { category: "element" },
   perform: (elements, appState, _, app) => {
     const groupIds = getSelectedGroupIds(appState);
     const elementsMap = arrayToMap(elements);

@@ -24,6 +24,8 @@ projects 1 ──────── 1 project_context
    │
    └─────────────── N tool_invocations
    │
+   └─────────────── N run_cancellations
+   │
    └─────────────── N 待处理输入记录（project_id 可空）
 ```
 
@@ -52,11 +54,21 @@ projects 1 ──────── 1 project_context
 | revision | INTEGER | 非空 | 记录内容的递增版本 |
 | payload_version | INTEGER | 非空 | payload 结构版本 |
 | payload_json | TEXT | 非空 | 完整 ModelMessage |
-| created_at | INTEGER | 非空 | 记录创建时间 |
-| updated_at | INTEGER | 非空 | 最近更新时间 |
+| created_at | INTEGER | 非空 | 固定的记录创建时间，用户消息使用该时间展示日期 |
+| completed_at | INTEGER | 可空 | 完整 Assistant Message 的固定输出完成时间，单位为 Unix 毫秒 |
 | duration_ms | INTEGER | 可空 | 成功完成的 run 从 `runStarted` 到 `runCompleted` 的持久化总时长（毫秒），保存在最终 Assistant Message |
 
 `project_id IS NULL` 的记录构成无项目历史；`project_id = ?` 的记录构成对应项目历史。两个范围共享全局 `entry_order`，历史读取先按范围过滤，再按 `entry_order` 排序。
+
+## 消息时间
+
+- 初始用户消息的 `createdAt` 由 Main 在创建输入身份时生成，运行 ACK、Runtime 提交上下文和用户 entry 共享同一时间值。
+- 运行中补充输入的 `createdAt` 沿用持久化接收记录的 `acceptedAt`，应用与终态归档均保留这个时间。
+- Runtime 在完整模型输出聚合和有效性分类完成时生成 `completedAt`，Assistant Message 的终态提交与 `assistantCompleted` 共享同一时间值。提交重试复用已经确定的时间和消息身份。
+- 流式草稿、interrupted 和 failed attempt 的 `completedAt` 保持为空；状态恢复沿用原始 `createdAt`。已完成消息的 `completedAt` 在后续版本更新与时长提交中保持固定。
+- `revision` 表达记录版本，`entryOrder` 表达历史顺序，`durationMs` 表达整个 run 的耗时。
+- 消息 schema 版本为10。迁移保留原始 `created_at`、payload、身份、顺序和时长，已有 `completed_at` 沿用原值；旧版已完成助手记录使用保存的 `updated_at` 回填完成时间，其余消息保留空完成时间。迁移后的消息表使用 `created_at`、`completed_at` 和 `duration_ms` 表达时间事实。
+- 工具恢复账本的 `createdAt` 和 `updatedAt` 继续表达工具执行控制记录的时间边界。
 
 ## 运行中输入持久化
 
@@ -112,14 +124,27 @@ type HistoryScope = string | null;
 - `projectId` 为 `null` 时，Recorder 读写无项目历史。
 - `snapshot()` 返回范围内已完成的 ModelMessage 快照。
 - `commitUser()` 先提交初始用户消息，再允许 Runtime 开始模型请求；运行中输入按上述事务批量提交。
+- 初始任务已经由 Main 接收、但在历史恢复期间或 deferred Runtime 启动前被停止时，`archiveUnappliedUser()` 按同一初始 entryId 保存 interrupted 用户 entry，供历史显示未应用文本；该条目不进入模型 snapshot。
 - `recordAssistantDelta()` 维护流式助手草稿。
-- `finishAssistantAttempt()` 提交助手 attempt 的最终状态。
-- `commitToolResult()` 提交模型可见工具结果。
-- `registerToolInvocation()`、`beginToolAttempt()`、`saveToolOutcome()` 和 `completeToolInvocation()` 维护独立工具恢复账本。
+- `finishAssistantAttempt(context, status, message, plans)` 统一提交助手 attempt 的最终状态。普通回答与失败、中断 attempt 使用空计划，工具调用型回答携带完整计划。Repository 在同一 SQLite 事务中提交 Assistant 终态与整批 `planned` invocation；草稿 revision 在前序队列操作完成后读取，终态准备也在队列内完成。
+- 同一次终态提交沿用冻结的内容、调用计划、entry 身份与完成时间。事务成功后，Recorder 更新消息快照与去重索引；可重试失败保留原提交身份。
+- `commitToolResult()` 在同一 SQLite 事务中写入模型可见 Tool Message，并把对应 invocation 推进为 `completed`。事务核对项目、run、turn、调用身份、预留结果身份和已保存的 ToolResult。
+- Repository 的 `registerToolBatch()` 验证同批范围、调用身份、参数和原始 ordinal 顺序，再一次性登记；单调用登记沿用同一实现。
+- `beginToolAttempt(id, checkpoint)` 在同一事务中保存本次尝试的 checkpoint、推进 `effect_pending` 并递增 `attemptCount`。`saveToolOutcome()` 保存确定结果并推进 `outcome_ready`；`settleUnstartedToolInvocation()` 为准备失败、取消或跳过保存 `failed`、`cancelled` 或 `interrupted` outcome，保持 `attemptCount = 0`。
+- `requestRunCancellation()` 立即提交取消事实，作为工具调度的持久化屏障；`isRunCancelled()` 用于恢复判定。
+- `isToolInvocationBlocked()` 根据持久化前序 interrupted 结果判断同批后序调用的许可；`beginToolAttempt()` 在意图事务中再次核对这项许可。`getToolInvocationCall()` 对照参数指纹与源 Assistant，提供已验证的恢复输入。
 - `finishRun()` 刷新当前运行的活动草稿。
 - `close()` 刷新写入队列并关闭 Recorder。
 
+Recorder 的流式草稿、去重索引和已提交消息快照保存在进程内存中，Repository 将消息与工具执行事实持久化到同一个 SQLite 数据库。Recorder 重建时从该历史范围的持久化 entries 初始化缓存。
+
+工具结果缓存使用 `(runId, toolCallId)` 的稳定组合键，并核对预留 `entryId` 与消息内容。工具结果的去重判断和数据库写入进入同一串行队列；数据库提交成功后，Recorder 更新工具索引与 completed 消息快照。写入失败保留重提能力，相同调用以原结果身份再次提交。
+
 Recorder 继续承担 Runtime 和 SQLite 之间的提交屏障。Runtime 只有在本地提交成功后才推进模型内存上下文。
+
+草稿写入错误按 attempt 关联，只有同一草稿成功写入或对应的整批 Assistant/tool 事务成功，才清除其错误。后台刷新失败被写队列捕获；终态提交和关闭仍报告尚未恢复的草稿错误。消息一致性比较以持久化 JSON 为准，省略字段与值为 `undefined` 的字段保持相同语义。工具账本读取等待前序写入完成，但独立草稿的失败不会阻止读取已提交账本并进行取消结算。
+
+Repository 的 `RepositoryError.retryable` 默认是 `false`。SQLite 事务仅在 `BUSY`、`LOCKED` 且事务未开始或回滚成功时返回可重试错误，并保留底层错误原因；约束冲突、磁盘故障和回滚不确定均不可重试。Recorder 保留失败提交所需的身份和 revision，重试次数与退避由 [Runtime](./runtime-loop.mdx) 管理。
 
 ## 工具恢复账本
 
@@ -129,9 +154,24 @@ Recorder 继续承担 Runtime 和 SQLite 之间的提交屏障。Runtime 只有�
 
 ```text
 planned → effect_pending → outcome_ready → completed
+planned → outcome_ready → completed（取消或跳过，attemptCount = 0）
 ```
 
-工具恢复账本与 `entries` 分离。工具结果提交为 `entries` 后，账本进入 `completed`。
+工具恢复账本与 `entries` 分别保存执行事实和模型消息。Tool Message 与 invocation 的 `completed` 共享一个提交事务；`completed` 始终关联真实保存且内容一致的结果消息。结果物化失败时，已保存的 `outcome_ready` 为下一次提交提供原 ToolResult。
+
+## JSON 与类型边界
+
+`agent/json.ts` 为 Recorder、Repository 和工具参数指纹提供统一的 JSON 规范化语义。规范化先执行标准 JSON 序列化，再按确定性字符串全序排列对象键并生成稳定文本；对象中的 `undefined` 字段沿用省略语义，数组中的 `undefined` 沿用 `null` 语义，数组顺序与显式 `null` 保持各自含义。纯身份模块 `tools/identity.ts` 生成工具参数指纹，历史账本使用保存的规范化文本完成兼容核对。
+
+Repository 通过 `readModelMessage()` 验证消息角色、正文、工具调用、推理与媒体字段；读取 entry 时核对 `payload_version = 1`。`readToolResult()` 验证输出、返回码、截断标记、错误、媒体和文件产物，`readToolCheckpoint()` 验证恢复证据的版本、类型和数据对象。工具恢复器进一步解释工具私有 checkpoint。
+
+Runtime 与 Repository 共用 `toolResultMessage()` 构造模型消息，Repository 将结果消息与持久化 outcome 对照。Renderer 接收既有公共结果投影，执行控制字段归属后端账本。
+
+`typecheck:tests` 使用 `tsconfig.tests.json` 对 Agent 与 Shell 测试执行 strict 类型检查，并进入默认 `typecheck` 门禁。测试替身使用真实 Recorder 契约，执行接口变更同步接受编译验证。
+
+`run_cancellations` 保存用户主动停止的事实：`run_id` 为主键，`project_id` 绑定原运行范围，`cancelled_at` 保存提交时间。Main 在触发 AbortSignal 前提交这条记录；该入口直接执行 SQLite 短事务，避免取消排在助手草稿写队列之后。`beginToolAttempt()` 在同一事务中检查取消事实，已取消的 run 无法开始或重放工具。
+
+Runtime 结束取消运行时，为该 run 每条开放调用补齐 Tool Message：`planned` 直接结算为 `cancelled`；未知结果的 `effect_pending` 保存 `interrupted`，保留 checkpoint 和 attemptCount，供用户核对现场；已确定的 `outcome_ready` 复用原结果。若取消提交后进程异常退出，下一次启动仍依据持久取消事实走相同结算路径。恢复期间用户再次停止时，当前恢复队列所属旧 run 同样保存取消事实。
 
 ## 模型上下文顺序
 
@@ -163,3 +203,5 @@ HistoryRecorder(null).snapshot()
 ## 数据库存储
 
 SQLite 保存在 Electron `app.getPath("userData")` 下的 `agent-sessions.sqlite`。数据库使用 WAL、外键约束、FULL synchronous 和有界 busy timeout。应用目录保持用户项目原样，项目目录树和项目元数据存储在应用数据库中。
+
+当前 schema 为 v10，消息表采用固定 `created_at`、可空 `completed_at` 和运行 `duration_ms`。已有项目范围数据库保留项目、历史、工具账本、待处理输入和取消事实。早期 sessions 数据库直接迁移到无项目范围：v1 创建初始工具账本，v2 等已有账本的版本保留工具阶段与恢复证据；遗留空 `cwd` 在恢复时结算为需新请求的 `interrupted`。历史重建、时间字段转换、旧表替换和版本推进在同一事务中完成，迁移错误通过事务回滚保留原始记录。

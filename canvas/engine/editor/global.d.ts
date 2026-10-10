@@ -5,9 +5,6 @@ interface Window {
   AGENT_CANVAS_EXPORT_SOURCE: string;
   AGENT_CANVAS_THROTTLE_RENDER: boolean | undefined;
   DEBUG_FRACTIONAL_INDICES: boolean | undefined;
-  gtag: Function;
-  sa_event: Function;
-  fathom: { trackEvent: Function };
 }
 
 interface CanvasRenderingContext2D {
@@ -42,7 +39,7 @@ declare module "png-chunk-text" {
   function decode(data: Uint8Array): { keyword: string; text: string };
 }
 declare module "png-chunks-encode" {
-  function encode(chunks: TEXtChunk[]): Uint8Array;
+  function encode(chunks: TEXtChunk[]): Uint8Array<ArrayBuffer>;
   export = encode;
 }
 declare module "png-chunks-extract" {
@@ -93,18 +90,9 @@ declare module "image-blob-reduce" {
 
     interface ImageBlobReduceOptions extends PicaResizeOptions {
       max: number;
+      alpha?: boolean;
     }
   }
   const reduce: ImageBlobReduce.ImageBlobReduceStatic;
   export = reduce;
-}
-
-interface CustomMatchers {
-  toBeNonNaNNumber(): void;
-  toCloselyEqualPoints(points: readonly [number, number][]): void;
-}
-
-declare namespace jest {
-  interface Expect extends CustomMatchers {}
-  interface Matchers extends CustomMatchers {}
 }

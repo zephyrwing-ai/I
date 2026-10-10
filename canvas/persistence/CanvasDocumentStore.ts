@@ -1,7 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CanvasBinaryFile, CanvasDocument, CanvasElementRecord } from "../../shell/shared/ipc.js";
+import type {
+  CanvasBinaryFile,
+  CanvasDocument,
+  CanvasDocumentResult,
+  CanvasElementRecord,
+  CanvasPersistenceVersion,
+  CanvasSaveResult,
+} from "../../shell/shared/ipc.js";
 
 const MAX_ELEMENTS = 20_000;
 const MAX_FILES = 1_000;
@@ -36,35 +43,37 @@ export class CanvasDocumentStore {
     }
   }
 
-  async load(projectId: string | null): Promise<{ document: CanvasDocument; revision: number }> {
+  async load(projectId: string | null): Promise<CanvasDocumentResult> {
     const scope = canvasScopeKey(projectId);
     await this.pendingSaves.get(scope);
     const paths = this.paths(scope);
     const stored = await readStoredDocument(paths.documentPath);
-    if (!stored) return { document: emptyCanvasDocument(), revision: 0 };
+    if (!stored) return { document: emptyCanvasDocument(), version: persistenceVersion(null) };
 
-    const files: Record<string, CanvasBinaryFile> = {};
-    for (const [id, file] of Object.entries(stored.files ?? {})) {
-      validateFileId(id);
+    const files: Record<string, CanvasBinaryFile> = Object.create(null);
+    for (const [id, file] of Object.entries(stored.files)) {
       const asset = await readFile(this.assetPath(paths.directory, id, file));
       const { assetName: _assetName, ...metadata } = file;
       files[id] = { ...metadata, dataURL: toDataURL(file.mimeType, asset) };
     }
     return {
       document: {
-        elements: Array.isArray(stored.elements) ? stored.elements : [],
-        appState: isObject(stored.appState) ? stored.appState : {},
+        elements: stored.elements,
+        appState: stored.appState,
         files,
       },
-      revision: stored.revision,
+      version: persistenceVersion(stored),
     };
   }
 
-  save(projectId: string | null, document: CanvasDocument): Promise<number> {
+  save(projectId: string | null, document: CanvasDocument, expectedVersion: CanvasPersistenceVersion): Promise<CanvasSaveResult> {
     const scope = canvasScopeKey(projectId);
-    validateDocument(document);
+    const snapshot = structuredClone(document);
+    const baseline = { ...expectedVersion };
+    validateDocument(snapshot);
+    validateVersion(baseline);
     const previous = this.pendingSaves.get(scope) ?? Promise.resolve();
-    const result = previous.then(() => this.write(this.paths(scope), document));
+    const result = previous.then(() => this.write(this.paths(scope), snapshot, baseline));
     // A failed write does not poison subsequent saves for this project.
     const settled = result.then(() => undefined, () => undefined);
     this.pendingSaves.set(scope, settled);
@@ -74,10 +83,15 @@ export class CanvasDocumentStore {
     return result;
   }
 
-  private async write(paths: ScopePaths, document: CanvasDocument): Promise<number> {
-    await mkdir(paths.directory, { recursive: true });
+  private async write(
+    paths: ScopePaths,
+    document: CanvasDocument,
+    expectedVersion: CanvasPersistenceVersion,
+  ): Promise<CanvasSaveResult> {
     const previous = await readStoredDocument(paths.documentPath);
-    const storedFiles: Record<string, StoredCanvasFile> = {};
+    const previousVersion = persistenceVersion(previous);
+    const storedFiles: Record<string, StoredCanvasFile> = Object.create(null);
+    const assets = new Map<string, Buffer | null>();
 
     for (const [id, file] of Object.entries(document.files)) {
       const metadata: StoredCanvasFile = {
@@ -91,28 +105,42 @@ export class CanvasDocumentStore {
         const bytes = decodeDataURL(file.dataURL, file.mimeType);
         const digest = createHash("sha256").update(bytes).digest("hex");
         metadata.assetName = `${id}.${digest}.${fileExtension(file.mimeType)}`;
-        const assetPath = join(paths.directory, metadata.assetName);
-        try {
-          await stat(assetPath);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-          await writeAtomic(assetPath, bytes);
-        }
+        assets.set(join(paths.directory, metadata.assetName), bytes);
       } else {
         const oldFile = previous?.files?.[id];
         if (oldFile?.mimeType === file.mimeType && oldFile.assetName) metadata.assetName = oldFile.assetName;
-        await stat(this.assetPath(paths.directory, id, metadata));
+        assets.set(this.assetPath(paths.directory, id, metadata), null);
       }
       storedFiles[id] = metadata;
     }
 
-    const nextRevision = (previous?.revision ?? 0) + 1;
     const stored: StoredCanvasDocument = {
-      revision: nextRevision,
+      revision: previousVersion.revision + 1,
       elements: document.elements,
       appState: document.appState,
       files: storedFiles,
     };
+    const nextVersion = persistenceVersion(stored);
+    // Identical scene content can acknowledge a lost reply after its assets are verified.
+    const sameContent = nextVersion.fingerprint === previousVersion.fingerprint;
+    if (!sameContent && !sameVersion(expectedVersion, previousVersion)) return { status: "conflict", version: previousVersion };
+    if (!sameContent && !Number.isSafeInteger(stored.revision)) throw new Error("The canvas revision limit has been reached.");
+
+    if (assets.size > 0 || !sameContent) await mkdir(paths.directory, { recursive: true });
+    for (const [assetPath, bytes] of assets) {
+      try {
+        const asset = await stat(assetPath);
+        if (!asset.isFile()) throw new Error("The canvas image asset is invalid.");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || bytes === null) throw error;
+        await writeAtomic(assetPath, bytes);
+      }
+    }
+    // Asset preparation yields to other writers; verify the scene again at the commit boundary.
+    const currentVersion = persistenceVersion(await readStoredDocument(paths.documentPath));
+    if (nextVersion.fingerprint === currentVersion.fingerprint) return { status: "saved", version: currentVersion };
+    if (!sameVersion(previousVersion, currentVersion)) return { status: "conflict", version: currentVersion };
+
     // Immutable assets are published first; replacing the scene is the commit point.
     await writeAtomic(paths.documentPath, JSON.stringify(stored));
     for (const [id, oldFile] of Object.entries(previous?.files ?? {})) {
@@ -124,7 +152,7 @@ export class CanvasDocumentStore {
         // Asset cleanup follows the committed scene and can be retried later.
       }
     }
-    return nextRevision;
+    return { status: "saved", version: nextVersion };
   }
 
   private paths(scope: string): ScopePaths {
@@ -162,9 +190,50 @@ async function readStoredDocument(path: string): Promise<StoredCanvasDocument | 
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
-  const stored = JSON.parse(serialized) as StoredCanvasDocument;
-  stored.revision = Number.isSafeInteger(stored.revision) && stored.revision >= 0 ? stored.revision : 0;
+  const parsed: unknown = JSON.parse(serialized);
+  if (!isObject(parsed)) throw new Error("The stored canvas document is invalid.");
+  const stored: StoredCanvasDocument = {
+    revision: parsed.revision === undefined ? 0 : parsed.revision,
+    elements: parsed.elements === undefined ? [] : parsed.elements,
+    appState: parsed.appState === undefined ? {} : parsed.appState,
+    files: parsed.files === undefined ? {} : parsed.files,
+  };
+  if (!Number.isSafeInteger(stored.revision) || stored.revision < 0) {
+    throw new Error("The stored canvas revision is invalid.");
+  }
+  validateDocument(stored);
+  for (const [id, file] of Object.entries(stored.files)) {
+    if (file.assetName !== undefined && (typeof file.assetName !== "string" || !isAssetName(id, file.assetName))) {
+      throw new Error("The canvas image asset path is invalid.");
+    }
+  }
   return stored;
+}
+
+function persistenceVersion(document: StoredCanvasDocument | null): CanvasPersistenceVersion {
+  const { elements, appState, files } = document ?? emptyCanvasDocument();
+  return {
+    revision: document?.revision ?? 0,
+    fingerprint: createHash("sha256").update(canonicalJSON({ elements, appState, files })).digest("hex"),
+  };
+}
+
+/** JSON normalization preserves array order while treating object key order as formatting. */
+function canonicalJSON(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) => {
+    if (!isObject(item)) return item;
+    return Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]]));
+  });
+}
+
+function sameVersion(a: CanvasPersistenceVersion, b: CanvasPersistenceVersion): boolean {
+  return a.revision === b.revision && a.fingerprint === b.fingerprint;
+}
+
+function validateVersion(version: CanvasPersistenceVersion): void {
+  if (!Number.isSafeInteger(version.revision) || version.revision < 0 || !/^[a-f0-9]{64}$/.test(version.fingerprint)) {
+    throw new Error("The canvas persistence version is invalid.");
+  }
 }
 
 async function writeAtomic(path: string, contents: Buffer | string): Promise<void> {
@@ -181,13 +250,20 @@ function validateDocument(document: CanvasDocument): void {
   if (!document || !Array.isArray(document.elements) || document.elements.length > MAX_ELEMENTS) {
     throw new Error("The canvas scene is invalid or too large.");
   }
+  if (document.elements.some((element) => !isObject(element))) throw new Error("The canvas scene contains an invalid element.");
   if (!isObject(document.appState) || !isObject(document.files) || Object.keys(document.files).length > MAX_FILES) {
     throw new Error("The canvas state is invalid.");
   }
   for (const [id, file] of Object.entries(document.files)) {
     validateFileId(id);
-    if (!file || typeof file.mimeType !== "string" || !/^image\/[a-z0-9.+-]{1,64}$/i.test(file.mimeType)) {
+    if (!isObject(file) || typeof file.mimeType !== "string" || !/^image\/[a-z0-9.+-]{1,64}$/i.test(file.mimeType)) {
       throw new Error("The canvas contains an unsupported image asset.");
+    }
+    if (file.id !== id || !Number.isFinite(file.created) ||
+      (file.lastRetrieved !== undefined && !Number.isFinite(file.lastRetrieved)) ||
+      (file.version !== undefined && !Number.isFinite(file.version)) ||
+      (file.dataURL !== undefined && typeof file.dataURL !== "string")) {
+      throw new Error("The canvas image metadata is invalid.");
     }
     if (file.dataURL) decodeDataURL(file.dataURL, file.mimeType);
   }

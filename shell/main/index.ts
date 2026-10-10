@@ -2,10 +2,13 @@
  * Electron 主进程入口 — 创建窗口、注册 IPC、装配 AgentRunner。
  */
 
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, webContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell, webContents } from "electron";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import appIconPath from "../../frontend/src/assets/app-icon.png?asset";
+import applicationMetadata from "../../package.json";
 import {
   IPC,
   type DeleteProviderResult,
@@ -40,7 +43,8 @@ import { HistoryService } from "./session-history.js";
 import { ProjectRegistry } from "./project-registry.js";
 import { CanvasContextRegistry } from "../../canvas/context/CanvasContextRegistry.js";
 import { CanvasDocumentStore } from "../../canvas/persistence/CanvasDocumentStore.js";
-import { CanvasEditBridge } from "./canvas-edit-bridge.js";
+import { CanvasEditBridge, CanvasEditBridgeError } from "./canvas-edit-bridge.js";
+import { CanvasCliExecutor } from "./canvas-cli-executor.js";
 import {
   createHistoryRecorder,
   SqliteHistoryRepository,
@@ -49,6 +53,15 @@ import {
 } from "../../agent/memory/index.js";
 
 const mainProcessDirectory = fileURLToPath(new URL(".", import.meta.url));
+const { name: storageIdentity, productName } = applicationMetadata;
+
+// 产品展示名与持久化身份分别配置，历史数据和钥匙串沿用同一身份。
+app.setName(storageIdentity);
+const userDataDirectory = app.commandLine.getSwitchValue("user-data-dir")
+  || join(app.getPath("appData"), storageIdentity);
+mkdirSync(userDataDirectory, { recursive: true });
+app.setPath("userData", userDataDirectory);
+app.setPath("sessionData", userDataDirectory);
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -56,7 +69,7 @@ function createWindow(): BrowserWindow {
     height: 820,
     minWidth: 840,
     minHeight: 560,
-    title: "",
+    title: productName,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 20 },
     show: false,
@@ -120,6 +133,7 @@ function registerIpc(
       const resolvedCanvasContexts = canvasContexts.peekMany(canvasContextIds, projectId);
       const historyRecorder = await getHistoryRecorder(projectId);
       const inputId = randomUUID();
+      const createdAt = Date.now();
       if (projects.activeScope !== projectId) {
         return { ok: false, error: "The selected project changed. Send the task again." };
       }
@@ -131,6 +145,7 @@ function registerIpc(
         historyRecorder,
         runId,
         initialUserEntryId: inputId,
+        initialUserCreatedAt: createdAt,
         ownerWebContentsId: event.sender.id,
         runScopedContext: active.projectContext,
         canvasContexts: resolvedCanvasContexts,
@@ -141,7 +156,7 @@ function registerIpc(
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
       canvasContexts.consumeMany(canvasContextIds);
-      return { ok: true, runId: handle.runId, inputId };
+      return { ok: true, runId: handle.runId, inputId, createdAt };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -283,7 +298,7 @@ function registerIpc(
     if (!request || !activatedCanvasProjects.has(request.projectId)) {
       throw new Error("The canvas project identity is invalid.");
     }
-    return { revision: await canvasDocuments.save(request.projectId, request.document) };
+    return canvasDocuments.save(request.projectId, request.document, request.expectedVersion);
   });
 
   ipcMain.handle(IPC.prepareCanvasContext, async (_event, input: CanvasContextInput) => {
@@ -318,6 +333,31 @@ function registerIpc(
 }
 
 app.whenReady().then(async () => {
+  app.setAboutPanelOptions({ applicationName: productName });
+  if (process.platform === "darwin") {
+    app.dock?.setIcon(appIconPath);
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      {
+        label: productName,
+        submenu: [
+          { role: "about", label: `About ${productName}` },
+          { type: "separator" },
+          { role: "services" },
+          { type: "separator" },
+          { role: "hide", label: `Hide ${productName}` },
+          { role: "hideOthers" },
+          { role: "unhide" },
+          { type: "separator" },
+          { role: "quit", label: `Quit ${productName}` },
+        ],
+      },
+      { role: "fileMenu" },
+      { role: "editMenu" },
+      { role: "viewMenu" },
+      { role: "windowMenu" },
+    ]));
+  }
+
   const historyRepository = new SqliteHistoryRepository(join(app.getPath("userData"), "agent-sessions.sqlite"));
   const projects = new ProjectRegistry(historyRepository);
   const historyService = new HistoryService(() => projects.activeScope, historyRepository);
@@ -367,17 +407,18 @@ app.whenReady().then(async () => {
       return () => owner.removeListener("destroyed", callback);
     },
   });
+  const canvasCli = new CanvasCliExecutor((ownerWebContentsId, request, signal) => {
+    if (projects.activeScope !== request.projectId) {
+      throw new CanvasEditBridgeError("canvas_unavailable", "The Canvas project changed before the edit could be applied.");
+    }
+    return canvasEditBridge.request(ownerWebContentsId, request, signal);
+  });
   const runner = new AgentRunner((runId, cwd, artifacts, projectId) => {
     void projects.markContextDirty(projectId);
     return outputFiles.register(runId, cwd, artifacts);
   }, {
     enableCreateWithoutSelection: true,
-    execute: (ownerWebContentsId, request, signal) => {
-      if (projects.activeScope !== request.projectId) {
-        throw new Error("The Canvas project changed before the edit could be applied.");
-      }
-      return canvasEditBridge.request(ownerWebContentsId, request, signal);
-    },
+    execute: (ownerWebContentsId, request, signal) => canvasCli.execute(ownerWebContentsId, request, signal),
   });
   registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, canvasDocuments, canvasEditBridge, projects, historyService, getHistoryRecorder);
   createWindow();
@@ -387,6 +428,7 @@ app.whenReady().then(async () => {
     event.preventDefault();
     closing = true;
     runner.stop();
+    canvasCli.dispose();
     canvasEditBridge.dispose();
     void (async () => {
       try {

@@ -29,7 +29,7 @@ export async function copyMessageText(text: string): Promise<void> {
 
 /**
  * 消息元信息行：发送时间 + 复制图标。用户消息右对齐、模型消息左对齐，与消息下缘间距 8px；
- * 默认隐藏，悬停或键盘聚焦消息区域时 120ms 淡入。
+ * 元信息行始终可见，鼠标悬停不改变其可见性。
  * 复制图标 14×14px、无背景；点击把消息全文写入剪贴板，成功或失败时显示短暂反馈。
  */
 export function MessageMeta({
@@ -37,7 +37,7 @@ export function MessageMeta({
   text,
   copyLabel = "Copy message",
 }: {
-  time: number;
+  time?: number;
   text: string;
   copyLabel?: string;
 }) {
@@ -70,8 +70,8 @@ export function MessageMeta({
   const iconName = copyState === "success" ? "check" : copyState === "error" ? "warning" : "copy";
 
   return (
-    <div className={`message-meta${copyState !== "idle" ? " has-copy-feedback" : ""}`}>
-      <span className="message-time">{formatMessageTime(time)}</span>
+    <div className="message-meta">
+      {time !== undefined && <span className="message-time">{formatMessageTime(time)}</span>}
       <button
         type="button"
         className={`message-copy${copyState === "success" ? " is-copied" : ""}${copyState === "error" ? " is-copy-error" : ""}`}

@@ -27,7 +27,6 @@ export const actionLink = register({
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     };
   },
-  trackEvent: { category: "hyperlink", action: "click" },
   keyTest: (event) => event[KEYS.CTRL_OR_CMD] && event.key === KEYS.K,
   predicate: (elements, appState) => {
     const selectedElements = getSelectedElements(elements, appState);

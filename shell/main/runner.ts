@@ -7,13 +7,15 @@ import type { PendingRunInput } from "../../agent/memory/types.js";
 import type { ResolvedCanvasContext } from "../../canvas/context/CanvasContextRegistry.js";
 import type { ResolvedAttachment } from "./input-attachments.js";
 import { createLocalBashOps } from "../../agent/environment.js";
-import { createToolRegistry, type ToolResult as InternalToolResult } from "../../agent/tools/index.js";
+import { createToolRegistry } from "../../agent/tools/index.js";
 import { createCanvasEditTool, type CanvasEditExecutor } from "../../agent/tools/canvas-edit.js";
 import type { FileArtifact } from "../../agent/types.js";
-import type { AgentEvent, OutputFileDescriptor, Provider, SteerRequest, ToolResult } from "../shared/ipc.js";
+import type { AgentEvent, OutputFileDescriptor, Provider, SteerRequest } from "../shared/ipc.js";
+import { toPublicToolResult } from "../shared/tool-result.js";
 import { RunInputInbox } from "./run-input-inbox.js";
 
 const SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
+const CANVAS_SYSTEM_PROMPT = `${SYSTEM_PROMPT}\nLive Canvas edits use canvas_edit. Submit element operations to the current editor, which owns the live scene and project persistence. Existing targets come from Use selection or successful Canvas edits in this run. A persistence_conflict result pauses Canvas saving; ask the user to resolve it using the Canvas controls. File tools serve project files and user-requested exports.`;
 const MAX_CANVAS_EDIT_BASE_ELEMENTS = 1_000;
 
 export interface RunnerHandle {
@@ -39,6 +41,7 @@ export interface ResolvedRunRequest {
   runId?: string;
   /** Main assigns the persisted ID for the initial user entry. */
   initialUserEntryId?: string;
+  initialUserCreatedAt?: number;
   ownerWebContentsId?: number;
   /** Project and other context that lives only in this model run and is never recorded. */
   runScopedContext?: ModelMessage[];
@@ -56,7 +59,7 @@ export type ArtifactRegistrar = (
 export class AgentRunner {
   private controller = new AbortController();
   private active = false;
-  private activeRun: { runId: string; projectId: HistoryScope; ownerWebContentsId?: number; inbox: RunInputInbox } | null = null;
+  private activeRun: { runId: string; projectId: HistoryScope; ownerWebContentsId?: number; inbox: RunInputInbox; recorder: HistoryRecorder; cancellation?: Promise<void> } | null = null;
   private readonly idleResolvers = new Set<() => void>();
   // Filesystem capabilities belong to the runtime, while cwd and projectId
   // identify the current run's execution and history scopes independently.
@@ -99,7 +102,8 @@ export class AgentRunner {
     this.controller = new AbortController();
     this.active = true;
     const inbox = new RunInputInbox(runId, req.projectId, recorder);
-    this.activeRun = { runId, projectId: req.projectId, ownerWebContentsId: req.ownerWebContentsId, inbox };
+    const activeRun = { runId, projectId: req.projectId, ownerWebContentsId: req.ownerWebContentsId, inbox, recorder } as NonNullable<AgentRunner["activeRun"]>;
+    this.activeRun = activeRun;
     const emitOnce = (() => {
       let completed = false;
       return (event: AgentEvent) => {
@@ -157,13 +161,15 @@ export class AgentRunner {
     setImmediate(() => {
       void run(req.task, modelConfig, {
         runId,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: tools.has("canvas_edit") ? CANVAS_SYSTEM_PROMPT : SYSTEM_PROMPT,
         cwd: req.cwd,
         tools,
         signal: this.controller.signal,
         recorder,
         initialUserEntryId: req.initialUserEntryId,
+        initialUserCreatedAt: req.initialUserCreatedAt,
         steeringInbox: inbox,
+        cancellationBarrier: () => activeRun.cancellation ?? Promise.resolve(),
         runScopedContext: [
           ...(req.runScopedContext ?? []),
           ...(req.canvasContexts?.map(toModelMessage) ?? []),
@@ -198,7 +204,18 @@ export class AgentRunner {
       && this.activeRun?.ownerWebContentsId !== undefined
       && this.activeRun.ownerWebContentsId !== senderWebContentsId) return;
     if (this.active) {
-      this.activeRun?.inbox.stopAdmission();
+      const active = this.activeRun;
+      active?.inbox.stopAdmission();
+      if (active && !active.cancellation) {
+        try {
+          active.cancellation = active.recorder.requestRunCancellation(active.runId);
+        } catch (error) {
+          active.cancellation = Promise.reject(error);
+        }
+        // Runtime observes the original promise and reports storage failure.
+        // IPC's fire-and-forget stop listener must never throw or reject.
+        void active.cancellation.catch(() => undefined);
+      }
       this.controller.abort();
     }
   }
@@ -237,15 +254,5 @@ function toModelMessage(context: ResolvedCanvasContext): ModelMessage {
     role: "user",
     content: `Canvas selection JSON for this run:\n${context.text}`,
     ...(context.visual ? { media: { mediaType: context.visual.mediaType, dataUrl: context.visual.dataURL } } : {}),
-  };
-}
-
-function toPublicToolResult(result: InternalToolResult): ToolResult {
-  return {
-    ok: result.ok,
-    output: result.output,
-    returncode: result.returncode,
-    truncated: result.truncated,
-    error: result.error,
   };
 }

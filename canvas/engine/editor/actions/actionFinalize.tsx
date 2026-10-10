@@ -21,7 +21,6 @@ import { isPathALoop } from "../shapes";
 export const actionFinalize = register({
   name: "finalize",
   label: "",
-  trackEvent: false,
   perform: (elements, appState, _, app) => {
     const { interactiveCanvas, focusContainer, scene } = app;
 
@@ -175,7 +174,6 @@ export const actionFinalize = register({
           multiPointElement
             ? appState.activeTool
             : activeTool,
-        activeEmbeddable: null,
         newElement: null,
         selectionElement: null,
         multiElement: null,

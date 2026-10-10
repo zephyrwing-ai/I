@@ -1,24 +1,35 @@
 import { randomUUID } from "node:crypto";
-import type { HistoryRecorder, ToolInvocationRecord, ToolOutcomeStatus } from "./memory/types.js";
+import { RepositoryError, ToolAttemptBlockedError, type HistoryRecorder, type ToolInvocationPlan, type ToolInvocationRecord } from "./memory/types.js";
 import { response, type ModelConfig } from "./model/index.js";
 import { ModelAdapterError, type LlmResponse, type ModelMessage, type ToolCall, type ToolDef } from "./model/types.js";
-import { canonicalJson, toolInputHash } from "./tools/recovery.js";
-import type { RegisteredTool, ToolRecoveryResult, ToolResult } from "./tools/index.js";
+import { canonicalJson } from "./json.js";
+import { toolInputHash } from "./tools/identity.js";
+import type { RegisteredTool, PreparedToolExecution, ToolExecutionContext, ToolRecoveryResult, ToolResult } from "./tools/index.js";
+import { readToolCheckpoint, readToolResult, toolOutcomeStatus, toolResultMessage } from "./tools/result.js";
 
 export type RunStatus = "completed" | "cancelled" | "failed";
 
-export interface ModelRetryConfig {
-  /** 一次逻辑 turn 包含的总模型尝试次数。 */
+interface RetryConfig {
+  /** 一次操作的总尝试次数，包含首次调用。 */
   maxAttempts?: number;
   /** 首次重试等待时间；测试可设为 0。 */
   baseDelayMs?: number;
   maxDelayMs?: number;
 }
 
+export type ModelRetryConfig = RetryConfig;
+export type CommitRetryConfig = RetryConfig;
+
 const DEFAULT_MODEL_RETRY: Required<ModelRetryConfig> = {
   maxAttempts: 3,
   baseDelayMs: 1000,
   maxDelayMs: 8000,
+};
+
+const DEFAULT_COMMIT_RETRY: Required<CommitRetryConfig> = {
+  maxAttempts: 3,
+  baseDelayMs: 250,
+  maxDelayMs: 1000,
 };
 
 export interface AgentRunConfig {
@@ -32,13 +43,19 @@ export interface AgentRunConfig {
   /** 测试注入点：与 provider-model-discovery 的 fetchImpl 同理。 */
   responseImpl?: typeof response;
   modelRetry?: ModelRetryConfig;
+  /** Retries the same complete response locally, without another model request. */
+  commitRetry?: CommitRetryConfig;
   /** Clock injection keeps run-level duration deterministic in tests. */
   clock?: () => number;
   /** Context supplied for this run only; it is intentionally not committed. */
   runScopedContext?: ModelMessage[];
   /** Main-generated ID shared with the optimistic initial user message. */
   initialUserEntryId?: string;
+  /** Fixed user creation time shared with the admission ACK and history entry. */
+  initialUserCreatedAt?: number;
   steeringInbox?: AgentSteeringInbox;
+  /** The host persists Stop before aborting; failures must reach run completion. */
+  cancellationBarrier?: () => Promise<void>;
 }
 
 export interface SteeringInput {
@@ -84,7 +101,7 @@ export interface AgentEvents {
   onTurnStart?: (ctx: TurnContext) => void;
   onReasoningDelta?: (delta: string, ctx: TurnContext) => void;
   onAssistantDelta?: (delta: string, ctx: TurnContext) => void;
-  onAssistantCompleted?: (response: LlmResponse, ctx: TurnContext) => void;
+  onAssistantCompleted?: (response: LlmResponse, ctx: TurnContext & { completedAt: number }) => void;
   onToolStart?: (call: ToolCall, ctx: TurnContext) => void;
   onToolCompleted?: (call: ToolCall, result: ToolResult, ctx: TurnContext) => void;
   onTurnRetrying?: (ctx: {
@@ -162,12 +179,16 @@ export async function run(
   const startedAt = new Date(runStartedAt).toISOString();
   const messages: ModelMessage[] = [...(config.recorder?.snapshot() ?? [])];
   const userMessage: ModelMessage = { role: "user", content: task };
+  const initialUserEntryId = config.initialUserEntryId ?? randomUUID();
+  const initialUserCreatedAt = config.initialUserCreatedAt ?? runStartedAt;
   const tools = [...config.tools.values()].map((tool) => tool.definition);
   const retryConfig = { ...DEFAULT_MODEL_RETRY, ...config.modelRetry };
+  const commitRetryConfig = { ...DEFAULT_COMMIT_RETRY, ...config.commitRetry };
   let turnOrdinal = 0;
   let currentTurnId: string | undefined;
   let attempt = 0;
   let finished = false;
+  let initialUserCommitted = false;
   let readyInputs: SteeringInput[] = [];
 
   const finish = async (status: RunStatus, error?: AgentError, finalTurnId?: string) => {
@@ -177,13 +198,23 @@ export async function run(
     let finalError = error;
     let unappliedInputIds: string[] = [];
     try {
+      if (status === "cancelled") {
+        await config.cancellationBarrier?.();
+        await config.recorder?.requestRunCancellation(config.runId);
+        if (!initialUserCommitted && config.recorder) {
+          await config.recorder.archiveUnappliedUser(userMessage, { runId: config.runId, entryId: initialUserEntryId, createdAt: initialUserCreatedAt });
+          unappliedInputIds.push(initialUserEntryId);
+        }
+        await recoverOpenToolInvocations(config, config.runId, true);
+      }
       await config.recorder?.finishRun({ runId: config.runId, status });
     } catch (finishError) {
       finalStatus = "failed";
       finalError = toAgentError(finishError);
     }
     try {
-      unappliedInputIds = await config.steeringInbox?.closeAndAbandon(finalStatus) ?? [];
+      const abandoned = await config.steeringInbox?.closeAndAbandon(finalStatus) ?? [];
+      unappliedInputIds = [...new Set([...unappliedInputIds, ...abandoned])];
     } catch (abandonError) {
       finalStatus = "failed";
       finalError = toAgentError(abandonError);
@@ -229,14 +260,17 @@ export async function run(
   };
 
   try {
-    await recoverOpenToolInvocations(config, messages);
+    if (config.signal?.aborted) return finish("cancelled");
+    await recoverOpenToolInvocations(config);
+    if (config.signal?.aborted) return finish("cancelled");
     if (config.recorder) messages.splice(0, messages.length, ...config.recorder.snapshot());
   } catch (error) {
     return finish("failed", toAgentError(error));
   }
 
   try {
-    await config.recorder?.commitUser(userMessage, { runId: config.runId, entryId: config.initialUserEntryId });
+    await config.recorder?.commitUser(userMessage, { runId: config.runId, entryId: initialUserEntryId, createdAt: initialUserCreatedAt });
+    initialUserCommitted = true;
   } catch (error) {
     return finish("failed", toAgentError(error));
   }
@@ -293,13 +327,24 @@ export async function run(
 
     if (outcome.kind === "answer" || outcome.kind === "tool_calls") {
       const message = assistantMessage(outcome.response);
+      const commitContext = { ...ctx, entryId: randomUUID(), completedAt: clock() };
+      let invocations = new Map<string, ToolInvocationRecord>();
       try {
-        await config.recorder?.finishAssistantAttempt(ctx, "completed", message);
+        // Logical identities stay fixed across storage retries; preparation belongs to each execution attempt.
+        const inputs = outcome.kind === "tool_calls" ? planToolBatch(outcome.response.toolCalls, ctx, config) : [];
+        await commitWithRetry(async () => {
+          if (config.recorder) {
+            const records = await config.recorder.finishAssistantAttempt(commitContext, "completed", message, inputs);
+            invocations = new Map(records.map((record) => [record.toolCallId, record]));
+          }
+        }, commitRetryConfig, config.signal);
       } catch (error) {
+        if (config.signal?.aborted) return finish("cancelled");
         return finish("failed", toAgentError(error));
       }
+      if (config.signal?.aborted) return finish("cancelled");
       messages.push(message);
-      events.onAssistantCompleted?.(outcome.response, ctx);
+      events.onAssistantCompleted?.(outcome.response, { ...ctx, completedAt: commitContext.completedAt });
 
       if (outcome.kind === "answer") {
         events.onTurnCompleted?.(ctx);
@@ -315,47 +360,32 @@ export async function run(
         return finish("completed", undefined, ctx.turnId);
       }
 
-      let invocations: Map<string, ToolInvocationRecord>;
-      try {
-        invocations = await registerToolBatch(outcome.response.toolCalls, ctx, config);
-      } catch (error) {
-        return finish("failed", toAgentError(error));
-      }
       for (const call of outcome.response.toolCalls) {
         if (config.signal?.aborted) return finish("cancelled");
         events.onToolStart?.(call, ctx);
         const invocation = invocations.get(call.id);
-        let executionInvocation = invocation;
         let toolResult: ToolResult;
-        if (invocation?.phase === "completed" || invocation?.phase === "outcome_ready") {
-          toolResult = toolResultFromInvocation(invocation);
-        } else {
-          const recovered = invocation?.phase === "effect_pending"
-            ? await recoverToolInvocation(call, invocation, config)
-            : undefined;
-          if (recovered?.kind === "succeeded") toolResult = recovered.result;
-          else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
-          else {
-            if (invocation && config.recorder) executionInvocation = await config.recorder.beginToolAttempt(invocation.id);
-            try {
-              toolResult = await executeTool(call, config.tools, executionInvocation?.cwd ?? config.cwd, config.signal, executionInvocation);
-            } catch (error) {
-              toolResult = interruptedToolResult(error instanceof Error ? error.message : String(error));
+        let toolMessage: ModelMessage;
+        try {
+          let executionInvocation = invocation;
+          if (invocation?.phase === "completed" || invocation?.phase === "outcome_ready") {
+            toolResult = toolResultFromInvocation(invocation);
+          } else {
+            const recovered = invocation?.phase === "effect_pending"
+              ? await recoverToolInvocation(call, invocation, config)
+              : undefined;
+            if (recovered?.kind === "succeeded") toolResult = recovered.result;
+            else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
+            else {
+              const executed = await executeToolAttempt(call, config, invocation);
+              executionInvocation = executed.invocation;
+              toolResult = executed.result;
             }
           }
-        }
-        const toolMessage: ModelMessage = { role: "tool", content: formatToolResult(toolResult), toolCallId: call.id, toolName: call.name, isError: !toolResult.ok, media: toolResult.media };
-        const resultEntryId = executionInvocation?.resultEntryId ?? randomUUID();
-        try {
-          if (executionInvocation && config.recorder) {
-            await config.recorder.saveToolOutcome(executionInvocation.id, {
-              status: toolOutcomeStatus(toolResult),
-              outcome: toolResult,
-            });
-          }
-          await config.recorder?.commitToolResult(toolMessage, { ...ctx, toolCallId: call.id, entryId: resultEntryId });
-          if (executionInvocation && config.recorder) await config.recorder.completeToolInvocation(executionInvocation.id, resultEntryId);
+          toolMessage = await materializeToolResult(call, toolResult, config, executionInvocation, ctx);
         } catch (error) {
+          if (error instanceof ToolAttemptBlockedError && error.reason === "cancelled") return finish("cancelled");
+          if (config.signal?.aborted && !(error instanceof RepositoryError)) return finish("cancelled");
           return finish("failed", toAgentError(error));
         }
         messages.push(toolMessage);
@@ -476,6 +506,7 @@ function retryFailureMessage(reason: RetryReason): string {
 }
 
 function waitForRetryDelay(delayMs: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false);
   if (delayMs <= 0) return Promise.resolve(!signal?.aborted);
   return new Promise((resolve) => {
     let settled = false;
@@ -483,103 +514,107 @@ function waitForRetryDelay(delayMs: number, signal?: AbortSignal): Promise<boole
     const finish = (value: boolean) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       resolve(value);
     };
     signal?.addEventListener("abort", onAbort, { once: true });
-    setTimeout(() => finish(!signal?.aborted), delayMs);
+    const timer = setTimeout(() => finish(!signal?.aborted), delayMs);
   });
 }
 
-async function recoverOpenToolInvocations(config: AgentRunConfig, messages: ModelMessage[]): Promise<void> {
+async function commitWithRetry(operation: () => Promise<void>, policy: Required<CommitRetryConfig>, signal?: AbortSignal): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    signal?.throwIfAborted();
+    try {
+      await operation();
+      return;
+    } catch (error) {
+      if (!(error instanceof RepositoryError) || !error.retryable || attempt >= policy.maxAttempts) throw error;
+      const delayMs = Math.min(policy.maxDelayMs, policy.baseDelayMs * (2 ** (attempt - 1)));
+      if (!(await waitForRetryDelay(delayMs, signal))) throw error;
+    }
+  }
+}
+
+async function recoverOpenToolInvocations(config: AgentRunConfig, runId?: string, forceCancellation = false): Promise<void> {
   const recorder = config.recorder;
-  if (!recorder || typeof recorder.listOpenToolInvocations !== "function") return;
-  const records = await recorder.listOpenToolInvocations();
+  if (!recorder) return;
+  const records = await recorder.listOpenToolInvocations(runId);
+  let recoveryCancelled = forceCancellation;
+  const persistRecoveryCancellation = async () => {
+    if (!config.signal?.aborted || recoveryCancelled) return;
+    // Stop applies to the older batches that this run is recovering as well.
+    for (const queuedRun of new Set(records.map((record) => record.runId))) await recorder.requestRunCancellation(queuedRun);
+    recoveryCancelled = true;
+  };
   for (const invocation of records) {
     if (invocation.phase === "completed") continue;
-    let input: Record<string, unknown>;
-    try {
-      const parsed = JSON.parse(invocation.inputJson) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Tool input must be an object.");
-      input = parsed as Record<string, unknown>;
-    } catch (error) {
-      const result = interruptedToolResult(error instanceof Error ? error.message : String(error));
-      await recorder.saveToolOutcome(invocation.id, { status: "interrupted", outcome: result });
-      continue;
-    }
-    const call: ToolCall = { id: invocation.toolCallId, name: invocation.toolName, input, inputComplete: true };
+    await persistRecoveryCancellation();
+    const cancelled = recoveryCancelled || await recorder.isRunCancelled(invocation.runId);
+    const call = await recorder.getToolInvocationCall(invocation.id);
     let executionInvocation = invocation;
     let toolResult: ToolResult;
     if (invocation.phase === "outcome_ready") {
       toolResult = toolResultFromInvocation(invocation);
+    } else if (cancelled) {
+      toolResult = invocation.phase === "planned"
+        ? cancelledToolResult("This tool call was not executed because the user stopped its run.")
+        : interruptedToolResult("The user stopped this run after execution began. Its effects require confirmation; it was not replayed.");
     } else {
-      const recovered = invocation.phase === "effect_pending"
-        ? await recoverToolInvocation(call, invocation, config)
-        : invocation.phase === "planned" && config.tools.get(call.name)?.recovery.resumePlanned === false
-          ? { kind: "interrupted" as const, reason: `Tool ${call.name} belongs to an earlier run and requires a new request.` }
-          : undefined;
-      if (recovered?.kind === "succeeded") toolResult = recovered.result;
-      else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
-      else {
-        executionInvocation = await recorder.beginToolAttempt(invocation.id);
-        try {
-          toolResult = await executeTool(call, config.tools, executionInvocation.cwd, config.signal, executionInvocation);
-        } catch (error) {
+      try {
+        const registeredTool = config.tools.get(call.name);
+        const recovered = invocation.phase === "effect_pending"
+          ? await recoverToolInvocation(call, invocation, config)
+          : !invocation.cwd || !registeredTool || registeredTool.recovery.resumePlanned === false || registeredTool.recovery.version !== invocation.toolVersion
+            ? { kind: "interrupted" as const, reason: `Tool ${call.name} belongs to an earlier run and requires a new request.` }
+            : undefined;
+        if (recovered?.kind === "succeeded") toolResult = recovered.result;
+        else if (recovered?.kind === "interrupted") toolResult = recovered.result ?? interruptedToolResult(recovered.reason);
+        else if (config.signal?.aborted) {
+          toolResult = invocation.phase === "planned" ? cancelledToolResult("The user stopped recovery before this tool could execute.") : interruptedToolResult("The user stopped tool recovery; no replay was started.");
+        } else {
+          const executed = await executeToolAttempt(call, config, invocation);
+          executionInvocation = executed.invocation ?? invocation;
+          toolResult = executed.result;
+        }
+      } catch (error) {
+        // A storage failure leaves the ledger open; it must not become a fictitious tool outcome.
+        if (error instanceof ToolAttemptBlockedError && error.reason === "cancelled") {
+          toolResult = invocation.phase === "planned" ? cancelledToolResult("The run was stopped before execution intent could commit.")
+            : interruptedToolResult("The run was stopped before recovery execution intent could commit.");
+        } else {
+          if (error instanceof RepositoryError) throw error;
           toolResult = interruptedToolResult(error instanceof Error ? error.message : String(error));
         }
       }
     }
-    const toolMessage: ModelMessage = {
-      role: "tool",
-      content: formatToolResult(toolResult),
-      toolCallId: call.id,
-      toolName: call.name,
-      isError: !toolResult.ok,
-      media: toolResult.media,
-    };
-    const resultEntryId = executionInvocation.resultEntryId ?? randomUUID();
-    await recorder.saveToolOutcome(executionInvocation.id, { status: toolOutcomeStatus(toolResult), outcome: toolResult });
-    await recorder.commitToolResult(toolMessage, {
+    await persistRecoveryCancellation();
+    await materializeToolResult(call, toolResult, config, executionInvocation, {
       runId: invocation.runId,
       turnId: invocation.turnId,
       turnOrdinal: invocation.ordinal,
-      toolCallId: call.id,
-      entryId: resultEntryId,
     });
-    await recorder.completeToolInvocation(executionInvocation.id, resultEntryId);
-    if (!messages.some((message) => message.role === "tool" && message.toolCallId === call.id)) messages.push(toolMessage);
   }
 }
 
-async function registerToolBatch(
+function planToolBatch(
   calls: ToolCall[],
   ctx: TurnContext,
   config: AgentRunConfig,
-): Promise<Map<string, ToolInvocationRecord>> {
-  const records = new Map<string, ToolInvocationRecord>();
-  const recorder = config.recorder;
-  if (!recorder || typeof recorder.registerToolInvocation !== "function" || typeof recorder.getToolInvocation !== "function") return records;
+): ToolInvocationPlan[] {
+  const inputs: ToolInvocationPlan[] = [];
+  if (!config.recorder) return inputs;
   for (const [ordinal, call] of calls.entries()) {
-    const existing = await recorder.getToolInvocation(ctx.runId, call.id);
     const tool = config.tools.get(call.name);
     const toolVersion = tool?.recovery.version ?? "unknown";
     const recoveryMode = tool?.recovery.mode ?? "never";
     const inputJson = canonicalJson(call.input);
     const inputHash = toolInputHash(call.name, toolVersion, call.input);
-    if (existing) {
-      if (existing.inputHash !== inputHash || existing.toolName !== call.name) throw new Error(`Tool call identity conflict: ${call.id}`);
-      records.set(call.id, existing);
-      continue;
-    }
-    const checkpoint = tool?.recovery.prepare
-      ? await tool.recovery.prepare(call.input, { cwd: config.cwd, toolCallId: call.id })
-      : undefined;
-    const assistantEntryId = await recorder.getAssistantEntryId?.(ctx.turnId) ?? `${ctx.turnId}:assistant:${ctx.attempt}`;
-    const record = await recorder.registerToolInvocation({
+    inputs.push({
       runId: ctx.runId,
       turnId: ctx.turnId,
       cwd: config.cwd,
-      assistantEntryId,
       toolCallId: call.id,
       ordinal,
       toolName: call.name,
@@ -588,11 +623,9 @@ async function registerToolBatch(
       inputHash,
       recoveryModeSnapshot: recoveryMode,
       resultEntryId: randomUUID(),
-      checkpoint,
     });
-    records.set(call.id, record);
   }
-  return records;
+  return inputs;
 }
 
 async function recoverToolInvocation(
@@ -602,6 +635,8 @@ async function recoverToolInvocation(
 ): Promise<ToolRecoveryResult | undefined> {
   const tool = config.tools.get(call.name);
   if (!tool || !config.recorder) return { kind: "interrupted", reason: `Tool ${call.name} is unavailable during recovery.` };
+  if (!invocation.cwd) return { kind: "interrupted", reason: "The original execution directory is unavailable. This tool requires a new request." };
+  if (config.signal?.aborted || await config.recorder.isRunCancelled(invocation.runId)) return { kind: "interrupted", reason: "The user stopped this run; automatic replay is disabled." };
   if (invocation.phase !== "effect_pending") return undefined;
   if (tool.recovery.version !== invocation.toolVersion) {
     return { kind: "interrupted", reason: `Tool ${call.name} version ${invocation.toolVersion} requires a matching recovery implementation.` };
@@ -611,13 +646,15 @@ async function recoverToolInvocation(
     return { kind: "interrupted", reason: `Tool ${call.name} has no recovery reconciler.` };
   }
   if (invocation.recoveryModeSnapshot === "reconcile" && tool.recovery.reconcile) {
-    const recovered = await tool.recovery.reconcile(call.input, invocation.checkpoint as never, {
+    if (config.signal?.aborted) return { kind: "interrupted", reason: "The user stopped tool recovery; reconciliation was not started." };
+    const checkpoint = invocationCheckpoint(invocation);
+    const recovered = await tool.recovery.reconcile(call.input, checkpoint, {
       cwd: invocation.cwd,
       signal: config.signal,
       invocationId: invocation.id,
       toolCallId: call.id,
       attempt: invocation.attemptCount,
-      checkpoint: invocation.checkpoint as never,
+      checkpoint,
     });
     if (recovered.kind !== "retry") return recovered;
   }
@@ -625,44 +662,109 @@ async function recoverToolInvocation(
 }
 
 function toolResultFromInvocation(invocation: ToolInvocationRecord): ToolResult {
-  const outcome = invocation.outcomeJson;
-  if (outcome && typeof outcome === "object" && "ok" in outcome && "output" in outcome) return outcome as ToolResult;
-  return interruptedToolResult("The persisted tool outcome is missing or invalid.");
+  const result = readToolResult(invocation.outcomeJson);
+  if (!result || toolOutcomeStatus(result) !== invocation.outcomeStatus) {
+    throw new RepositoryError(`Invalid persisted tool outcome: ${invocation.id}`, "storage");
+  }
+  return result;
 }
 
 function interruptedToolResult(reason: string): ToolResult {
   return { ok: false, output: reason, returncode: -1, truncated: false, error: "interrupted" };
 }
 
-function toolOutcomeStatus(result: ToolResult): ToolOutcomeStatus {
-  return result.error === "interrupted" ? "interrupted" : result.ok ? "succeeded" : "failed";
+function cancelledToolResult(reason: string): ToolResult {
+  return { ok: false, output: reason, returncode: -1, truncated: false, error: "cancelled" };
 }
 
-async function executeTool(
+function invocationCheckpoint(invocation: ToolInvocationRecord) {
+  if (invocation.checkpoint == null) return undefined;
+  const checkpoint = readToolCheckpoint(invocation.checkpoint);
+  if (!checkpoint) throw new RepositoryError(`Invalid tool checkpoint: ${invocation.id}`, "storage");
+  return checkpoint;
+}
+
+/** Prepare once, persist intent, then execute precisely the prepared operation. */
+async function executeToolAttempt(
   call: ToolCall,
-  tools: Map<string, RegisteredTool>,
-  cwd: string,
-  signal?: AbortSignal,
+  config: AgentRunConfig,
   invocation?: ToolInvocationRecord,
-): Promise<ToolResult> {
-  if (!call.inputComplete) return invalidResult("The tool arguments were truncated by the model response and were not executed. Please regenerate the complete tool call.", "truncated_arguments");
-  const tool = tools.get(call.name);
-  if (!tool) return invalidResult(`Unknown tool: ${call.name}`, "unknown_tool");
-  return tool.execute(call.input, {
-    cwd,
-    signal,
+): Promise<{ result: ToolResult; invocation?: ToolInvocationRecord }> {
+  const immediate = (result: ToolResult) => ({ result, invocation });
+  if (config.signal?.aborted) return immediate(invocation?.phase === "effect_pending"
+    ? interruptedToolResult("The user stopped recovery before a new execution attempt.")
+    : cancelledToolResult("The user stopped before this tool could execute."));
+  if (invocation?.phase === "planned" && await config.recorder?.isToolInvocationBlocked(invocation.id)) {
+    return immediate(interruptedToolResult("This tool call was skipped because an earlier call in its batch has an uncertain outcome."));
+  }
+  if (!call.inputComplete) return immediate(invalidResult("The tool arguments were truncated by the model response and were not executed. Please regenerate the complete tool call.", "truncated_arguments"));
+  const tool = config.tools.get(call.name);
+  if (!tool) return immediate(invalidResult(`Unknown tool: ${call.name}`, "unknown_tool"));
+  const preparationContext: ToolExecutionContext = {
+    cwd: invocation?.cwd ?? config.cwd,
+    signal: config.signal,
     invocationId: invocation?.id,
     toolCallId: call.id,
-    attempt: invocation?.attemptCount,
-    checkpoint: invocation?.checkpoint as never,
-  });
+    attempt: (invocation?.attemptCount ?? 0) + 1,
+  };
+  let prepared: PreparedToolExecution;
+  try {
+    prepared = tool.prepare ? await tool.prepare(call.input, preparationContext)
+      : { kind: "ready", execute: (context) => tool.execute(call.input, context) };
+    if (prepared.kind === "result") {
+      const result = readToolResult(prepared.result);
+      if (!result || result.ok) throw new Error("Preparation must return a valid unsuccessful result or a prepared execution.");
+      return immediate(result);
+    }
+    if (prepared.checkpoint && !readToolCheckpoint(prepared.checkpoint)) throw new Error("Preparation returned an invalid checkpoint.");
+  } catch (error) {
+    return immediate(config.signal?.aborted ? cancelledToolResult("The user stopped during tool preparation.")
+      : invalidResult(error instanceof Error ? error.message : String(error), "preparation_failed"));
+  }
+  if (config.signal?.aborted) return immediate(cancelledToolResult("The user stopped before execution intent was persisted."));
+  // Keep database failures outside the tool error boundary. No effects have started here.
+  let executing = invocation;
+  try {
+    if (invocation && config.recorder) executing = await config.recorder.beginToolAttempt(invocation.id, prepared.checkpoint);
+  } catch (error) {
+    if (error instanceof ToolAttemptBlockedError && error.reason === "prior_interrupted") {
+      return immediate(interruptedToolResult("This tool call was skipped because an earlier call in its batch has an uncertain outcome."));
+    }
+    throw error;
+  }
+  if (config.signal?.aborted) return { result: interruptedToolResult("The user stopped after intent was persisted; execution was not started."), invocation: executing };
+  try {
+    const result = await prepared.execute({ ...preparationContext, attempt: executing?.attemptCount ?? 1, checkpoint: prepared.checkpoint });
+    const validated = readToolResult(result);
+    if (!validated) throw new Error(`Tool ${call.name} returned an invalid result.`);
+    return { result: validated, invocation: executing };
+  } catch (error) {
+    return { result: interruptedToolResult(error instanceof Error ? error.message : String(error)), invocation: executing };
+  }
+}
+
+/** Saving a result retries only persistence, never the physical tool execution. */
+async function materializeToolResult(
+  call: ToolCall,
+  result: ToolResult,
+  config: AgentRunConfig,
+  invocation: ToolInvocationRecord | undefined,
+  context: { runId: string; turnId: string; turnOrdinal: number },
+): Promise<ModelMessage> {
+  if (!readToolResult(result)) throw new Error(`Tool ${call.name} returned an invalid result.`);
+  const message = toolResultMessage(call, result);
+  const entryId = invocation?.resultEntryId ?? randomUUID();
+  await commitWithRetry(async () => {
+    if (invocation && config.recorder) {
+      const outcome = { status: toolOutcomeStatus(result), outcome: result };
+      if (invocation.phase === "planned") await config.recorder.settleUnstartedToolInvocation(invocation.id, outcome);
+      else if (invocation.phase === "effect_pending") await config.recorder.saveToolOutcome(invocation.id, outcome);
+    }
+    await config.recorder?.commitToolResult(message, { ...context, toolCallId: call.id, entryId, invocationId: invocation?.id });
+  }, { ...DEFAULT_COMMIT_RETRY, ...config.commitRetry });
+  return message;
 }
 
 function invalidResult(output: string, error: string): ToolResult {
   return { ok: false, output, returncode: -1, truncated: false, error };
-}
-
-function formatToolResult(result: ToolResult): string {
-  const note = result.truncated && result.fullOutputPath ? `\nFull output: ${result.fullOutputPath}` : "";
-  return `<returncode>${result.returncode}</returncode>\n<output>\n${result.output}\n</output>${note}`;
 }

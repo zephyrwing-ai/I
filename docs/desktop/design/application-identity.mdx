@@ -1,0 +1,24 @@
+应用名称与 macOS 启动。
+
+`package.json.productName` 定义用户看到的产品名称 `I`。主进程窗口标题、应用菜单、About 面板、Renderer 页面标题和无障碍标题共同读取这一字段。Electron 内部名称使用 `package.json.name` 中的稳定标识 `agent-studio`，将产品展示与用户数据身份分别管理。
+
+持久化身份。
+
+- Main 在 Electron `ready` 之前设置内部应用名称，macOS 钥匙串继续使用 `agent-studio` 对应的 Safe Storage 服务与账户。
+- `userData` 与 `sessionData` 使用 `appData/agent-studio`。会话 SQLite、Provider 配置、Canvas 文档和同一页面 origin 的 Chromium 偏好沿用既有目录。
+- 显式传入 `--user-data-dir` 时，Main 将该目录用于 `userData` 与 `sessionData`，提供隔离运行和回归验证入口。
+- macOS 原生菜单使用 `I`、`About I`、`Hide I` 与 `Quit I`，保留系统菜单角色及标准快捷键。
+
+开发与本地打包。
+
+`npm run dev` 与 `npm run preview` 使用专属 `I.app` 开发启动器。`scripts/macos-app.mjs` 通过 Electron Packager 生成系统元数据，再通过 `ELECTRON_EXEC_PATH` 交给 electron-vite；默认应用加载器继续加载当前工程入口，保留热更新与主进程重启行为。`process.defaultApp` 标记工程采用默认加载器启动，页面加载方式由 `ELECTRON_RENDERER_URL` 控制；`app.isPackaged` 反映专属原生应用包本身的形态。系统展示名来自应用包的 `I` 元数据。缓存身份绑定 Electron 版本、架构、产品名称、应用版本和图标内容，相关配置变化后生成对应启动器。
+
+`npm run package:mac` 先构建，再生成当前 Mac 架构的 `dist/I-darwin-<arch>/I.app`。本地包收录 `package.json`、完整 `out/`、生产依赖和 Canvas 的 MIT 许可声明，文件目录形式支持 ripgrep 原生可执行文件及 Canvas CLI 子进程。开发启动器和本地包都采用本地 ad-hoc 签名；对外分发阶段配置 Developer ID 签名、公证或 Mac App Store 发布身份。
+
+打包脚本将本机已安装的 Electron 运行时归档到版本与架构对应的缓存，通过 Electron Packager 的 `electronZipDir` 复用同一运行时。图标与原生启动器采用同样的本地缓存流程。
+
+图标与展示名称。
+
+SVG 原稿保存在 `frontend/src/assets/app-icon.svg`，Renderer 直接将其用于 favicon。对应的 1024×1024 PNG 用于运行时 Dock 图标；打包脚本从 PNG 生成系统图标资源。开发启动器和本地包共同写入产品名称与图标，macOS 从实际应用包识别 `I`。
+
+App Store Connect 的商店名称独立于本地应用包名称，遵循商店名称的本地化与长度规则。Bundle ID 则保持系统应用身份稳定。

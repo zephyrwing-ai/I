@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.web.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
+    "types": ["node", "vite/client"]
+  },
+  "include": [
+    "tests/agent/**/*.ts",
+    "tests/shell/**/*.ts",
+    "canvas/shims.d.ts"
+  ]
+}

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TransitionEvent } from "react";
-import type { OutputFileDescriptor, OutputFilePreviewResult } from "../../../shell/shared/ipc";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TransitionEvent } from "react";
+import type { OutputFileDescriptor } from "../../../shell/shared/ipc";
 import {
   canKeepOutputSidebarOpen,
   clampOutputSidebarWidth,
@@ -10,6 +10,7 @@ import {
 } from "../store/outputSidebarState";
 import { Icon } from "./Icon";
 import { useElasticScroll } from "../hooks/useElasticScroll";
+import { useOutputFilePreview } from "../hooks/useOutputFilePreview";
 
 type SidebarPhase = "closed" | "opening" | "open" | "dragging" | "closing";
 
@@ -43,10 +44,9 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [dragWidth, setDragWidth] = useState(width);
   const [collapseReady, setCollapseReady] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(files[0]?.fileId ?? null);
-  const [preview, setPreview] = useState<OutputFilePreviewResult | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [openError, setOpenError] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Pick<OutputFileDescriptor, "runId" | "fileId"> | null>(
+    () => files[0] ? { runId: files[0].runId, fileId: files[0].fileId } : null,
+  );
   const shellRef = useRef<HTMLElement>(null);
   const dragRef = useRef({ startX: 0, startWidth: width, rawWidth: width });
   const frameRef = useRef<number | null>(null);
@@ -55,7 +55,8 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
   const fileContentRef = useRef<HTMLDivElement>(null);
   useElasticScroll(fileListRef, fileContentRef);
 
-  const selected = files.find((file) => file.fileId === selectedId) ?? files[0];
+  const selected = files.find((file) => file.runId === selection?.runId && file.fileId === selection.fileId) ?? files[0];
+  const { preview, loading: previewLoading, openError, refresh: refreshPreview, open: openInSystem } = useOutputFilePreview(selected);
   const effectiveWidth = clampWidth(width, viewportWidth);
   const targetWidth = phase === "dragging"
     ? clampWidth(dragWidth, viewportWidth)
@@ -116,28 +117,13 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
 
   useEffect(() => {
     if (!files.length) {
-      setSelectedId(null);
-      setPreview(null);
+      setSelection(null);
       return;
     }
-    if (!selectedId || !files.some((file) => file.fileId === selectedId)) setSelectedId(files[0].fileId);
-  }, [files, selectedId]);
-
-  const refreshPreview = async (): Promise<void> => {
-    if (!selected) return;
-    setPreviewLoading(true);
-    setOpenError(null);
-    try {
-      setPreview(await window.agentAPI.previewOutputFile(selected.runId, selected.fileId));
-    } finally {
-      setPreviewLoading(false);
+    if (!selection || !files.some((file) => file.runId === selection.runId && file.fileId === selection.fileId)) {
+      setSelection({ runId: files[0].runId, fileId: files[0].fileId });
     }
-  };
-
-  useEffect(() => {
-    void refreshPreview();
-    // updatedAt is intentionally part of the identity so a completed tool refreshes the preview.
-  }, [selected?.fileId, selected?.updatedAt]);
+  }, [files, selection]);
 
   useEffect(() => () => {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
@@ -223,14 +209,6 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
     localStorage.setItem(WIDTH_KEY, String(nextWidth));
   };
 
-  const openInSystem = async (): Promise<void> => {
-    if (!selected) return;
-    const result = await window.agentAPI.openOutputFile(selected.runId, selected.fileId);
-    setOpenError(result.ok ? null : result.error);
-  };
-
-  const fileGroups = useMemo(() => files, [files]);
-
   return (
     <aside
       id="right-sidebar"
@@ -255,9 +233,9 @@ export function OutputSidebar({ open, files, onOpenChange, activePanel = "output
         <div ref={fileListRef} className="output-file-list" role="listbox" aria-label="Output files">
           <div className="output-file-layout">
             <div ref={fileContentRef} className="output-file-content">
-              {fileGroups.length === 0 && <div className="panel-empty"><Icon name="book-open" width="24" height="24" /><span>No files generated for this task</span></div>}
-              {fileGroups.map((file) => (
-                <button type="button" role="option" aria-selected={file.fileId === selected?.fileId} className={file.fileId === selected?.fileId ? "selected" : ""} key={file.fileId} onClick={() => setSelectedId(file.fileId)}>
+              {files.length === 0 && <div className="panel-empty"><Icon name="book-open" width="24" height="24" /><span>No files generated for this task</span></div>}
+              {files.map((file) => (
+                <button type="button" role="option" aria-selected={file === selected} className={file === selected ? "selected" : ""} key={`${file.runId}:${file.fileId}`} onClick={() => setSelection({ runId: file.runId, fileId: file.fileId })}>
                   <Icon name={file.mediaType.startsWith("image/") ? "image" : "book-open"} width="16" height="16" />
                   <span><strong>{file.name}</strong><small>{file.displayPath}</small></span><em>{file.operation === "created" ? "Created" : "Updated"}</em>
                 </button>

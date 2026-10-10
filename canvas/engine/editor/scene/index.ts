@@ -7,10 +7,6 @@ export {
 } from "./selection";
 export { calculateScrollCenter } from "./scroll";
 export {
-  hasBackground,
-  hasStrokeWidth,
-  hasStrokeStyle,
-  canHaveArrowheads,
   canChangeRoundness,
 } from "./comparisons";
 export {

@@ -195,7 +195,6 @@ export const actionDeleteSelected = register({
   name: "deleteSelectedElements",
   label: "labels.delete",
   icon: TrashIcon,
-  trackEvent: { category: "element", action: "delete" },
   perform: (elements, appState, formData, app) => {
     if (appState.editingLinearElement) {
       const {
@@ -285,7 +284,6 @@ export const actionDeleteSelected = register({
         ...nextAppState,
         activeTool: updateActiveTool(appState, { type: "selection" }),
         multiElement: null,
-        activeEmbeddable: null,
       },
       captureUpdate: isSomeElementSelected(
         getNonDeletedElements(elements),

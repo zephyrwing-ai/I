@@ -1,7 +1,5 @@
 import {
   pointFrom,
-  pointDistance,
-  pointFromVector,
   pointsEqual,
 } from "./point";
 import type {
@@ -101,6 +99,12 @@ export const ellipseDistanceFromPoint = <
   const px = Math.abs(translatedPoint[0]);
   const py = Math.abs(translatedPoint[1]);
 
+  // Reflection preserves distance. Keep the projection in the first quadrant
+  // so points on an axis retain both coordinates of the nearest boundary.
+  if (px === 0 && py === 0) {
+    return Math.min(a, b);
+  }
+
   let tx = 0.707;
   let ty = 0.707;
 
@@ -127,12 +131,7 @@ export const ellipseDistanceFromPoint = <
     ty /= t;
   }
 
-  const [minX, minY] = [
-    a * tx * Math.sign(translatedPoint[0]),
-    b * ty * Math.sign(translatedPoint[1]),
-  ];
-
-  return pointDistance(pointFromVector(translatedPoint), pointFrom(minX, minY));
+  return Math.hypot(px - a * tx, py - b * ty);
 };
 
 /**

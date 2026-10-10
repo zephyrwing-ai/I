@@ -13,9 +13,7 @@ import type {
   FontFamilyValues,
   CanvasEditorTextContainer,
   CanvasEditorFrameElement,
-  CanvasEditorEmbeddableElement,
   CanvasEditorMagicFrameElement,
-  CanvasEditorIframeElement,
   ElementsMap,
   CanvasEditorArrowElement,
   FixedSegment,
@@ -63,9 +61,7 @@ export type ElementConstructorOpts = MarkOptional<
   | "versionNonce"
   | "link"
   | "strokeStyle"
-  | "fillStyle"
   | "strokeColor"
-  | "backgroundColor"
   | "roughness"
   | "strokeWidth"
   | "roundness"
@@ -80,8 +76,6 @@ const _newElementBase = <T extends CanvasEditorElement>(
     x,
     y,
     strokeColor = DEFAULT_ELEMENT_PROPS.strokeColor,
-    backgroundColor = DEFAULT_ELEMENT_PROPS.backgroundColor,
-    fillStyle = DEFAULT_ELEMENT_PROPS.fillStyle,
     strokeWidth = DEFAULT_ELEMENT_PROPS.strokeWidth,
     strokeStyle = DEFAULT_ELEMENT_PROPS.strokeStyle,
     roughness = DEFAULT_ELEMENT_PROPS.roughness,
@@ -131,8 +125,6 @@ const _newElementBase = <T extends CanvasEditorElement>(
     height,
     angle,
     strokeColor,
-    backgroundColor,
-    fillStyle,
     strokeWidth,
     strokeStyle,
     roughness,
@@ -161,23 +153,6 @@ export const newElement = (
 ): NonDeleted<CanvasEditorGenericElement> =>
   _newElementBase<CanvasEditorGenericElement>(opts.type, opts);
 
-export const newEmbeddableElement = (
-  opts: {
-    type: "embeddable";
-  } & ElementConstructorOpts,
-): NonDeleted<CanvasEditorEmbeddableElement> => {
-  return _newElementBase<CanvasEditorEmbeddableElement>("embeddable", opts);
-};
-
-export const newIframeElement = (
-  opts: {
-    type: "iframe";
-  } & ElementConstructorOpts,
-): NonDeleted<CanvasEditorIframeElement> => {
-  return {
-    ..._newElementBase<CanvasEditorIframeElement>("iframe", opts),
-  };
-};
 
 export const newFrameElement = (
   opts: {
@@ -491,8 +466,8 @@ export const newArrowElement = <T extends boolean>(
       lastCommittedPoint: null,
       startBinding: null,
       endBinding: null,
-      startArrowhead: opts.startArrowhead || null,
-      endArrowhead: opts.endArrowhead || null,
+      startArrowhead: opts.startArrowhead ? "arrow" : null,
+      endArrowhead: opts.endArrowhead ? "arrow" : null,
       elbowed: true,
       fixedSegments: opts.fixedSegments || [],
       startIsSpecial: false,
@@ -506,8 +481,8 @@ export const newArrowElement = <T extends boolean>(
     lastCommittedPoint: null,
     startBinding: null,
     endBinding: null,
-    startArrowhead: opts.startArrowhead || null,
-    endArrowhead: opts.endArrowhead || null,
+    startArrowhead: opts.startArrowhead ? "arrow" : null,
+    endArrowhead: opts.endArrowhead ? "arrow" : null,
     elbowed: false,
   } as T extends true
     ? NonDeleted<CanvasEditorElbowArrowElement>

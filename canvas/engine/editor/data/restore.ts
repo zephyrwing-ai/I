@@ -13,10 +13,9 @@ import type {
   PointBinding,
   StrokeRoundness,
 } from "../element/types";
-import type { AppState, BinaryFiles, LibraryItem } from "../types";
+import type { AppState, BinaryFiles } from "../types";
 import type { ImportedDataState, LegacyAppState } from "./types";
 import {
-  getNonDeletedElements,
   getNormalizedDimensions,
   isInvisiblySmallElement,
   refreshTextDimensions,
@@ -46,7 +45,7 @@ import { LinearElementEditor } from "../element/linearElementEditor";
 import { bumpVersion } from "../element/mutateElement";
 import { getUpdatedTimestamp, updateActiveTool } from "../utils";
 import { arrayToMap } from "../utils";
-import type { MarkOptional, Mutable } from "../utility-types";
+import type { Mutable } from "../utility-types";
 import { getContainerElement } from "../element/textElement";
 import { normalizeLink } from "./url";
 import { syncInvalidIndices } from "../fractionalIndex";
@@ -87,10 +86,8 @@ export const AllowedCanvasEditorActiveTools: Record<
   eraser: false,
   custom: true,
   frame: true,
-  embeddable: true,
   hand: true,
   laser: false,
-  magicframe: false,
 };
 
 export type RestoredDataState = {
@@ -170,7 +167,6 @@ const restoreElementWithProperties = <
     index: element.index ?? null,
     isDeleted: element.isDeleted ?? false,
     id: element.id || randomId(),
-    fillStyle: element.fillStyle || DEFAULT_ELEMENT_PROPS.fillStyle,
     strokeWidth: element.strokeWidth || DEFAULT_ELEMENT_PROPS.strokeWidth,
     strokeStyle: element.strokeStyle ?? DEFAULT_ELEMENT_PROPS.strokeStyle,
     roughness: element.roughness ?? DEFAULT_ELEMENT_PROPS.roughness,
@@ -180,8 +176,6 @@ const restoreElementWithProperties = <
     x: extra.x ?? element.x ?? 0,
     y: extra.y ?? element.y ?? 0,
     strokeColor: element.strokeColor || DEFAULT_ELEMENT_PROPS.strokeColor,
-    backgroundColor:
-      element.backgroundColor || DEFAULT_ELEMENT_PROPS.backgroundColor,
     width: element.width || 0,
     height: element.height || 0,
     seed: element.seed ?? 1,
@@ -211,10 +205,15 @@ const restoreElementWithProperties = <
       "customData" in extra ? extra.customData : element.customData;
   }
 
+  const { backgroundColor: _legacyBackground, fillStyle: _legacyFill, ...properties } = element as T & {
+    backgroundColor?: unknown;
+    fillStyle?: unknown;
+  };
+
   return {
     // spread the original element properties to not lose unknown ones
     // for forward-compatibility
-    ...element,
+    ...properties,
     // normalized properties
     ...base,
     ...getNormalizedDimensions(base),
@@ -242,6 +241,9 @@ const restoreElement = (
         fontSize = parseFloat(fontPx);
         fontFamily = getFontFamilyByName(_fontFamily);
       }
+      if (fontFamily === FONT_FAMILY["Liberation Sans"]) {
+        fontFamily = DEFAULT_FONT_FAMILY;
+      }
       const text = (typeof element.text === "string" && element.text) || "";
 
       // line-height might not be specified either when creating elements
@@ -256,7 +258,7 @@ const restoreElement = (
             detectLineHeight(element)
           : // no element height likely means programmatic use, so default
             // to a fixed line height
-            getLineHeight(element.fontFamily));
+            getLineHeight(fontFamily));
       element = restoreElementWithProperties(element, {
         fontSize,
         fontFamily,
@@ -296,7 +298,6 @@ const restoreElement = (
     // @ts-ignore LEGACY type
     // eslint-disable-next-line no-fallthrough
     case "draw":
-      const { startArrowhead = null, endArrowhead = null } = element;
       let x = element.x;
       let y = element.y;
       let points = // migrate old arrow model to new one
@@ -316,15 +317,16 @@ const restoreElement = (
         startBinding: repairBinding(element, element.startBinding),
         endBinding: repairBinding(element, element.endBinding),
         lastCommittedPoint: null,
-        startArrowhead,
-        endArrowhead,
+        startArrowhead: null,
+        endArrowhead: null,
         points,
         x,
         y,
         ...getSizeFromPoints(points),
       });
     case "arrow": {
-      const { startArrowhead = null, endArrowhead = "arrow" } = element;
+      const startArrowhead = element.startArrowhead ? "arrow" : null;
+      const endArrowhead = element.endArrowhead === null ? null : "arrow";
       let x: number | undefined = element.x;
       let y: number | undefined = element.y;
       let points: readonly LocalPoint[] | undefined = // migrate old arrow model to new one
@@ -721,7 +723,7 @@ export const restoreAppState = (
         nextAppState.activeTool.type &&
           AllowedCanvasEditorActiveTools[nextAppState.activeTool.type]
           ? nextAppState.activeTool
-          : { type: "selection" },
+          : defaultAppState.activeTool,
       ),
       lastActiveTool: null,
       locked: nextAppState.activeTool.locked ?? false,
@@ -766,48 +768,4 @@ export const restore = (
     appState: restoreAppState(data?.appState, localAppState || null),
     files: data?.files || {},
   };
-};
-
-const restoreLibraryItem = (libraryItem: LibraryItem) => {
-  const elements = restoreElements(
-    getNonDeletedElements(libraryItem.elements),
-    null,
-  );
-  return elements.length ? { ...libraryItem, elements } : null;
-};
-
-export const restoreLibraryItems = (
-  libraryItems: ImportedDataState["libraryItems"] = [],
-  defaultStatus: LibraryItem["status"],
-) => {
-  const restoredItems: LibraryItem[] = [];
-  for (const item of libraryItems) {
-    // migrate older libraries
-    if (Array.isArray(item)) {
-      const restoredItem = restoreLibraryItem({
-        status: defaultStatus,
-        elements: item,
-        id: randomId(),
-        created: Date.now(),
-      });
-      if (restoredItem) {
-        restoredItems.push(restoredItem);
-      }
-    } else {
-      const _item = item as MarkOptional<
-        LibraryItem,
-        "id" | "status" | "created"
-      >;
-      const restoredItem = restoreLibraryItem({
-        ..._item,
-        id: _item.id || randomId(),
-        status: _item.status || defaultStatus,
-        created: _item.created || Date.now(),
-      });
-      if (restoredItem) {
-        restoredItems.push(restoredItem);
-      }
-    }
-  }
-  return restoredItems;
 };

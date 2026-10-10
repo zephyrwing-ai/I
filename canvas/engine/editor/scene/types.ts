@@ -9,16 +9,13 @@ import type {
 import type {
   AppClassProperties,
   AppState,
-  EmbedsValidationStatus,
   ElementsPendingErasure,
   InteractiveCanvasAppState,
   StaticCanvasAppState,
-  SocketId,
   Device,
   PendingCanvasEditorElements,
 } from "../types";
 import type { MakeBrand } from "../utility-types";
-import type { UserIdleState } from "../constants";
 
 export type RenderableElementsMap = NonDeletedElementsMap &
   MakeBrand<"RenderableElementsMap">;
@@ -31,7 +28,6 @@ export type StaticCanvasRenderConfig = {
   /** when exporting the behavior is slightly different (e.g. we can't use
    CSS filters), and we disable render optimizations for best output */
   isExporting: boolean;
-  embedsValidationStatus: EmbedsValidationStatus;
   elementsPendingErasure: ElementsPendingErasure;
   pendingFlowchartNodes: PendingCanvasEditorElements | null;
 };
@@ -41,10 +37,8 @@ export type SVGRenderConfig = {
   offsetY: number;
   isExporting: boolean;
   exportWithDarkMode: boolean;
-  renderEmbeddables: boolean;
   frameRendering: AppState["frameRendering"];
   canvasBackgroundColor: AppState["viewBackgroundColor"];
-  embedsValidationStatus: EmbedsValidationStatus;
   /**
    * whether to attempt to reuse images as much as possible through symbols
    * (reduces SVG size, but may be incompoatible with some SVG renderers)
@@ -55,13 +49,6 @@ export type SVGRenderConfig = {
 };
 
 export type InteractiveCanvasRenderConfig = {
-  // collab-related state
-  // ---------------------------------------------------------------------------
-  remoteSelectedElementIds: Map<CanvasEditorElement["id"], SocketId[]>;
-  remotePointerViewportCoords: Map<SocketId, { x: number; y: number }>;
-  remotePointerUserStates: Map<SocketId, UserIdleState>;
-  remotePointerUsernames: Map<SocketId, string>;
-  remotePointerButton: Map<SocketId, string | undefined>;
   selectionColor: string;
   // extra options passed to the renderer
   // ---------------------------------------------------------------------------

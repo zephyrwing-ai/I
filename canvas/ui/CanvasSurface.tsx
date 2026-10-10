@@ -18,8 +18,10 @@ import type {
   CanvasContextDescriptor,
   CanvasDocument,
   CanvasDocumentResult,
+  CanvasPersistenceVersion,
 } from "../../shell/shared/ipc";
 import type { CanvasEditOutcome, CanvasEditRequest, CanvasEditResult } from "../commands/types";
+import { CanvasSaveCoordinator, CanvasSaveConflictError, type CanvasSaveState } from "../persistence/CanvasSaveCoordinator";
 import { shouldPersistCanvasChange } from "./scenePersistence";
 import "./CanvasSurface.css";
 
@@ -137,19 +139,17 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     useState<SelectionActionPosition | null>(null);
   const [loading, setLoading] = useState(true);
   const [editorReady, setEditorReady] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState<CanvasSaveState | null>(null);
   const [selectedCount, setSelectedCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [savingJSON, setSavingJSON] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
-  const sceneRef = useRef<CanvasDocument | null>(null);
   const sceneProjectIdRef = useRef<string | null>(projectId);
-  const sceneGenerationRef = useRef(0);
-  const savedGenerationRef = useRef(0);
-  const lastSceneVersionRef = useRef<number | undefined>(undefined);
+  const saveCoordinatorRef = useRef<CanvasSaveCoordinator | null>(null);
+  const pendingVersionRef = useRef<{ projectId: string | null; version: CanvasPersistenceVersion } | null>(null);
+  const lastDocumentVersionRef = useRef<number | undefined>(undefined);
   const apiRef = useRef<CanvasEditorImperativeAPI | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const selectionActionsRef = useRef<HTMLDivElement | null>(null);
@@ -157,10 +157,12 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
   const selectionPositionFrameRef = useRef<number | null>(null);
   const selectionPositionWorkInFlightRef = useRef(false);
   const pendingSelectionPositionRef = useRef<SelectionPositionSnapshot | null>(null);
-  const saveTimerRef = useRef<number | null>(null);
   const loadedRef = useRef(false);
   const canReleaseRef = useRef(true);
   const activeEditRequestRef = useRef<string | null>(null);
+  const saving = saveState?.phase === "saving";
+  const saveError = saveState?.error ?? null;
+  const saveConflict = saveState?.phase === "conflict";
 
   const reportCanRelease = useCallback((canRelease: boolean): void => {
     if (canReleaseRef.current === canRelease) return;
@@ -173,48 +175,20 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     setApi(next);
   }, []);
 
-  const persistSnapshot = useCallback(async (scope: string | null, snapshot: CanvasDocument, generation: number): Promise<void> => {
-    if (sceneProjectIdRef.current === scope) setSaving(true);
-    try {
-      await window.agentAPI.saveCanvasDocument({ projectId: scope, document: snapshot });
-      if (sceneProjectIdRef.current !== scope) return;
-      savedGenerationRef.current = Math.max(savedGenerationRef.current, generation);
-      if (savedGenerationRef.current >= sceneGenerationRef.current) {
-        setSaving(false);
-        setSaveError(null);
-        reportCanRelease(true);
-      }
-    } catch (error) {
-      if (sceneProjectIdRef.current === scope) {
-        setSaving(false);
-        setSaveError(error instanceof Error ? error.message : "Unable to save the canvas.");
-        reportCanRelease(false);
-      }
-      throw error;
-    }
-  }, [reportCanRelease]);
-
   const flush = useCallback(async (): Promise<void> => {
-    if (saveTimerRef.current !== null) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-    const snapshot = sceneRef.current;
-    if (!loadedRef.current || !snapshot || sceneGenerationRef.current <= savedGenerationRef.current) return;
-    await persistSnapshot(sceneProjectIdRef.current, snapshot, sceneGenerationRef.current);
-  }, [persistSnapshot]);
+    await saveCoordinatorRef.current?.flush();
+  }, []);
 
   useImperativeHandle(ref, () => ({ flush }), [flush]);
 
   useEffect(() => {
     let cancelled = false;
-    let enableEditingFrame: number | null = null;
     loadedRef.current = false;
+    pendingVersionRef.current = null;
     setEditorReady(false);
     setLoading(true);
     setLoadError(null);
-    setSaving(false);
-    setSaveError(null);
+    setSaveState(null);
     setNotice(null);
     setSelectedCount(0);
     setSelectionActionPosition(null);
@@ -228,6 +202,9 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
         window.getComputedStyle(window.document.documentElement).getPropertyValue("--bg").trim() ||
         "#f7f3ee";
       const nextAppState = { ...result.document.appState, viewBackgroundColor: softwareBackground };
+      sceneProjectIdRef.current = projectId;
+      pendingVersionRef.current = { projectId, version: result.version };
+      setDocument(result.document);
       if (apiRef.current) {
         apiRef.current.replaceScene({
           elements: result.document.elements,
@@ -235,20 +212,6 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
           files: result.document.files as unknown as BinaryFiles,
         });
       }
-      setDocument(result.document);
-      sceneRef.current = result.document;
-      sceneProjectIdRef.current = projectId;
-      sceneGenerationRef.current = 0;
-      savedGenerationRef.current = 0;
-      lastSceneVersionRef.current = apiRef.current?.getSceneVersion();
-      reportCanRelease(true);
-      setLoading(false);
-      enableEditingFrame = window.requestAnimationFrame(() => {
-        if (!cancelled) {
-          loadedRef.current = true;
-          setEditorReady(true);
-        }
-      });
     }).catch((error: unknown) => {
       if (cancelled) return;
       setLoadError(error instanceof Error ? error.message : "Unable to load the canvas.");
@@ -257,19 +220,19 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     return () => {
       cancelled = true;
       loadedRef.current = false;
-      if (enableEditingFrame !== null) window.cancelAnimationFrame(enableEditingFrame);
+      pendingVersionRef.current = null;
       selectionPositionRequestRef.current += 1;
       pendingSelectionPositionRef.current = null;
       if (selectionPositionFrameRef.current !== null) {
         window.cancelAnimationFrame(selectionPositionFrameRef.current);
       }
-      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-      if (sceneRef.current && sceneGenerationRef.current > savedGenerationRef.current) {
-        void persistSnapshot(sceneProjectIdRef.current, sceneRef.current, sceneGenerationRef.current).catch(() => undefined);
+      const retiringCoordinator = saveCoordinatorRef.current;
+      saveCoordinatorRef.current = null;
+      if (retiringCoordinator) {
+        void retiringCoordinator.flush().catch(() => undefined).finally(() => retiringCoordinator.dispose());
       }
     };
-  }, [persistSnapshot, projectId, reloadVersion, reportCanRelease]);
+  }, [projectId, reloadVersion, reportCanRelease]);
 
   useEffect(() => {
     if (!pendingEdit || !onEditResult || activeEditRequestRef.current) return;
@@ -282,7 +245,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
       });
     };
 
-    if (pendingEdit.projectId !== projectId || sceneProjectIdRef.current !== pendingEdit.projectId) {
+    if (pendingEdit.projectId !== projectId) {
       respond({ ok: false, error: "project_changed" });
       return;
     }
@@ -295,7 +258,12 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
       return;
     }
     const editorAPI = apiRef.current;
-    if (!editorReady || !loadedRef.current || !editorAPI) return;
+    const editCoordinator = saveCoordinatorRef.current;
+    if (!editorReady || !loadedRef.current || !editorAPI || editorAPI.getAppState().isLoading || !editCoordinator) return;
+    if (editCoordinator.state.phase === "conflict") {
+      respond({ ok: false, error: "persistence_conflict" });
+      return;
+    }
 
     activeEditRequestRef.current = pendingEdit.requestId;
     let unsubscribe = (): void => undefined;
@@ -326,26 +294,29 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
           pendingEdit.imageFiles,
         );
         appliedOutcome = outcome;
-        if (!outcome.ok || outcome.changed === false) {
-          if (!outcome.ok) setNotice("Canvas edit needs attention. See the tool result in the conversation.");
+        if (!outcome.ok) {
+          setNotice("Canvas edit needs attention. See the tool result in the conversation.");
           respond(outcome);
           return;
         }
-        stage = "scene";
-        await Promise.race([changeObserved, deadlineReached]);
+        if (outcome.changed !== false) {
+          stage = "scene";
+          await Promise.race([changeObserved, deadlineReached]);
+        }
         stage = "save";
-        await Promise.race([flush(), deadlineReached]);
+        await Promise.race([editCoordinator.flush(), deadlineReached]);
         setNotice("Canvas updated by the Agent.");
         respond(outcome);
       } catch (error) {
         const message = error instanceof Error ? error.message : "canvas_edit_failed";
         const outcomeUnknown = message === "outcome_unknown" || message === "canvas_edit_cancelled";
         const persistenceFailed = appliedOutcome?.ok === true && stage === "save" && !outcomeUnknown;
-        if (persistenceFailed) setNotice("Canvas edit is visible but could not be saved. Retry saving the canvas.");
+        const persistenceConflict = error instanceof CanvasSaveConflictError;
+        if (persistenceFailed && !persistenceConflict) setNotice("Canvas edit is visible but could not be saved. Retry saving the canvas.");
         respond({
           ...(appliedOutcome ?? {}),
           ok: false,
-          error: persistenceFailed ? "persistence_failed" : outcomeUnknown ? "outcome_unknown" : message,
+          error: persistenceConflict ? "persistence_conflict" : persistenceFailed ? "persistence_failed" : outcomeUnknown ? "outcome_unknown" : message,
         });
       } finally {
         settled = true;
@@ -363,7 +334,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
       unsubscribe();
       if (timeout !== null) window.clearTimeout(timeout);
     };
-  }, [api, editorReady, flush, loadError, onEditResult, pendingEdit, projectId]);
+  }, [api, editorReady, loadError, onEditResult, pendingEdit, projectId]);
 
   const initialData = useMemo(() => {
     if (!document) return null;
@@ -387,18 +358,6 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
       saveAsImage: true,
     },
   }), []);
-
-  const scheduleSave = useCallback((next: CanvasDocument): void => {
-    sceneRef.current = next;
-    reportCanRelease(false);
-    const scope = sceneProjectIdRef.current;
-    const generation = ++sceneGenerationRef.current;
-    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => {
-      saveTimerRef.current = null;
-      void persistSnapshot(scope, next, generation).catch(() => undefined);
-    }, 450);
-  }, [persistSnapshot, reportCanRelease]);
 
   const scheduleSelectionPosition = useCallback((): void => {
     if (
@@ -482,7 +441,38 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
   }, []);
 
   const handleChange = useCallback((elements: SceneElements, appState: AppState, files: BinaryFiles): void => {
-    if (!loadedRef.current || sceneProjectIdRef.current !== projectId) return;
+    if (sceneProjectIdRef.current !== projectId || appState.isLoading) return;
+    const nextAppState = pickPersistedAppState(appState);
+    const documentVersion = apiRef.current?.getDocumentVersion();
+    if (!loadedRef.current) {
+      const baseline = pendingVersionRef.current;
+      if (!baseline || baseline.projectId !== projectId || documentVersion === undefined) return;
+      const coordinator = new CanvasSaveCoordinator({
+        projectId,
+        initial: {
+          version: baseline.version,
+          document: {
+            elements: [...elements] as unknown as CanvasDocument["elements"],
+            appState: nextAppState,
+            files: files as unknown as CanvasDocument["files"],
+          },
+        },
+        save: (request) => window.agentAPI.saveCanvasDocument(request),
+        onStateChange: (state) => {
+          if (saveCoordinatorRef.current !== coordinator) return;
+          setSaveState(state);
+          reportCanRelease(!state.dirty);
+        },
+      });
+      saveCoordinatorRef.current = coordinator;
+      pendingVersionRef.current = null;
+      lastDocumentVersionRef.current = documentVersion;
+      loadedRef.current = true;
+      setSaveState(coordinator.state);
+      setEditorReady(true);
+      setLoading(false);
+      reportCanRelease(true);
+    }
     const selectedIds = Object.keys(appState.selectedElementIds ?? {});
     setSelectedCount(selectedIds.length);
     const request = ++selectionPositionRequestRef.current;
@@ -511,23 +501,21 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
       };
       scheduleSelectionPosition();
     }
-    const nextAppState = pickPersistedAppState(appState);
-    const sceneVersion = apiRef.current?.getSceneVersion();
     const shouldSave = shouldPersistCanvasChange(
-      lastSceneVersionRef.current,
-      sceneVersion,
-      sceneRef.current?.appState,
+      lastDocumentVersionRef.current,
+      documentVersion,
+      saveCoordinatorRef.current?.document.appState,
       nextAppState,
     );
-    lastSceneVersionRef.current = sceneVersion;
+    lastDocumentVersionRef.current = documentVersion;
     if (!shouldSave) return;
     const nextDocument: CanvasDocument = {
       elements: [...elements] as unknown as Record<string, unknown>[],
       appState: nextAppState,
       files: files as unknown as CanvasDocument["files"],
     };
-    scheduleSave(nextDocument);
-  }, [projectId, scheduleSave, scheduleSelectionPosition]);
+    saveCoordinatorRef.current?.update(nextDocument);
+  }, [projectId, reportCanRelease, scheduleSelectionPosition]);
 
   const prepareSelectionContext = async (): Promise<void> => {
     if (!api || !loadedRef.current || busy) return;
@@ -551,7 +539,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
       );
       const selectionBounds = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
       const files = api.getFiles();
-      const selectedFiles: BinaryFiles = {};
+      const selectedFiles: BinaryFiles = Object.create(null);
       for (const element of selected) {
         const fileId = typeof element.fileId === "string" ? element.fileId : null;
         if (element.type !== "image" || !fileId || !files[fileId]) continue;
@@ -590,20 +578,21 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     }
   };
 
-  const saveCanvasJSON = async (): Promise<void> => {
+  const saveCanvasJSON = async (asDraft = false): Promise<void> => {
     if (!api || savingJSON) return;
     setSavingJSON(true);
     setNotice(null);
     try {
       const editor = await import("@agent-studio/canvas-editor");
+      const exportState = api.getAppState();
       const { fileHandle } = await editor.saveAsJSON(
         api.getSceneElements() as unknown as readonly CanvasEditorElement[],
-        api.getAppState(),
+        asDraft ? { ...exportState, fileHandle: null } : exportState,
         api.getFiles() as unknown as BinaryFiles,
-        api.getName(),
+        asDraft ? `${api.getName()}-draft` : api.getName(),
       );
-      api.updateScene({ appState: { fileHandle } });
-      setNotice("Canvas JSON saved.");
+      if (!asDraft) api.updateScene({ appState: { fileHandle } });
+      setNotice(asDraft ? "Canvas draft exported." : "Canvas JSON saved.");
     } catch (error: unknown) {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
         setNotice(error instanceof Error ? error.message : "Unable to export the canvas JSON.");
@@ -638,8 +627,6 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
                 canvasAPI={receiveAPI}
                 onChange={handleChange}
                 handleKeyboardGlobally={false}
-                aiEnabled={false}
-                validateEmbeddable={false}
                 UIOptions={uiOptions}
                 autoFocus={false}
               />
@@ -678,9 +665,17 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
           </div>
         )}
         {(saving || saveError || notice) && (
-          <div className={`canvas-panel-status${saveError ? " has-action" : ""}`} aria-live="polite">
+          <div className={`canvas-panel-status${saveError ? " has-action" : ""}`} role={saveError ? "alert" : "status"} aria-live="polite">
             <span>{saving ? "Saving…" : saveError ?? notice}</span>
-            {saveError && <button type="button" onClick={() => void flush().catch(() => undefined)}>Retry</button>}
+            {saveError && (saveConflict ? (
+              <>
+                <button type="button" onClick={() => void saveCanvasJSON(true)} disabled={savingJSON}>Export draft</button>
+                <button type="button" onClick={() => {
+                  resetPreloadedCanvasDocument();
+                  setReloadVersion((current) => current + 1);
+                }}>Reload saved</button>
+              </>
+            ) : <button type="button" onClick={() => void flush().catch(() => undefined)}>Retry</button>)}
           </div>
         )}
       </div>

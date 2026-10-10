@@ -100,7 +100,7 @@ export const ContextMenu = React.memo(
                   // the action uses the appState it's being passed (that still
                   // contains a defined contextMenu) to return the next state.
                   onClose(() => {
-                    actionManager.executeAction(item, "contextMenu");
+                    actionManager.executeAction(item);
                   });
                 }}
               >

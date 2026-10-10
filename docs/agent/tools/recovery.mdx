@@ -1,228 +1,157 @@
 ---
 title: 工具执行恢复
-description: ToolCall 的持久化执行阶段、安全重放、状态核对和批次恢复契约。
+description: 工具调用的持久化阶段、每次尝试的恢复证据、原子文件发布与模型重试编排。
 ---
 
-本文定义工具执行恢复契约。它从完整 Assistant Message 已持久化、其中包含一个或多个 ToolCall 开始，规定 Runtime 在进程退出、工具自身网络异常或结果提交中断后，如何决定重放、状态核对、结果物化或停止。
+Runtime 统一调度模型请求、工具执行和重启恢复。工具注册表提供执行与恢复能力，Recorder 管理串行提交和已提交消息快照，Repository 使用 SQLite 事务保存执行事实。
 
-恢复协调器读取执行记录，完成恢复后生成模型可见的 Tool Message。
+## 两个原子提交边界
 
-## 职责边界
+1. **执行前：Assistant 终态与整批计划。** `finishAssistantAttempt()` 接收消息与可选整批计划，Repository 的 `commitAssistantAttempt()` 在同一事务中提交 Assistant 与全部 `planned` invocation。普通回答使用空计划。
+2. **执行后：Tool Message 与单个调用完成。** `commitToolResult()` 在同一事务中保存 `entries.tool_result` 与该 invocation 的 `completed`。每个工具独立完成提交，后续工具按原始顺序继续执行。
 
-`entries` 保存模型可见项目历史消息：`user_message`、`assistant_message` 和 `tool_result`。它是模型上下文的事实来源。
+`entries` 保存模型可见消息；`tool_invocations` 保存执行控制事实。`assistantEntryId` 与 `ordinal` 组织模型返回的原始批次，每个逻辑调用以 `(runId, toolCallId)` 识别。
 
-`tool_invocations` 保存工具执行控制事实；`entries` 保存模型可见消息。一个模型 ToolCall 对应一条 invocation；一条 invocation 可以因安全重放产生多次物理执行。
+## 调用记录
 
-`toolCallId` 是模型产生的一次逻辑调用身份。模型收到失败 Tool Message 后产生新的调用时，Runtime 为它创建新的 `toolCallId` 与新的 invocation。
-
-## 工具调用记录
-
-每个 ToolCall 在 `tool_invocations` 中对应一条记录。第一版使用 `attemptCount` 与最后一次恢复信息，后台 worker、多进程执行或完整 attempt 审计可以继续扩展独立 `tool_attempts` 表。
-
-| 字段 | 语义 |
+| 字段 | 用途 |
 | --- | --- |
-| `id` | 执行记录的内部稳定身份。 |
-| `projectId`、`runId`、`turnId`、`cwd` | 确定项目或无项目范围、一次运行、工具批次和恢复执行目录。 |
-| `assistantEntryId`、`ordinal` | 关联产生调用的 Assistant Message，并保留同批调用的原始顺序。 |
-| `toolCallId` | 模型给出的逻辑调用身份；同一运行内必须唯一。 |
-| `toolName`、`toolVersion` | 定位注册工具和登记时生效的工具版本；恢复按登记版本加载工具契约。 |
-| `inputJson` | 已完成校验与标准化的工具参数。 |
-| `inputHash` | `toolName + toolVersion + canonicalInputJson` 的校验值；同一 `toolCallId` 的 hash 变化属于协议冲突。 |
-| `phase` | `planned`、`effect_pending`、`outcome_ready` 或 `completed`。 |
-| `outcomeStatus` | 已确定的 `succeeded`、`failed`、`cancelled` 或 `interrupted`；仅在 outcome 已知时填写。 |
-| `outcomeJson` | 完整 ToolResult、错误分类和恢复说明；`outcome_ready` 恢复时据此补写 Tool Message。 |
-| `recoveryModeSnapshot` | 调用登记时保存的 `safe`、`reconcile` 或 `never`。 |
-| `attemptCount` | 已保留的物理执行尝试数；进入 `effect_pending` 的事务中递增，用于预算和诊断，工具成功由 outcomeStatus 表示。 |
-| `checkpointVersion`、`checkpoint` | 工具私有、可版本化的恢复证据，例如 before/after hash、临时文件、备份位置或外部请求凭证；敏感凭据由安全凭据存储管理。 |
-| `resultEntryId` | 预先保留的 `entries.tool_result` 身份；`completed` 后必须指向真实记录。 |
-| `createdAt`、`updatedAt` | 执行控制记录的时间边界。 |
+| `id` | 后端调用记录的稳定身份。 |
+| `projectId`、`runId`、`turnId`、`cwd` | 保存项目范围、运行、模型回合与原执行目录。 |
+| `assistantEntryId`、`ordinal` | 关联产生调用的 Assistant，保留批次顺序。 |
+| `toolCallId`、`toolName`、`toolVersion` | 保存逻辑调用身份、工具名称和登记版本。 |
+| `inputJson`、`inputHash` | 保存标准化参数与工具名称、版本、参数的指纹，验证幂等身份的一致性。 |
+| `phase` | 保存 `planned`、`effect_pending`、`outcome_ready` 或 `completed`。 |
+| `outcomeStatus`、`outcomeJson` | 保存 `succeeded`、`failed`、`cancelled` 或 `interrupted` 及完整 ToolResult。 |
+| `recoveryModeSnapshot` | 保存调用登记时的 `safe`、`reconcile` 或 `never` 能力快照。 |
+| `attemptCount` | 保存已登记的真实执行尝试数，进入 `effect_pending` 时递增。 |
+| `checkpoint` | 保存当前 attempt 的版本化恢复证据。 |
+| `resultEntryId` | 预留最终 Tool Message 的稳定身份。 |
+| `createdAt`、`updatedAt` | 表达调用记录的创建与控制状态更新时间。 |
 
-## 阶段与结果
+## 阶段与恢复动作
 
-`phase` 表示执行协议走到哪里，`outcomeStatus` 表示工具最终发生了什么。
-
-进程重启时遗留的 `effect_pending` 表示“副作用可能发生、结果需要恢复确认”。恢复策略会把它重放、核对，或物化为 `interrupted` 结果。
-
-| Phase | Runtime 已知事实 | 恢复动作 |
+| 阶段 | 持久化事实 | Runtime 动作 |
 | --- | --- | --- |
-| `planned` | 调用已登记，Runtime 等待执行时机。 | 重新调度该调用。 |
-| `effect_pending` | 执行意图已持久化，副作用可能已发生，结果未确定。 | 按恢复模式重放、核对或中断。 |
-| `outcome_ready` | 工具 outcome 已持久化，等待 Tool Message 物化。 | 复用 outcome，完成 `tool_result` 提交。 |
-| `completed` | Tool Message 已提交并可进入模型上下文。 | 复用已提交结果进入模型上下文。 |
+| `planned` | 整批调用已登记，工具等待执行。 | 检查取消与工具跨 run 调度契约，准备本次尝试并执行，或结算取消、准备失败与跳过结果。 |
+| `effect_pending` | 执行意图、attempt 与 checkpoint 已保存，副作用可能发生。 | 根据恢复快照安全重放、核对真实状态，或结算带现场说明的 interrupted 结果。 |
+| `outcome_ready` | 确定的 ToolResult 已保存。 | 复用结果，在一个事务中物化 Tool Message 与 completed。 |
+| `completed` | 真实 Tool Message 与完成标记共同保存。 | 复用已提交消息进入模型上下文。 |
 
-主动取消与崩溃恢复是两条不同路径。主动取消表示本次 run 不再继续执行：尚未进入 `effect_pending` 的 `planned` 调用必须由 Runtime 结算为取消或跳过，不能留给下一次 run 自动调度；已经进入 `effect_pending` 的调用只进入核对或人工确认，不能因为下一次用户发送而隐式重放。只有进程异常退出、且没有主动取消标记的开放 invocation，才进入自动恢复流程。
+准备失败通过 `settleUnstartedToolInvocation()` 从 `planned` 直接进入 `outcome_ready`，尝试数保持零。工具已进入尝试后，结果通过 `saveToolOutcome()` 保存。结果提交失败保留原结果和消息身份，后续恢复继续物化。
+
+## checkpoint：每次尝试的恢复证据
+
+checkpoint 在工具真正轮到执行时生成。`RegisteredTool.prepare(input, context)` 返回一个绑定 checkpoint 与执行闭包的准备结果。Write/Edit 读取当前文件一次，校验参数与 Edit 匹配，计算最终字节，再从同一份准备结果执行。
+
+checkpoint 表达本次尝试的前后状态和发布身份：
+
+- `beforeHash`：修改前文件的 SHA-256；创建文件时使用 `null`。
+- `afterHash`：准备结果中完整目标字节的 SHA-256。
+- `path`、`targetPath`：用户调用路径与符号链接解析后的发布目标。
+- `before`、`afterMode`：原文件身份、时间、大小与权限，以及目标权限。
+- `staging`：本次 invocation、attempt、随机 token 与唯一临时文件名。
+- `directoryBoundary`：准备时已存在的祖先目录身份，用于确认新建目录链的持久化。
+- `operation`、`byteSize`、`mediaType`：恢复结果的文件产物信息。
+
+恢复证据采用 `version: 2`、`kind: "text_file"`。恢复器同时解析已有 version 1 的 hash 证据，并根据可验证事实给出结论。准备过程只持有内存数据，临时文件创建属于已经登记执行意图后的执行阶段。
+
+同一批中的 A 修改文件后，B 的准备读取 A 发布后的内容；B 的 checkpoint 和实际执行始终基于同一份文件与目标字节。
+
+## Write/Edit 的原子发布
+
+```text
+读取当前文件，准备完整目标字节与 checkpoint
+  ↓
+事务保存 checkpoint + effect_pending + attemptCount
+  ↓
+在目标同目录独占创建本次 staging 文件
+  ↓
+写入完整字节，保存权限，fsync，关闭文件
+  ↓
+核对原文件、符号链接目标、发布目录与 staging 身份
+  ↓
+rename：将 staging 一次性替换为目标文件
+  ↓
+fsync 发布目录，确认工具结果
+```
+
+rename 是文件可见内容的发布点。发布前读取目标得到旧内容，发布后读取目标得到完整新内容。同目录 staging 使发布使用同一文件系统的 rename 操作；文件 fsync 确认写入，目录 fsync 确认名称替换的持久化。
+
+SQLite 和文件系统分别拥有提交边界。文件已经 rename、结果尚待保存的中断窗口，由 checkpoint 桥接：目标符合 after 状态时同步目标文件及目录链，再确认成功；目标符合 before 状态时允许新尝试，其余状态保存 interrupted 与核对说明。新建目录的同步按子目录到既有祖先的顺序确认各层目录入口，发布与恢复共用这一屏障。
+
+文件发布队列按真实目标路径串行化本进程参与者，发布前再次核对来源。外部编辑造成的状态变化返回冲突；符号链接沿用真实目标，单链接普通文件使用原权限与所有者。恢复清理核对精确 staging 身份、字节与元数据，并保持现场证据可追溯。
 
 ## 注册工具的恢复能力
 
-恢复模式属于 `RegisteredTool` 的产品契约；调用登记时将模式与工具版本快照持久化。具体 TypeScript API 在实现阶段冻结。
-
-| Mode | 适用条件 | effect_pending 恢复行为 |
+| 模式 | 工具能力 | effect_pending 恢复 |
 | --- | --- | --- |
-| `safe` | 工具声明同一调用的安全重放边界。 | 使用同一 `toolCallId`、标准化参数和新的 attempt 安全重放。 |
-| `reconcile` | 工具拥有 checkpoint，能够核对真实世界状态。 | 先执行工具私有恢复逻辑；它可确认成功、确认未发布副作用，或返回无法确认。 |
-| `never` | 工具通过人工或外部流程完成恢复确认。 | 生成带明确说明的 `interrupted` Tool Message，并等待后续处理。 |
+| `safe` | 同一参数的再次执行具有安全语义。 | 同一 invocation 开始新的 attempt。Read、Query 使用该模式。 |
+| `reconcile` | 工具可解释 checkpoint 并核对实际状态。 | 返回确认成功、允许重试或 interrupted。Write、Edit 使用该模式。 |
+| `never` | 工具将未知副作用交给后续独立处理。 | 保存 interrupted Tool Message 与现场说明。任意 Bash 使用该模式。 |
 
-`reconcile` 通过工具私有恢复逻辑解释 checkpoint，并返回三种结论：
+`recovery.version` 确定恢复实现版本，`resumePlanned` 确定前次 run 的待执行调用能否继续。Canvas Edit 使用 `resumePlanned: false`，旧调用直接结算 interrupted，新请求使用当前引用。
 
-1. 副作用已成功发生：持久化成功 outcome。
-2. 副作用尚未发布：重新进入调度。
-3. 需要人工确认：物化 `interrupted` 结果并等待后续处理。
-
-Read 与 Query 采用 `safe`。Write 与 Edit 在具备临时文件、before/after hash 与恢复证据后采用 `reconcile`。任意 Bash 默认采用 `never`，由恢复协调器保留执行现场并等待确认。
-
-## 完整执行与恢复流程
+## 完整链路
 
 ```mermaid
 flowchart TD
-    A["完整 Assistant Message 已提交<br/>包含 ToolCalls"]
-    B["事务：为整批 ToolCalls 创建 invocation<br/>phase=planned，预留 resultEntryId"]
-    C{"取得下一个 ordinal 未完成调用"}
-    D["事务：attemptCount+1<br/>phase=effect_pending"]
-    E["调用 RegisteredTool.execute"]
-    F{"获得确定 outcome？"}
-    G["事务：保存 outcomeJson<br/>phase=outcome_ready"]
-    H["事务：插入 entries.tool_result<br/>phase=completed"]
-    I{"整批全部 completed？"}
-    J["以完整 Tool Message 上下文请求下一轮模型"]
-    K["重启或进程中断"]
-    L{"遗留 phase"}
-    M["planned：重新调度"]
-    N{"effect_pending recoveryMode"}
-    O["safe：同一 ToolCall 安全重放"]
-    P["reconcile：核对 checkpoint"]
-    T["事务：重置为 planned"]
-    Q["never 或无法确认：生成 interrupted outcome"]
-    R["outcome_ready：补写 Tool Message"]
-    S["completed：复用已提交结果"]
-
-    A --> B --> C
-    C --> D --> E --> F
-    F -->|成功或确定失败| G --> H --> I
-    I -->|是| J
-    I -->|否| C
-    D --> K
-    E --> K
-    G --> K
-    H --> K
-    K --> L
-    L -->|planned| M --> C
-    L -->|effect_pending| N
-    N -->|safe| O --> E
-    N -->|reconcile| P
-    P -->|确认成功| G
-    P -->|确认未发布副作用| T --> C
-    P -->|无法确认| Q --> G
-    N -->|never| Q
-    L -->|outcome_ready| R --> H
-    L -->|completed| S --> I
+    A["请求模型"] --> B{"模型结果"}
+    B -->|完整回答| C["统一终态提交：Assistant + 空计划"]
+    C --> Z["完成运行"]
+    B -->|完整工具调用| D["统一终态事务：Assistant + 整批 planned"]
+    D --> E["按 ordinal 取得下一个工具"]
+    E --> F["prepare：当前文件 + 确定字节 + checkpoint"]
+    F --> G["事务：checkpoint + effect_pending + attemptCount"]
+    G --> H["执行准备结果；文件工具原子 rename"]
+    H --> I["保存 ToolResult：outcome_ready"]
+    F -->|准备失败| I
+    I --> J["事务：Tool Message + invocation completed"]
+    J --> K{"本批全部 completed"}
+    K -->|否| E
+    K -->|是| A
+    B -->|流不完整或可重试错误| L["保存 interrupted 或 failed attempt"]
+    L --> M{"ModelRetryPolicy 允许"}
+    M -->|是| N["退避；复用稳定消息上下文"]
+    N --> A
+    M -->|预算耗尽| O["完成运行：failed 与错误说明"]
+    R["重启：读取开放调用与取消事实"] --> S{"phase"}
+    S -->|planned| E
+    S -->|effect_pending| T{"恢复模式"}
+    T -->|safe| F
+    T -->|reconcile| U["核对 checkpoint"]
+    U -->|确认成功| I
+    U -->|确认 before 状态| F
+    U -->|状态需核对| V["interrupted 与现场说明"]
+    T -->|never| V
+    V --> I
+    S -->|outcome_ready| J
+    S -->|completed| K
 ```
 
-## 持久化屏障
+恢复分支在调用调度与核对前检查持久化取消事实。Main 将 Stop 写入 `run_cancellations` 后触发 AbortSignal；`beginToolAttempt` 在事务中再次检查取消屏障。尚待执行的调用结算 cancelled，结果未知的已开始调用保留 checkpoint 并结算 interrupted，已知 outcome 继续物化。
 
-真实工具在 SQLite 短事务之外执行；SQLite 事务负责持久化执行阶段、checkpoint 和结果边界，工具执行器负责管理文件系统、Shell 或远程服务的副作用。
+在线执行与重启恢复共用持久化的批次推进规则：后序 planned 调用读取同批前序的 outcome，前序 interrupted 时结算带跳过原因的 interrupted，尝试数保持零。前序已经 completed 的 interrupted 结果继续参与此判断。`beginToolAttempt` 的事务再次核对前序结果与取消屏障，确保执行许可沿用同一规则。已确定的业务失败保存为 failed Tool Message，串行链路继续后续调用。整批结果配对完成后，Runtime 把完整上下文交给模型。
 
-1. Assistant Message 提交成功后，为同批 ToolCall 一次性创建 `planned` records。
-2. 每次真实 handler 调用前，以短事务把调用改为 `effect_pending` 并递增 `attemptCount`。
-3. handler 在事务外执行。
-4. handler 返回确定 outcome 后，以短事务保存 `outcomeJson` 和 `outcome_ready`。
-5. 以短事务追加 `entries.tool_result`，关联 `resultEntryId`，并改为 `completed`。
-6. 只有原始批次的每个调用均为 `completed`，Runtime 才能请求下一轮模型。
+恢复调度通过 `getToolInvocationCall()` 验证 input JSON、参数指纹及源 Assistant 的范围、回合、ordinal 和工具参数。现有账本的规范化 JSON 原文提供历史指纹核对，新的指纹使用确定性键序。损坏记录通过明确存储错误报告，开放阶段保留现场；取消屏障拒绝使用独立调度类型进入 cancelled 结算。
 
-如果 `outcome_ready` 与 `tool_result` 由同一 SQLite 事务物化，实现可以让它们连续完成；恢复路径始终复用已知 outcome。
+## 三种重试边界
 
-## 重试边界
-
-模型回合重试、同一 ToolCall 的安全重放，以及模型收到失败后发出的新 ToolCall 是三个不同层次。
-
-| 情况 | invocation 记录 | Runtime 动作 |
+| 情况 | 决策者与记录 | 执行动作 |
 | --- | --- | --- |
-| 模型流在完整 Assistant Message 前网络中断 | 无 | 保存 interrupted Assistant attempt，按 ModelRetryPolicy 重试模型请求。 |
-| 已完成工具批次后，下一轮模型请求网络失败 | 已有，且全部 completed | 使用已提交 Tool Message 上下文重试模型请求，工具记录保持 completed。 |
-| 工具自身出现暂时错误且 mode=safe | 已有，effect_pending | 对同一 ToolCall 增加 attemptCount 后安全重放；达到预算后物化失败结果。 |
-| 工具自身网络错误且远端副作用可能已发生 | 已有，effect_pending | 进入 reconcile 或 never 的恢复流程。 |
-| 模型收到失败 Tool Message 后再次调用 | 新的 toolCallId | 创建新的 invocation，并从 attempt 1 开始。 |
+| 模型请求失败 | Runtime 的 `ModelRetryPolicy` 与 Assistant attempt。 | 按次数、退避和错误类型重新请求模型，复用最后的稳定上下文。 |
+| 完整响应或工具结果保存失败 | Runtime 的 `commitRetry` 与稳定消息身份。 | 仅重提保存操作，复用同一响应、ToolResult、entryId 与时间。 |
+| 重启后遗留 effect_pending | Runtime 与工具恢复能力快照。 | 安全重放、实际状态核对，或保存 interrupted 说明。 |
+| 模型看到失败后重新调用 | 新的逻辑 ToolCall 与 invocation。 | 登记新的调用并按正常尝试链路执行。 |
 
-## 模型重试与工具恢复的统一编排
+工具在线返回的失败作为 ToolResult 进入结果链路。物理工具执行、模型请求重试和结果保存重试分别使用各自边界，Runtime 保持唯一调度入口。
 
-Runtime 统一拥有两套决策入口：
+## 一致性与验证
 
-- `ModelRetryPolicy`：决定模型请求的 attempt、退避和重试上限。
-- `recoveryModeSnapshot`：决定一个已登记 ToolCall 的安全重放、状态核对和人工确认路径。
-
-两套策略共享同一个 Runtime 状态机。模型重试处理模型请求，工具恢复处理工具 invocation；工具注册只提供恢复能力快照，恢复动作由 Runtime 调度。
-
-```mermaid
-flowchart TD
-    A["Runtime 请求模型"] --> B{"模型响应状态"}
-    B -->|"流不完整 / 模型网络错误"| C["保存当前 model attempt"]
-    C --> D{"ModelRetryPolicy 允许？"}
-    D -->|"是"| E["退避并创建下一次 model attempt"]
-    E --> A
-    D -->|"否"| F["保存模型失败结果并结束 run"]
-
-    B -->|"完整 answer"| G["提交 Assistant Message"]
-    G --> H["完成 run"]
-
-    B -->|"完整 toolCalls"| I["提交 Assistant Message"]
-    I --> J["登记整批 tool_invocations=planned"]
-    J --> K["Runtime 逐个推进工具 phase"]
-    K --> L{"工具结果状态"}
-    L -->|"确定 succeeded / failed"| M["保存 outcome_ready"]
-    L -->|"effect_pending 恢复"| N["读取 recoveryModeSnapshot"]
-    N -->|"safe"| O["同一 ToolCall 新 attempt"]
-    O --> K
-    N -->|"reconcile"| P["执行工具恢复核对"]
-    P -->|"确认成功"| M
-    P -->|"确认未发布"| K
-    P -->|"人工确认"| Q["保存 interrupted outcome"]
-    N -->|"never"| Q
-    Q --> M
-
-    M --> R["写入 Tool Message<br/>phase=completed"]
-    R --> S{"整批是否已完成？"}
-    S -->|"否"| K
-    S -->|"是"| T["加入完整工具上下文"]
-    T --> A
-```
-
-模型请求重试的前提是当前模型请求对应的消息上下文已经稳定；工具恢复的前提是对应 invocation 已经完成阶段登记。模型下一轮请求失败时，Runtime 复用 completed Tool Message，并保持工具 invocation 的 completed phase。
-
-## 批次结算
-
-Runtime 在执行任何工具前登记整批调用，`ordinal` 保留模型原始顺序。第一版保持串行执行。
-
-- A 已 `completed`：恢复时直接复用结果。
-- B 是已确定业务失败：物化 `failed` Tool Message；按既有串行规则可以继续 C。
-- B 遗留 `effect_pending`：先恢复 B；C 保持 `planned`，等待批次顺序恢复。
-- B 的 `never` 或 reconcile 返回人工确认：物化 `interrupted`；后续调用物化为带 `skip_reason` 的 `interrupted` 结果，或按照独立执行声明继续。
-
-Runtime 在每个原始 ToolCall 都拥有确定 Tool Message 后提交该批次给模型。每个 ToolCall 独立结算，单 ToolCall 是事务边界，批次保留原始顺序。
-
-## 恢复不变量
-
-- 同一 `(runId, toolCallId)` 只接受一种 `inputHash`。
-- `effect_pending` 在真实 handler 启动前完成持久化。
-- `attemptCount` 在进入 `effect_pending` 的事务中递增，并用于执行预算；工具成功由 outcomeStatus 表示。
-- `outcome_ready` 与 `completed` 的恢复路径复用已保存的 outcome。
-- `completed` 拥有真实 `resultEntryId`，且对应 `tool_result` 的 `toolCallId` 一致。
-- Runtime 在批次全部完成后发起下一轮模型请求。
-- `safe` 重放使用原调用的 `toolCallId` 与标准化参数；模型重新发起的调用创建新的 invocation。
-- checkpoint、错误消息和 outcome 只保存非敏感恢复证据，凭据由安全凭据存储管理。
-
-## 验证矩阵
-
-| 场景 | 预期 |
-| --- | --- |
-| planned 后崩溃 | 重启后重新调度；handler 从未启动。 |
-| safe 工具 effect_pending 后崩溃 | 同一 ToolCall 安全重放，attemptCount 递增。 |
-| reconcile 工具确认 afterHash | 复用确认结果，补写 succeeded Tool Message。 |
-| reconcile 工具确认 beforeHash | 清理 staging 后重新调度。 |
-| reconcile 返回人工确认 | 写入 interrupted，进入人工恢复流程。 |
-| never 工具 effect_pending 后崩溃 | 写入 interrupted，进入人工恢复流程。 |
-| 主动取消后仍有 planned 调用 | 结算为 cancelled/skipped，下一次 run 不自动执行。 |
-| 主动取消时存在 effect_pending | 进入核对或人工确认，不执行隐式重放。 |
-| outcome_ready 后崩溃 | 复用 outcome，补写 tool_result。 |
-| completed 后重复恢复 | 复用 resultEntryId 和已提交结果。 |
-| A 成功、B 业务失败、C 成功 | 三个 Tool Message 均提交，模型下一轮看到完整批次。 |
-| A 成功、B effect_pending、C planned 后崩溃 | 复用 A，恢复 B，默认不越过 B 执行 C。 |
-| 下一轮模型请求网络失败 | 按 ModelRetryPolicy 重试模型请求，保留工具 completed 状态。 |
+- Assistant 终态和整批 planned 共同提交或共同回滚。
+- 每次执行使用对应 attempt 的 checkpoint 与已准备字节。
+- 持久化错误进入存储错误路径，开放调用继续保留真实执行阶段。
+- Tool Message 与 completed 共同提交或共同回滚，outcome_ready 为补交提供确定结果。
+- Recorder 快照和 toolCompleted 事件在数据库提交成功后发布。
+- JSON 比较遵循实际序列化语义，消息、结果和 checkpoint 在边界处验证类型与版本。
+- SQLite BEGIN/COMMIT 锁冲突、延迟草稿刷新、同文件连续 Edit、rename 后结果保存中断、取消、staging 身份与历史结果投影均有回归覆盖。

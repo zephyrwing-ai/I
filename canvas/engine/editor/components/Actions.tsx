@@ -4,7 +4,6 @@ import { SHAPES } from "../shapes";
 import type { AppClassProperties, AppProps, UIAppState } from "../types";
 import { capitalizeString } from "../utils";
 import { ToolButton } from "./ToolButton";
-import { trackEvent } from "../analytics";
 import clsx from "clsx";
 import { actionToggleZenMode } from "../actions";
 import { Tooltip } from "./Tooltip";
@@ -12,13 +11,11 @@ import "./Actions.scss";
 
 export const ShapesSwitcher = ({
   activeTool,
-  temporaryHandActive = false,
   appState,
   app,
   UIOptions,
 }: {
   activeTool: UIAppState["activeTool"];
-  temporaryHandActive?: boolean;
   appState: UIAppState;
   app: AppClassProperties;
   UIOptions: AppProps["UIOptions"];
@@ -44,7 +41,7 @@ export const ShapesSwitcher = ({
           key={value}
           type="radio"
           icon={icon}
-          checked={!temporaryHandActive && activeTool.type === value}
+          checked={activeTool.type === value}
           name="editor-current-shape"
           title={`${capitalizeString(label)} — ${shortcut}`}
           keyBindingLabel={numericKey || letter}
@@ -57,9 +54,6 @@ export const ShapesSwitcher = ({
             }
           }}
           onChange={({ pointerType }) => {
-            if (appState.activeTool.type !== value) {
-              trackEvent("toolbar", value, "ui");
-            }
             if (value === "image") {
               app.setActiveTool({
                 type: value,

@@ -11,7 +11,6 @@ type ColorPalette = Merge<
   { black: "#1e1e1e"; white: "#ffffff"; transparent: "transparent" }
 >;
 
-export const DEFAULT_CHART_COLOR_INDEX = 4;
 export const DEFAULT_ELEMENT_BACKGROUND_COLOR_INDEX = 1;
 export const ELEMENTS_PALETTE_SHADE_INDEXES = [0, 2, 4, 6, 8] as const;
 
@@ -45,24 +44,6 @@ export const COLOR_PALETTE = {
 // -----------------------------------------------------------------------------
 // helpers
 // -----------------------------------------------------------------------------
-
-// !!!MUST BE WITHOUT GRAY, TRANSPARENT AND BLACK!!!
-export const getAllColorsSpecificShade = (index: 0 | 1 | 2 | 3 | 4) =>
-  [
-    // 2nd row
-    COLOR_PALETTE.cyan[index],
-    COLOR_PALETTE.blue[index],
-    COLOR_PALETTE.violet[index],
-    COLOR_PALETTE.grape[index],
-    COLOR_PALETTE.pink[index],
-
-    // 3rd row
-    COLOR_PALETTE.green[index],
-    COLOR_PALETTE.teal[index],
-    COLOR_PALETTE.yellow[index],
-    COLOR_PALETTE.orange[index],
-    COLOR_PALETTE.red[index],
-  ] as const;
 
 export const rgbToHex = (r: number, g: number, b: number) =>
   `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;

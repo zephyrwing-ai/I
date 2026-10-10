@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import applicationMetadata from './package.json'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 
@@ -10,7 +11,12 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: resolve(root, 'out/main'),
-      lib: { entry: resolve(root, 'shell/main/index.ts') }
+      lib: {
+        entry: {
+          index: resolve(root, 'shell/main/index.ts'),
+          'canvas-cli': resolve(root, 'canvas/cli/index.ts')
+        }
+      }
     }
   },
   preload: {
@@ -23,7 +29,13 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(root, 'frontend'),
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: 'application-title',
+        transformIndexHtml: (html) => html.replace('%APP_NAME%', applicationMetadata.productName)
+      }
+    ],
     css: {
       preprocessorOptions: {
         scss: {

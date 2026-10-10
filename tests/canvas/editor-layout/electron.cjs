@@ -21,7 +21,9 @@ app.whenReady().then(async () => {
   });
   window.webContents.setFrameRate(60);
   await window.loadFile(process.argv[2]);
-  const result = await window.webContents.executeJavaScript("window.runCanvasLayoutRegression()");
+  const result = await window.webContents.executeJavaScript("window.runCanvasLayoutRegression()").catch((error) => {
+    throw new Error(`${error.message}; renderer=${JSON.stringify(errors)}`);
+  });
   process.stdout.write(`CANVAS_LAYOUT_RESULTS=${JSON.stringify({ ...result, errors })}\n`);
   clearTimeout(timeout);
   window.destroy();

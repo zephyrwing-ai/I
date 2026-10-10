@@ -17,7 +17,6 @@ import { ComicShannsFontFaces } from "./ComicShanns";
 import { EmojiFontFaces } from "./Emoji";
 import { ExcalifontFontFaces } from "./Excalifont";
 import { HelveticaFontFaces } from "./Helvetica";
-import { LiberationFontFaces } from "./Liberation";
 import { LilitaFontFaces } from "./Lilita";
 import { NunitoFontFaces } from "./Nunito";
 import { VirgilFontFaces } from "./Virgil";
@@ -30,7 +29,6 @@ import type {
   FontFamilyValues,
 } from "../element/types";
 import type Scene from "../scene/Scene";
-import type { ValueOf } from "../utility-types";
 import { charWidth } from "../element/textMeasurements";
 
 export class Fonts {
@@ -48,26 +46,13 @@ export class Fonts {
       >
     | undefined;
 
-  private static _initialized: boolean = false;
-
   public static get registered() {
     // lazy load the font registration
     if (!Fonts._registered) {
       Fonts._registered = Fonts.init();
-    } else if (!Fonts._initialized) {
-      // case when host app register fonts before they are lazy loaded
-      // don't override whatever has been previously registered
-      Fonts._registered = new Map([
-        ...Fonts.init().entries(),
-        ...Fonts._registered.entries(),
-      ]);
     }
 
     return Fonts._registered;
-  }
-
-  public get registered() {
-    return Fonts.registered;
   }
 
   private readonly scene: Scene;
@@ -307,55 +292,13 @@ export class Fonts {
   }
 
   /**
-   * Register a new font.
-   *
-   * @param family font family
-   * @param metadata font metadata
-   * @param fontFacesDecriptors font faces descriptors
-   */
-  private static register(
-    this:
-      | Fonts
-      | {
-          registered: Map<
-            number,
-            { metadata: FontMetadata; fontFaces: CanvasEditorFontFace[] }
-          >;
-        },
-    family: string,
-    metadata: FontMetadata,
-    ...fontFacesDecriptors: CanvasEditorFontFaceDescriptor[]
-  ) {
-    // TODO: likely we will need to abandon number value in order to support custom fonts
-    const fontFamily =
-      FONT_FAMILY[family as keyof typeof FONT_FAMILY] ??
-      FONT_FAMILY_FALLBACKS[family as keyof typeof FONT_FAMILY_FALLBACKS];
-
-    const registeredFamily = this.registered.get(fontFamily);
-
-    if (!registeredFamily) {
-      this.registered.set(fontFamily, {
-        metadata,
-        fontFaces: fontFacesDecriptors.map(
-          ({ uri, descriptors }) =>
-            new CanvasEditorFontFace(family, uri, descriptors),
-        ),
-      });
-    }
-
-    return this.registered;
-  }
-
-  /**
    * WARN: should be called just once on init, even across multiple instances.
    */
   private static init() {
-    const fonts = {
-      registered: new Map<
-        ValueOf<typeof FONT_FAMILY | typeof FONT_FAMILY_FALLBACKS>,
-        { metadata: FontMetadata; fontFaces: CanvasEditorFontFace[] }
-      >(),
-    };
+    const registered = new Map<
+      number,
+      { metadata: FontMetadata; fontFaces: CanvasEditorFontFace[] }
+    >();
 
     const init = (
       family: keyof typeof FONT_FAMILY | keyof typeof FONT_FAMILY_FALLBACKS,
@@ -369,7 +312,13 @@ export class Fonts {
       const metadata =
         FONT_METADATA[fontFamily] ?? FONT_METADATA[FONT_FAMILY.Excalifont];
 
-      Fonts.register.call(fonts, family, metadata, ...fontFacesDescriptors);
+      registered.set(fontFamily, {
+        metadata,
+        fontFaces: fontFacesDescriptors.map(
+          ({ uri, descriptors }) =>
+            new CanvasEditorFontFace(family, uri, descriptors),
+        ),
+      });
     };
 
     init("Cascadia", ...CascadiaFontFaces);
@@ -377,8 +326,6 @@ export class Fonts {
     init("Excalifont", ...ExcalifontFontFaces);
     // keeping for backwards compatibility reasons, uses system font (Helvetica on MacOS, Arial on Win)
     init("Helvetica", ...HelveticaFontFaces);
-    // used for server-side pdf & png export instead of helvetica (technically does not need metrics, but kept in for consistency)
-    init("Liberation Sans", ...LiberationFontFaces);
     init("Lilita One", ...LilitaFontFaces);
     init("Nunito", ...NunitoFontFaces);
     init("Virgil", ...VirgilFontFaces);
@@ -387,9 +334,7 @@ export class Fonts {
     init(CJK_HAND_DRAWN_FALLBACK_FONT, ...XiaolaiFontFaces);
     init(WINDOWS_EMOJI_FALLBACK_FONT, ...EmojiFontFaces);
 
-    Fonts._initialized = true;
-
-    return fonts.registered;
+    return registered;
   }
 
   /**
@@ -445,13 +390,6 @@ export class Fonts {
       ? Array.from(charsPerFamily[family]).join("")
       : "";
   }
-
-  /**
-   * Get all registered font families.
-   */
-  private static getAllFamilies() {
-    return Array.from(Fonts.registered.keys());
-  }
 }
 
 /**
@@ -463,7 +401,7 @@ export const getVerticalOffset = (
   lineHeightPx: number,
 ) => {
   const { unitsPerEm, ascender, descender } =
-    Fonts.registered.get(fontFamily)?.metadata.metrics ||
+    Fonts.registered.get(fontFamily === FONT_FAMILY["Liberation Sans"] ? FONT_FAMILY.Helvetica : fontFamily)?.metadata.metrics ||
     FONT_METADATA[FONT_FAMILY.Virgil].metrics;
 
   const fontSizeEm = fontSize / unitsPerEm;
@@ -479,7 +417,7 @@ export const getVerticalOffset = (
  */
 export const getLineHeight = (fontFamily: FontFamilyValues) => {
   const { lineHeight } =
-    Fonts.registered.get(fontFamily)?.metadata.metrics ||
+    Fonts.registered.get(fontFamily === FONT_FAMILY["Liberation Sans"] ? FONT_FAMILY.Helvetica : fontFamily)?.metadata.metrics ||
     FONT_METADATA[FONT_FAMILY.Excalifont].metrics;
 
   return lineHeight as CanvasEditorTextElement["lineHeight"];

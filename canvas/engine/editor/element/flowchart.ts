@@ -253,11 +253,9 @@ const addNewNode = (
     height: element.height,
     roundness: element.roundness,
     roughness: element.roughness,
-    backgroundColor: element.backgroundColor,
     strokeColor: element.strokeColor,
     strokeWidth: element.strokeWidth,
     opacity: element.opacity,
-    fillStyle: element.fillStyle,
     strokeStyle: element.strokeStyle,
   });
 
@@ -331,11 +329,9 @@ export const addNewNodes = (
       height: startNode.height,
       roundness: startNode.roundness,
       roughness: startNode.roughness,
-      backgroundColor: startNode.backgroundColor,
       strokeColor: startNode.strokeColor,
       strokeWidth: startNode.strokeWidth,
       opacity: startNode.opacity,
-      fillStyle: startNode.fillStyle,
       strokeStyle: startNode.strokeStyle,
     });
 

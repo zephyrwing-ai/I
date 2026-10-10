@@ -39,7 +39,6 @@ import { measureText } from "../element/textMeasurements";
 export const actionUnbindText = register({
   name: "unbindText",
   label: "labels.unbindText",
-  trackEvent: { category: "element" },
   predicate: (elements, appState, _, app) => {
     const selectedElements = app.scene.getSelectedElements(appState);
 
@@ -94,7 +93,6 @@ export const actionUnbindText = register({
 export const actionBindText = register({
   name: "bindText",
   label: "labels.bindText",
-  trackEvent: { category: "element" },
   predicate: (elements, appState, _, app) => {
     const selectedElements = app.scene.getSelectedElements(appState);
 
@@ -211,7 +209,6 @@ const pushContainerBelowText = (
 export const actionWrapTextInContainer = register({
   name: "wrapTextInContainer",
   label: "labels.createContainerFromText",
-  trackEvent: { category: "element" },
   predicate: (elements, appState, _, app) => {
     const selectedElements = app.scene.getSelectedElements(appState);
     const areTextElements = selectedElements.every((el) => isTextElement(el));
@@ -226,13 +223,11 @@ export const actionWrapTextInContainer = register({
       if (isTextElement(textElement)) {
         const container = newElement({
           type: "rectangle",
-          backgroundColor: appState.currentItemBackgroundColor,
           boundElements: [
             ...(textElement.boundElements || []),
             { id: textElement.id, type: "text" },
           ],
           angle: textElement.angle,
-          fillStyle: appState.currentItemFillStyle,
           strokeColor: appState.currentItemStrokeColor,
           roughness: appState.currentItemRoughness,
           strokeWidth: appState.currentItemStrokeWidth,

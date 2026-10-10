@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 10;
 
 function hasTable(database: DatabaseSync, name: string): boolean {
   const row = database.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) as { present?: number } | undefined;
@@ -12,13 +12,11 @@ function hasColumn(database: DatabaseSync, table: string, column: string): boole
   return rows.some((row) => row.name === column);
 }
 
-function migrateCompletedAtToDurationMs(database: DatabaseSync): void {
+function migrateMessageTimes(database: DatabaseSync, preserveLegacyDuration: boolean): void {
   if (!hasColumn(database, "entries", "duration_ms")) {
     database.exec("ALTER TABLE entries ADD COLUMN duration_ms INTEGER");
   }
-  if (!hasColumn(database, "entries", "completed_at")) return;
-
-  database.exec(`
+  if (preserveLegacyDuration && hasColumn(database, "entries", "completed_at")) database.exec(`
     UPDATE entries AS assistant
     SET duration_ms = MAX(0, assistant.completed_at - (
       SELECT user_entry.created_at
@@ -41,7 +39,17 @@ function migrateCompletedAtToDurationMs(database: DatabaseSync): void {
           AND user_entry.type = 'user_message'
       )
   `);
-  database.exec("ALTER TABLE entries DROP COLUMN completed_at");
+  if (!hasColumn(database, "entries", "completed_at")) {
+    database.exec("ALTER TABLE entries ADD COLUMN completed_at INTEGER");
+  }
+  if (hasColumn(database, "entries", "updated_at")) {
+    database.exec(`
+      UPDATE entries SET completed_at = COALESCE(completed_at, updated_at)
+      WHERE type = 'assistant_message' AND status = 'completed';
+      ALTER TABLE entries DROP COLUMN updated_at;
+    `);
+  }
+  database.exec("UPDATE entries SET completed_at = NULL WHERE type != 'assistant_message' OR status != 'completed'");
 }
 
 function createProjectSchema(database: DatabaseSync): void {
@@ -77,7 +85,7 @@ function createProjectSchema(database: DatabaseSync): void {
       payload_version INTEGER NOT NULL DEFAULT 1,
       payload_json TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
+      completed_at INTEGER,
       duration_ms INTEGER
     );
 
@@ -135,6 +143,12 @@ function createProjectSchema(database: DatabaseSync): void {
 
     CREATE INDEX IF NOT EXISTS tool_invocations_project_phase_idx
       ON tool_invocations (project_id, phase, ordinal ASC);
+
+    CREATE TABLE IF NOT EXISTS run_cancellations (
+      run_id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      cancelled_at INTEGER NOT NULL
+    );
   `);
 }
 
@@ -142,6 +156,7 @@ function migrateLegacySessionSchema(database: DatabaseSync): void {
   const legacyCompletedAt = hasColumn(database, "entries", "completed_at") ? "completed_at" : "NULL";
   const legacyDurationMs = hasColumn(database, "entries", "duration_ms") ? "duration_ms" : "NULL";
   const legacyCwd = hasColumn(database, "tool_invocations", "cwd") ? "cwd" : "''";
+  const legacyToolInvocations = hasTable(database, "tool_invocations");
   database.exec("PRAGMA foreign_keys = OFF");
   database.exec("BEGIN IMMEDIATE");
   try {
@@ -219,7 +234,7 @@ function migrateLegacySessionSchema(database: DatabaseSync): void {
         UNIQUE (run_id, tool_call_id)
       );
 
-      INSERT INTO tool_invocations_project_new
+      ${legacyToolInvocations ? `INSERT INTO tool_invocations_project_new
         (id, project_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
          tool_name, tool_version, input_json, input_hash, phase, outcome_status, outcome_json,
          recovery_mode_snapshot, attempt_count, checkpoint_json, result_entry_id, created_at, updated_at)
@@ -228,7 +243,7 @@ function migrateLegacySessionSchema(database: DatabaseSync): void {
         recovery_mode_snapshot, attempt_count, checkpoint_json, result_entry_id, created_at, updated_at
       FROM tool_invocations;
 
-      DROP TABLE tool_invocations;
+      DROP TABLE tool_invocations;` : ""}
       ALTER TABLE tool_invocations_project_new RENAME TO tool_invocations;
       DROP TABLE sessions;
 
@@ -258,7 +273,8 @@ function migrateLegacySessionSchema(database: DatabaseSync): void {
       CREATE INDEX pending_run_inputs_recovery_idx
         ON pending_run_inputs (state, accept_order);
     `);
-    migrateCompletedAtToDurationMs(database);
+    createProjectSchema(database);
+    migrateMessageTimes(database, true);
     database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     database.exec("COMMIT");
   } catch (error) {
@@ -288,6 +304,15 @@ export function initializeSchema(database: DatabaseSync): void {
   }
 
   createProjectSchema(database);
-  migrateCompletedAtToDurationMs(database);
-  database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  if (version < SCHEMA_VERSION) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      migrateMessageTimes(database, version < 9);
+      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }

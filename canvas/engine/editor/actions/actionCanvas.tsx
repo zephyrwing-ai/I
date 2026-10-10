@@ -45,7 +45,6 @@ export const actionClearCanvas = register({
   label: "labels.clearCanvas",
   paletteName: "Clear canvas",
   icon: TrashIcon,
-  trackEvent: { category: "canvas" },
   predicate: (elements, appState, props, app) => {
     return (
       !!app.props.UIOptions.canvasActions.clearCanvas &&
@@ -70,8 +69,6 @@ export const actionClearCanvas = register({
         gridSize: appState.gridSize,
         gridStep: appState.gridStep,
         gridModeEnabled: appState.gridModeEnabled,
-        stats: appState.stats,
-        pasteDialog: appState.pasteDialog,
         activeTool:
           appState.activeTool.type === "image"
             ? { ...appState.activeTool, type: "selection" }
@@ -176,7 +173,6 @@ export const actionSetZoom = register({
   name: "setZoom",
   label: "labels.zoom",
   viewMode: true,
-  trackEvent: { category: "canvas" },
   perform: (_elements, appState, percentage: number) => {
     if (!Number.isFinite(percentage)) {
       return false;
@@ -195,7 +191,6 @@ export const actionSetZoom = register({
           },
           appState,
         ),
-        userToFollow: null,
       },
       captureUpdate: CaptureUpdateAction.EVENTUALLY,
     };
@@ -347,14 +342,12 @@ export const actionZoomToFitSelectionInViewport = register({
   name: "zoomToFitSelectionInViewport",
   label: "labels.zoomToFitViewport",
   icon: zoomAreaIcon,
-  trackEvent: { category: "canvas" },
   perform: (elements, appState, _, app) => {
     const selectedElements = app.scene.getSelectedElements(appState);
     return zoomToFit({
       targetElements: selectedElements.length ? selectedElements : elements,
       appState: {
         ...appState,
-        userToFollow: null,
       },
       fitToViewport: false,
       canvasOffsets: app.getEditorUIOffsets(),
@@ -373,14 +366,12 @@ export const actionZoomToFitSelection = register({
   name: "zoomToFitSelection",
   label: "helpDialog.zoomToSelection",
   icon: zoomAreaIcon,
-  trackEvent: { category: "canvas" },
   perform: (elements, appState, _, app) => {
     const selectedElements = app.scene.getSelectedElements(appState);
     return zoomToFit({
       targetElements: selectedElements.length ? selectedElements : elements,
       appState: {
         ...appState,
-        userToFollow: null,
       },
       fitToViewport: true,
       canvasOffsets: app.getEditorUIOffsets(),
@@ -399,13 +390,11 @@ export const actionZoomToFit = register({
   label: "helpDialog.zoomToFit",
   icon: zoomAreaIcon,
   viewMode: true,
-  trackEvent: { category: "canvas" },
   perform: (elements, appState, _, app) =>
     zoomToFit({
       targetElements: elements,
       appState: {
         ...appState,
-        userToFollow: null,
       },
       fitToViewport: false,
       canvasOffsets: app.getEditorUIOffsets(),
@@ -427,7 +416,6 @@ export const actionToggleTheme = register({
   keywords: ["toggle", "dark", "light", "mode", "theme"],
   icon: (appState) => (appState.theme === THEME.LIGHT ? MoonIcon : SunIcon),
   viewMode: true,
-  trackEvent: { category: "canvas" },
   perform: (_, appState, value) => {
     return {
       appState: {
@@ -447,7 +435,6 @@ export const actionToggleTheme = register({
 export const actionToggleEraserTool = register({
   name: "toggleEraserTool",
   label: "toolBar.eraser",
-  trackEvent: { category: "toolbar" },
   perform: (elements, appState) => {
     let activeTool: AppState["activeTool"];
 
@@ -470,7 +457,6 @@ export const actionToggleEraserTool = register({
         ...appState,
         selectedElementIds: {},
         selectedGroupIds: {},
-        activeEmbeddable: null,
         activeTool,
       },
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
@@ -483,7 +469,6 @@ export const actionToggleHandTool = register({
   name: "toggleHandTool",
   label: "toolBar.hand",
   paletteName: "Toggle hand tool",
-  trackEvent: { category: "toolbar" },
   icon: handIcon,
   viewMode: false,
   perform: (elements, appState, _, app) => {
@@ -509,7 +494,6 @@ export const actionToggleHandTool = register({
         ...appState,
         selectedElementIds: {},
         selectedGroupIds: {},
-        activeEmbeddable: null,
         activeTool,
       },
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,

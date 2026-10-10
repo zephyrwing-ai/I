@@ -22,8 +22,9 @@ interface HistoryPageEntry {
   revision: number;
   payload: ModelMessage;
   createdAt: number;
-  updatedAt: number;
+  completedAt: number | null;
   durationMs: number | null;
+  toolResult?: ToolResult;
 }
 
 interface HistoryPageResult {
@@ -36,6 +37,14 @@ interface HistoryPageResult {
 ```
 
 Main 以当前 `projectId` 或 `NULL` 范围过滤 entries，再按 `entry_order DESC` 读取尾页，并在交付 Renderer 前恢复为 `entryOrder ASC`。`snapshotOrder` 表示当前范围读取到的最大顺序。
+
+## 工具结果投影
+
+Main 对当前页的 `tool_result` entry 批量关联 `tool_invocations.outcome_json`。关联使用预留的 `resultEntryId`，并同时核对项目、run、turn 与 toolCall 身份；每页使用一次关联查询取得已有结构化结果。
+
+实时事件与历史页共用公共 ToolResult 转换，提供 `ok`、原始 `output`、`returncode`、`truncated` 和 `error`。`HistoryPageEntry.toolResult` 承载该投影，Renderer 优先使用它恢复工具展示。模型消息继续通过 `payload` 保存并参与模型上下文；历史展示与实时展示共享相同的结果字段。
+
+Main 在读取边界校验 outcome 的字段类型，结构损坏形成历史存储错误。工具的 checkpoint、内部完整输出文件位置和产物登记信息归属 Main。既有文本历史条目继续使用消息内容展示。
 
 ## 运行中输入投影
 
@@ -54,6 +63,8 @@ type MessageTimelineItem =
 ```
 
 ACK 以 `inputId` 追加用户项；`turnStarted` 以 `turnId` 追加模型请求事实；`inputsApplied` 保持用户项身份并记录补充消息的上下文提交。Assistant 增量和 Tool 事件更新已有 turn 与 tool 状态。历史投影以 `entryOrder` 重建持久化序列。用户输入边界到助手活动组、消息块身份及展开内容的映射由[消息流视图规范](./message-stream.mdx)统一定义。
+
+`RunState.appliedInputId` 记录实际模型上下文的最新输入边界。初始输入 ACK 建立该边界，`inputsApplied` 将其更新为本批最后一条输入，每个新 turn 捕获固定的 `anchorInputId`。历史投影按 `entryOrder` 从 completed 用户 entry 恢复已应用边界，并为后续首次出现的 turn 建立相同锚点；interrupted 用户 entry 以独立消息呈现其归档状态。
 
 `runCompleted.unappliedInputIds` 与 interrupted entries 通过相同 `inputId` 对应；历史重载从 entries 恢复输入状态与文本。搜索索引以 MessageBlock 稳定 ID 关联命中。视图状态和定位交互由[消息流视图规范](./message-stream.mdx)说明。
 
@@ -92,6 +103,14 @@ MessageStream 接收当前 `projectId` 和 hydrate 就绪状态，并据此管�
 ## 实时事件
 
 Hydrate 完成后，Renderer 将排队的 AgentEvent 交给 Reducer。`runId → turnId → toolCallId` 继续作为模型与工具事件身份链，`inputId` 负责补充用户输入归并，`entryOrder` 负责已应用历史排序。迟到的旧 run 事件保持被过滤，项目切换在运行空闲状态完成。
+
+## 消息日期投影
+
+- 初始用户消息从运行 ACK 的 `createdAt` 建立日期；运行中补充输入从 ACK 的 `acceptedAt` 建立日期，两者均与用户 entry 的 `createdAt` 相同。
+- 历史用户消息从 `entry.createdAt` 恢复日期，用户输入身份与时间在实时接收、应用、归档和历史恢复中保持一致。
+- 实时 `assistantCompleted.completedAt` 写入 `TurnState.assistantAt`；历史 `assistant_message.completedAt` 恢复同一字段。该字段表达完整模型输出的完成时间。
+- `completedAt` 为空的助手草稿继续展示已有正文和活动内容；日期在完整输出提交后呈现。复制入口随可复制正文呈现。
+- 日期与复制行使用[消息流](./message-stream.mdx)的常显样式，日期格式采用本机时区下的英文短星期、短月份、日期和12小时制时间。
 
 ## 搜索和分页
 

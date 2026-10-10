@@ -13,8 +13,6 @@ import type {
   ValueOf,
 } from "../utility-types";
 
-export type ChartType = "bar" | "line";
-export type FillStyle = "hachure" | "cross-hatch" | "solid" | "zigzag";
 export type FontFamilyKeys = keyof typeof FONT_FAMILY;
 export type FontFamilyValues = typeof FONT_FAMILY[FontFamilyKeys];
 export type Theme = typeof THEME[keyof typeof THEME];
@@ -40,8 +38,6 @@ type _CanvasEditorElementBase = Readonly<{
   x: number;
   y: number;
   strokeColor: string;
-  backgroundColor: string;
-  fillStyle: FillStyle;
   strokeWidth: number;
   strokeStyle: StrokeStyle;
   roundness: null | { type: RoundnessType; value?: number };
@@ -100,37 +96,15 @@ export type CanvasEditorEmbeddableElement = _CanvasEditorElementBase &
     type: "embeddable";
   }>;
 
-export type MagicGenerationData =
-  | {
-      status: "pending";
-    }
-  | { status: "done"; html: string }
-  | {
-      status: "error";
-      message?: string;
-      code: "ERR_GENERATION_INTERRUPTED" | string;
-    };
-
 export type CanvasEditorIframeElement = _CanvasEditorElementBase &
   Readonly<{
     type: "iframe";
-    // TODO move later to AI-specific frame
-    customData?: { generationData?: MagicGenerationData };
   }>;
 
 export type CanvasEditorIframeLikeElement =
   | CanvasEditorIframeElement
   | CanvasEditorEmbeddableElement;
 
-export type IframeData =
-  | {
-      intrinsicSize: { w: number; h: number };
-      error?: Error;
-      sandbox?: { allowSameOrigin?: boolean };
-    } & (
-      | { type: "video" | "generic"; link: string }
-      | { type: "document"; srcdoc: (theme: Theme) => string }
-    );
 
 export type ImageCrop = {
   x: number;
@@ -294,19 +268,7 @@ export type FixedPointBinding = Merge<
   }
 >;
 
-export type Arrowhead =
-  | "arrow"
-  | "bar"
-  | "dot" // legacy. Do not use for new elements.
-  | "circle"
-  | "circle_outline"
-  | "triangle"
-  | "triangle_outline"
-  | "diamond"
-  | "diamond_outline"
-  | "crowfoot_one"
-  | "crowfoot_many"
-  | "crowfoot_one_or_many";
+export type Arrowhead = "arrow";
 
 export type CanvasEditorLinearElement = _CanvasEditorElementBase &
   Readonly<{

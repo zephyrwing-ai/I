@@ -9,14 +9,12 @@ import {
 } from "../constants";
 import { clearElementsForDatabase, clearElementsForExport } from "../element";
 import type { CanvasEditorElement } from "../element/types";
-import type { AppState, BinaryFiles, LibraryItems } from "../types";
+import type { AppState, BinaryFiles } from "../types";
 import { isImageFileHandle, loadFromBlob, normalizeFile } from "./blob";
 
 import type {
   ExportedDataState,
   ImportedDataState,
-  ExportedLibraryData,
-  ImportedLibraryData,
 } from "./types";
 
 /**
@@ -116,38 +114,5 @@ export const isValidCanvasEditorData = (data?: {
     (!data.elements ||
       (Array.isArray(data.elements) &&
         (!data.appState || typeof data.appState === "object")))
-  );
-};
-
-export const isValidLibrary = (json: any): json is ImportedLibraryData => {
-  return (
-    typeof json === "object" &&
-    json &&
-    json.type === EXPORT_DATA_TYPES.canvasLibrary &&
-    (json.version === 1 || json.version === 2)
-  );
-};
-
-export const serializeLibraryAsJSON = (libraryItems: LibraryItems) => {
-  const data: ExportedLibraryData = {
-    type: EXPORT_DATA_TYPES.canvasLibrary,
-    version: VERSIONS.canvasLibrary,
-    source: EXPORT_SOURCE,
-    libraryItems,
-  };
-  return JSON.stringify(data, null, 2);
-};
-
-export const saveLibraryAsJSON = async (libraryItems: LibraryItems) => {
-  const serialized = serializeLibraryAsJSON(libraryItems);
-  await fileSave(
-    new Blob([serialized], {
-      type: MIME_TYPES.canvaslib,
-    }),
-    {
-      name: "library",
-      extension: "excalidrawlib",
-      description: "CanvasEditor library file",
-    },
   );
 };
