@@ -3,8 +3,6 @@ import type {
   NonDeletedCanvasEditorElement,
 } from "./element/types";
 import type { BinaryFiles } from "./types";
-import type { Spreadsheet } from "./charts";
-import { tryParseSpreadsheet, VALID_SPREADSHEET } from "./charts";
 import {
   ALLOWED_PASTE_MIME_TYPES,
   EXPORT_DATA_TYPES,
@@ -30,7 +28,6 @@ type ElementsClipboard = {
 export type PastedMixedContent = { type: "text" | "imageUrl"; value: string }[];
 
 export interface ClipboardData {
-  spreadsheet?: Spreadsheet;
   elements?: readonly CanvasEditorElement[];
   files?: BinaryFiles;
   text?: string;
@@ -188,16 +185,6 @@ export const copyToClipboard = async (
     serializeAsClipboardJSON({ elements, files }),
     clipboardEvent,
   );
-};
-
-const parsePotentialSpreadsheet = (
-  text: string,
-): { spreadsheet: Spreadsheet } | { errorMessage: string } | null => {
-  const result = tryParseSpreadsheet(text);
-  if (result.type === VALID_SPREADSHEET) {
-    return { spreadsheet: result.spreadsheet };
-  }
-  return null;
 };
 
 /** internal, specific to parsing paste events. Do not reuse. */
@@ -370,19 +357,6 @@ export const parseClipboard = async (
     return {
       mixedContent: parsedEventData.value,
     };
-  }
-
-  try {
-    // if system clipboard contains spreadsheet, use it even though it's
-    // technically possible it's staler than in-app clipboard
-    const spreadsheetResult =
-      !isPlainPaste && parsePotentialSpreadsheet(parsedEventData.value);
-
-    if (spreadsheetResult) {
-      return spreadsheetResult;
-    }
-  } catch (error: any) {
-    console.error(error);
   }
 
   try {

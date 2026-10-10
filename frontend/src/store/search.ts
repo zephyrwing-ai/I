@@ -30,14 +30,14 @@ const DEFAULT_CONTEXT_CHARS = 48;
 
 /**
  * Derives the searchable message-block sequence from the loaded AgentState.
- * The sequence mirrors the user-message and final-answer blocks in MessageStream.
+ * Text and stable IDs come from the same user-body and visible-answer projection used by MessageStream.
  */
 export function buildSearchIndex(
   state: Pick<AgentState, "runOrder" | "runs">,
 ): SearchMessageBlock[] {
   return buildMessageBlockRecords(state)
     .filter((block): block is typeof block & { text: string } => (
-      (block.kind === "user" || block.kind === "assistant") && typeof block.text === "string" && block.text.length > 0
+      typeof block.text === "string" && block.text.trim().length > 0
     ))
     .map(({ blockId, text }) => ({ blockId, text }));
 }

@@ -188,13 +188,10 @@ export function AssistantMessage({
         <div className="run-work-label">{workLabel}</div>
       ) : null}
       {answerTurn?.assistantContent && (
-        <MarkdownText
-          className="model-text final-answer"
-          text={answerTurn.assistantContent}
-        />
-      )}
-      {answerTurn?.assistantAt !== undefined && answerTurn.assistantContent && (
-        <MessageMeta time={answerTurn.assistantAt} text={answerTurn.assistantContent} copyLabel="Copy answer" />
+        <>
+          <MarkdownText className="model-text final-answer" text={answerTurn.assistantContent} />
+          <MessageMeta time={answerTurn.assistantAt} text={answerTurn.assistantContent} copyLabel="Copy answer" />
+        </>
       )}
     </div>
   );

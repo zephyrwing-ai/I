@@ -244,8 +244,6 @@ export const exportToCanvas = async (
       canvasBackgroundColor: viewBackgroundColor,
       imageCache,
       isExporting: true,
-      // empty disables embeddable rendering
-      embedsValidationStatus: new Map(),
       elementsPendingErasure: new Set(),
       pendingFlowchartNodes: null,
     },
@@ -274,10 +272,6 @@ export const exportToSvg = async (
   },
   files: BinaryFiles | null,
   opts?: {
-    /**
-     * if true, all embeddables passed in will be rendered when possible.
-     */
-    renderEmbeddables?: boolean;
     exportingFrame?: CanvasEditorFrameLikeElement | null;
     skipInliningFonts?: true;
     reuseImages?: boolean;
@@ -445,8 +439,6 @@ export const exportToSvg = async (
 
   const rsvg = rough.svg(svgRoot);
 
-  const renderEmbeddables = opts?.renderEmbeddables ?? false;
-
   renderSceneToSvg(
     elementsForRender,
     toBrandedType<RenderableElementsMap>(arrayToMap(elementsForRender)),
@@ -458,16 +450,8 @@ export const exportToSvg = async (
       offsetY,
       isExporting: true,
       exportWithDarkMode,
-      renderEmbeddables,
       frameRendering,
       canvasBackgroundColor: viewBackgroundColor,
-      embedsValidationStatus: renderEmbeddables
-        ? new Map(
-            elementsForRender
-              .filter((element) => isFrameLikeElement(element))
-              .map((element) => [element.id, true]),
-          )
-        : new Map(),
       reuseImages: opts?.reuseImages ?? true,
     },
   );

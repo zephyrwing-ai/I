@@ -6,12 +6,9 @@ import {
   MIME_TYPES,
   SVG_NS,
 } from "../constants";
-import { normalizeLink, toValidURL } from "../data/url";
+import { normalizeLink } from "../data/url";
 import { getElementAbsoluteCoords, hashString } from "../element";
-import {
-  createPlaceholderEmbeddableLabel,
-  getEmbedLink,
-} from "../element/embeddable";
+import { createPlaceholderEmbeddableLabel } from "../element/embeddable";
 import { LinearElementEditor } from "../element/linearElementEditor";
 import {
   getBoundTextElement,
@@ -19,7 +16,6 @@ import {
 } from "../element/textElement";
 import {
   isArrowElement,
-  isIframeLikeElement,
   isInitializedImageElement,
   isTextElement,
 } from "../element/typeChecks";
@@ -35,7 +31,7 @@ import type { AppState, BinaryFiles } from "../types";
 import { getFontFamilyString, isRTL, isTestEnv } from "../utils";
 import { getFreeDrawSvgPath, IMAGE_INVERT_FILTER } from "./renderElement";
 import { getVerticalOffset } from "../fonts";
-import { getCornerRadius, isPathALoop } from "../shapes";
+import { getCornerRadius } from "../shapes";
 import { getUncroppedWidthAndHeight } from "../element/cropElement";
 import { getLineHeightInPx } from "../element/textMeasurements";
 
@@ -148,7 +144,6 @@ const renderElementToSvg = (
       );
       if (opacity !== 1) {
         node.setAttribute("stroke-opacity", `${opacity}`);
-        node.setAttribute("fill-opacity", `${opacity}`);
       }
       node.setAttribute("stroke-linecap", "round");
       node.setAttribute(
@@ -181,7 +176,6 @@ const renderElementToSvg = (
       const opacity = element.opacity / 100;
       if (opacity !== 1) {
         node.setAttribute("stroke-opacity", `${opacity}`);
-        node.setAttribute("fill-opacity", `${opacity}`);
       }
       node.setAttribute("stroke-linecap", "round");
       node.setAttribute(
@@ -205,70 +199,6 @@ const renderElementToSvg = (
         renderConfig,
       );
 
-      // render embeddable element + iframe
-      const embeddableNode = roughSVGDrawWithPrecision(
-        rsvg,
-        shape,
-        MAX_DECIMALS_FOR_SVG_EXPORT,
-      );
-      embeddableNode.setAttribute("stroke-linecap", "round");
-      embeddableNode.setAttribute(
-        "transform",
-        `translate(${offsetX || 0} ${
-          offsetY || 0
-        }) rotate(${degree} ${cx} ${cy})`,
-      );
-      while (embeddableNode.firstChild) {
-        embeddableNode.removeChild(embeddableNode.firstChild);
-      }
-      const radius = getCornerRadius(
-        Math.min(element.width, element.height),
-        element,
-      );
-
-      const embedLink = getEmbedLink(toValidURL(element.link || ""));
-
-      // if rendering embeddables explicitly disabled or
-      // embedding documents via srcdoc (which doesn't seem to work for SVGs)
-      // replace with a link instead
-      if (
-        renderConfig.renderEmbeddables === false ||
-        embedLink?.type === "document"
-      ) {
-        const anchorTag = svgRoot.ownerDocument!.createElementNS(SVG_NS, "a");
-        anchorTag.setAttribute("href", normalizeLink(element.link || ""));
-        anchorTag.setAttribute("target", "_blank");
-        anchorTag.setAttribute("rel", "noopener noreferrer");
-        anchorTag.style.borderRadius = `${radius}px`;
-
-        embeddableNode.appendChild(anchorTag);
-      } else {
-        const foreignObject = svgRoot.ownerDocument!.createElementNS(
-          SVG_NS,
-          "foreignObject",
-        );
-        foreignObject.style.width = `${element.width}px`;
-        foreignObject.style.height = `${element.height}px`;
-        foreignObject.style.border = "none";
-        const div = foreignObject.ownerDocument!.createElementNS(SVG_NS, "div");
-        div.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
-        div.style.width = "100%";
-        div.style.height = "100%";
-        const iframe = div.ownerDocument!.createElement("iframe");
-        iframe.src = embedLink?.link ?? "";
-        iframe.style.width = "100%";
-        iframe.style.height = "100%";
-        iframe.style.border = "none";
-        iframe.style.borderRadius = `${radius}px`;
-        iframe.style.top = "0";
-        iframe.style.left = "0";
-        iframe.allowFullscreen = true;
-        div.appendChild(iframe);
-        foreignObject.appendChild(div);
-
-        embeddableNode.appendChild(foreignObject);
-      }
-      addToRoot(embeddableNode, element);
       break;
     }
     case "line":
@@ -332,7 +262,6 @@ const renderElementToSvg = (
         );
         if (opacity !== 1) {
           node.setAttribute("stroke-opacity", `${opacity}`);
-          node.setAttribute("fill-opacity", `${opacity}`);
         }
         node.setAttribute(
           "transform",
@@ -340,13 +269,6 @@ const renderElementToSvg = (
             offsetY || 0
           }) rotate(${degree} ${cx} ${cy})`,
         );
-        if (
-          element.type === "line" &&
-          isPathALoop(element.points) &&
-          element.backgroundColor !== "transparent"
-        ) {
-          node.setAttribute("fill-rule", "evenodd");
-        }
         group.appendChild(node);
       });
 
@@ -367,17 +289,7 @@ const renderElementToSvg = (
       break;
     }
     case "freedraw": {
-      const backgroundFillShape = ShapeCache.generateElementShape(
-        element,
-        renderConfig,
-      );
-      const node = backgroundFillShape
-        ? roughSVGDrawWithPrecision(
-            rsvg,
-            backgroundFillShape,
-            MAX_DECIMALS_FOR_SVG_EXPORT,
-          )
-        : svgRoot.ownerDocument!.createElementNS(SVG_NS, "g");
+      const node = svgRoot.ownerDocument!.createElementNS(SVG_NS, "g");
       if (opacity !== 1) {
         node.setAttribute("stroke-opacity", `${opacity}`);
         node.setAttribute("fill-opacity", `${opacity}`);
@@ -677,7 +589,6 @@ export const renderSceneToSvg = (
 
   // render elements
   elements
-    .filter((el) => !isIframeLikeElement(el))
     .forEach((element) => {
       if (!element.isDeleted) {
         if (
@@ -720,25 +631,4 @@ export const renderSceneToSvg = (
       }
     });
 
-  // render embeddables on top
-  elements
-    .filter((el) => isIframeLikeElement(el))
-    .forEach((element) => {
-      if (!element.isDeleted) {
-        try {
-          renderElementToSvg(
-            element,
-            elementsMap,
-            rsvg,
-            svgRoot,
-            files,
-            element.x + renderConfig.offsetX,
-            element.y + renderConfig.offsetY,
-            renderConfig,
-          );
-        } catch (error: any) {
-          console.error(error);
-        }
-      }
-    });
 };

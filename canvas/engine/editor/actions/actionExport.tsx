@@ -24,7 +24,6 @@ import { CaptureUpdateAction } from "../store";
 export const actionChangeProjectName = register({
   name: "changeProjectName",
   label: "labels.fileTitle",
-  trackEvent: false,
   perform: (_elements, appState, value) => {
     return {
       appState: { ...appState, name: value },
@@ -44,7 +43,6 @@ export const actionChangeProjectName = register({
 export const actionChangeExportScale = register({
   name: "changeExportScale",
   label: "imageExportDialog.scale",
-  trackEvent: { category: "export", action: "scale" },
   perform: (_elements, appState, value) => {
     return {
       appState: { ...appState, exportScale: value },
@@ -94,7 +92,6 @@ export const actionChangeExportScale = register({
 export const actionChangeExportBackground = register({
   name: "changeExportBackground",
   label: "imageExportDialog.label.withBackground",
-  trackEvent: { category: "export", action: "toggleBackground" },
   perform: (_elements, appState, value) => {
     return {
       appState: { ...appState, exportBackground: value },
@@ -114,7 +111,6 @@ export const actionChangeExportBackground = register({
 export const actionChangeExportEmbedScene = register({
   name: "changeExportEmbedScene",
   label: "imageExportDialog.tooltip.embedScene",
-  trackEvent: { category: "export", action: "embedScene" },
   perform: (_elements, appState, value) => {
     return {
       appState: { ...appState, exportEmbedScene: value },
@@ -138,7 +134,6 @@ export const actionSaveToActiveFile = register({
   name: "saveToActiveFile",
   label: "buttons.save",
   icon: ExportIcon,
-  trackEvent: { category: "export" },
   predicate: (elements, appState, props, app) => {
     return (
       !!app.props.UIOptions.canvasActions.saveToActiveFile &&
@@ -193,7 +188,6 @@ export const actionSaveFileToDisk = register({
   label: "exportDialog.disk_title",
   icon: ExportIcon,
   viewMode: true,
-  trackEvent: { category: "export" },
   perform: async (elements, appState, value, app) => {
     try {
       const { fileHandle } = await saveAsJSON(
@@ -242,7 +236,6 @@ export const actionSaveFileToDisk = register({
 export const actionExportWithDarkMode = register({
   name: "exportWithDarkMode",
   label: "imageExportDialog.label.darkMode",
-  trackEvent: { category: "export", action: "toggleTheme" },
   perform: (_elements, appState, value) => {
     return {
       appState: { ...appState, exportWithDarkMode: value },

@@ -1,10 +1,10 @@
-import { stat, readFile, writeFile } from "node:fs/promises";
-import { isAbsolute, resolve, relative } from "node:path";
+import { isUtf8 } from "node:buffer";
+import { relative } from "node:path";
 import { mediaTypeForPath } from "../environment.js";
 import type { ToolDef } from "../model/types.js";
-import type { RegisteredTool, ToolResult } from "./types.js";
-import type { ToolCheckpoint, ToolExecutionContext } from "./types.js";
-import { checkpointForTextFile, reconcileTextFile, resolveToolPath } from "./recovery.js";
+import type { PreparedToolExecution, RegisteredTool, ToolExecutionContext, ToolResult } from "./types.js";
+import { checkpointForFilePublication, reconcileTextFile, resolveToolPath } from "./recovery.js";
+import { checkFileCancellation, FilePublicationError, fileErrorResult, filePublicationExecution, isRecord, observeFile, planFilePublication } from "./atomic-file.js";
 
 /** Edit 工具定义 — 一组基于同一份原始内容、互不重叠的“原文本→新文本”替换。 */
 export const EDIT_TOOL: ToolDef = {
@@ -32,10 +32,7 @@ export const EDIT_TOOL: ToolDef = {
   },
 };
 
-interface EditItem {
-  oldText: string;
-  newText: string;
-}
+interface EditItem { oldText: string; newText: string }
 
 export function createEditTool(): RegisteredTool {
   return {
@@ -43,143 +40,82 @@ export function createEditTool(): RegisteredTool {
     recovery: {
       version: "1",
       mode: "reconcile",
-      prepare: prepareEditCheckpoint,
-      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Edit"),
+      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Edit", input.path),
     },
+    prepare: prepareEdit,
     async execute(input, context): Promise<ToolResult> {
-      if (typeof input.path !== "string" || input.path.trim() === "") {
-        return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
-      }
-      if (!Array.isArray(input.edits) || input.edits.length === 0) {
-        return { ok: false, output: "Tool parameter edits must be a non-empty array.", returncode: -1, truncated: false, error: "invalid_arguments" };
-      }
-      const edits: EditItem[] = [];
-      for (const [i, item] of input.edits.entries()) {
-        const oldText = (item as Record<string, unknown>).oldText;
-        const newText = (item as Record<string, unknown>).newText;
-        if (typeof oldText !== "string" || oldText.length === 0) {
-          return { ok: false, output: `Edit ${i + 1}: oldText must be a non-empty string.`, returncode: -1, truncated: false, error: "invalid_arguments" };
-        }
-        if (typeof newText !== "string") {
-          return { ok: false, output: `Edit ${i + 1}: newText must be a string.`, returncode: -1, truncated: false, error: "invalid_arguments" };
-        }
-        edits.push({ oldText, newText });
-      }
-
-      const target = isAbsolute(input.path) ? input.path : resolve(context.cwd, input.path);
-      let stats;
-      try {
-        stats = await stat(target);
-      } catch {
-          return { ok: false, output: `File not found: ${input.path}`, returncode: -1, truncated: false, error: "not_found" };
-      }
-      if (stats.isDirectory()) {
-          return { ok: false, output: `Target is a directory; Edit expects a file: ${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
-      }
-
-      let original: string;
-      try {
-        const buffer = await readFile(target);
-        if (buffer.includes(0)) {
-          return { ok: false, output: `File is not editable text (contains binary data): ${input.path}`, returncode: -1, truncated: false, error: "binary_file" };
-        }
-        original = buffer.toString("utf8");
-      } catch (error) {
-          return { ok: false, output: `Read failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "read_failed" };
-      }
-
-      // 1. 每段 oldText 必须在原始内容中唯一匹配。
-      const matches: Array<{ index: number; length: number; edit: EditItem; order: number }> = [];
-      for (const [order, edit] of edits.entries()) {
-        const positions: number[] = [];
-        for (let at = original.indexOf(edit.oldText); at !== -1; at = original.indexOf(edit.oldText, at + 1)) {
-          positions.push(at);
-        }
-        if (positions.length === 0) {
-          return { ok: false, output: `Edit ${order + 1}: oldText was not found in the file: ${JSON.stringify(edit.oldText.slice(0, 200))}`, returncode: -1, truncated: false, error: "text_not_found" };
-        }
-        if (positions.length > 1) {
-          return { ok: false, output: `Edit ${order + 1}: oldText matched ${positions.length} locations; exactly one match is required: ${JSON.stringify(edit.oldText.slice(0, 200))}`, returncode: -1, truncated: false, error: "text_not_unique" };
-        }
-        matches.push({ index: positions[0], length: edit.oldText.length, edit, order });
-      }
-
-      // 2. 各替换不能相互重叠。
-      matches.sort((a, b) => a.index - b.index);
-      for (let i = 1; i < matches.length; i += 1) {
-        const prev = matches[i - 1];
-        const curr = matches[i];
-        if (curr.index < prev.index + prev.length) {
-          return { ok: false, output: `Overlapping edits: ${prev.order + 1} and ${curr.order + 1}`, returncode: -1, truncated: false, error: "edits_overlap" };
-        }
-      }
-
-      // 3. 基于同一份原始内容，自后向前应用，长度变化不影响前面的位置。
-      let updated = original;
-      for (const match of [...matches].sort((a, b) => b.index - a.index)) {
-        updated = updated.slice(0, match.index) + match.edit.newText + updated.slice(match.index + match.length);
-      }
-
-      try {
-        await writeFile(target, updated, "utf8");
-      } catch (error) {
-          return { ok: false, output: `Write failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
-      }
-
-      // 第一处变更位置：1-based 行号。
-      const firstLine = (original.slice(0, matches[0].index).match(/\n/g) ?? []).length + 1;
-      const rel = relative(context.cwd, target) || target;
-      const lines = matches.map((m) => `  #${m.order + 1} line ${(original.slice(0, m.index).match(/\n/g) ?? []).length + 1} ${JSON.stringify(m.edit.oldText.slice(0, 200))} → ${JSON.stringify(m.edit.newText.slice(0, 200))}`).join("\n");
-
-      return {
-        ok: true,
-        output: `<file>${rel}</file>\nEdit count: ${matches.length}\nFirst change: line ${firstLine}\n<diff>\n${lines}\n</diff>`,
-        returncode: 0,
-        truncated: false,
-        artifacts: [{
-          path: target,
-          operation: "updated",
-          mediaType: mediaTypeForPath(target),
-          byteSize: Buffer.byteLength(updated, "utf8"),
-          updatedAt: new Date().toISOString(),
-        }],
-      };
+      const prepared = await prepareEdit(input, context);
+      return prepared.kind === "result" ? prepared.result : prepared.execute(context);
     },
   };
 }
 
-async function prepareEditCheckpoint(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolCheckpoint | undefined> {
-  if (typeof input.path !== "string" || !Array.isArray(input.edits)) return undefined;
-  const edits: EditItem[] = [];
-  for (const item of input.edits) {
-    if (!item || typeof item !== "object") return undefined;
-    const record = item as Record<string, unknown>;
-    if (typeof record.oldText !== "string" || record.oldText.length === 0 || typeof record.newText !== "string") return undefined;
-    edits.push({ oldText: record.oldText, newText: record.newText });
-  }
-  const target = resolveToolPath(input.path, context.cwd);
-  let original: string;
+async function prepareEdit(input: Record<string, unknown>, context: ToolExecutionContext): Promise<PreparedToolExecution> {
   try {
-    const buffer = await readFile(target);
-    if (buffer.includes(0)) return undefined;
-    original = buffer.toString("utf8");
-  } catch {
-    return undefined;
+    if (typeof input.path !== "string" || input.path.trim() === "" || input.path.includes("\0")) {
+      throw new FilePublicationError("invalid_arguments", "Tool parameter path must be a non-empty string without NUL.");
+    }
+    if (!Array.isArray(input.edits) || input.edits.length === 0) {
+      throw new FilePublicationError("invalid_arguments", "Tool parameter edits must be a non-empty array.");
+    }
+    const edits: EditItem[] = [];
+    for (const [i, item] of input.edits.entries()) {
+      if (!isRecord(item) || typeof item.oldText !== "string" || item.oldText.length === 0 || item.oldText.includes("\0")) {
+        throw new FilePublicationError("invalid_arguments", `Edit ${i + 1}: oldText must be a non-empty string without NUL.`);
+      }
+      if (typeof item.newText !== "string" || item.newText.includes("\0")) {
+        throw new FilePublicationError("invalid_arguments", `Edit ${i + 1}: newText must be a string without NUL.`);
+      }
+      edits.push({ oldText: item.oldText, newText: item.newText });
+    }
+    checkFileCancellation(context);
+    const target = resolveToolPath(input.path, context.cwd);
+    const source = await observeFile(target);
+    if (!source.bytes) throw new FilePublicationError("not_found", `File not found: ${input.path}`);
+    if (source.bytes.includes(0)) throw new FilePublicationError("binary_file", `File contains NUL bytes: ${input.path}`);
+    if (!isUtf8(source.bytes)) throw new FilePublicationError("invalid_encoding", `File must contain valid UTF-8: ${input.path}`);
+    const original = source.bytes.toString("utf8");
+
+    const matches: Array<{ index: number; length: number; edit: EditItem; order: number }> = [];
+    for (const [order, edit] of edits.entries()) {
+      let count = 0;
+      let index = -1;
+      for (let at = original.indexOf(edit.oldText); at !== -1; at = original.indexOf(edit.oldText, at + 1)) {
+        count += 1;
+        index = at;
+      }
+      if (count !== 1) throw new FilePublicationError(count === 0 ? "text_not_found" : "text_not_unique",
+        `Edit ${order + 1}: oldText ${count === 0 ? "was not found" : `matched ${count} locations; exactly one match is required`}: ${JSON.stringify(edit.oldText.slice(0, 200))}`);
+      matches.push({ index, length: edit.oldText.length, edit, order });
+    }
+    matches.sort((left, right) => left.index - right.index);
+    for (let i = 1; i < matches.length; i += 1) {
+      const prev = matches[i - 1];
+      const curr = matches[i];
+      if (curr.index < prev.index + prev.length) throw new FilePublicationError("edits_overlap", `Overlapping edits: ${prev.order + 1} and ${curr.order + 1}`);
+    }
+    // Build final bytes once from disjoint spans of the original snapshot.
+    const parts: string[] = [];
+    const lines: string[] = [];
+    let offset = 0;
+    let line = 1;
+    let firstLine = 1;
+    for (const match of matches) {
+      const unchanged = original.slice(offset, match.index);
+      line += (unchanged.match(/\n/g) ?? []).length;
+      if (lines.length === 0) firstLine = line;
+      parts.push(unchanged, match.edit.newText);
+      lines.push(`  #${match.order + 1} line ${line} ${JSON.stringify(match.edit.oldText.slice(0, 200))} → ${JSON.stringify(match.edit.newText.slice(0, 200))}`);
+      line += (match.edit.oldText.match(/\n/g) ?? []).length;
+      offset = match.index + match.length;
+    }
+    parts.push(original.slice(offset));
+    const plan = await planFilePublication(source, Buffer.from(parts.join(""), "utf8"), context);
+    const mediaType = mediaTypeForPath(target);
+    const rel = relative(context.cwd, target) || target;
+    const output = `<file>${rel}</file>\nEdit count: ${matches.length}\nFirst change: line ${firstLine}\n<diff>\n${lines.join("\n")}\n</diff>`;
+    return filePublicationExecution(plan, checkpointForFilePublication(plan, mediaType), "Edit", output, mediaType);
+  } catch (error) {
+    return { kind: "result", result: fileErrorResult("Edit", error, "read_failed") };
   }
-  const matches: Array<{ index: number; length: number; edit: EditItem }> = [];
-  for (const edit of edits) {
-    const positions: number[] = [];
-    for (let at = original.indexOf(edit.oldText); at !== -1; at = original.indexOf(edit.oldText, at + 1)) positions.push(at);
-    if (positions.length !== 1) return undefined;
-    matches.push({ index: positions[0], length: edit.oldText.length, edit });
-  }
-  matches.sort((left, right) => left.index - right.index);
-  for (let i = 1; i < matches.length; i += 1) {
-    if (matches[i].index < matches[i - 1].index + matches[i - 1].length) return undefined;
-  }
-  let updated = original;
-  for (const match of [...matches].sort((left, right) => right.index - left.index)) {
-    updated = updated.slice(0, match.index) + match.edit.newText + updated.slice(match.index + match.length);
-  }
-  return checkpointForTextFile(target, original, updated, "updated", mediaTypeForPath(target));
 }

@@ -107,12 +107,14 @@ test("write recovery reconciles before and after file states", async () => {
   const write = makeRegistry().get("write")!;
   const context = makeContext(dir);
   try {
-    const checkpoint = await write.recovery.prepare?.({ path: "result.txt", content: "hello" }, context);
+    const prepared = await write.prepare!({ path: "result.txt", content: "hello" }, context);
+    if (prepared.kind !== "ready") throw new Error(prepared.result.output);
+    const checkpoint = prepared.checkpoint;
     assert.ok(checkpoint);
     const before = await write.recovery.reconcile?.({ path: "result.txt", content: "hello" }, checkpoint, context);
     assert.equal(before?.kind, "retry");
 
-    await write.execute({ path: "result.txt", content: "hello" }, context);
+    await prepared.execute(context);
     const after = await write.recovery.reconcile?.({ path: "result.txt", content: "hello" }, checkpoint, context);
     assert.equal(after?.kind, "succeeded");
     assert.equal(after?.kind === "succeeded" && after.result.ok, true);

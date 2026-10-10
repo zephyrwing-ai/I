@@ -93,17 +93,7 @@ export enum EVENT {
   CANVAS_LINK = "excalidraw-link",
   MENU_ITEM_SELECT = "menu.itemSelect",
   MESSAGE = "message",
-  FULLSCREENCHANGE = "fullscreenchange",
 }
-
-export const YOUTUBE_STATES = {
-  UNSTARTED: -1,
-  ENDED: 0,
-  PLAYING: 1,
-  PAUSED: 2,
-  BUFFERING: 3,
-  CUED: 5,
-} as const;
 
 export const ENV = {
   TEST: "test",
@@ -163,10 +153,8 @@ export const FRAME_STYLE = {
   strokeColor: "#bbb" as CanvasEditorElement["strokeColor"],
   strokeWidth: 2 as CanvasEditorElement["strokeWidth"],
   strokeStyle: "solid" as CanvasEditorElement["strokeStyle"],
-  fillStyle: "solid" as CanvasEditorElement["fillStyle"],
   roughness: 0 as CanvasEditorElement["roughness"],
   roundness: null as CanvasEditorElement["roundness"],
-  backgroundColor: "transparent" as CanvasEditorElement["backgroundColor"],
   radius: 8,
   nameOffsetY: 3,
   nameColorLightTheme: "#999999",
@@ -218,7 +206,6 @@ export const MIME_TYPES = {
   json: "application/json",
   // Canvas data. MIME values remain compatible with existing files and clipboard payloads.
   canvas: "application/vnd.excalidraw+json",
-  canvaslib: "application/vnd.excalidrawlib+json",
   // binary
   binary: "application/octet-stream",
   // image
@@ -240,7 +227,6 @@ export const EXPORT_IMAGE_TYPES = {
 export const EXPORT_DATA_TYPES = {
   canvas: "excalidraw",
   canvasClipboard: "excalidraw/clipboard",
-  canvasLibrary: "excalidrawlib",
   canvasClipboardWithAPI: "excalidraw-api/clipboard",
 } as const;
 
@@ -266,14 +252,6 @@ export const ACTIVE_THRESHOLD = 3_000;
 
 // duplicates --theme-filter, should be removed soon
 export const THEME_FILTER = "invert(93%) hue-rotate(180deg)";
-
-export const URL_QUERY_KEYS = {
-  addLibrary: "addLibrary",
-} as const;
-
-export const URL_HASH_KEYS = {
-  addLibrary: "addLibrary",
-} as const;
 
 export const DEFAULT_UI_OPTIONS: AppProps["UIOptions"] = {
   canvasActions: {
@@ -309,11 +287,9 @@ export const MAX_ALLOWED_FILE_BYTES = 4 * 1024 * 1024;
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 
-export const ENCRYPTION_KEY_BITS = 128;
 
 export const VERSIONS = {
   canvas: 2,
-  canvasLibrary: 2,
 } as const;
 
 export const BOUND_TEXT_PADDING = 5;
@@ -374,8 +350,6 @@ export const STROKE_WIDTH = {
 
 export const DEFAULT_ELEMENT_PROPS: {
   strokeColor: CanvasEditorElement["strokeColor"];
-  backgroundColor: CanvasEditorElement["backgroundColor"];
-  fillStyle: CanvasEditorElement["fillStyle"];
   strokeWidth: CanvasEditorElement["strokeWidth"];
   strokeStyle: CanvasEditorElement["strokeStyle"];
   roughness: CanvasEditorElement["roughness"];
@@ -383,8 +357,6 @@ export const DEFAULT_ELEMENT_PROPS: {
   locked: CanvasEditorElement["locked"];
 } = {
   strokeColor: COLOR_PALETTE.black,
-  backgroundColor: COLOR_PALETTE.transparent,
-  fillStyle: "solid",
   strokeWidth: STROKE_WIDTH.bold,
   strokeStyle: "solid",
   roughness: ROUGHNESS.architect,
@@ -392,19 +364,12 @@ export const DEFAULT_ELEMENT_PROPS: {
   locked: false,
 };
 
-export const LIBRARY_SIDEBAR_TAB = "library";
 export const CANVAS_SEARCH_TAB = "search";
 
 export const DEFAULT_SIDEBAR = {
   name: "default",
-  defaultTab: LIBRARY_SIDEBAR_TAB,
+  defaultTab: CANVAS_SEARCH_TAB,
 } as const;
-
-export const LIBRARY_DISABLED_TYPES = new Set([
-  "iframe",
-  "embeddable",
-  "image",
-] as const);
 
 // use these constants to easily identify reference sites
 export const TOOL_TYPE = {
@@ -431,8 +396,6 @@ export const TOOL_TYPE = {
  */
 export const DEFAULT_FILENAME = "Untitled";
 
-export const STATS_PANELS = { generalStats: 1, elementProperties: 2 } as const;
-
 export const MIN_WIDTH_OR_HEIGHT = 1;
 
 export const ARROW_TYPE: { [T in AppState["currentItemArrowType"]]: T } = {
@@ -446,9 +409,3 @@ export const ELEMENT_LINK_KEY = "element";
 
 /** used in tests */
 export const ORIG_ID = Symbol.for("__test__originalId__");
-
-export enum UserIdleState {
-  ACTIVE = "active",
-  AWAY = "away",
-  IDLE = "idle",
-}

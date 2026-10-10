@@ -1,8 +1,7 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { InitializeApp } from "./components/InitializeApp";
 import App from "./components/App";
 import { isShallowEqual } from "./utils";
-import polyfill from "./polyfill";
 
 import "./css/app.scss";
 import "./css/styles.scss";
@@ -15,28 +14,21 @@ import { EditorJotaiProvider, editorJotaiStore } from "./editor-jotai";
 import Footer from "./components/footer/FooterCenter";
 import WelcomeScreen from "./components/welcome-screen/WelcomeScreen";
 
-polyfill();
-
 const CanvasEditorBase = (props: CanvasEditorProps) => {
   const {
     onChange,
     initialData,
     canvasAPI,
-    isCollaborating = false,
-    onPointerUpdate,
     renderTopRightUI,
     langCode = defaultLang.code,
     viewModeEnabled,
     zenModeEnabled,
     gridModeEnabled,
-    libraryReturnUrl,
     theme,
     name,
-    renderCustomStats,
     onPaste,
     detectScroll = true,
     handleKeyboardGlobally = false,
-    onLibraryChange,
     autoFocus = false,
     generateIdForFile,
     onLinkOpen,
@@ -46,10 +38,6 @@ const CanvasEditorBase = (props: CanvasEditorProps) => {
     onScrollChange,
     onDuplicate,
     children,
-    validateEmbeddable,
-    renderEmbeddable,
-    aiEnabled,
-    showDeprecatedFonts,
   } = props;
 
   const canvasActions = props.UIOptions?.canvasActions;
@@ -79,32 +67,6 @@ const CanvasEditorBase = (props: CanvasEditorProps) => {
   ) {
     UIOptions.canvasActions.toggleTheme = true;
   }
-
-  useEffect(() => {
-    const importPolyfill = async () => {
-      //@ts-ignore
-      await import("canvas-roundrect-polyfill");
-    };
-
-    importPolyfill();
-
-    // Block pinch-zooming on iOS outside of the content area
-    const handleTouchMove = (event: TouchEvent) => {
-      // @ts-ignore
-      if (typeof event.scale === "number" && event.scale !== 1) {
-        event.preventDefault();
-      }
-    };
-
-    document.addEventListener("touchmove", handleTouchMove, {
-      passive: false,
-    });
-
-    return () => {
-      document.removeEventListener("touchmove", handleTouchMove);
-    };
-  }, []);
-
   return (
     <EditorJotaiProvider store={editorJotaiStore}>
       <InitializeApp langCode={langCode} theme={theme}>
@@ -112,22 +74,17 @@ const CanvasEditorBase = (props: CanvasEditorProps) => {
           onChange={onChange}
           initialData={initialData}
           canvasAPI={canvasAPI}
-          isCollaborating={isCollaborating}
-          onPointerUpdate={onPointerUpdate}
           renderTopRightUI={renderTopRightUI}
           langCode={langCode}
           viewModeEnabled={viewModeEnabled}
           zenModeEnabled={zenModeEnabled}
           gridModeEnabled={gridModeEnabled}
-          libraryReturnUrl={libraryReturnUrl}
           theme={theme}
           name={name}
-          renderCustomStats={renderCustomStats}
           UIOptions={UIOptions}
           onPaste={onPaste}
           detectScroll={detectScroll}
           handleKeyboardGlobally={handleKeyboardGlobally}
-          onLibraryChange={onLibraryChange}
           autoFocus={autoFocus}
           generateIdForFile={generateIdForFile}
           onLinkOpen={onLinkOpen}
@@ -136,10 +93,6 @@ const CanvasEditorBase = (props: CanvasEditorProps) => {
           onPointerUp={onPointerUp}
           onScrollChange={onScrollChange}
           onDuplicate={onDuplicate}
-          validateEmbeddable={validateEmbeddable}
-          renderEmbeddable={renderEmbeddable}
-          aiEnabled={aiEnabled === true}
-          showDeprecatedFonts={showDeprecatedFonts}
         >
           {children}
         </App>
@@ -221,7 +174,6 @@ export {
   restore,
   restoreAppState,
   restoreElements,
-  restoreLibraryItems,
 } from "./data/restore";
 
 export { reconcileElements } from "./data/reconcile";
@@ -233,15 +185,10 @@ export {
   exportToClipboard,
 } from "@agent-studio/canvas-utils/export";
 
-export { serializeAsJSON, serializeLibraryAsJSON } from "./data/json";
+export { serializeAsJSON } from "./data/json";
 export { saveAsJSON } from "./data/json";
-export {
-  loadFromBlob,
-  loadSceneOrLibraryFromBlob,
-  loadLibraryFromBlob,
-} from "./data/blob";
+export { loadFromBlob } from "./data/blob";
 export { getFreeDrawSvgPath } from "./renderer/renderElement";
-export { mergeLibraryItems, getLibraryItemsHash } from "./data/library";
 export { isLinearElement } from "./element/typeChecks";
 
 export {
@@ -250,7 +197,6 @@ export {
   MIME_TYPES,
   ROUNDNESS,
   DEFAULT_LASER_COLOR,
-  UserIdleState,
 } from "./constants";
 
 export {
@@ -261,7 +207,6 @@ export {
 
 export { CaptureUpdateAction } from "./store";
 
-export { parseLibraryTokensFromUrl, useHandleLibrary } from "./data/library";
 
 export {
   sceneCoordsToViewportCoords,
@@ -273,7 +218,6 @@ export { Button } from "./components/Button";
 export { Footer };
 export { useDevice } from "./components/App";
 export { WelcomeScreen };
-export { Stats } from "./components/Stats";
 
 export { normalizeLink } from "./data/url";
 export { zoomToFitBounds } from "./actions/actionCanvas";

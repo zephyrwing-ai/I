@@ -31,11 +31,11 @@ CanvasSurface 以项目 ID 加载对应场景，Main 以每次画布请求携带
 
 1. Composer 提交任务、模型 ID、attachmentIds、canvasContextIds 和当前 `projectId`。
 2. Main 校验项目范围，解析文件附件与 Canvas 选区引用，并从 `project_context` 取得有界目录上下文。
-3. Main 创建或取得绑定当前 `projectId` 的 `HistoryRecorder`。
+3. Main 创建或取得绑定当前 `projectId` 的 `HistoryRecorder`，生成初始 `inputId` 与固定的 `createdAt`，运行 ACK 与 Runtime 共享这组值。
 4. Runner 将文件路径提示并入当前任务，同时把选区 JSON 与项目上下文作为运行期消息交给 Runtime。
 5. Runtime 读取 `HistoryRecorder.snapshot()`，追加运行期项目上下文、Canvas 选区 JSON 和当前用户消息。
 6. Runtime 按提交屏障调用模型、工具和 Recorder。
-7. Renderer 通过 AgentEvent 渲染实时过程，通过 `history:load-page` 读取当前范围的持久化历史。
+7. Renderer 通过 AgentEvent 渲染实时过程，通过 `history:load-page` 读取当前范围的持久化历史。用户消息从 ACK 和历史 entry 取得相同的 `createdAt`；助手消息从完成事件和历史 entry 取得相同的 `completedAt`。
 
 ## 运行中输入装配
 
@@ -51,6 +51,8 @@ CanvasSurface 以项目 ID 加载对应场景，Main 以每次画布请求携带
 ## 历史分页
 
 `HistoryService` 保存一个 Main 侧当前范围读取器。Renderer 提交游标和页大小，Main 使用 `project_id = ?` 或 `project_id IS NULL` 读取 entries，并按照 `entry_order` 生成正序页面、下一页游标和 `snapshotOrder`。
+
+页面 DTO 保存 `createdAt`、可空的 `completedAt` 和 `durationMs`。Runner 将 Runtime 的 `assistantCompleted.completedAt` 原样交给 IPC，Renderer 的 reducer 与历史投影将该值写入同一助手日期字段。初始用户 ACK 的 `createdAt` 同时进入 Runtime 提交上下文；补充用户输入的 `acceptedAt` 成为持久化 entry 的 `createdAt`。
 
 Run 级时长以 `runStarted.startedAt` 为唯一计时起点，在运行终态计算总时长。HistoryRecorder 把总时长保存到最终 Assistant Message 的 `durationMs`；`runCompleted.finalTurnId` 与 `finalDurationMs` 提供最终回合身份和实时总时长，历史分页提供持久化时长。`inputsApplied.startedAt` 标记补充文本进入模型上下文的时刻。活动组时长归属见[消息流视图规范](./message-stream.mdx)。
 

@@ -24,7 +24,7 @@ description: Agent 向宿主报告运行、回合、模型消息和工具调用�
 
 Agent 发出以下事件：运行开始、回合开始、Assistant 正文增量、思考增量、回合重试、Assistant 完成、工具开始、工具完成、回合完成和运行完成。每类事件都携带 `runId`；回合事件还携带 `turnId`；重试事件携带当前与下一次 attempt；工具事件还携带 `toolCallId`。
 
-`assistantCompleted` 报告归一化 Assistant Message 和停止原因；`toolCompleted` 报告结构化工具结果；`runCompleted` 携带 `completed`、`cancelled` 或 `failed`，并可附带结构化 `RunError` 和诊断信息。`runStarted` 携带 `startedAt`，其他过程事件保持各自字段。
+`assistantCompleted` 报告归一化 Assistant Message、停止原因和固定的 `completedAt`（Unix 毫秒）；`toolCompleted` 报告结构化工具结果；`runCompleted` 携带 `completed`、`cancelled` 或 `failed`，并可附带结构化 `RunError` 和诊断信息。`runStarted` 携带 `startedAt`，其他过程事件保持各自字段。
 
 协议中不存在 `stepLimit`、`maxSteps` 或其他按次数终止字段。可选的 `turnOrdinal` 和 `turnCount` 只用于排序与诊断，Runtime 不能读取它们作为退出条件。
 
@@ -35,13 +35,15 @@ AgentEvent 负责报告运行过程，HistoryRecorder 负责保存项目或无�
 - `reasoningDelta` 和 `assistantDelta` 携带 `runId`、`turnId` 与冻结的 delta 字符串。
 - Runtime 把 delta 同步交给 Recorder 更新内存草稿，并把同一 delta 发为 AgentEvent。
 - `turnRetrying` 只在 Runtime 已经将当前 attempt 保存为 interrupted/failed 后发出；它报告 reason、attempt、nextAttempt、delayMs 和 maxAttempts。
-- `assistantCompleted` 在完整 Assistant Message 成功提交并加入 Runtime.messages 后发出。
-- `toolCompleted` 在完整 Tool Message 成功提交后发出。
+- `assistantCompleted` 在完整 Assistant Message 成功提交并加入 Runtime.messages 后发出，其 `completedAt` 与该条已提交记录的完成时间相同。
+- `toolCompleted` 在完整 Tool Message 与对应 invocation 的 completed 事务成功后发出。
 - `runCompleted` 在 `finishRun` 完成终态提交后发出。
 - Recorder 和事件接收器分别维护自己的队列与状态，二者通过稳定 ID 和冻结事件值关联。
-- `onMessageFinalized` 由 HistoryRecorder 的 `commitUser`、`commitAssistant` 和 `commitToolResult` 取代。
+- HistoryRecorder 通过 `commitUser`、`finishAssistantAttempt` 和 `commitToolResult` 分别提供用户、助手与工具结果的提交屏障。
 
 HistoryRecorder 的接口与写入规则由[项目历史存储](./memory.mdx)定义。Runner 的注入和 IPC 转发由[历史存储装配](../desktop/design/workbench/session-storage.mdx)定义。
+
+消息日期使用各自的生命周期事实：用户消息采用 `createdAt`，完整助手消息采用 `completedAt`。Runtime 在输出有效性确定时生成完成时间，并将同一个值交给 Recorder 与事件接收器；本地提交成功后，宿主接收事件并展示日期。运行耗时采用 `runStarted.startedAt` 和 `runCompleted.finalDurationMs`。
 
 ## 运行中输入事件契约
 

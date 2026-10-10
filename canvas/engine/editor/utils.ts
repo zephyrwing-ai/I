@@ -10,7 +10,6 @@ import {
   WINDOWS_EMOJI_FALLBACK_FONT,
 } from "./constants";
 import type {
-  CanvasEditorBindableElement,
   FontFamilyValues,
   FontString,
 } from "./element/types";
@@ -93,7 +92,7 @@ export const getFontFamilyString = ({
 }: {
   fontFamily: FontFamilyValues;
 }) => {
-  if (fontFamily === FONT_FAMILY.Helvetica) {
+  if (fontFamily === FONT_FAMILY.Helvetica || fontFamily === FONT_FAMILY["Liberation Sans"]) {
     return '"SF Pro Text", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", Helvetica, Arial, "Segoe UI Emoji", sans-serif';
   }
   for (const [fontFamilyString, id] of Object.entries(FONT_FAMILY)) {
@@ -549,9 +548,6 @@ export const isTransparent = (color: string) => {
     color === COLOR_PALETTE.transparent
   );
 };
-
-export const isBindingFallthroughEnabled = (el: CanvasEditorBindableElement) =>
-  el.fillStyle !== "solid" || isTransparent(el.backgroundColor);
 
 export type ResolvablePromise<T> = Promise<T> & {
   resolve: [T] extends [undefined]

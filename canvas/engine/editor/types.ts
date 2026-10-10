@@ -10,17 +10,14 @@ import type {
   GroupId,
   CanvasEditorBindableElement,
   Arrowhead,
-  ChartType,
   FontFamilyValues,
   FileId,
   CanvasEditorImageElement,
   Theme,
   StrokeRoundness,
-  CanvasEditorEmbeddableElement,
   CanvasEditorMagicFrameElement,
   CanvasEditorFrameLikeElement,
   CanvasEditorElementType,
-  CanvasEditorIframeLikeElement,
   OrderedCanvasEditorElement,
   CanvasEditorNonSelectionElement,
 } from "./element/types";
@@ -30,63 +27,17 @@ import type { SuggestedBinding } from "./element/binding";
 import type { ImportedDataState } from "./data/types";
 import type App from "./components/App";
 import type { throttleRAF } from "./utils";
-import type { Spreadsheet } from "./charts";
 import type { Language } from "./i18n";
 import type { ClipboardData } from "./clipboard";
 import type { isOverScrollBars } from "./scene/scrollbars";
 import type { MaybeTransformHandleType } from "./element/transformHandles";
-import type Library from "./data/library";
 import type { FileSystemHandle } from "./data/filesystem";
 import type { IMAGE_MIME_TYPES, MIME_TYPES } from "./constants";
 import type { ContextMenuItems } from "./components/ContextMenu";
 import type { SnapLine } from "./snapping";
 import type { Merge, MaybePromise, ValueOf, MakeBrand } from "./utility-types";
 import type { CaptureUpdateActionType } from "./store";
-import type { UserIdleState } from "./constants";
 import type { CanvasEditElementRecord, CanvasEditImageFile, CanvasEditOperation, CanvasEditOutcome } from "../../commands/types";
-
-export type SocketId = string & { _brand: "SocketId" };
-
-export type Collaborator = Readonly<{
-  pointer?: CollaboratorPointer;
-  button?: "up" | "down";
-  selectedElementIds?: AppState["selectedElementIds"];
-  username?: string | null;
-  userState?: UserIdleState;
-  color?: {
-    background: string;
-    stroke: string;
-  };
-  // The url of the collaborator's avatar, defaults to username initials
-  // if not present
-  avatarUrl?: string;
-  // user id. If supplied, we'll filter out duplicates when rendering user avatars.
-  id?: string;
-  socketId?: SocketId;
-  isCurrentUser?: boolean;
-  isInCall?: boolean;
-  isSpeaking?: boolean;
-  isMuted?: boolean;
-}>;
-
-export type CollaboratorPointer = {
-  x: number;
-  y: number;
-  tool: "pointer" | "laser";
-  /**
-   * Whether to render cursor + username. Useful when you only want to render
-   * laser trail.
-   *
-   * @default true
-   */
-  renderCursor?: boolean;
-  /**
-   * Explicit laser color.
-   *
-   * @default string collaborator's cursor color
-   */
-  laserColor?: string;
-};
 
 export type DataURL = string & { _brand: "DataURL" };
 
@@ -133,8 +84,6 @@ export type ToolType =
   | "eraser"
   | "hand"
   | "frame"
-  | "magicframe"
-  | "embeddable"
   | "laser";
 
 export type ElementOrToolType = CanvasEditorElementType | ToolType | "custom";
@@ -151,11 +100,6 @@ export type ActiveTool =
 
 export type SidebarName = string;
 export type SidebarTabName = string;
-
-export type UserToFollow = {
-  socketId: SocketId;
-  username: string;
-};
 
 type _CommonCanvasAppState = {
   zoom: AppState["zoom"];
@@ -194,7 +138,6 @@ export type StaticCanvasAppState = Readonly<
 export type InteractiveCanvasAppState = Readonly<
   _CommonCanvasAppState & {
     // renderInteractiveScene
-    activeEmbeddable: AppState["activeEmbeddable"];
     editingLinearElement: AppState["editingLinearElement"];
     selectionElement: AppState["selectionElement"];
     selectedGroupIds: AppState["selectedGroupIds"];
@@ -204,8 +147,6 @@ export type InteractiveCanvasAppState = Readonly<
     suggestedBindings: AppState["suggestedBindings"];
     isRotating: AppState["isRotating"];
     elementsToHighlight: AppState["elementsToHighlight"];
-    // Collaborators
-    collaborators: AppState["collaborators"];
     // SnapLines
     snapLines: AppState["snapLines"];
     zenModeEnabled: AppState["zenModeEnabled"];
@@ -246,10 +187,6 @@ export interface AppState {
   showWelcomeScreen: boolean;
   isLoading: boolean;
   errorMessage: React.ReactNode;
-  activeEmbeddable: {
-    element: NonDeletedCanvasEditorElement;
-    state: "hover" | "active";
-  } | null;
   /**
    * for a newly created element
    * - set on pointer down, updated during pointer move, used on pointer up
@@ -302,8 +239,6 @@ export interface AppState {
   exportWithDarkMode: boolean;
   exportScale: number;
   currentItemStrokeColor: string;
-  currentItemBackgroundColor: string;
-  currentItemFillStyle: CanvasEditorElement["fillStyle"];
   currentItemStrokeWidth: number;
   currentItemStrokeStyle: CanvasEditorElement["strokeStyle"];
   currentItemRoughness: number;
@@ -329,7 +264,6 @@ export interface AppState {
   openDialog:
     | null
     | { name: "imageExport" }
-    | { name: "commandPalette" }
     | { name: "elementLinkSelector"; sourceElementId: CanvasEditorElement["id"] };
 
   /**
@@ -367,22 +301,6 @@ export interface AppState {
   offsetLeft: number;
 
   fileHandle: FileSystemHandle | null;
-  collaborators: Map<SocketId, Collaborator>;
-  stats: {
-    open: boolean;
-    /** bitmap. Use `STATS_PANELS` bit values */
-    panels: number;
-  };
-  currentChartType: ChartType;
-  pasteDialog:
-    | {
-        shown: false;
-        data: null;
-      }
-    | {
-        shown: true;
-        data: Spreadsheet;
-      };
   /** imageElement waiting to be placed on canvas */
   pendingImageElementId: CanvasEditorImageElement["id"] | null;
   showHyperlinkPopup: false | "info" | "editor";
@@ -393,10 +311,6 @@ export interface AppState {
     y: number;
   } | null;
   objectsSnapModeEnabled: boolean;
-  /** the user's socket id & username who is being followed on the canvas */
-  userToFollow: UserToFollow | null;
-  /** the socket ids of the users following the current user */
-  followedBy: Set<SocketId>;
 
   /** image cropping */
   isCropping: boolean;
@@ -448,44 +362,7 @@ export declare class GestureEvent extends UIEvent {
   readonly scale: number;
 }
 
-// libraries
-// -----------------------------------------------------------------------------
-/** @deprecated legacy: do not use outside of migration paths */
-export type LibraryItem_v1 = readonly NonDeleted<CanvasEditorElement>[];
-/** @deprecated legacy: do not use outside of migration paths */
-type LibraryItems_v1 = readonly LibraryItem_v1[];
-
-/** v2 library item */
-export type LibraryItem = {
-  id: string;
-  status: "published" | "unpublished";
-  elements: readonly NonDeleted<CanvasEditorElement>[];
-  /** timestamp in epoch (ms) */
-  created: number;
-  name?: string;
-  error?: string;
-};
-export type LibraryItems = readonly LibraryItem[];
-export type LibraryItems_anyVersion = LibraryItems | LibraryItems_v1;
-
-export type LibraryItemsSource =
-  | ((
-      currentLibraryItems: LibraryItems,
-    ) => MaybePromise<LibraryItems_anyVersion | Blob>)
-  | MaybePromise<LibraryItems_anyVersion | Blob>;
-// -----------------------------------------------------------------------------
-
-export type CanvasEditorInitialDataState = Merge<
-  ImportedDataState,
-  {
-    libraryItems?: MaybePromise<Required<ImportedDataState>["libraryItems"]>;
-  }
->;
-
-export type OnUserFollowedPayload = {
-  userToFollow: UserToFollow;
-  action: "FOLLOW" | "UNFOLLOW";
-};
+export type CanvasEditorInitialDataState = ImportedDataState;
 
 export interface CanvasEditorProps {
   onChange?: (
@@ -497,12 +374,6 @@ export interface CanvasEditorProps {
     | (() => MaybePromise<CanvasEditorInitialDataState | null>)
     | MaybePromise<CanvasEditorInitialDataState | null>;
   canvasAPI?: (api: CanvasEditorImperativeAPI) => void;
-  isCollaborating?: boolean;
-  onPointerUpdate?: (payload: {
-    pointer: { x: number; y: number; tool: "pointer" | "laser" };
-    button: "down" | "up";
-    pointersMap: Gesture["pointers"];
-  }) => void;
   onPaste?: (
     data: ClipboardData,
     event: ClipboardEvent | null,
@@ -511,7 +382,7 @@ export interface CanvasEditorProps {
    * Called when element(s) are duplicated so you can listen or modify as
    * needed.
    *
-   * Called when duplicating via mouse-drag, keyboard, paste, library insert
+   * Called when duplicating via mouse-drag, keyboard, paste
    * etc.
    *
    * Returned elements will be used in place of the next elements
@@ -532,18 +403,12 @@ export interface CanvasEditorProps {
   zenModeEnabled?: boolean;
   gridModeEnabled?: boolean;
   objectsSnapModeEnabled?: boolean;
-  libraryReturnUrl?: string;
   theme?: Theme;
   // @TODO come with better API before v0.18.0
   name?: string;
-  renderCustomStats?: (
-    elements: readonly NonDeletedCanvasEditorElement[],
-    appState: UIAppState,
-  ) => JSX.Element;
   UIOptions?: Partial<UIOptions>;
   detectScroll?: boolean;
   handleKeyboardGlobally?: boolean;
-  onLibraryChange?: (libraryItems: LibraryItems) => void | Promise<any>;
   autoFocus?: boolean;
   generateIdForFile?: (file: File) => string | Promise<string>;
   generateLinkForSelection?: (id: string, type: "element" | "group") => string;
@@ -562,26 +427,12 @@ export interface CanvasEditorProps {
     pointerDownState: PointerDownState,
   ) => void;
   onScrollChange?: (scrollX: number, scrollY: number, zoom: Zoom) => void;
-  onUserFollow?: (payload: OnUserFollowedPayload) => void;
   children?: React.ReactNode;
-  validateEmbeddable?:
-    | boolean
-    | string[]
-    | RegExp
-    | RegExp[]
-    | ((link: string) => boolean | undefined);
-  renderEmbeddable?: (
-    element: NonDeleted<CanvasEditorEmbeddableElement>,
-    appState: AppState,
-  ) => JSX.Element | null;
-  aiEnabled?: boolean;
-  showDeprecatedFonts?: boolean;
 }
 
 export type SceneData = {
   elements?: ImportedDataState["elements"];
   appState?: ImportedDataState["appState"];
-  collaborators?: Map<SocketId, Collaborator>;
   captureUpdate?: CaptureUpdateActionType;
 };
 
@@ -633,9 +484,7 @@ export type AppProps = Merge<
     >;
     detectScroll: boolean;
     handleKeyboardGlobally: boolean;
-    isCollaborating: boolean;
     children?: React.ReactNode;
-    aiEnabled: boolean;
   }
 >;
 
@@ -648,7 +497,6 @@ export type AppClassProperties = {
   /** static canvas */
   canvas: HTMLCanvasElement;
   focusContainer(): void;
-  library: Library;
   imageCache: Map<
     FileId,
     {
@@ -668,19 +516,15 @@ export type AppClassProperties = {
   lastViewportPosition: App["lastViewportPosition"];
   scrollToContent: App["scrollToContent"];
   addFiles: App["addFiles"];
-  addElementsFromPasteOrLibrary: App["addElementsFromPasteOrLibrary"];
+  addElementsFromPaste: App["addElementsFromPaste"];
   togglePenMode: App["togglePenMode"];
   toggleLock: App["toggleLock"];
   setActiveTool: App["setActiveTool"];
   setOpenDialog: App["setOpenDialog"];
-  insertEmbeddableElement: App["insertEmbeddableElement"];
-  onMagicframeToolSelect: App["onMagicframeToolSelect"];
   getName: App["getName"];
   dismissLinearEditor: App["dismissLinearEditor"];
   flowChartCreator: App["flowChartCreator"];
   getEffectiveGridSize: App["getEffectiveGridSize"];
-  setPlugins: App["setPlugins"];
-  plugins: App["plugins"];
   getEditorUIOffsets: App["getEditorUIOffsets"];
   visibleElements: App["visibleElements"];
   canvasContainerValue: App["canvasContainerValue"];
@@ -754,12 +598,11 @@ export interface CanvasEditorImperativeAPI {
   applyCanvasEdit: (operations: CanvasEditOperation[], sourceElements: CanvasEditElementRecord[], imageFiles?: CanvasEditImageFile[]) => CanvasEditOutcome;
   updateScene: InstanceType<typeof App>["updateScene"];
   replaceScene: InstanceType<typeof App>["replaceScene"];
-  updateLibrary: InstanceType<typeof Library>["updateLibrary"];
   resetScene: InstanceType<typeof App>["resetScene"];
   getSceneElementsIncludingDeleted: InstanceType<
     typeof App
   >["getSceneElementsIncludingDeleted"];
-  getSceneVersion: () => number | undefined;
+  getDocumentVersion: () => number;
   history: {
     clear: InstanceType<typeof App>["resetHistory"];
   };
@@ -806,9 +649,6 @@ export interface CanvasEditorImperativeAPI {
   ) => UnsubscribeCallback;
   onScrollChange: (
     callback: (scrollX: number, scrollY: number, zoom: Zoom) => void,
-  ) => UnsubscribeCallback;
-  onUserFollow: (
-    callback: (payload: OnUserFollowedPayload) => void,
   ) => UnsubscribeCallback;
 }
 
@@ -863,11 +703,6 @@ export type Primitive =
 
 export type JSONValue = string | number | boolean | null | object;
 
-export type EmbedsValidationStatus = Map<
-  CanvasEditorIframeLikeElement["id"],
-  boolean
->;
-
 export type ElementsPendingErasure = Set<CanvasEditorElement["id"]>;
 
 export type PendingCanvasEditorElements = CanvasEditorElement[];
@@ -876,11 +711,6 @@ export type PendingCanvasEditorElements = CanvasEditorElement[];
 export type NullableGridSize =
   | (AppState["gridSize"] & MakeBrand<"NullableGridSize">)
   | null;
-
-export type GenerateDiagramToCode = (props: {
-  frame: CanvasEditorMagicFrameElement;
-  children: readonly CanvasEditorElement[];
-}) => MaybePromise<{ html: string }>;
 
 export type Offsets = Partial<{
   top: number;

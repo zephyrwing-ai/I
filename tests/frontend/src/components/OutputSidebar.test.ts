@@ -69,7 +69,7 @@ function renderSidebar(open: boolean, files: OutputFileDescriptor[]): string {
   }));
 }
 
-test("open OutputSidebar reserves the top action area and exposes current files", () => {
+test("open OutputSidebar exposes files, selects the first and offers preview actions", () => {
   const html = renderSidebar(true, [file(), file({
     fileId: "file-second",
     name: "preview.png",
@@ -86,6 +86,13 @@ test("open OutputSidebar reserves the top action area and exposes current files"
   assert.equal(html.match(/role="option"/g)?.length, 2);
   assert.ok(html.includes("Created"), html);
   assert.ok(html.includes("Updated"), html);
+  assert.match(html, /role="option" aria-selected="true" class="selected"[^>]*>[\s\S]*?report\.md/);
+  assert.match(html, /role="option" aria-selected="false"[^>]*>[\s\S]*?preview\.png/);
+  assert.match(html, /<section class="output-preview" aria-label="File preview">/);
+  assert.match(html, /<strong>report\.md<\/strong><span>1\.5 KB<\/span>/);
+  assert.match(html, /aria-label="Refresh preview"/);
+  assert.match(html, /aria-label="Open in system"/);
+  assert.doesNotMatch(html, /Select a file to preview its content/);
 });
 
 test("closed OutputSidebar remains associated with the TopBar but is hidden and unfocusable", () => {
@@ -93,21 +100,6 @@ test("closed OutputSidebar remains associated with the TopBar but is hidden and 
 
   assert.match(html, /<aside[^>]*id="right-sidebar"[^>]*phase-closed[^>]*style="width:0"[^>]*aria-hidden="true"/);
   assert.match(html, /role="separator"[^>]*tabindex="-1"/);
-});
-
-test("OutputSidebar initially selects the first current file and exposes preview actions", () => {
-  const html = renderSidebar(true, [
-    file(),
-    file({ fileId: "file-second", name: "notes.txt", displayPath: "notes.txt", byteSize: 42 }),
-  ]);
-
-  assert.match(html, /role="option" aria-selected="true" class="selected"[^>]*>[\s\S]*?report\.md/);
-  assert.match(html, /role="option" aria-selected="false"[^>]*>[\s\S]*?notes\.txt/);
-  assert.match(html, /<section class="output-preview" aria-label="File preview">/);
-  assert.match(html, /<strong>report\.md<\/strong><span>1\.5 KB<\/span>/);
-  assert.match(html, /aria-label="Refresh preview"/);
-  assert.match(html, /aria-label="Open in system"/);
-  assert.doesNotMatch(html, /Select a file to preview its content/);
 });
 
 test("empty OutputSidebar renders both list and preview guidance without file actions", () => {

@@ -25,8 +25,6 @@ export type ShortcutName =
       | "gridMode"
       | "zenMode"
       | "objectsSnapMode"
-      | "stats"
-      | "addToLibrary"
       | "viewMode"
       | "flipHorizontal"
       | "flipVertical"
@@ -37,24 +35,17 @@ export type ShortcutName =
       | "zoomToFitSelection"
       | "toggleEraserTool"
       | "toggleHandTool"
-      | "setFrameAsActiveTool"
       | "saveFileToDisk"
       | "saveToActiveFile"
-      | "wrapSelectionInFrame"
     >
   | "saveScene"
-  | "imageExport"
-  | "commandPalette";
+  | "imageExport";
 
 const shortcutMap: Record<ShortcutName, string[]> = {
   toggleTheme: [getShortcutKey("Shift+Alt+D")],
   saveScene: [getShortcutKey("CtrlOrCmd+S")],
   clearCanvas: [getShortcutKey("CtrlOrCmd+Delete")],
   imageExport: [getShortcutKey("CtrlOrCmd+Shift+E")],
-  commandPalette: [
-    getShortcutKey("CtrlOrCmd+/"),
-    getShortcutKey("CtrlOrCmd+Shift+P"),
-  ],
   cut: [getShortcutKey("CtrlOrCmd+X")],
   copy: [getShortcutKey("CtrlOrCmd+C")],
   paste: [getShortcutKey("CtrlOrCmd+V")],
@@ -82,8 +73,6 @@ const shortcutMap: Record<ShortcutName, string[]> = {
   gridMode: [getShortcutKey("CtrlOrCmd+'")],
   zenMode: [getShortcutKey("Alt+Z")],
   objectsSnapMode: [getShortcutKey("Alt+S")],
-  stats: [getShortcutKey("Alt+/")],
-  addToLibrary: [],
   flipHorizontal: [getShortcutKey("Shift+H")],
   flipVertical: [getShortcutKey("Shift+V")],
   viewMode: [getShortcutKey("Alt+R")],
@@ -94,10 +83,8 @@ const shortcutMap: Record<ShortcutName, string[]> = {
   zoomToFitSelectionInViewport: [getShortcutKey("Shift+2")],
   toggleEraserTool: [getShortcutKey("E")],
   toggleHandTool: [getShortcutKey("H")],
-  setFrameAsActiveTool: [getShortcutKey("F")],
   saveFileToDisk: [getShortcutKey("CtrlOrCmd+S")],
   saveToActiveFile: [getShortcutKey("CtrlOrCmd+S")],
-  wrapSelectionInFrame: [],
 };
 
 export const getShortcutFromShortcutName = (name: ShortcutName, idx = 0) => {

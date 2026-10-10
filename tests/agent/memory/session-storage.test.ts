@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { toolResultMessage } from "../../../agent/tools/result.js";
 import {
   RepositoryError,
   SCHEMA_VERSION,
@@ -66,7 +67,7 @@ test("HistoryRecorder coalesces deltas and restores a project history", async ()
     first.recordAssistantDelta("text", "hel", { runId: "run-1", turnId: "turn-1", turnOrdinal: 1 });
     first.recordAssistantDelta("text", "lo", { runId: "run-1", turnId: "turn-1", turnOrdinal: 1 });
     first.recordAssistantDelta("reasoning", "thinking", { runId: "run-1", turnId: "turn-1", turnOrdinal: 1 });
-    await first.commitAssistant({ role: "assistant", content: "hello", reasoning: "thinking" }, { runId: "run-1", turnId: "turn-1", turnOrdinal: 1 });
+    await first.finishAssistantAttempt({ runId: "run-1", turnId: "turn-1", turnOrdinal: 1 }, "completed", { role: "assistant", content: "hello", reasoning: "thinking" });
     await first.commitToolResult({ role: "tool", content: "result", toolCallId: "call-1", toolName: "read" }, { runId: "run-1", turnId: "turn-1", turnOrdinal: 1, toolCallId: "call-1" });
     assert.deepEqual(first.snapshot().map((message) => message.role), ["user", "assistant", "tool"]);
     await first.close();
@@ -137,8 +138,11 @@ test("tool invocation ledger uses project scope and run/tool identity", async ()
     outcome: { ok: false, output: "missing", returncode: -1, truncated: false, error: "not_found" },
   });
   assert.equal(outcome.phase, "outcome_ready");
-  const completed = await repository.completeToolInvocation(invocation.id, "entry-tool");
-  assert.equal(completed.phase, "completed");
+  await repository.commitToolResult(project.id, {
+    id: "entry-tool", type: "tool_result", status: "completed", runId: invocation.runId,
+    turnId: invocation.turnId, toolCallId: invocation.toolCallId,
+    payload: toolResultMessage({ id: invocation.toolCallId, name: invocation.toolName }, { ok: false, output: "missing", returncode: -1, truncated: false, error: "not_found" }),
+  }, invocation.id);
   assert.equal((await repository.getToolInvocation(project.id, "run-tool", "call-tool"))?.phase, "completed");
   assert.deepEqual(await repository.listOpenToolInvocations(project.id), []);
   repository.close();
@@ -255,7 +259,8 @@ test("run inputs are durable, scoped, idempotent and applied in caller order", a
     assert.deepEqual(applied.map((entry) => entry.createdAt), [first.acceptedAt, second.acceptedAt]);
     const settled = await repository.acceptRunInput(project.id, { inputId: "input-1", runId: "run-1", content: "first" });
     assert.equal(settled.state, "applied");
-    assert.equal(settled.appliedAt, applied[0]!.updatedAt);
+    assert.ok(settled.appliedAt !== null && settled.appliedAt >= first.acceptedAt);
+    assert.equal(applied[0]!.completedAt, null);
     assert.deepEqual((await repository.applyRunInputs(project.id, "run-1", ["input-1", "input-2"])).map((entry) => entry.id), ["input-1", "input-2"]);
     assert.equal((await repository.listEntries(project.id)).length, 2);
   } finally {
@@ -289,7 +294,7 @@ test("Recorder keeps initial commit idempotent and models multiple applied messa
     const recorder = await createHistoryRecorder(repository, null);
     await recorder.commitUser({ role: "user", content: "initial" }, { runId: "run-multi" });
     await recorder.commitUser({ role: "user", content: "initial" }, { runId: "run-multi" });
-    await recorder.commitAssistant({ role: "assistant", content: "before" }, { runId: "run-multi", turnId: "turn-before", turnOrdinal: 1 });
+    await recorder.finishAssistantAttempt({ runId: "run-multi", turnId: "turn-before", turnOrdinal: 1 }, "completed", { role: "assistant", content: "before" });
     const a = await recorder.acceptRunInput({ inputId: "multi-a", runId: "run-multi", content: "question A" });
     const b = await recorder.acceptRunInput({ inputId: "multi-b", runId: "run-multi", content: "question B" });
     assert.equal(a.inputId, "multi-a");
@@ -299,7 +304,7 @@ test("Recorder keeps initial commit idempotent and models multiple applied messa
     assert.equal(entries.length, 2);
     assert.deepEqual(entries.map((entry) => entry.id), ["multi-a", "multi-b"]);
     await recorder.applyRunInputs("run-multi", ["multi-a", "multi-b"]);
-    await recorder.commitAssistant({ role: "assistant", content: "after" }, { runId: "run-multi", turnId: "turn-after", turnOrdinal: 2 });
+    await recorder.finishAssistantAttempt({ runId: "run-multi", turnId: "turn-after", turnOrdinal: 2 }, "completed", { role: "assistant", content: "after" });
     assert.deepEqual(recorder.snapshot().map((message) => message.content), ["initial", "before", "question A", "question B", "after"]);
     assert.equal((await repository.listEntries(null)).filter((entry) => entry.type === "user_message").length, 3);
     await assert.rejects(

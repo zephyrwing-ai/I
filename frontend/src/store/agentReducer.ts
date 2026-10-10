@@ -23,9 +23,11 @@ export interface ToolState {
 export interface TurnState {
   turnId: string;
   turnOrdinal: number;
+  /** 已启动回合捕获的输入锚点；后续补充输入继续使用各自的新回合。 */
+  anchorInputId?: string;
   status: TurnStatus;
   assistantContent: string;
-  /** 模型消息时间；历史记录使用 assistant entry 的最终更新时间。 */
+  /** 完整模型输出的固定完成时间；实时事件与历史 entry 共享该值。 */
   assistantAt?: number;
   /** 最终助手消息持久化的 run 总耗时，单位毫秒。 */
   assistantDurationMs?: number;
@@ -56,6 +58,8 @@ export interface RunState {
   inputs: Record<string, UserInputState>;
   pendingInputIds: string[];
   timeline: MessageTimelineItem[];
+  /** 当前模型上下文中最后一条已应用输入，与 ACK 的可见消息顺序分别记录。 */
+  appliedInputId?: string;
   startedAt?: string;
   finalTurnId?: string;
   finalDurationMs?: number;
@@ -108,6 +112,7 @@ function createRun(runId: string, projectId: string | null, task: string, taskAt
     inputs: { [inputId]: { inputId, task, at: taskAt, status: "applied" } },
     pendingInputIds: [],
     timeline: [{ kind: "user", inputId }],
+    appliedInputId: inputId,
     status: "running",
     turns: {},
     outputFileOrder: [],
@@ -139,6 +144,7 @@ function ensureTurn(run: RunState, turnId: string, turnOrdinal = 0): RunState {
       [turnId]: {
         turnId,
         turnOrdinal,
+        anchorInputId: run.appliedInputId,
         status: "running",
         assistantContent: "",
         reasoningContent: "",
@@ -365,6 +371,7 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
             inputs,
             pendingInputIds: run.pendingInputIds.filter((id) => !appliedIds.has(id)),
             timeline: placeAppliedInputs(run, event.inputIds),
+            appliedInputId: event.inputIds[event.inputIds.length - 1],
           };
         });
       }
@@ -417,6 +424,7 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
             return {
               ...turn,
               assistantContent: event.content,
+              assistantAt: event.completedAt,
               finalContent: event.content,
               stopReason: event.stopReason,
               tools,

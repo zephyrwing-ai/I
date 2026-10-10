@@ -6,7 +6,6 @@ import rough from "roughjs/bin/rough";
 import clsx from "clsx";
 import { nanoid } from "nanoid";
 import {
-  actionAddToLibrary,
   actionBringForward,
   actionBringToFront,
   actionCopy,
@@ -24,7 +23,6 @@ import {
   actionSendBackward,
   actionSendToBack,
   actionToggleGridMode,
-  actionToggleStats,
   actionToggleZenMode,
   actionUnbindText,
   actionBindText,
@@ -39,14 +37,13 @@ import { createRedoAction, createUndoAction } from "../actions/actionHistory";
 import { ActionManager } from "../actions/manager";
 import { actions } from "../actions/register";
 import type { Action, ActionResult } from "../actions/types";
-import { trackEvent } from "../analytics";
 import {
   getDefaultAppState,
   isEraserActive,
   isHandToolActive,
 } from "../appState";
 import type { PastedMixedContent } from "../clipboard";
-import { copyTextToSystemClipboard, parseClipboard } from "../clipboard";
+import { parseClipboard } from "../clipboard";
 import {
   APP_NAME,
   CURSOR_TYPE,
@@ -77,7 +74,6 @@ import {
   THEME_FILTER,
   TOUCH_CTX_MENU_TIMEOUT,
   VERTICAL_ALIGN,
-  YOUTUBE_STATES,
   POINTER_EVENTS,
   TOOL_TYPE,
   isIOS,
@@ -85,13 +81,11 @@ import {
   DEFAULT_COLLISION_THRESHOLD,
   DEFAULT_TEXT_ALIGN,
   ARROW_TYPE,
-  DEFAULT_REDUCED_GLOBAL_ALPHA,
   isSafari,
   type EXPORT_IMAGE_TYPES,
 } from "../constants";
 import type { ExportedElements } from "../data";
 import { exportCanvas, loadFromBlob } from "../data";
-import Library, { distributeLibraryItemsOnSquareGrid } from "../data/library";
 import { restore, restoreElements } from "../data/restore";
 import {
   dragNewElement,
@@ -136,11 +130,7 @@ import { mutateElement, newElementWith } from "../element/mutateElement";
 import {
   deepCopyElement,
   duplicateElements,
-  newFrameElement,
   newFreeDrawElement,
-  newEmbeddableElement,
-  newMagicFrameElement,
-  newIframeElement,
   newArrowElement,
 } from "../element/newElement";
 import {
@@ -156,9 +146,6 @@ import {
   isLinearElement,
   isLinearElementType,
   isUsingAdaptiveRadius,
-  isIframeElement,
-  isIframeLikeElement,
-  isMagicFrameElement,
   isTextBindableContainer,
   isElbowArrow,
   isFlowchartNodeElement,
@@ -178,13 +165,6 @@ import type {
   NonDeletedCanvasEditorElement,
   CanvasEditorTextContainer,
   CanvasEditorFrameLikeElement,
-  CanvasEditorMagicFrameElement,
-  CanvasEditorIframeLikeElement,
-  IframeData,
-  CanvasEditorIframeElement,
-  CanvasEditorEmbeddableElement,
-  Ordered,
-  MagicGenerationData,
   CanvasEditorNonSelectionElement,
   CanvasEditorArrowElement,
 } from "../element/types";
@@ -227,9 +207,9 @@ import type {
 } from "../scene/types";
 import { getStateForZoom } from "../scene/zoom";
 import {
+  SHAPES,
   findShapeByKey,
   getBoundTextShape,
-  getCornerRadius,
   getElementShape,
   isPathALoop,
 } from "../shapes";
@@ -245,7 +225,6 @@ import type {
   BinaryFiles,
   Gesture,
   GestureEvent,
-  LibraryItems,
   PointerDownState,
   SceneData,
   Device,
@@ -253,13 +232,9 @@ import type {
   SidebarName,
   SidebarTabName,
   KeyboardModifiersObject,
-  CollaboratorPointer,
   ToolType,
-  OnUserFollowedPayload,
   UnsubscribeCallback,
-  EmbedsValidationStatus,
   ElementsPendingErasure,
-  GenerateDiagramToCode,
   NullableGridSize,
   Offsets,
 } from "../types";
@@ -277,24 +252,16 @@ import {
   wrapEvent,
   updateObject,
   updateActiveTool,
-  isTransparent,
   easeToValuesRAF,
   muteFSAbortError,
   isTestEnv,
   easeOut,
   updateStable,
   addEventListener,
-  normalizeEOL,
   getDateTime,
   isShallowEqual,
   arrayToMap,
 } from "../utils";
-import {
-  createSrcDoc,
-  embeddableURLValidator,
-  maybeParseEmbedSrc,
-  getEmbedLink,
-} from "../element/embeddable";
 import type { ContextMenuItems } from "./ContextMenu";
 import { ContextMenu, CONTEXT_MENU_SEPARATOR } from "./ContextMenu";
 import LayerUI from "./LayerUI";
@@ -310,9 +277,7 @@ import {
   ImageURLToFile,
   isImageFileHandle,
   isSupportedImageFile,
-  loadSceneOrLibraryFromBlob,
   normalizeFile,
-  parseLibraryJSON,
   resizeImageFile,
   SVGStringToFile,
 } from "../data/blob";
@@ -337,7 +302,7 @@ import {
   hideHyperlinkToolip,
   Hyperlink,
 } from "../components/hyperlink/Hyperlink";
-import { isLocalLink, normalizeLink, toValidURL } from "../data/url";
+import { isLocalLink, normalizeLink } from "../data/url";
 import { shouldShowBoundingBox } from "../element/transformHandles";
 import { actionUnlockAllElements } from "../actions/actionElementLock";
 import { Fonts, getLineHeight } from "../fonts";
@@ -355,7 +320,6 @@ import {
   updateFrameMembershipOfSelectedElements,
   isElementInFrame,
   getFrameLikeTitle,
-  getElementsOverlappingFrame,
   filterElementsEligibleAsFrameChildren,
 } from "../frame";
 import {
@@ -366,7 +330,6 @@ import { actionPaste } from "../actions/actionClipboard";
 import {
   actionRemoveAllElementsFromFrame,
   actionSelectAllElementsInFrame,
-  actionWrapSelectionInFrame,
 } from "../actions/actionFrame";
 import { actionToggleHandTool, zoomToFit } from "../actions/actionCanvas";
 import { editorJotaiStore } from "../editor-jotai";
@@ -389,8 +352,6 @@ import { actionWrapTextInContainer } from "../actions/actionBoundText";
 import BraveMeasureTextError from "./BraveMeasureTextError";
 import type { CanvasEditorElementSkeleton } from "../data/transform";
 import { convertToCanvasEditorElements } from "../data/transform";
-import type { ValueOf } from "../utility-types";
-import { isSidebarDockedAtom } from "./Sidebar/Sidebar";
 import { StaticCanvas, InteractiveCanvas } from "./canvases";
 import { Renderer } from "../scene/Renderer";
 import { ShapeCache } from "../scene/ShapeCache";
@@ -402,17 +363,13 @@ import {
   setCursorForShape,
 } from "../cursor";
 import { Emitter } from "../emitter";
-import { ElementCanvasButtons } from "../element/ElementCanvasButtons";
 import { COLOR_PALETTE } from "../colors";
-import { ElementCanvasButton } from "./MagicButton";
-import { MagicIcon, copyIcon, fullscreenIcon } from "./icons";
-import FollowMode from "./FollowMode/FollowMode";
 import { Store, CaptureUpdateAction } from "../store";
 import { applyCanvasEdit } from "../commands/applyCanvasEdit";
+import { DocumentVersionTracker } from "../scene/DocumentVersion";
 import { AnimationFrameHandler } from "../animation-frame-handler";
 import { AnimatedTrail } from "../animated-trail";
 import { withBatchedUpdates, withBatchedUpdatesThrottled } from "../reactUtils";
-import { getRenderOpacity } from "../renderer/renderElement";
 import {
   hitElementBoundText,
   hitElementBoundingBoxOnly,
@@ -425,7 +382,6 @@ import {
   isPointHittingLink,
   isPointHittingLinkIcon,
 } from "./hyperlink/helpers";
-import { getShortcutFromShortcutName } from "../actions/shortcuts";
 import { actionTextAutoResize } from "../actions/actionTextAutoResize";
 import { getVisibleSceneBounds } from "../element/bounds";
 import NewElementCanvas from "./canvases/NewElementCanvas";
@@ -532,13 +488,6 @@ let currentScrollBars: ScrollBars = { horizontal: null, vertical: null };
 let touchTimeout = 0;
 let invalidateContextMenu = false;
 
-/**
- * Map of youtube embed video states
- */
-const YOUTUBE_VIDEO_STATES = new Map<
-  CanvasEditorElement["id"],
-  ValueOf<typeof YOUTUBE_STATES>
->();
 
 let IS_PLAIN_PASTE = false;
 let IS_PLAIN_PASTE_TIMER = 0;
@@ -553,8 +502,9 @@ const gesture: Gesture = {
 
 class App extends React.Component<AppProps, AppState> {
   private documentEpoch = 0;
-  private temporaryHandActive = false;
-  private temporaryHandPending = false;
+  private commandSelectionHeld = false;
+  private commandSelectionSuppressed = false;
+  private temporarySelectionReturnTool: AppState["activeTool"] | null = null;
   canvas: AppClassProperties["canvas"];
   interactiveCanvas: AppClassProperties["interactiveCanvas"] = null;
   rc: RoughCanvas;
@@ -574,8 +524,6 @@ class App extends React.Component<AppProps, AppState> {
     elementId: CanvasEditorElement["id"];
     point: { x: number; y: number };
   } | null = null;
-  public library: AppClassProperties["library"];
-  public libraryItemsFromStorage: LibraryItems | undefined;
   public id: string;
   private store: Store;
   private history: History;
@@ -584,19 +532,8 @@ class App extends React.Component<AppProps, AppState> {
     id: string;
   };
 
-  public files: BinaryFiles = {};
+  public files: BinaryFiles = Object.create(null);
   public imageCache: AppClassProperties["imageCache"] = new Map();
-  private iFrameRefs = new Map<CanvasEditorElement["id"], HTMLIFrameElement>();
-  /**
-   * Indicates whether the embeddable's url has been validated for rendering.
-   * If value not set, indicates that the validation is pending.
-   * Initially or on url change the flag is not reset so that we can guarantee
-   * the validation came from a trusted source (the editor).
-   **/
-  private embedsValidationStatus: EmbedsValidationStatus = new Map();
-  /** embeds that have been inserted to DOM (as a perf optim, we don't want to
-   * insert to DOM before user initially scrolls to them) */
-  private initializedEmbeds = new Set<CanvasEditorIframeLikeElement["id"]>();
 
   private elementsPendingErasure: ElementsPendingErasure = new Set();
 
@@ -617,17 +554,6 @@ class App extends React.Component<AppProps, AppState> {
     streamline: 0.2,
     size: 5,
     keepHead: true,
-    sizeMapping: (c) => {
-      const DECAY_TIME = 200;
-      const DECAY_LENGTH = 10;
-      const t = Math.max(0, 1 - (performance.now() - c.pressure) / DECAY_TIME);
-      const l =
-        (DECAY_LENGTH -
-          Math.min(DECAY_LENGTH, c.totalLength - c.currentIndex)) /
-        DECAY_LENGTH;
-
-      return Math.min(easeOut(l), easeOut(t));
-    },
     fill: () =>
       this.state.theme === THEME.LIGHT
         ? "rgba(0, 0, 0, 0.2)"
@@ -657,7 +583,6 @@ class App extends React.Component<AppProps, AppState> {
       event: PointerEvent,
     ]
   >();
-  onUserFollowEmitter = new Emitter<[payload: OnUserFollowedPayload]>();
   onScrollChangeEmitter = new Emitter<
     [scrollX: number, scrollY: number, zoom: AppState["zoom"]]
   >();
@@ -694,7 +619,6 @@ class App extends React.Component<AppProps, AppState> {
     };
 
     this.id = nanoid();
-    this.library = new Library(this);
     this.actionManager = new ActionManager(
       this.syncActionResult,
       () => this.state,
@@ -712,6 +636,7 @@ class App extends React.Component<AppProps, AppState> {
     this.history = new History();
 
     if (canvasAPI) {
+      const documentVersion = new DocumentVersionTracker();
       const api: CanvasEditorImperativeAPI = {
         applyCanvasEdit: (operations, sourceElements, imageFiles) => {
           const result = applyCanvasEdit({
@@ -738,11 +663,10 @@ class App extends React.Component<AppProps, AppState> {
         },
         updateScene: this.updateScene,
         replaceScene: this.replaceScene,
-        updateLibrary: this.library.updateLibrary,
         addFiles: this.addFiles,
         resetScene: this.resetScene,
         getSceneElementsIncludingDeleted: this.getSceneElementsIncludingDeleted,
-        getSceneVersion: () => this.scene.getSceneNonce(),
+        getDocumentVersion: () => documentVersion.observe(this.scene.getElementsIncludingDeleted(), this.files),
         history: {
           clear: this.resetHistory,
         },
@@ -766,7 +690,6 @@ class App extends React.Component<AppProps, AppState> {
         onPointerDown: (cb) => this.onPointerDownEmitter.on(cb),
         onPointerUp: (cb) => this.onPointerUpEmitter.on(cb),
         onScrollChange: (cb) => this.onScrollChangeEmitter.on(cb),
-        onUserFollow: (cb) => this.onUserFollowEmitter.on(cb),
       } as const;
       if (typeof canvasAPI === "function") {
         canvasAPI(api);
@@ -792,77 +715,6 @@ class App extends React.Component<AppProps, AppState> {
     );
   }
 
-  private onWindowMessage(event: MessageEvent) {
-    if (
-      event.origin !== "https://player.vimeo.com" &&
-      event.origin !== "https://www.youtube.com"
-    ) {
-      return;
-    }
-
-    let data = null;
-    try {
-      data = JSON.parse(event.data);
-    } catch (e) {}
-    if (!data) {
-      return;
-    }
-
-    switch (event.origin) {
-      case "https://player.vimeo.com":
-        //Allowing for multiple instances of CanvasEditor running in the window
-        if (data.method === "paused") {
-          let source: Window | null = null;
-          const iframes = document.body.querySelectorAll(
-            "iframe.agent-canvas__embeddable",
-          );
-          if (!iframes) {
-            break;
-          }
-          for (const iframe of iframes as NodeListOf<HTMLIFrameElement>) {
-            if (iframe.contentWindow === event.source) {
-              source = iframe.contentWindow;
-            }
-          }
-          source?.postMessage(
-            JSON.stringify({
-              method: data.value ? "play" : "pause",
-              value: true,
-            }),
-            "*",
-          );
-        }
-        break;
-      case "https://www.youtube.com":
-        if (
-          data.event === "infoDelivery" &&
-          data.info &&
-          data.id &&
-          typeof data.info.playerState === "number"
-        ) {
-          const id = data.id;
-          const playerState = data.info.playerState as number;
-          if (
-            (Object.values(YOUTUBE_STATES) as number[]).includes(playerState)
-          ) {
-            YOUTUBE_VIDEO_STATES.set(
-              id,
-              playerState as ValueOf<typeof YOUTUBE_STATES>,
-            );
-          }
-        }
-        break;
-    }
-  }
-
-  private cacheEmbeddableRef(
-    element: CanvasEditorIframeLikeElement,
-    ref: HTMLIFrameElement | null,
-  ) {
-    if (ref) {
-      this.iFrameRefs.set(element.id, ref);
-    }
-  }
 
   /**
    * Returns gridSize taking into account `gridModeEnabled`.
@@ -874,442 +726,6 @@ class App extends React.Component<AppProps, AppState> {
     ) as NullableGridSize;
   };
 
-  private getHTMLIFrameElement(
-    element: CanvasEditorIframeLikeElement,
-  ): HTMLIFrameElement | undefined {
-    return this.iFrameRefs.get(element.id);
-  }
-
-  private handleEmbeddableCenterClick(element: CanvasEditorIframeLikeElement) {
-    if (
-      this.state.activeEmbeddable?.element === element &&
-      this.state.activeEmbeddable?.state === "active"
-    ) {
-      return;
-    }
-
-    // The delay serves two purposes
-    // 1. To prevent first click propagating to iframe on mobile,
-    //    else the click will immediately start and stop the video
-    // 2. If the user double clicks the frame center to activate it
-    //    without the delay youtube will immediately open the video
-    //    in fullscreen mode
-    setTimeout(() => {
-      this.setState({
-        activeEmbeddable: { element, state: "active" },
-        selectedElementIds: { [element.id]: true },
-        newElement: null,
-        selectionElement: null,
-      });
-    }, 100);
-
-    if (isIframeElement(element)) {
-      return;
-    }
-
-    const iframe = this.getHTMLIFrameElement(element);
-
-    if (!iframe?.contentWindow) {
-      return;
-    }
-
-    if (iframe.src.includes("youtube")) {
-      const state = YOUTUBE_VIDEO_STATES.get(element.id);
-      if (!state) {
-        YOUTUBE_VIDEO_STATES.set(element.id, YOUTUBE_STATES.UNSTARTED);
-        iframe.contentWindow.postMessage(
-          JSON.stringify({
-            event: "listening",
-            id: element.id,
-          }),
-          "*",
-        );
-      }
-      switch (state) {
-        case YOUTUBE_STATES.PLAYING:
-        case YOUTUBE_STATES.BUFFERING:
-          iframe.contentWindow?.postMessage(
-            JSON.stringify({
-              event: "command",
-              func: "pauseVideo",
-              args: "",
-            }),
-            "*",
-          );
-          break;
-        default:
-          iframe.contentWindow?.postMessage(
-            JSON.stringify({
-              event: "command",
-              func: "playVideo",
-              args: "",
-            }),
-            "*",
-          );
-      }
-    }
-
-    if (iframe.src.includes("player.vimeo.com")) {
-      iframe.contentWindow.postMessage(
-        JSON.stringify({
-          method: "paused", //video play/pause in onWindowMessage handler
-        }),
-        "*",
-      );
-    }
-  }
-
-  private isIframeLikeElementCenter(
-    el: CanvasEditorIframeLikeElement | null,
-    event: React.PointerEvent<HTMLElement> | PointerEvent,
-    sceneX: number,
-    sceneY: number,
-  ) {
-    return (
-      el &&
-      !event.altKey &&
-      !event.shiftKey &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      (this.state.activeEmbeddable?.element !== el ||
-        this.state.activeEmbeddable?.state === "hover" ||
-        !this.state.activeEmbeddable) &&
-      sceneX >= el.x + el.width / 3 &&
-      sceneX <= el.x + (2 * el.width) / 3 &&
-      sceneY >= el.y + el.height / 3 &&
-      sceneY <= el.y + (2 * el.height) / 3
-    );
-  }
-
-  private updateEmbedValidationStatus = (
-    element: CanvasEditorEmbeddableElement,
-    status: boolean,
-  ) => {
-    this.embedsValidationStatus.set(element.id, status);
-    ShapeCache.delete(element);
-  };
-
-  private updateEmbeddables = () => {
-    const iframeLikes = new Set<CanvasEditorIframeLikeElement["id"]>();
-
-    let updated = false;
-    this.scene.getNonDeletedElements().filter((element) => {
-      if (isEmbeddableElement(element)) {
-        iframeLikes.add(element.id);
-        if (!this.embedsValidationStatus.has(element.id)) {
-          updated = true;
-
-          const validated = embeddableURLValidator(
-            element.link,
-            this.props.validateEmbeddable,
-          );
-
-          this.updateEmbedValidationStatus(element, validated);
-        }
-      } else if (isIframeElement(element)) {
-        iframeLikes.add(element.id);
-      }
-      return false;
-    });
-
-    if (updated) {
-      this.scene.triggerUpdate();
-    }
-
-    // GC
-    this.iFrameRefs.forEach((ref, id) => {
-      if (!iframeLikes.has(id)) {
-        this.iFrameRefs.delete(id);
-      }
-    });
-  };
-
-  private renderEmbeddables() {
-    const scale = this.state.zoom.value;
-    const normalizedWidth = this.state.width;
-    const normalizedHeight = this.state.height;
-
-    const embeddableElements = this.scene
-      .getNonDeletedElements()
-      .filter(
-        (el): el is Ordered<NonDeleted<CanvasEditorIframeLikeElement>> =>
-          (isEmbeddableElement(el) &&
-            this.embedsValidationStatus.get(el.id) === true) ||
-          isIframeElement(el),
-      );
-
-    return (
-      <>
-        {embeddableElements.map((el) => {
-          const { x, y } = sceneCoordsToViewportCoords(
-            { sceneX: el.x, sceneY: el.y },
-            this.state,
-          );
-
-          const isVisible = isElementInViewport(
-            el,
-            normalizedWidth,
-            normalizedHeight,
-            this.state,
-            this.scene.getNonDeletedElementsMap(),
-          );
-          const hasBeenInitialized = this.initializedEmbeds.has(el.id);
-
-          if (isVisible && !hasBeenInitialized) {
-            this.initializedEmbeds.add(el.id);
-          }
-          const shouldRender = isVisible || hasBeenInitialized;
-
-          if (!shouldRender) {
-            return null;
-          }
-
-          let src: IframeData | null;
-
-          if (isIframeElement(el)) {
-            src = null;
-
-            const data: MagicGenerationData = (el.customData?.generationData ??
-              this.magicGenerations.get(el.id)) || {
-              status: "error",
-              message: "No generation data",
-              code: "ERR_NO_GENERATION_DATA",
-            };
-
-            if (data.status === "done") {
-              const html = data.html;
-              src = {
-                intrinsicSize: { w: el.width, h: el.height },
-                type: "document",
-                srcdoc: () => {
-                  return html;
-                },
-              } as const;
-            } else if (data.status === "pending") {
-              src = {
-                intrinsicSize: { w: el.width, h: el.height },
-                type: "document",
-                srcdoc: () => {
-                  return createSrcDoc(`
-                    <style>
-                      html, body {
-                        width: 100%;
-                        height: 100%;
-                        color: ${
-                          this.state.theme === THEME.DARK ? "white" : "black"
-                        };
-                      }
-                      body {
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        flex-direction: column;
-                        gap: 1rem;
-                      }
-
-                      .Spinner {
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        margin-left: auto;
-                        margin-right: auto;
-                      }
-
-                      .Spinner svg {
-                        animation: rotate 1.6s linear infinite;
-                        transform-origin: center center;
-                        width: 40px;
-                        height: 40px;
-                      }
-
-                      .Spinner circle {
-                        stroke: currentColor;
-                        animation: dash 1.6s linear 0s infinite;
-                        stroke-linecap: round;
-                      }
-
-                      @keyframes rotate {
-                        100% {
-                          transform: rotate(360deg);
-                        }
-                      }
-
-                      @keyframes dash {
-                        0% {
-                          stroke-dasharray: 1, 300;
-                          stroke-dashoffset: 0;
-                        }
-                        50% {
-                          stroke-dasharray: 150, 300;
-                          stroke-dashoffset: -200;
-                        }
-                        100% {
-                          stroke-dasharray: 1, 300;
-                          stroke-dashoffset: -280;
-                        }
-                      }
-                    </style>
-                    <div class="Spinner">
-                      <svg
-                        viewBox="0 0 100 100"
-                      >
-                        <circle
-                          cx="50"
-                          cy="50"
-                          r="46"
-                          stroke-width="8"
-                          fill="none"
-                          stroke-miter-limit="10"
-                        />
-                      </svg>
-                    </div>
-                    <div>Generating...</div>
-                  `);
-                },
-              } as const;
-            } else {
-              let message: string;
-              if (data.code === "ERR_GENERATION_INTERRUPTED") {
-                message = "Generation was interrupted...";
-              } else {
-                message = data.message || "Generation failed";
-              }
-              src = {
-                intrinsicSize: { w: el.width, h: el.height },
-                type: "document",
-                srcdoc: () => {
-                  return createSrcDoc(`
-                    <style>
-                    html, body {
-                      height: 100%;
-                    }
-                      body {
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: center;
-                        color: ${COLOR_PALETTE.red[3]};
-                      }
-                      h1, h3 {
-                        margin-top: 0;
-                        margin-bottom: 0.5rem;
-                      }
-                    </style>
-                    <h1>Error!</h1>
-                    <h3>${message}</h3>
-                  `);
-                },
-              } as const;
-            }
-          } else {
-            src = getEmbedLink(toValidURL(el.link || ""));
-          }
-
-          const isActive =
-            this.state.activeEmbeddable?.element === el &&
-            this.state.activeEmbeddable?.state === "active";
-          const isHovered =
-            this.state.activeEmbeddable?.element === el &&
-            this.state.activeEmbeddable?.state === "hover";
-
-          return (
-            <div
-              key={el.id}
-              className={clsx("agent-canvas__embeddable-container", {
-                "is-hovered": isHovered,
-              })}
-              style={{
-                transform: isVisible
-                  ? `translate(${x - this.state.offsetLeft}px, ${
-                      y - this.state.offsetTop
-                    }px) scale(${scale})`
-                  : "none",
-                display: isVisible ? "block" : "none",
-                opacity: getRenderOpacity(
-                  el,
-                  getContainingFrame(el, this.scene.getNonDeletedElementsMap()),
-                  this.elementsPendingErasure,
-                  null,
-                  this.state.openDialog?.name === "elementLinkSelector"
-                    ? DEFAULT_REDUCED_GLOBAL_ALPHA
-                    : 1,
-                ),
-                ["--embeddable-radius" as string]: `${getCornerRadius(
-                  Math.min(el.width, el.height),
-                  el,
-                )}px`,
-              }}
-            >
-              <div
-                // Preserve the embedded surface stacking order while the iframe is interactive.
-                /*ref={(ref) => {
-                  if (!this.canvasContainerRef.current) {
-                    return;
-                  }
-                  const container = this.canvasContainerRef.current;
-                  const sh = container.scrollHeight;
-                  const ch = container.clientHeight;
-                  if (sh !== ch) {
-                    container.style.height = `${sh}px`;
-                    setTimeout(() => {
-                      container.style.height = `100%`;
-                    });
-                  }
-                }}*/
-                className="agent-canvas__embeddable-container__inner"
-                style={{
-                  width: isVisible ? `${el.width}px` : 0,
-                  height: isVisible ? `${el.height}px` : 0,
-                  transform: isVisible ? `rotate(${el.angle}rad)` : "none",
-                  pointerEvents: isActive
-                    ? POINTER_EVENTS.enabled
-                    : POINTER_EVENTS.disabled,
-                }}
-              >
-                {isHovered && (
-                  <div className="agent-canvas__embeddable-hint">
-                    {t("buttons.embeddableInteractionButton")}
-                  </div>
-                )}
-                <div
-                  className="agent-canvas__embeddable__outer"
-                  style={{
-                    padding: `${el.strokeWidth}px`,
-                  }}
-                >
-                  {(isEmbeddableElement(el)
-                    ? this.props.renderEmbeddable?.(el, this.state)
-                    : null) ?? (
-                    <iframe
-                      ref={(ref) => this.cacheEmbeddableRef(el, ref)}
-                      className="agent-canvas__embeddable"
-                      srcDoc={
-                        src?.type === "document"
-                          ? src.srcdoc(this.state.theme)
-                          : undefined
-                      }
-                      src={
-                        src?.type !== "document" ? src?.link ?? "" : undefined
-                      }
-                      // https://stackoverflow.com/q/18470015
-                      scrolling="no"
-                      referrerPolicy="no-referrer-when-downgrade"
-                      title="CanvasEditor Embedded Content"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen={true}
-                      sandbox={`${
-                        src?.sandbox?.allowSameOrigin ? "allow-same-origin" : ""
-                      } allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-presentation allow-downloads`}
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </>
-    );
-  }
 
   private getFrameNameDOMId = (frameElement: CanvasEditorElement) => {
     return `${this.id}-frame-name-${frameElement.id}`;
@@ -1523,7 +939,7 @@ class App extends React.Component<AppProps, AppState> {
 
   public render() {
     const selectedElements = this.scene.getSelectedElements(this.state);
-    const { renderTopRightUI, renderCustomStats } = this.props;
+    const { renderTopRightUI } = this.props;
 
     const sceneNonce = this.scene.getSceneNonce();
     const { elementsMap, visibleElements } =
@@ -1608,10 +1024,8 @@ class App extends React.Component<AppProps, AppState> {
                           onLockToggle={this.toggleLock}
                           onPenModeToggle={this.togglePenMode}
                           onHandToolToggle={this.onHandToolToggle}
-                          temporaryHandActive={this.temporaryHandActive}
                           langCode={getLanguage().code}
                           renderTopRightUI={renderTopRightUI}
-                          renderCustomStats={renderCustomStats}
                           showExitZenModeBtn={
                             typeof this.props?.zenModeEnabled === "undefined" &&
                             this.state.zenModeEnabled
@@ -1641,82 +1055,7 @@ class App extends React.Component<AppProps, AppState> {
                               elementsMap={allElementsMap}
                               setAppState={this.setAppState}
                               onLinkOpen={this.props.onLinkOpen}
-                              setToast={this.setToast}
-                              updateEmbedValidationStatus={
-                                this.updateEmbedValidationStatus
-                              }
                             />
-                          )}
-                        {this.props.aiEnabled !== false &&
-                          selectedElements.length === 1 &&
-                          isMagicFrameElement(firstSelectedElement) && (
-                            <ElementCanvasButtons
-                              element={firstSelectedElement}
-                              elementsMap={elementsMap}
-                            >
-                              <ElementCanvasButton
-                                title={t("labels.convertToCode")}
-                                icon={MagicIcon}
-                                checked={false}
-                                onChange={() =>
-                                  this.onMagicFrameGenerate(
-                                    firstSelectedElement,
-                                    "button",
-                                  )
-                                }
-                              />
-                            </ElementCanvasButtons>
-                          )}
-                        {selectedElements.length === 1 &&
-                          isIframeElement(firstSelectedElement) &&
-                          firstSelectedElement.customData?.generationData
-                            ?.status === "done" && (
-                            <ElementCanvasButtons
-                              element={firstSelectedElement}
-                              elementsMap={elementsMap}
-                            >
-                              <ElementCanvasButton
-                                title={t("labels.copySource")}
-                                icon={copyIcon}
-                                checked={false}
-                                onChange={() =>
-                                  this.onIframeSrcCopy(firstSelectedElement)
-                                }
-                              />
-                              <ElementCanvasButton
-                                title="Enter fullscreen"
-                                icon={fullscreenIcon}
-                                checked={false}
-                                onChange={() => {
-                                  const iframe =
-                                    this.getHTMLIFrameElement(
-                                      firstSelectedElement,
-                                    );
-                                  if (iframe) {
-                                    try {
-                                      iframe.requestFullscreen();
-                                      this.setState({
-                                        activeEmbeddable: {
-                                          element: firstSelectedElement,
-                                          state: "active",
-                                        },
-                                        selectedElementIds: {
-                                          [firstSelectedElement.id]: true,
-                                        },
-                                        newElement: null,
-                                        selectionElement: null,
-                                      });
-                                    } catch (err: any) {
-                                      console.warn(err);
-                                      this.setState({
-                                        errorMessage:
-                                          "Couldn't enter fullscreen",
-                                      });
-                                    }
-                                  }
-                                }}
-                              />
-                            </ElementCanvasButtons>
                           )}
                         {this.state.toast !== null && (
                           <Toast
@@ -1757,7 +1096,6 @@ class App extends React.Component<AppProps, AppState> {
                             isExporting: false,
                             canvasBackgroundColor:
                               this.state.viewBackgroundColor,
-                            embedsValidationStatus: this.embedsValidationStatus,
                             elementsPendingErasure: this.elementsPendingErasure,
                             pendingFlowchartNodes:
                               this.flowChartCreator.pendingNodes,
@@ -1775,8 +1113,6 @@ class App extends React.Component<AppProps, AppState> {
                               isExporting: false,
                               canvasBackgroundColor:
                                 this.state.viewBackgroundColor,
-                              embedsValidationStatus:
-                                this.embedsValidationStatus,
                               elementsPendingErasure:
                                 this.elementsPendingErasure,
                               pendingFlowchartNodes: null,
@@ -1809,17 +1145,8 @@ class App extends React.Component<AppProps, AppState> {
                           onPointerDown={this.handleCanvasPointerDown}
                           onDoubleClick={this.handleCanvasDoubleClick}
                         />
-                        {this.state.userToFollow && (
-                          <FollowMode
-                            width={this.state.width}
-                            height={this.state.height}
-                            userToFollow={this.state.userToFollow}
-                            onDisconnect={this.maybeUnfollowRemoteUser}
-                          />
-                        )}
                         {this.renderFrameNames()}
                       </CanvasEditorActionManagerContext.Provider>
-                      {this.renderEmbeddables()}
                     </CanvasEditorElementsContext.Provider>
                   </CanvasEditorAppStateContext.Provider>
                 </CanvasEditorSetAppStateContext.Provider>
@@ -1844,7 +1171,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   public onInsertElements = (elements: readonly CanvasEditorElement[]) => {
-    this.addElementsFromPasteOrLibrary({
+    this.addElementsFromPaste({
       elements,
       position: "center",
       files: null,
@@ -1856,7 +1183,6 @@ class App extends React.Component<AppProps, AppState> {
     elements: ExportedElements,
     opts: { exportingFrame: CanvasEditorFrameLikeElement | null },
   ) => {
-    trackEvent("export", type, "ui");
     const fileHandle = await exportCanvas(
       type,
       elements,
@@ -1884,215 +1210,6 @@ class App extends React.Component<AppProps, AppState> {
     }
   };
 
-  private magicGenerations = new Map<
-    CanvasEditorIframeElement["id"],
-    MagicGenerationData
-  >();
-
-  private updateMagicGeneration = ({
-    frameElement,
-    data,
-  }: {
-    frameElement: CanvasEditorIframeElement;
-    data: MagicGenerationData;
-  }) => {
-    if (data.status === "pending") {
-      // We don't wanna persist pending state to storage. It should be in-app
-      // state only.
-      // Thus reset so that we prefer local cache (if there was some
-      // generationData set previously)
-      mutateElement(
-        frameElement,
-        { customData: { generationData: undefined } },
-        false,
-      );
-    } else {
-      mutateElement(
-        frameElement,
-        { customData: { generationData: data } },
-        false,
-      );
-    }
-    this.magicGenerations.set(frameElement.id, data);
-    this.triggerRender();
-  };
-
-  public plugins: {
-    diagramToCode?: {
-      generate: GenerateDiagramToCode;
-    };
-  } = {};
-
-  public setPlugins(plugins: Partial<App["plugins"]>) {
-    Object.assign(this.plugins, plugins);
-  }
-
-  private async onMagicFrameGenerate(
-    magicFrame: CanvasEditorMagicFrameElement,
-    source: "button" | "upstream",
-  ) {
-    const generateDiagramToCode = this.plugins.diagramToCode?.generate;
-
-    if (!generateDiagramToCode) {
-      this.setState({
-        errorMessage: "No diagram to code plugin found",
-      });
-      return;
-    }
-
-    const magicFrameChildren = getElementsOverlappingFrame(
-      this.scene.getNonDeletedElements(),
-      magicFrame,
-    ).filter((el) => !isMagicFrameElement(el));
-
-    if (!magicFrameChildren.length) {
-      if (source === "button") {
-        this.setState({ errorMessage: "Cannot generate from an empty frame" });
-        trackEvent("ai", "generate (no-children)", "d2c");
-      } else {
-        this.setActiveTool({ type: "magicframe" });
-      }
-      return;
-    }
-
-    const frameElement = this.insertIframeElement({
-      sceneX: magicFrame.x + magicFrame.width + 30,
-      sceneY: magicFrame.y,
-      width: magicFrame.width,
-      height: magicFrame.height,
-    });
-
-    if (!frameElement) {
-      return;
-    }
-
-    this.updateMagicGeneration({
-      frameElement,
-      data: { status: "pending" },
-    });
-
-    this.setState({
-      selectedElementIds: { [frameElement.id]: true },
-    });
-
-    trackEvent("ai", "generate (start)", "d2c");
-    try {
-      const { html } = await generateDiagramToCode({
-        frame: magicFrame,
-        children: magicFrameChildren,
-      });
-
-      trackEvent("ai", "generate (success)", "d2c");
-
-      if (!html.trim()) {
-        this.updateMagicGeneration({
-          frameElement,
-          data: {
-            status: "error",
-            code: "ERR_OAI",
-            message: "Nothing genereated :(",
-          },
-        });
-        return;
-      }
-
-      const parsedHtml =
-        html.includes("<!DOCTYPE html>") && html.includes("</html>")
-          ? html.slice(
-              html.indexOf("<!DOCTYPE html>"),
-              html.indexOf("</html>") + "</html>".length,
-            )
-          : html;
-
-      this.updateMagicGeneration({
-        frameElement,
-        data: { status: "done", html: parsedHtml },
-      });
-    } catch (error: any) {
-      trackEvent("ai", "generate (failed)", "d2c");
-      this.updateMagicGeneration({
-        frameElement,
-        data: {
-          status: "error",
-          code: "ERR_OAI",
-          message: error.message || "Unknown error during generation",
-        },
-      });
-    }
-  }
-
-  private onIframeSrcCopy(element: CanvasEditorIframeElement) {
-    if (element.customData?.generationData?.status === "done") {
-      copyTextToSystemClipboard(element.customData.generationData.html);
-      this.setToast({
-        message: "copied to clipboard",
-        closable: false,
-        duration: 1500,
-      });
-    }
-  }
-
-  public onMagicframeToolSelect = () => {
-    const selectedElements = this.scene.getSelectedElements({
-      selectedElementIds: this.state.selectedElementIds,
-    });
-
-    if (selectedElements.length === 0) {
-      this.setActiveTool({ type: TOOL_TYPE.magicframe });
-      trackEvent("ai", "tool-select (empty-selection)", "d2c");
-    } else {
-      const selectedMagicFrame: CanvasEditorMagicFrameElement | false =
-        selectedElements.length === 1 &&
-        isMagicFrameElement(selectedElements[0]) &&
-        selectedElements[0];
-
-      // case: user selected elements containing frame-like(s) or are frame
-      // members, we don't want to wrap into another magicframe
-      // (unless the only selected element is a magic frame which we reuse)
-      if (
-        !selectedMagicFrame &&
-        selectedElements.some((el) => isFrameLikeElement(el) || el.frameId)
-      ) {
-        this.setActiveTool({ type: TOOL_TYPE.magicframe });
-        return;
-      }
-
-      trackEvent("ai", "tool-select (existing selection)", "d2c");
-
-      let frame: CanvasEditorMagicFrameElement;
-      if (selectedMagicFrame) {
-        // a single magicframe already selected -> use it
-        frame = selectedMagicFrame;
-      } else {
-        // selected elements aren't wrapped in magic frame yet -> wrap now
-
-        const [minX, minY, maxX, maxY] = getCommonBounds(selectedElements);
-        const padding = 50;
-
-        frame = newMagicFrameElement({
-          ...FRAME_STYLE,
-          x: minX - padding,
-          y: minY - padding,
-          width: maxX - minX + padding * 2,
-          height: maxY - minY + padding * 2,
-          opacity: 100,
-          locked: false,
-        });
-
-        this.scene.insertElement(frame);
-
-        for (const child of selectedElements) {
-          mutateElement(child, { frameId: frame.id });
-        }
-
-        this.setState({
-          selectedElementIds: { [frame.id]: true },
-        });
-      }
-
-      this.onMagicFrameGenerate(frame, "upstream");
-    }
-  };
 
   public dismissLinearEditor = () => {
     setTimeout(() => {
@@ -2196,9 +1313,10 @@ class App extends React.Component<AppProps, AppState> {
 
   private onBlur = withBatchedUpdates(() => {
     isHoldingSpace = false;
-    this.temporaryHandPending = false;
-    this.setTemporaryHandActive(false);
-    this.setState({ isBindingEnabled: true });
+    this.maybeCleanupAfterMissingPointerUp(null);
+    this.commandSelectionHeld = false;
+    this.commandSelectionSuppressed = false;
+    this.setState({ isBindingEnabled: true }, () => this.syncTemporarySelection());
   });
 
   private onUnload = () => {
@@ -2241,8 +1359,9 @@ class App extends React.Component<AppProps, AppState> {
       appState: Partial<AppState>;
       files: BinaryFiles;
     }) => {
-      this.temporaryHandPending = false;
-      this.setTemporaryHandActive(false);
+      this.commandSelectionHeld = false;
+      this.commandSelectionSuppressed = false;
+      this.temporarySelectionReturnTool = null;
       this.documentEpoch += 1;
       this.resetStore();
       this.resetHistory();
@@ -2254,6 +1373,10 @@ class App extends React.Component<AppProps, AppState> {
         appState: {
           ...getDefaultAppState(),
           ...sceneData.appState,
+          width: this.state.width,
+          height: this.state.height,
+          offsetLeft: this.state.offsetLeft,
+          offsetTop: this.state.offsetTop,
           selectedElementIds: {},
           selectedGroupIds: {},
         },
@@ -2294,16 +1417,6 @@ class App extends React.Component<AppProps, AppState> {
       } else {
         initialData = (await this.props.initialData) || null;
       }
-      if (initialData?.libraryItems) {
-        this.library
-          .updateLibrary({
-            libraryItems: initialData.libraryItems,
-            merge: true,
-          })
-          .catch((error) => {
-            console.error(error);
-          });
-      }
     } catch (error: any) {
       console.error(error);
       initialData = {
@@ -2319,10 +1432,7 @@ class App extends React.Component<AppProps, AppState> {
     scene.appState = {
       ...scene.appState,
       theme: this.props.theme || scene.appState.theme,
-      // we're falling back to current (pre-init) state when deciding
-      // whether to open the library, to handle a case where we
-      // update the state outside of initialData (e.g. when loading the app
-      // with a library install link, which should auto-open the library)
+      // Preserve a host-selected sidebar while scene data initializes.
       openSidebar: scene.appState?.openSidebar || this.state.openSidebar,
       activeTool:
         scene.appState.activeTool.type === "image"
@@ -2478,6 +1588,7 @@ class App extends React.Component<AppProps, AppState> {
 
     this.scene.onUpdate(this.triggerRender);
     this.addEventListeners();
+    this.updateToolCursor();
 
     if (this.props.autoFocus && this.canvasContainerRef.current) {
       this.focusContainer();
@@ -2519,20 +1630,20 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   public componentWillUnmount() {
-    this.temporaryHandActive = false;
-    this.temporaryHandPending = false;
+    this.commandSelectionHeld = false;
+    this.commandSelectionSuppressed = false;
+    this.temporarySelectionReturnTool = null;
     (window as any).launchQueue?.setConsumer(() => {});
     this.renderer.destroy();
     this.scene.destroy();
     this.scene = new Scene();
     this.fonts = new Fonts(this.scene);
     this.renderer = new Renderer(this.scene);
-    this.files = {};
+    this.files = Object.create(null);
     this.imageCache.clear();
     this.resizeObserver?.disconnect();
     this.unmounted = true;
     this.removeEventListeners();
-    this.library.destroy();
     this.eraserTrail.stop();
     this.onChangeEmitter.clear();
     this.store.onStoreIncrementEmitter.clear();
@@ -2557,18 +1668,6 @@ class App extends React.Component<AppProps, AppState> {
     this.setState({});
   });
 
-  /** generally invoked only if fullscreen was invoked programmatically */
-  private onFullscreenChange = () => {
-    if (
-      // points to the iframe element we fullscreened
-      !document.fullscreenElement &&
-      this.state.activeEmbeddable?.state === "active"
-    ) {
-      this.setState({
-        activeEmbeddable: null,
-      });
-    }
-  };
 
   private removeEventListeners() {
     this.onRemoveEventListenersEmitter.trigger();
@@ -2595,14 +1694,13 @@ class App extends React.Component<AppProps, AppState> {
         this.handleWheel,
         { passive: false },
       ),
-      addEventListener(window, EVENT.MESSAGE, this.onWindowMessage, false),
       addEventListener(document, EVENT.POINTER_UP, this.removePointer, {
         passive: false,
       }), // #3553
       addEventListener(document, EVENT.COPY, this.onCopy, { passive: false }),
       addEventListener(document, EVENT.KEYUP, this.onKeyUp, { passive: true }),
-      addEventListener(document, EVENT.KEYDOWN, this.onTemporaryHandKeyDown, false),
-      addEventListener(window, EVENT.POINTER_UP, this.onTemporaryHandPointerUp, false),
+      addEventListener(document, EVENT.KEYDOWN, this.onTemporarySelectionKeyDown, false),
+      addEventListener(window, EVENT.POINTER_UP, this.onTemporarySelectionPointerUp, false),
       addEventListener(
         document,
         EVENT.POINTER_MOVE,
@@ -2660,12 +1758,6 @@ class App extends React.Component<AppProps, AppState> {
     // -------------------------------------------------------------------------
 
     this.onRemoveEventListenersEmitter.once(
-      addEventListener(
-        document,
-        EVENT.FULLSCREENCHANGE,
-        this.onFullscreenChange,
-        { passive: false },
-      ),
       addEventListener(document, EVENT.PASTE, this.pasteFromClipboard, {
         passive: false,
       }),
@@ -2706,7 +1798,8 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   componentDidUpdate(prevProps: AppProps, prevState: AppState) {
-    this.updateEmbeddables();
+    if (prevState.activeTool.type !== this.state.activeTool.type) this.updateToolCursor();
+    if (this.commandSelectionHeld || this.temporarySelectionReturnTool) this.syncTemporarySelection();
     const elements = this.scene.getElementsIncludingDeleted();
     const elementsMap = this.scene.getElementsMapIncludingDeleted();
     const nonDeletedElementsMap = this.scene.getNonDeletedElementsMap();
@@ -2720,14 +1813,6 @@ class App extends React.Component<AppProps, AppState> {
       this.props.UIOptions.dockedSidebarBreakpoint
     ) {
       this.refreshEditorBreakpoints();
-    }
-
-    const hasFollowedPersonLeft =
-      prevState.userToFollow &&
-      !this.state.collaborators.has(prevState.userToFollow.socketId);
-
-    if (hasFollowedPersonLeft) {
-      this.maybeUnfollowRemoteUser();
     }
 
     if (
@@ -2745,22 +1830,6 @@ class App extends React.Component<AppProps, AppState> {
         this.state.scrollY,
         this.state.zoom,
       );
-    }
-
-    if (prevState.userToFollow !== this.state.userToFollow) {
-      if (prevState.userToFollow) {
-        this.onUserFollowEmitter.trigger({
-          userToFollow: prevState.userToFollow,
-          action: "UNFOLLOW",
-        });
-      }
-
-      if (this.state.userToFollow) {
-        this.onUserFollowEmitter.trigger({
-          userToFollow: this.state.userToFollow,
-          action: "FOLLOW",
-        });
-      }
     }
 
     if (
@@ -2976,7 +2045,7 @@ class App extends React.Component<AppProps, AppState> {
     if (!isCanvasEditorActive || isWritableElement(event.target)) {
       return;
     }
-    this.actionManager.executeAction(actionCut, "keyboard", event);
+    this.actionManager.executeAction(actionCut, event);
     event.preventDefault();
     event.stopPropagation();
   });
@@ -2988,7 +2057,7 @@ class App extends React.Component<AppProps, AppState> {
     if (!isCanvasEditorActive || isWritableElement(event.target)) {
       return;
     }
-    this.actionManager.executeAction(actionCopy, "keyboard", event);
+    this.actionManager.executeAction(actionCopy, event);
     event.preventDefault();
     event.stopPropagation();
   });
@@ -3028,7 +2097,6 @@ class App extends React.Component<AppProps, AppState> {
     if (event.touches.length === 2) {
       this.setState({
         selectedElementIds: makeNextSelectedElementIds({}, this.state),
-        activeEmbeddable: null,
       });
     }
   };
@@ -3102,8 +2170,7 @@ class App extends React.Component<AppProps, AppState> {
         }
       }
 
-      // prefer spreadsheet data over image file (MS Office/Libre Office)
-      if (isSupportedImageFile(file) && !data.spreadsheet) {
+      if (isSupportedImageFile(file)) {
         if (!this.isToolSupported("image")) {
           this.setState({ errorMessage: t("errors.imageToolNotSupported") });
           return;
@@ -3136,13 +2203,6 @@ class App extends React.Component<AppProps, AppState> {
 
       if (data.errorMessage) {
         this.setState({ errorMessage: data.errorMessage });
-      } else if (data.spreadsheet && !isPlainPaste) {
-        this.setState({
-          pasteDialog: {
-            data: data.spreadsheet,
-            shown: true,
-          },
-        });
       } else if (data.elements) {
         const elements = (
           data.programmaticAPI
@@ -3152,59 +2212,13 @@ class App extends React.Component<AppProps, AppState> {
             : data.elements
         ) as readonly CanvasEditorElement[];
         // TODO remove formatting from elements if isPlainPaste
-        this.addElementsFromPasteOrLibrary({
+        this.addElementsFromPaste({
           elements,
           files: data.files || null,
           position: "cursor",
           retainSeed: isPlainPaste,
         });
       } else if (data.text) {
-        const nonEmptyLines = normalizeEOL(data.text)
-          .split(/\n+/)
-          .map((s) => s.trim())
-          .filter(Boolean);
-
-        const embbeddableUrls = nonEmptyLines
-          .map((str) => maybeParseEmbedSrc(str))
-          .filter((string) => {
-            return (
-              embeddableURLValidator(string, this.props.validateEmbeddable) &&
-              (/^(http|https):\/\/[^\s/$.?#].[^\s]*$/.test(string) ||
-                getEmbedLink(string)?.type === "video")
-            );
-          });
-
-        if (
-          !IS_PLAIN_PASTE &&
-          embbeddableUrls.length > 0 &&
-          // if there were non-embeddable text (lines) mixed in with embeddable
-          // urls, ignore and paste as text
-          embbeddableUrls.length === nonEmptyLines.length
-        ) {
-          const embeddables: NonDeleted<CanvasEditorEmbeddableElement>[] = [];
-          for (const url of embbeddableUrls) {
-            const prevEmbeddable: CanvasEditorEmbeddableElement | undefined =
-              embeddables[embeddables.length - 1];
-            const embeddable = this.insertEmbeddableElement({
-              sceneX: prevEmbeddable
-                ? prevEmbeddable.x + prevEmbeddable.width + 20
-                : sceneX,
-              sceneY,
-              link: normalizeLink(url),
-            });
-            if (embeddable) {
-              embeddables.push(embeddable);
-            }
-          }
-          if (embeddables.length) {
-            this.setState({
-              selectedElementIds: Object.fromEntries(
-                embeddables.map((embeddable) => [embeddable.id, true]),
-              ),
-            });
-          }
-          return;
-        }
         this.addTextFromPaste(data.text);
       }
       this.setActiveTool({ type: "selection" });
@@ -3212,7 +2226,7 @@ class App extends React.Component<AppProps, AppState> {
     },
   );
 
-  addElementsFromPasteOrLibrary = (opts: {
+  addElementsFromPaste = (opts: {
     elements: readonly CanvasEditorElement[];
     files: BinaryFiles | null;
     position: { clientX: number; clientY: number } | "cursor" | "center";
@@ -3322,17 +2336,6 @@ class App extends React.Component<AppProps, AppState> {
     this.setState(
       {
         ...this.state,
-        // keep sidebar (presumably the library) open if it's docked and
-        // can fit.
-        //
-        // Note, we should close the sidebar only if we're dropping items
-        // from library, not when pasting from clipboard. Alas.
-        openSidebar:
-          this.state.openSidebar &&
-          this.device.editor.canFitSidebar &&
-          editorJotaiStore.get(isSidebarDockedAtom)
-            ? this.state.openSidebar
-            : null,
         ...selectGroupsForSelectedElements(
           {
             editingGroupId: null,
@@ -3468,8 +2471,6 @@ class App extends React.Component<AppProps, AppState> {
       x,
       y,
       strokeColor: this.state.currentItemStrokeColor,
-      backgroundColor: this.state.currentItemBackgroundColor,
-      fillStyle: this.state.currentItemFillStyle,
       strokeWidth: this.state.currentItemStrokeWidth,
       strokeStyle: this.state.currentItemStrokeStyle,
       roundness: null,
@@ -3539,14 +2540,8 @@ class App extends React.Component<AppProps, AppState> {
     gesture.pointers.delete(event.pointerId);
   };
 
-  toggleLock = (source: "keyboard" | "ui" = "ui") => {
-    if (!this.state.activeTool.locked) {
-      trackEvent(
-        "toolbar",
-        "toggleLock",
-        `${source} (${this.device.editor.isMobile ? "mobile" : "desktop"})`,
-      );
-    }
+  toggleLock = () => {
+    this.cancelTemporarySelectionForToolChoice();
     this.setState((prevState) => {
       return {
         activeTool: {
@@ -3594,6 +2589,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   onHandToolToggle = () => {
+    this.cancelTemporarySelectionForToolChoice();
     this.actionManager.executeAction(actionToggleHandTool);
   };
 
@@ -3763,18 +2759,11 @@ class App extends React.Component<AppProps, AppState> {
     }
   };
 
-  private maybeUnfollowRemoteUser = () => {
-    if (this.state.userToFollow) {
-      this.setState({ userToFollow: null });
-    }
-  };
-
   /** use when changing scrollX/scrollY/zoom based on user interaction */
   private translateCanvas: React.Component<any, AppState>["setState"] = (
     state,
   ) => {
     this.cancelInProgressAnimation?.();
-    this.maybeUnfollowRemoteUser();
     this.setState(state);
   };
 
@@ -3824,8 +2813,8 @@ class App extends React.Component<AppProps, AppState> {
     files: BinaryFiles | BinaryFileData[],
     replace = false,
   ) => {
-    const nextFiles = replace ? {} : { ...this.files };
-    const addedFiles: BinaryFiles = {};
+    const nextFiles: BinaryFiles = Object.assign(Object.create(null), replace ? {} : this.files);
+    const addedFiles: BinaryFiles = Object.create(null);
 
     const _files = Array.isArray(files) ? files : Object.values(files);
 
@@ -3863,7 +2852,6 @@ class App extends React.Component<AppProps, AppState> {
     <K extends keyof AppState>(sceneData: {
       elements?: SceneData["elements"];
       appState?: Pick<AppState, K> | null;
-      collaborators?: SceneData["collaborators"];
       /**
        *  Controls which updates should be captured by the `Store`. Captured updates are emmitted and listened to by other components, such as `History` for undo / redo purposes.
        *
@@ -3920,9 +2908,6 @@ class App extends React.Component<AppProps, AppState> {
         this.scene.replaceAllElements(nextElements);
       }
 
-      if (sceneData.collaborators) {
-        this.setState({ collaborators: sceneData.collaborators });
-      }
     },
   );
 
@@ -4024,23 +3009,51 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   // Input handling
-  private setTemporaryHandActive = (active: boolean) => {
-    if (this.temporaryHandActive === active) return;
-    this.temporaryHandActive = active;
-    if (!isPanning) {
-      if (active || isHoldingSpace || isHandToolActive(this.state) || this.state.viewModeEnabled) {
-        setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
-      } else {
-        setCursorForShape(this.interactiveCanvas, this.state);
-      }
-    }
-    this.forceUpdate();
+  private cancelTemporarySelectionForToolChoice = () => {
+    if (!this.commandSelectionHeld && !this.temporarySelectionReturnTool) return;
+    this.commandSelectionSuppressed = this.commandSelectionHeld;
+    this.commandSelectionHeld = false;
+    this.temporarySelectionReturnTool = null;
   };
 
-  private onTemporaryHandKeyDown = (event: KeyboardEvent) => {
+  private updateToolCursor = () => {
+    if (isPanning) return;
+    if (isHoldingSpace || this.state.viewModeEnabled) {
+      setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
+    } else {
+      setCursorForShape(this.interactiveCanvas, this.state);
+    }
+  };
+
+  /** Changes the actual tool so selection, hit-testing and toolbar share one state. */
+  private syncTemporarySelection = (onApplied?: () => void): boolean => {
+    if (
+      this.unmounted || isPanning || this.state.cursorButton === "down" ||
+      this.state.newElement || this.state.multiElement || this.state.editingTextElement
+    ) {
+      return false;
+    }
+    let activeTool: AppState["activeTool"];
+    if (this.commandSelectionHeld) {
+      if (this.temporarySelectionReturnTool) return false;
+      this.temporarySelectionReturnTool = { ...this.state.activeTool };
+      activeTool = updateActiveTool(this.state, { type: "selection" });
+    } else {
+      if (!this.temporarySelectionReturnTool) return false;
+      activeTool = this.temporarySelectionReturnTool;
+      this.temporarySelectionReturnTool = null;
+    }
+    // Restoring directly preserves selected IDs for the selection action layer.
+    this.setState({ activeTool, isBindingEnabled: true }, () => {
+      onApplied?.();
+    });
+    return true;
+  };
+
+  private onTemporarySelectionKeyDown = (event: KeyboardEvent) => {
     if (
       event.key !== "Meta" ||
-      event.repeat ||
+      event.repeat || event.isComposing || this.commandSelectionSuppressed ||
       this.state.editingTextElement ||
       isWritableElement(event.target)
     ) {
@@ -4048,24 +3061,38 @@ class App extends React.Component<AppProps, AppState> {
     }
     const container = this.canvasContainerRef.current;
     if (container && (container.matches(":hover") || container.contains(document.activeElement))) {
-      if (this.state.cursorButton === "down") {
-        this.temporaryHandPending = true;
-        return;
-      }
-      this.setTemporaryHandActive(true);
+      this.commandSelectionHeld = true;
+      this.syncTemporarySelection();
     }
   };
 
-  private onTemporaryHandPointerUp = (event: PointerEvent) => {
-    if (!this.temporaryHandPending) return;
-    this.temporaryHandPending = false;
-    if (event.metaKey) {
-      queueMicrotask(() => {
-        if (!this.unmounted && this.canvasContainerRef.current?.matches(":hover")) {
-          this.setTemporaryHandActive(true);
-        }
-      });
-    }
+  private syncCommandSelectionFromPointer = (
+    event: { metaKey: boolean; target: EventTarget | null },
+    onApplied?: () => void,
+  ): boolean => {
+    if (this.state.editingTextElement || isWritableElement(event.target)) return false;
+    if (!event.metaKey) this.commandSelectionSuppressed = false;
+    this.commandSelectionHeld = event.metaKey && !this.commandSelectionSuppressed;
+    return this.syncTemporarySelection(onApplied);
+  };
+
+  private onTemporarySelectionPointerUp = (event: PointerEvent) => {
+    if (!this.commandSelectionHeld && !this.temporarySelectionReturnTool) return;
+    this.commandSelectionHeld = event.metaKey && !this.commandSelectionSuppressed;
+    // Deferred changes resume when the gesture's state update is committed.
+    this.syncTemporarySelection();
+  };
+
+  /** Command selects the tool; editing gestures keep ordinary selection semantics. */
+  private selectionInputEvent<T extends { metaKey: boolean }>(event: T): T {
+    if (!this.temporarySelectionReturnTool || !event.metaKey) return event;
+    return new Proxy(event, {
+      get(target, property) {
+        if (property === "metaKey") return false;
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
   };
 
   private onKeyDown = withBatchedUpdates(
@@ -4235,20 +3262,6 @@ class App extends React.Component<AppProps, AppState> {
         }
       }
 
-      if (
-        event[KEYS.CTRL_OR_CMD] &&
-        event.key === KEYS.P &&
-        !event.shiftKey &&
-        !event.altKey
-      ) {
-        this.setToast({
-          message: t("commandPalette.shortcutHint", {
-            shortcut: getShortcutFromShortcutName("commandPalette"),
-          }),
-        });
-        event.preventDefault();
-        return;
-      }
 
       if (event[KEYS.CTRL_OR_CMD] && event.key.toLowerCase() === KEYS.V) {
         IS_PLAIN_PASTE = event.shiftKey;
@@ -4321,7 +3334,7 @@ class App extends React.Component<AppProps, AppState> {
         return;
       }
 
-      if (event[KEYS.CTRL_OR_CMD] && this.state.isBindingEnabled) {
+      if (event[KEYS.CTRL_OR_CMD] && !this.commandSelectionHeld && this.state.isBindingEnabled) {
         this.setState({ isBindingEnabled: false });
       }
 
@@ -4468,15 +3481,6 @@ class App extends React.Component<AppProps, AppState> {
       ) {
         const shape = findShapeByKey(event.key);
         if (shape) {
-          if (this.state.activeTool.type !== shape) {
-            trackEvent(
-              "toolbar",
-              shape,
-              `keyboard (${
-                this.device.editor.isMobile ? "mobile" : "desktop"
-              })`,
-            );
-          }
           if (shape === "arrow" && this.state.activeTool.type === "arrow") {
             this.setState((prevState) => ({
               currentItemArrowType:
@@ -4490,7 +3494,7 @@ class App extends React.Component<AppProps, AppState> {
           this.setActiveTool({ type: shape });
           event.stopPropagation();
         } else if (event.key === KEYS.Q) {
-          this.toggleLock("keyboard");
+          this.toggleLock();
           event.stopPropagation();
         }
       }
@@ -4511,30 +3515,30 @@ class App extends React.Component<AppProps, AppState> {
   );
 
   private onKeyUp = withBatchedUpdates((event: KeyboardEvent) => {
-    if (event.key === "Meta") {
-      this.temporaryHandPending = false;
-      this.setTemporaryHandActive(false);
+    if (event.key === "Meta" && !event.metaKey) {
+      this.commandSelectionHeld = false;
+      this.commandSelectionSuppressed = false;
+      this.syncTemporarySelection();
     }
     if (event.key === KEYS.SPACE) {
-      if (this.temporaryHandActive) {
-        setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
-      } else if (
+      isHoldingSpace = false;
+      if (
         this.state.viewModeEnabled ||
         this.state.openDialog?.name === "elementLinkSelector"
       ) {
         setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
       } else if (this.state.activeTool.type === "selection") {
         resetCursor(this.interactiveCanvas);
+      } else if (isHandToolActive(this.state)) {
+        setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
       } else {
         setCursorForShape(this.interactiveCanvas, this.state);
         this.setState({
           selectedElementIds: makeNextSelectedElementIds({}, this.state),
           selectedGroupIds: {},
           editingGroupId: null,
-          activeEmbeddable: null,
         });
       }
-      isHoldingSpace = false;
     }
     if (!event[KEYS.CTRL_OR_CMD] && !this.state.isBindingEnabled) {
       this.setState({ isBindingEnabled: true });
@@ -4614,6 +3618,7 @@ class App extends React.Component<AppProps, AppState> {
   // We purposely widen the `tool` type so this helper can be called with
   // any tool without having to type check it
   private isToolSupported = <T extends ToolType | "custom">(tool: T) => {
+    if (tool !== "hand" && !SHAPES.some((shape) => shape.value === tool)) return false;
     return (
       this.props.UIOptions.tools?.[
         tool as Extract<T, keyof AppProps["UIOptions"]["tools"]>
@@ -4640,10 +3645,12 @@ class App extends React.Component<AppProps, AppState> {
       return;
     }
 
+    // Explicit tool choices take precedence until Command is released.
+    this.cancelTemporarySelectionForToolChoice();
     const nextActiveTool = updateActiveTool(this.state, tool);
     if (nextActiveTool.type === "hand") {
       setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
-    } else if (!isHoldingSpace && !this.temporaryHandActive) {
+    } else if (!isHoldingSpace) {
       setCursorForShape(this.interactiveCanvas, {
         ...this.state,
         activeTool: nextActiveTool,
@@ -4666,7 +3673,6 @@ class App extends React.Component<AppProps, AppState> {
       const commonResets = {
         snapLines: prevState.snapLines.length ? [] : prevState.snapLines,
         originSnapOffset: null,
-        activeEmbeddable: null,
       } as const;
 
       if (nextActiveTool.type === "freedraw") {
@@ -4733,7 +3739,6 @@ class App extends React.Component<AppProps, AppState> {
     if (this.isTouchScreenMultiTouchGesture()) {
       this.setState({
         selectedElementIds: makeNextSelectedElementIds({}, this.state),
-        activeEmbeddable: null,
       });
     }
     gesture.initialScale = this.state.zoom.value;
@@ -4911,7 +3916,6 @@ class App extends React.Component<AppProps, AppState> {
       selectedElementIds: makeNextSelectedElementIds({}, this.state),
       selectedGroupIds: {},
       editingGroupId: null,
-      activeEmbeddable: null,
     });
   }
 
@@ -4988,8 +3992,6 @@ class App extends React.Component<AppProps, AppState> {
     includeBoundTextElement: boolean = false,
     includeLockedElements: boolean = false,
   ): NonDeleted<CanvasEditorElement>[] {
-    const iframeLikes: Ordered<CanvasEditorIframeElement>[] = [];
-
     const elementsMap = this.scene.getNonDeletedElementsMap();
 
     const elements = (
@@ -5013,19 +4015,7 @@ class App extends React.Component<AppProps, AppState> {
           this.state.frameRendering.clip
           ? isCursorInFrame({ x, y }, containingFrame, elementsMap)
           : true;
-      })
-      .filter((el) => {
-        // The parameter elements comes ordered from lower z-index to higher.
-        // We want to preserve that order on the returned array.
-        // Exception being embeddables which should be on top of everything else in
-        // terms of hit testing.
-        if (isIframeElement(el)) {
-          iframeLikes.push(el);
-          return false;
-        }
-        return true;
-      })
-      .concat(iframeLikes) as NonDeleted<CanvasEditorElement>[];
+      });
 
     return elements;
   }
@@ -5229,8 +4219,6 @@ class App extends React.Component<AppProps, AppState> {
             ? parentCenterPosition.elementCenterY
             : sceneY,
           strokeColor: this.state.currentItemStrokeColor,
-          backgroundColor: this.state.currentItemBackgroundColor,
-          fillStyle: this.state.currentItemFillStyle,
           strokeWidth: this.state.currentItemStrokeWidth,
           strokeStyle: this.state.currentItemStrokeStyle,
           roughness: this.state.currentItemRoughness,
@@ -5430,19 +4418,12 @@ class App extends React.Component<AppProps, AppState> {
     if (!event[KEYS.CTRL_OR_CMD] && !this.state.viewModeEnabled) {
       const hitElement = this.getElementAtPosition(sceneX, sceneY);
 
-      if (isIframeLikeElement(hitElement)) {
-        this.setState({
-          activeEmbeddable: { element: hitElement, state: "active" },
-        });
-        return;
-      }
 
       const container = this.getTextBindableContainerAtPosition(sceneX, sceneY);
 
       if (container) {
         if (
           hasBoundTextElement(container) ||
-          !isTransparent(container.backgroundColor) ||
           hitElementItself({
             x: sceneX,
             y: sceneY,
@@ -5588,7 +4569,8 @@ class App extends React.Component<AppProps, AppState> {
   private handleCanvasPointerMove = (
     event: React.PointerEvent<HTMLCanvasElement>,
   ) => {
-    this.savePointer(event.clientX, event.clientY, this.state.cursorButton);
+    if (!isWritableElement(document.activeElement)) this.syncCommandSelectionFromPointer(event);
+    event = this.selectionInputEvent(event);
     this.lastPointerMoveEvent = event.nativeEvent;
 
     if (gesture.pointers.has(event.pointerId)) {
@@ -5650,7 +4632,6 @@ class App extends React.Component<AppProps, AppState> {
 
     if (
       isHoldingSpace ||
-      this.temporaryHandActive ||
       isPanning ||
       isDraggingScrollBar ||
       isHandToolActive(this.state)
@@ -6027,25 +5008,8 @@ class App extends React.Component<AppProps, AppState> {
             )) &&
           !hitElement?.locked
         ) {
-          if (
-            hitElement &&
-            isIframeLikeElement(hitElement) &&
-            this.isIframeLikeElementCenter(
-              hitElement,
-              event,
-              scenePointerX,
-              scenePointerY,
-            )
-          ) {
-            setCursor(this.interactiveCanvas, CURSOR_TYPE.POINTER);
-            this.setState({
-              activeEmbeddable: { element: hitElement, state: "hover" },
-            });
-          } else if (!hitElement || !isElbowArrow(hitElement)) {
+          if (!hitElement || !isElbowArrow(hitElement)) {
             setCursor(this.interactiveCanvas, CURSOR_TYPE.MOVE);
-            if (this.state.activeEmbeddable?.state === "hover") {
-              this.setState({ activeEmbeddable: null });
-            }
           }
         }
       } else {
@@ -6278,6 +5242,8 @@ class App extends React.Component<AppProps, AppState> {
   private handleCanvasPointerDown = (
     event: React.PointerEvent<HTMLElement>,
   ) => {
+    if (this.syncCommandSelectionFromPointer(event, () => this.handleCanvasPointerDown(event))) return;
+    event = this.selectionInputEvent(event);
     const target = event.target as HTMLElement;
     // capture subsequent pointer events to the canvas
     // this makes other elements non-interactive until pointer up
@@ -6286,7 +5252,6 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     this.maybeCleanupAfterMissingPointerUp(event.nativeEvent);
-    this.maybeUnfollowRemoteUser();
 
     if (this.state.searchMatches) {
       this.setState((state) => ({
@@ -6386,9 +5351,7 @@ class App extends React.Component<AppProps, AppState> {
 
     this.lastPointerDownEvent = event;
 
-    // we must exit before we set `cursorButton` state and `savePointer`
-    // else it will send pointer state & laser pointer events in collab when
-    // panning
+    // Panning has its own pointer handling and keeps drawing state idle.
     if (this.handleCanvasPanUsingWheelOrSpaceDrag(event)) {
       return;
     }
@@ -6397,7 +5360,6 @@ class App extends React.Component<AppProps, AppState> {
       lastPointerDownWith: event.pointerType,
       cursorButton: "down",
     });
-    this.savePointer(event.clientX, event.clientY, "down");
 
     if (
       event.button === POINTER_BUTTON.ERASER &&
@@ -6540,16 +5502,10 @@ class App extends React.Component<AppProps, AppState> {
     } else if (this.state.activeTool.type === "custom") {
       setCursorForShape(this.interactiveCanvas, this.state);
     } else if (
-      this.state.activeTool.type === TOOL_TYPE.frame ||
-      this.state.activeTool.type === TOOL_TYPE.magicframe
-    ) {
-      this.createFrameElementOnPointerDown(
-        pointerDownState,
-        this.state.activeTool.type,
-      );
-    } else if (
-      this.state.activeTool.type !== "eraser" &&
-      this.state.activeTool.type !== "hand"
+      this.state.activeTool.type === "selection" ||
+      this.state.activeTool.type === "rectangle" ||
+      this.state.activeTool.type === "diamond" ||
+      this.state.activeTool.type === "ellipse"
     ) {
       this.createGenericElementOnPointerDown(
         this.state.activeTool.type,
@@ -6606,27 +5562,6 @@ class App extends React.Component<AppProps, AppState> {
       { clientX: event.clientX, clientY: event.clientY },
       this.state,
     );
-    const clicklength =
-      event.timeStamp - (this.lastPointerDownEvent?.timeStamp ?? 0);
-
-    if (this.device.editor.isMobile && clicklength < 300) {
-      const hitElement = this.getElementAtPosition(
-        scenePointer.x,
-        scenePointer.y,
-      );
-      if (
-        isIframeLikeElement(hitElement) &&
-        this.isIframeLikeElementCenter(
-          hitElement,
-          event,
-          scenePointer.x,
-          scenePointer.y,
-        )
-      ) {
-        this.handleEmbeddableCenterClick(hitElement);
-        return;
-      }
-    }
 
     if (this.device.isTouchScreen) {
       const hitElement = this.getElementAtPosition(
@@ -6643,23 +5578,9 @@ class App extends React.Component<AppProps, AppState> {
       this.hitLinkElement &&
       !this.state.selectedElementIds[this.hitLinkElement.id]
     ) {
-      if (
-        clicklength < 300 &&
-        isIframeLikeElement(this.hitLinkElement) &&
-        !isPointHittingLinkIcon(
-          this.hitLinkElement,
-          this.scene.getNonDeletedElementsMap(),
-          this.state,
-          pointFrom(scenePointer.x, scenePointer.y),
-        )
-      ) {
-        this.handleEmbeddableCenterClick(this.hitLinkElement);
-      } else {
-        this.redirectToLink(event, this.device.isTouchScreen);
-      }
+      this.redirectToLink(event, this.device.isTouchScreen);
     } else if (this.state.viewModeEnabled) {
       this.setState({
-        activeEmbeddable: null,
         selectedElementIds: {},
       });
     }
@@ -6715,8 +5636,6 @@ class App extends React.Component<AppProps, AppState> {
         gesture.pointers.size <= 1 &&
         (event.button === POINTER_BUTTON.WHEEL ||
           (event.button === POINTER_BUTTON.MAIN && isHoldingSpace) ||
-          (event.button === POINTER_BUTTON.MAIN &&
-            event.metaKey && !this.state.editingTextElement) ||
           isHandToolActive(this.state) ||
           this.state.viewModeEnabled)
       )
@@ -6796,7 +5715,7 @@ class App extends React.Component<AppProps, AppState> {
         lastPointerUp = null;
         isPanning = false;
         if (!isHoldingSpace) {
-          if (this.temporaryHandActive || this.state.viewModeEnabled || isHandToolActive(this.state)) {
+          if (this.state.viewModeEnabled || isHandToolActive(this.state)) {
             setCursor(this.interactiveCanvas, CURSOR_TYPE.GRAB);
           } else {
             setCursorForShape(this.interactiveCanvas, this.state);
@@ -6805,7 +5724,6 @@ class App extends React.Component<AppProps, AppState> {
         this.setState({
           cursorButton: "up",
         });
-        this.savePointer(event.clientX, event.clientY, "up");
         window.removeEventListener(EVENT.POINTER_MOVE, onPointerMove);
         window.removeEventListener(EVENT.POINTER_UP, teardown);
         window.removeEventListener(EVENT.BLUR, teardown);
@@ -6932,7 +5850,6 @@ class App extends React.Component<AppProps, AppState> {
       this.setState({
         cursorButton: "up",
       });
-      this.savePointer(event.clientX, event.clientY, "up");
       window.removeEventListener(EVENT.POINTER_MOVE, onPointerMove);
       window.removeEventListener(EVENT.POINTER_UP, onPointerUp);
       onPointerMove.flush();
@@ -6951,7 +5868,6 @@ class App extends React.Component<AppProps, AppState> {
         selectedElementIds: makeNextSelectedElementIds({}, this.state),
         selectedGroupIds: {},
         editingGroupId: null,
-        activeEmbeddable: null,
       });
     }
   };
@@ -7161,7 +6077,6 @@ class App extends React.Component<AppProps, AppState> {
                 selectedElementIds: makeNextSelectedElementIds({}, this.state),
                 selectedGroupIds: {},
                 editingGroupId: null,
-                activeEmbeddable: null,
               });
             }
 
@@ -7380,8 +6295,6 @@ class App extends React.Component<AppProps, AppState> {
       x: gridX,
       y: gridY,
       strokeColor: this.state.currentItemStrokeColor,
-      backgroundColor: this.state.currentItemBackgroundColor,
-      fillStyle: this.state.currentItemFillStyle,
       strokeWidth: this.state.currentItemStrokeWidth,
       strokeStyle: this.state.currentItemStrokeStyle,
       roughness: this.state.currentItemRoughness,
@@ -7423,100 +6336,6 @@ class App extends React.Component<AppProps, AppState> {
     });
   };
 
-  public insertIframeElement = ({
-    sceneX,
-    sceneY,
-    width,
-    height,
-  }: {
-    sceneX: number;
-    sceneY: number;
-    width: number;
-    height: number;
-  }) => {
-    const [gridX, gridY] = getGridPoint(
-      sceneX,
-      sceneY,
-      this.lastPointerDownEvent?.[KEYS.CTRL_OR_CMD]
-        ? null
-        : this.getEffectiveGridSize(),
-    );
-
-    const element = newIframeElement({
-      type: "iframe",
-      x: gridX,
-      y: gridY,
-      strokeColor: "transparent",
-      backgroundColor: "transparent",
-      fillStyle: this.state.currentItemFillStyle,
-      strokeWidth: this.state.currentItemStrokeWidth,
-      strokeStyle: this.state.currentItemStrokeStyle,
-      roughness: this.state.currentItemRoughness,
-      roundness: this.getCurrentItemRoundness("iframe"),
-      opacity: this.state.currentItemOpacity,
-      locked: false,
-      width,
-      height,
-    });
-
-    this.scene.insertElement(element);
-
-    return element;
-  };
-
-  //create rectangle element with youtube top left on nearest grid point width / hight 640/360
-  public insertEmbeddableElement = ({
-    sceneX,
-    sceneY,
-    link,
-  }: {
-    sceneX: number;
-    sceneY: number;
-    link: string;
-  }) => {
-    const [gridX, gridY] = getGridPoint(
-      sceneX,
-      sceneY,
-      this.lastPointerDownEvent?.[KEYS.CTRL_OR_CMD]
-        ? null
-        : this.getEffectiveGridSize(),
-    );
-
-    const embedLink = getEmbedLink(link);
-
-    if (!embedLink) {
-      return;
-    }
-
-    if (embedLink.error instanceof URIError) {
-      this.setToast({
-        message: t("toast.unrecognizedLinkFormat"),
-        closable: true,
-      });
-    }
-
-    const element = newEmbeddableElement({
-      type: "embeddable",
-      x: gridX,
-      y: gridY,
-      strokeColor: "transparent",
-      backgroundColor: "transparent",
-      fillStyle: this.state.currentItemFillStyle,
-      strokeWidth: this.state.currentItemStrokeWidth,
-      strokeStyle: this.state.currentItemStrokeStyle,
-      roughness: this.state.currentItemRoughness,
-      roundness: this.getCurrentItemRoundness("embeddable"),
-      opacity: this.state.currentItemOpacity,
-      locked: false,
-      width: embedLink.intrinsicSize.w,
-      height: embedLink.intrinsicSize.h,
-      link,
-    });
-
-    this.scene.insertElement(element);
-
-    return element;
-  };
 
   private createImageElement = ({
     sceneX,
@@ -7547,8 +6366,6 @@ class App extends React.Component<AppProps, AppState> {
       x: gridX,
       y: gridY,
       strokeColor: this.state.currentItemStrokeColor,
-      backgroundColor: this.state.currentItemBackgroundColor,
-      fillStyle: this.state.currentItemFillStyle,
       strokeWidth: this.state.currentItemStrokeWidth,
       strokeStyle: this.state.currentItemStrokeStyle,
       roughness: this.state.currentItemRoughness,
@@ -7656,8 +6473,6 @@ class App extends React.Component<AppProps, AppState> {
               x: gridX,
               y: gridY,
               strokeColor: this.state.currentItemStrokeColor,
-              backgroundColor: this.state.currentItemBackgroundColor,
-              fillStyle: this.state.currentItemFillStyle,
               strokeWidth: this.state.currentItemStrokeWidth,
               strokeStyle: this.state.currentItemStrokeStyle,
               roughness: this.state.currentItemRoughness,
@@ -7683,8 +6498,6 @@ class App extends React.Component<AppProps, AppState> {
               x: gridX,
               y: gridY,
               strokeColor: this.state.currentItemStrokeColor,
-              backgroundColor: this.state.currentItemBackgroundColor,
-              fillStyle: this.state.currentItemFillStyle,
               strokeWidth: this.state.currentItemStrokeWidth,
               strokeStyle: this.state.currentItemStrokeStyle,
               roughness: this.state.currentItemRoughness,
@@ -7734,9 +6547,7 @@ class App extends React.Component<AppProps, AppState> {
       | "selection"
       | "rectangle"
       | "diamond"
-      | "ellipse"
-      | "iframe"
-      | "embeddable",
+      | "ellipse",
   ) {
     return this.state.currentItemRoundness === "round"
       ? {
@@ -7748,7 +6559,7 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   private createGenericElementOnPointerDown = (
-    elementType: CanvasEditorGenericElement["type"] | "embeddable",
+    elementType: CanvasEditorGenericElement["type"],
     pointerDownState: PointerDownState,
   ): void => {
     const [gridX, gridY] = getGridPoint(
@@ -7768,8 +6579,6 @@ class App extends React.Component<AppProps, AppState> {
       x: gridX,
       y: gridY,
       strokeColor: this.state.currentItemStrokeColor,
-      backgroundColor: this.state.currentItemBackgroundColor,
-      fillStyle: this.state.currentItemFillStyle,
       strokeWidth: this.state.currentItemStrokeWidth,
       strokeStyle: this.state.currentItemStrokeStyle,
       roughness: this.state.currentItemRoughness,
@@ -7779,18 +6588,10 @@ class App extends React.Component<AppProps, AppState> {
       frameId: topLayerFrame ? topLayerFrame.id : null,
     } as const;
 
-    let element;
-    if (elementType === "embeddable") {
-      element = newEmbeddableElement({
-        type: "embeddable",
-        ...baseElementAttributes,
-      });
-    } else {
-      element = newElement({
-        type: elementType,
-        ...baseElementAttributes,
-      });
-    }
+    const element = newElement({
+      type: elementType,
+      ...baseElementAttributes,
+    });
 
     if (element.type === "selection") {
       this.setState({
@@ -7805,38 +6606,6 @@ class App extends React.Component<AppProps, AppState> {
     }
   };
 
-  private createFrameElementOnPointerDown = (
-    pointerDownState: PointerDownState,
-    type: Extract<ToolType, "frame" | "magicframe">,
-  ): void => {
-    const [gridX, gridY] = getGridPoint(
-      pointerDownState.origin.x,
-      pointerDownState.origin.y,
-      this.lastPointerDownEvent?.[KEYS.CTRL_OR_CMD]
-        ? null
-        : this.getEffectiveGridSize(),
-    );
-
-    const constructorOpts = {
-      x: gridX,
-      y: gridY,
-      opacity: this.state.currentItemOpacity,
-      locked: false,
-      ...FRAME_STYLE,
-    } as const;
-
-    const frame =
-      type === TOOL_TYPE.magicframe
-        ? newMagicFrameElement(constructorOpts)
-        : newFrameElement(constructorOpts);
-
-    this.scene.insertElement(frame);
-
-    this.setState({
-      multiElement: null,
-      newElement: frame,
-    });
-  };
 
   private maybeCacheReferenceSnapPoints(
     event: KeyboardModifiersObject,
@@ -7890,6 +6659,7 @@ class App extends React.Component<AppProps, AppState> {
     pointerDownState: PointerDownState,
   ): (event: KeyboardEvent) => void {
     return withBatchedUpdates((event: KeyboardEvent) => {
+      event = this.selectionInputEvent(event);
       if (this.maybeHandleResize(pointerDownState, event)) {
         return;
       }
@@ -7901,6 +6671,7 @@ class App extends React.Component<AppProps, AppState> {
     pointerDownState: PointerDownState,
   ): (event: KeyboardEvent) => void {
     return withBatchedUpdates((event: KeyboardEvent) => {
+      event = this.selectionInputEvent(event);
       // Prevents focus from escaping excalidraw tab
       event.key === KEYS.ALT && event.preventDefault();
       if (this.maybeHandleResize(pointerDownState, event)) {
@@ -7914,6 +6685,7 @@ class App extends React.Component<AppProps, AppState> {
     pointerDownState: PointerDownState,
   ) {
     return withBatchedUpdatesThrottled((event: PointerEvent) => {
+      event = this.selectionInputEvent(event);
       if (this.state.openDialog?.name === "elementLinkSelector") {
         return;
       }
@@ -8182,8 +6954,7 @@ class App extends React.Component<AppProps, AppState> {
         if (
           selectedElements.length > 0 &&
           !pointerDownState.withCmdOrCtrl &&
-          !this.state.editingTextElement &&
-          this.state.activeEmbeddable?.state !== "active"
+          !this.state.editingTextElement
         ) {
           const dragOffset = {
             x: pointerCoords.x - pointerDownState.origin.x,
@@ -8740,6 +7511,7 @@ class App extends React.Component<AppProps, AppState> {
     pointerDownState: PointerDownState,
   ): (event: PointerEvent) => void {
     return withBatchedUpdates((childEvent: PointerEvent) => {
+      childEvent = this.selectionInputEvent(childEvent);
       this.removePointer(childEvent);
       if (pointerDownState.eventListeners.onMove) {
         pointerDownState.eventListeners.onMove.flush();
@@ -8773,7 +7545,6 @@ class App extends React.Component<AppProps, AppState> {
       SnapCache.setReferenceSnapPoints(null);
       SnapCache.setVisibleGaps(null);
 
-      this.savePointer(childEvent.clientX, childEvent.clientY, "up");
 
       this.setState({
         selectedElementsAreBeingDragged: false,
@@ -9519,7 +8290,6 @@ class App extends React.Component<AppProps, AppState> {
             selectedElementIds: makeNextSelectedElementIds({}, this.state),
             selectedGroupIds: {},
             editingGroupId: null,
-            activeEmbeddable: null,
           });
         }
         // reset cursor
@@ -9536,10 +8306,6 @@ class App extends React.Component<AppProps, AppState> {
             },
             prevState,
           ),
-          showHyperlinkPopup:
-            isEmbeddableElement(newElement) && !newElement.link
-              ? "editor"
-              : prevState.showHyperlinkPopup,
         }));
       }
 
@@ -9591,24 +8357,6 @@ class App extends React.Component<AppProps, AppState> {
         });
       }
 
-      if (
-        hitElement &&
-        this.lastPointerUpEvent &&
-        this.lastPointerDownEvent &&
-        this.lastPointerUpEvent.timeStamp -
-          this.lastPointerDownEvent.timeStamp <
-          300 &&
-        gesture.pointers.size <= 1 &&
-        isIframeLikeElement(hitElement) &&
-        this.isIframeLikeElementCenter(
-          hitElement,
-          this.lastPointerUpEvent,
-          pointerDownState.origin.x,
-          pointerDownState.origin.y,
-        )
-      ) {
-        this.handleEmbeddableCenterClick(hitElement);
-      }
     });
   }
 
@@ -10120,7 +8868,6 @@ class App extends React.Component<AppProps, AppState> {
   private clearSelection(hitElement: CanvasEditorElement | null): void {
     this.setState((prevState) => ({
       selectedElementIds: makeNextSelectedElementIds({}, prevState),
-      activeEmbeddable: null,
       selectedGroupIds: {},
       // Continue editing the same group if the user selected a different
       // element from it
@@ -10133,7 +8880,6 @@ class App extends React.Component<AppProps, AppState> {
     }));
     this.setState({
       selectedElementIds: makeNextSelectedElementIds({}, this.state),
-      activeEmbeddable: null,
       previousSelectedElementIds: this.state.selectedElementIds,
     });
   }
@@ -10231,44 +8977,10 @@ class App extends React.Component<AppProps, AppState> {
       });
     }
 
-    const libraryJSON = event.dataTransfer.getData(MIME_TYPES.canvaslib);
-    if (libraryJSON && typeof libraryJSON === "string") {
-      try {
-        const libraryItems = parseLibraryJSON(libraryJSON);
-        this.addElementsFromPasteOrLibrary({
-          elements: distributeLibraryItemsOnSquareGrid(libraryItems),
-          position: event,
-          files: null,
-        });
-      } catch (error: any) {
-        this.setState({ errorMessage: error.message });
-      }
-      return;
-    }
-
     if (file) {
-      // Attempt to parse an excalidrawlib file
       await this.loadFileToCanvas(file, fileHandle);
     }
 
-    if (event.dataTransfer?.types?.includes("text/plain")) {
-      const text = event.dataTransfer?.getData("text");
-      if (
-        text &&
-        embeddableURLValidator(text, this.props.validateEmbeddable) &&
-        (/^(http|https):\/\/[^\s/$.?#].[^\s]*$/.test(text) ||
-          getEmbedLink(text)?.type === "video")
-      ) {
-        const embeddable = this.insertEmbeddableElement({
-          sceneX,
-          sceneY,
-          link: normalizeLink(text),
-        });
-        if (embeddable) {
-          this.setState({ selectedElementIds: { [embeddable.id]: true } });
-        }
-      }
-    }
   };
 
   loadFileToCanvas = async (
@@ -10280,7 +8992,7 @@ class App extends React.Component<AppProps, AppState> {
       const elements = this.scene.getElementsIncludingDeleted();
       let ret;
       try {
-        ret = await loadSceneOrLibraryFromBlob(
+        ret = await loadFromBlob(
           file,
           this.state,
           elements,
@@ -10311,34 +9023,20 @@ class App extends React.Component<AppProps, AppState> {
         return;
       }
 
-      if (ret.type === MIME_TYPES.canvas) {
-        // restore the fractional indices by mutating elements
-        syncInvalidIndices(elements.concat(ret.data.elements));
+      // Restore indices before updating history so undo retains unique ordering.
+      syncInvalidIndices(elements.concat(ret.elements));
+      this.store.updateSnapshot(arrayToMap(elements), this.state);
 
-        // update the store snapshot for old elements, otherwise we would end up with duplicated fractional indices on undo
-        this.store.updateSnapshot(arrayToMap(elements), this.state);
-
-        this.setState({ isLoading: true });
-        this.syncActionResult({
-          ...ret.data,
-          appState: {
-            ...(ret.data.appState || this.state),
-            isLoading: false,
-          },
-          replaceFiles: true,
-          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-        });
-      } else if (ret.type === MIME_TYPES.canvaslib) {
-        await this.library
-          .updateLibrary({
-            libraryItems: file,
-            merge: true,
-          })
-          .catch((error) => {
-            console.error(error);
-            this.setState({ errorMessage: t("errors.importLibraryError") });
-          });
-      }
+      this.setState({ isLoading: true });
+      this.syncActionResult({
+        ...ret,
+        appState: {
+          ...(ret.appState || this.state),
+          isLoading: false,
+        },
+        replaceFiles: true,
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
     } catch (error: any) {
       this.setState({ isLoading: false, errorMessage: error.message });
     }
@@ -10382,7 +9080,6 @@ class App extends React.Component<AppProps, AppState> {
     const left = event.clientX - offsetLeft;
     const top = event.clientY - offsetTop;
 
-    trackEvent("contextMenu", "openContextMenu", type);
 
     this.setState(
       {
@@ -10507,10 +9204,7 @@ class App extends React.Component<AppProps, AppState> {
     });
 
     // highlight elements that are to be added to frames on frames creation
-    if (
-      this.state.activeTool.type === TOOL_TYPE.frame ||
-      this.state.activeTool.type === TOOL_TYPE.magicframe
-    ) {
+    if (this.state.activeTool.type === TOOL_TYPE.frame) {
       this.setState({
         elementsToHighlight: getElementsInResizingFrame(
           this.scene.getNonDeletedElements(),
@@ -10651,7 +9345,6 @@ class App extends React.Component<AppProps, AppState> {
       // rotating
       isResizing: transformHandleType && transformHandleType !== "rotation",
       isRotating: transformHandleType === "rotation",
-      activeEmbeddable: null,
     });
     const pointerCoords = pointerDownState.lastCoords;
     let [resizeX, resizeY] = getGridPoint(
@@ -10778,7 +9471,6 @@ class App extends React.Component<AppProps, AppState> {
           actionToggleGridMode,
           actionToggleZenMode,
           actionToggleViewMode,
-          actionToggleStats,
         ];
       }
 
@@ -10796,7 +9488,6 @@ class App extends React.Component<AppProps, AppState> {
         actionToggleObjectsSnapMode,
         actionToggleZenMode,
         actionToggleViewMode,
-        actionToggleStats,
       ];
     }
 
@@ -10817,12 +9508,10 @@ class App extends React.Component<AppProps, AppState> {
       CONTEXT_MENU_SEPARATOR,
       actionSelectAllElementsInFrame,
       actionRemoveAllElementsFromFrame,
-      actionWrapSelectionInFrame,
       CONTEXT_MENU_SEPARATOR,
       actionToggleCropEditor,
       CONTEXT_MENU_SEPARATOR,
       ...options,
-      CONTEXT_MENU_SEPARATOR,
       CONTEXT_MENU_SEPARATOR,
       actionGroup,
       actionTextAutoResize,
@@ -10830,8 +9519,6 @@ class App extends React.Component<AppProps, AppState> {
       actionBindText,
       actionWrapTextInContainer,
       actionUngroup,
-      CONTEXT_MENU_SEPARATOR,
-      actionAddToLibrary,
       CONTEXT_MENU_SEPARATOR,
       actionSendBackward,
       actionBringForward,
@@ -10937,32 +9624,6 @@ class App extends React.Component<AppProps, AppState> {
       }
     }
   }
-
-  private savePointer = (x: number, y: number, button: "up" | "down") => {
-    if (!x || !y) {
-      return;
-    }
-    const { x: sceneX, y: sceneY } = viewportCoordsToSceneCoords(
-      { clientX: x, clientY: y },
-      this.state,
-    );
-
-    if (isNaN(sceneX) || isNaN(sceneY)) {
-      // sometimes the pointer goes off screen
-    }
-
-    const pointer: CollaboratorPointer = {
-      x: sceneX,
-      y: sceneY,
-      tool: "pointer",
-    };
-
-    this.props.onPointerUpdate?.({
-      pointer,
-      button,
-      pointersMap: gesture.pointers,
-    });
-  };
 
   private resetShouldCacheIgnoreZoomDebounced = debounce(() => {
     if (!this.unmounted) {

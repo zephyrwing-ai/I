@@ -68,7 +68,8 @@ test("a running assistant turn keeps reasoning collapsed and renders the streami
   assert.ok(html.indexOf("run-work-detail") < html.indexOf("内部过程"), html);
   assert.ok(html.includes('class="model-text final-answer markdown"'), html);
   assert.ok(html.includes("正在生成, 答案"), html);
-  assert.doesNotMatch(html, /aria-label="Copy answer"/);
+  assert.match(html, /aria-label="Copy answer"/);
+  assert.doesNotMatch(html, /class="message-time"/);
 });
 
 test("tool turns and the final model request share one work fold and one run duration", () => {

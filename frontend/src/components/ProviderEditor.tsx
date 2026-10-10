@@ -5,6 +5,7 @@ import type {
   ProviderProfileInput,
   ProviderProfileSummary,
 } from "../../../shell/shared/ipc";
+import { haveSameProviderOrigin } from "../../../shell/shared/provider-origin";
 import { Icon } from "./Icon";
 
 interface ModelDraft extends DiscoveredModel {
@@ -65,6 +66,10 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
   const selectedCount = models.filter((model) => model.selected).length;
   const allVisibleSelected = visibleModels.length > 0 && visibleModels.every((model) => model.selected);
   const someVisibleSelected = visibleModels.some((model) => model.selected);
+  const savedCredentialUsable = Boolean(profile?.credentialConfigured
+    && haveSameProviderOrigin(profile.baseURL, baseURL));
+  const needsCredentialForAddress = Boolean(profile?.credentialConfigured && !savedCredentialUsable);
+  const hasCredential = Boolean(apiKey.trim()) || savedCredentialUsable;
 
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
@@ -83,8 +88,8 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
       setError("Enter an API Base URL.");
       return;
     }
-    if (!apiKey.trim() && !profile?.credentialConfigured) {
-      setError("Enter an API Key.");
+    if (!hasCredential) {
+      setError(needsCredentialForAddress ? "Enter an API Key for the new provider address." : "Enter an API Key.");
       return;
     }
     const requestId = createRequestId();
@@ -137,8 +142,8 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
       setError("Enter an API Base URL.");
       return;
     }
-    if (!profile && !apiKey.trim()) {
-      setError("Enter an API Key.");
+    if (!hasCredential) {
+      setError(needsCredentialForAddress ? "Enter an API Key for the new provider address." : "Enter an API Key.");
       return;
     }
     const selected = models.filter((model) => model.selected);
@@ -196,11 +201,12 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
         <div className="field">
           <label className="field-label" htmlFor="provider-api-key">API Key</label>
           <div className="secret-input-wrap">
-            <input id="provider-api-key" className="secret-input" type={showApiKey ? "text" : "password"} value={apiKey} disabled={locked} onChange={(event) => setApiKey(event.target.value)} placeholder={profile ? "Leave blank to use saved credentials" : "Enter an API Key"} autoComplete="off" spellCheck={false} />
+            <input id="provider-api-key" className="secret-input" type={showApiKey ? "text" : "password"} value={apiKey} disabled={locked} onChange={(event) => setApiKey(event.target.value)} placeholder={savedCredentialUsable ? "Leave blank to use saved credentials" : "Enter an API Key"} aria-describedby={needsCredentialForAddress ? "provider-credential-hint" : undefined} autoComplete="off" spellCheck={false} />
             <button type="button" className="secret-toggle" onClick={() => setShowApiKey((visible) => !visible)} disabled={locked} aria-label={showApiKey ? "Hide API Key" : "Show API Key"} title={showApiKey ? "Hide API Key" : "Show API Key"}>
               <Icon name={showApiKey ? "eye-off" : "eye"} width="16" height="16" />
             </button>
           </div>
+          {needsCredentialForAddress && <p id="provider-credential-hint" className="form-status" role="status">Enter an API Key for the new provider address.</p>}
         </div>
 
         <section className="model-import" aria-label="Model discovery and import">
@@ -216,7 +222,7 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
           </div>
 
           <div className="model-fetch-row">
-            <button type="button" className="discover-button" onClick={() => void discover()} disabled={locked || !baseURL.trim() || (!apiKey.trim() && !profile?.credentialConfigured)}>
+            <button type="button" className="discover-button" onClick={() => void discover()} disabled={locked || !baseURL.trim() || !hasCredential}>
               {discovering ? <span className="spinner" /> : <Icon name="download" width="17" height="17" />}
               {discovering ? "Fetching" : "Fetch model list"}
             </button>
@@ -240,7 +246,7 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
 
       <footer className="provider-editor-actions">
         <button type="button" className="secondary-button" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button type="button" className="primary-button" onClick={() => void save()} disabled={disabled || saving || discovering || selectedCount === 0}>{saving ? "Saving" : "Save provider"}</button>
+        <button type="button" className="primary-button" onClick={() => void save()} disabled={locked || !hasCredential || selectedCount === 0}>{saving ? "Saving" : "Save provider"}</button>
       </footer>
     </section>
   );

@@ -8,23 +8,17 @@ import type {
   NonDeletedCanvasEditorElement,
   CanvasEditorSelectionElement,
   CanvasEditorLinearElement,
-  Arrowhead,
 } from "../element/types";
 import { generateFreeDrawShape } from "../renderer/renderElement";
-import { isTransparent, assertNever } from "../utils";
-import { simplify } from "points-on-curve";
+import { assertNever } from "../utils";
 import { ROUGHNESS } from "../constants";
 import {
   isElbowArrow,
-  isEmbeddableElement,
-  isIframeElement,
-  isIframeLikeElement,
   isLinearElement,
 } from "../element/typeChecks";
 import { canChangeRoundness } from "./comparisons";
-import type { EmbedsValidationStatus } from "../types";
 import { pointFrom, pointDistance, type LocalPoint } from "@agent-studio/canvas-math";
-import { getCornerRadius, isPathALoop } from "../shapes";
+import { getCornerRadius } from "../shapes";
 import { headingForPointIsHorizontal } from "../element/heading";
 
 const getDashArrayDashed = (strokeWidth: number) => [8, 8 + strokeWidth];
@@ -75,225 +69,33 @@ export const generateRoughOptions = (
       element.strokeStyle !== "solid"
         ? element.strokeWidth + 0.5
         : element.strokeWidth,
-    // when increasing strokeWidth, we must explicitly set fillWeight and
-    // hachureGap because if not specified, roughjs uses strokeWidth to
-    // calculate them (and we don't want the fills to be modified)
-    fillWeight: element.strokeWidth / 2,
-    hachureGap: element.strokeWidth * 4,
     roughness: adjustRoughness(element),
     stroke: element.strokeColor,
     preserveVertices:
       continuousPath || element.roughness < ROUGHNESS.cartoonist,
   };
 
-  switch (element.type) {
-    case "rectangle":
-    case "iframe":
-    case "embeddable":
-    case "diamond":
-    case "ellipse": {
-      options.fillStyle = element.fillStyle;
-      options.fill = isTransparent(element.backgroundColor)
-        ? undefined
-        : element.backgroundColor;
-      if (element.type === "ellipse") {
-        options.curveFitting = 1;
-      }
-      return options;
-    }
-    case "line":
-    case "freedraw": {
-      if (isPathALoop(element.points)) {
-        options.fillStyle = element.fillStyle;
-        options.fill =
-          element.backgroundColor === "transparent"
-            ? undefined
-            : element.backgroundColor;
-      }
-      return options;
-    }
-    case "arrow":
-      return options;
-    default: {
-      throw new Error(`Unimplemented type ${element.type}`);
-    }
+  if (element.type === "ellipse") {
+    options.curveFitting = 1;
   }
-};
-
-const modifyIframeLikeForRoughOptions = (
-  element: NonDeletedCanvasEditorElement,
-  isExporting: boolean,
-  embedsValidationStatus: EmbedsValidationStatus | null,
-) => {
-  if (
-    isIframeLikeElement(element) &&
-    (isExporting ||
-      (isEmbeddableElement(element) &&
-        embedsValidationStatus?.get(element.id) !== true)) &&
-    isTransparent(element.backgroundColor) &&
-    isTransparent(element.strokeColor)
-  ) {
-    return {
-      ...element,
-      roughness: 0,
-      backgroundColor: "#d3d3d3",
-      fillStyle: "solid",
-    } as const;
-  } else if (isIframeElement(element)) {
-    return {
-      ...element,
-      strokeColor: isTransparent(element.strokeColor)
-        ? "#000000"
-        : element.strokeColor,
-      backgroundColor: isTransparent(element.backgroundColor)
-        ? "#f4f4f6"
-        : element.backgroundColor,
-    };
-  }
-  return element;
+  return options;
 };
 
 const getArrowheadShapes = (
   element: CanvasEditorLinearElement,
   shape: Drawable[],
   position: "start" | "end",
-  arrowhead: Arrowhead,
   generator: RoughGenerator,
   options: Options,
-  canvasBackgroundColor: string,
 ) => {
-  const arrowheadPoints = getArrowheadPoints(
-    element,
-    shape,
-    position,
-    arrowhead,
-  );
-
-  if (arrowheadPoints === null) {
-    return [];
-  }
-
-  const generateCrowfootOne = (
-    arrowheadPoints: number[] | null,
-    options: Options,
-  ) => {
-    if (arrowheadPoints === null) {
-      return [];
-    }
-
-    const [, , x3, y3, x4, y4] = arrowheadPoints;
-
-    return [generator.line(x3, y3, x4, y4, options)];
-  };
-
-  switch (arrowhead) {
-    case "dot":
-    case "circle":
-    case "circle_outline": {
-      const [x, y, diameter] = arrowheadPoints;
-
-      // always use solid stroke for arrowhead
-      delete options.strokeLineDash;
-
-      return [
-        generator.circle(x, y, diameter, {
-          ...options,
-          fill:
-            arrowhead === "circle_outline"
-              ? canvasBackgroundColor
-              : element.strokeColor,
-
-          fillStyle: "solid",
-          stroke: element.strokeColor,
-          roughness: Math.min(0.5, options.roughness || 0),
-        }),
-      ];
-    }
-    case "triangle":
-    case "triangle_outline": {
-      const [x, y, x2, y2, x3, y3] = arrowheadPoints;
-
-      // always use solid stroke for arrowhead
-      delete options.strokeLineDash;
-
-      return [
-        generator.polygon(
-          [
-            [x, y],
-            [x2, y2],
-            [x3, y3],
-            [x, y],
-          ],
-          {
-            ...options,
-            fill:
-              arrowhead === "triangle_outline"
-                ? canvasBackgroundColor
-                : element.strokeColor,
-            fillStyle: "solid",
-            roughness: Math.min(1, options.roughness || 0),
-          },
-        ),
-      ];
-    }
-    case "diamond":
-    case "diamond_outline": {
-      const [x, y, x2, y2, x3, y3, x4, y4] = arrowheadPoints;
-
-      // always use solid stroke for arrowhead
-      delete options.strokeLineDash;
-
-      return [
-        generator.polygon(
-          [
-            [x, y],
-            [x2, y2],
-            [x3, y3],
-            [x4, y4],
-            [x, y],
-          ],
-          {
-            ...options,
-            fill:
-              arrowhead === "diamond_outline"
-                ? canvasBackgroundColor
-                : element.strokeColor,
-            fillStyle: "solid",
-            roughness: Math.min(1, options.roughness || 0),
-          },
-        ),
-      ];
-    }
-    case "crowfoot_one":
-      return generateCrowfootOne(arrowheadPoints, options);
-    case "bar":
-    case "arrow":
-    case "crowfoot_many":
-    case "crowfoot_one_or_many":
-    default: {
-      const [x2, y2, x3, y3, x4, y4] = arrowheadPoints;
-
-      if (element.strokeStyle === "dotted") {
-        // for dotted arrows caps, reduce gap to make it more legible
-        const dash = getDashArrayDotted(element.strokeWidth - 1);
-        options.strokeLineDash = [dash[0], dash[1] - 1];
-      } else {
-        // for solid/dashed, keep solid arrow cap
-        delete options.strokeLineDash;
-      }
-      options.roughness = Math.min(1, options.roughness || 0);
-      return [
-        generator.line(x3, y3, x2, y2, options),
-        generator.line(x4, y4, x2, y2, options),
-        ...(arrowhead === "crowfoot_one_or_many"
-          ? generateCrowfootOne(
-              getArrowheadPoints(element, shape, position, "crowfoot_one"),
-              options,
-            )
-          : []),
-      ];
-    }
-  }
+  const points = getArrowheadPoints(element, shape, position);
+  if (!points) return [];
+  const [x2, y2, x3, y3, x4, y4] = points;
+  const arrowOptions = { ...options, strokeLineDash: undefined };
+  return [
+    generator.line(x3, y3, x2, y2, arrowOptions),
+    generator.line(x4, y4, x2, y2, arrowOptions),
+  ];
 };
 
 /**
@@ -306,15 +108,6 @@ const getArrowheadShapes = (
 export const _generateElementShape = (
   element: Exclude<NonDeletedCanvasEditorElement, CanvasEditorSelectionElement>,
   generator: RoughGenerator,
-  {
-    isExporting,
-    canvasBackgroundColor,
-    embedsValidationStatus,
-  }: {
-    isExporting: boolean;
-    canvasBackgroundColor: string;
-    embedsValidationStatus: EmbedsValidationStatus | null;
-  },
 ): Drawable | Drawable[] | null => {
   switch (element.type) {
     case "rectangle":
@@ -334,14 +127,7 @@ export const _generateElementShape = (
           } Q ${w} ${h}, ${w - r} ${h} L ${r} ${h} Q 0 ${h}, 0 ${
             h - r
           } L 0 ${r} Q 0 0, ${r} 0`,
-          generateRoughOptions(
-            modifyIframeLikeForRoughOptions(
-              element,
-              isExporting,
-              embedsValidationStatus,
-            ),
-            true,
-          ),
+          generateRoughOptions(element, true),
         );
       } else {
         shape = generator.rectangle(
@@ -349,14 +135,7 @@ export const _generateElementShape = (
           0,
           element.width,
           element.height,
-          generateRoughOptions(
-            modifyIframeLikeForRoughOptions(
-              element,
-              isExporting,
-              embedsValidationStatus,
-            ),
-            false,
-          ),
+          generateRoughOptions(element, false),
         );
       }
       return shape;
@@ -453,15 +232,9 @@ export const _generateElementShape = (
       } else if (!element.roundness) {
         // curve is always the first element
         // this simplifies finding the curve for an element
-        if (options.fill) {
-          shape = [
-            generator.polygon(points as unknown as RoughPoint[], options),
-          ];
-        } else {
-          shape = [
-            generator.linearPath(points as unknown as RoughPoint[], options),
-          ];
-        }
+        shape = [
+          generator.linearPath(points as unknown as RoughPoint[], options),
+        ];
       } else {
         shape = [generator.curve(points as unknown as RoughPoint[], options)];
       }
@@ -475,10 +248,8 @@ export const _generateElementShape = (
             element,
             shape,
             "start",
-            startArrowhead,
             generator,
             options,
-            canvasBackgroundColor,
           );
           shape.push(...shapes);
         }
@@ -492,10 +263,8 @@ export const _generateElementShape = (
             element,
             shape,
             "end",
-            endArrowhead,
             generator,
             options,
-            canvasBackgroundColor,
           );
           shape.push(...shapes);
         }
@@ -503,20 +272,8 @@ export const _generateElementShape = (
       return shape;
     }
     case "freedraw": {
-      let shape: ElementShapes[typeof element.type];
       generateFreeDrawShape(element);
-
-      if (isPathALoop(element.points)) {
-        // generate rough polygon to fill freedraw shape
-        const simplifiedPoints = simplify(element.points, 0.75);
-        shape = generator.curve(simplifiedPoints as [number, number][], {
-          ...generateRoughOptions(element),
-          stroke: "none",
-        });
-      } else {
-        shape = null;
-      }
-      return shape;
+      return null;
     }
     case "frame":
     case "magicframe":

@@ -32,6 +32,7 @@ function ensureTurn(run: RunState, entry: HistoryPageEntry): TurnState {
   const turn: TurnState = {
     turnId,
     turnOrdinal: Object.keys(run.turns).length + 1,
+    anchorInputId: run.appliedInputId,
     status: entry.status === "failed" || entry.status === "interrupted" ? "failed" : "completed",
     assistantContent: "",
     reasoningContent: "",
@@ -79,6 +80,7 @@ export function mergePersistedEntries(
         at: entry.createdAt,
         status: "applied",
       };
+      run.appliedInputId = entry.entryId;
       continue;
     }
     const turn = ensureTurn(run, entry);
@@ -86,7 +88,7 @@ export function mergePersistedEntries(
     else if (entry.status === "interrupted" && run.status !== "failed") run.status = "cancelled";
     if (entry.type === "assistant_message") {
       turn.assistantContent = entry.payload.content;
-      turn.assistantAt = entry.updatedAt;
+      turn.assistantAt = entry.completedAt ?? undefined;
       turn.assistantDurationMs = entry.status === "completed" ? entry.durationMs ?? undefined : undefined;
       if (entry.status === "completed" && entry.durationMs !== null) lastDurationTurnByRun[run.runId] = turn.turnId;
       turn.finalContent = entry.status === "completed" ? entry.payload.content : undefined;
@@ -104,7 +106,7 @@ export function mergePersistedEntries(
         name: existing?.name ?? entry.payload.toolName ?? "Tool",
         input: existing?.input,
         status: "completed",
-        result: toolResult(entry.payload),
+        result: entry.toolResult ?? toolResult(entry.payload),
       };
       if (!existing) turn.toolOrder.push(entry.toolCallId);
       turn.tools[entry.toolCallId] = tool;

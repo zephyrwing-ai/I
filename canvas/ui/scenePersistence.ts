@@ -1,11 +1,11 @@
-/** Scene nonce changes on element updates; view state covers zoom and panning. */
+/** Element/resource versions track document edits; view state covers zoom and panning. */
 export function shouldPersistCanvasChange(
-  previousSceneVersion: number | undefined,
-  sceneVersion: number | undefined,
+  previousDocumentVersion: number | undefined,
+  documentVersion: number | undefined,
   previousView: Record<string, unknown> | undefined,
   nextView: Record<string, unknown>,
 ): boolean {
-  return sceneVersion === undefined || sceneVersion !== previousSceneVersion || !samePersistedView(previousView, nextView);
+  return documentVersion === undefined || documentVersion !== previousDocumentVersion || !samePersistedView(previousView, nextView);
 }
 
 function samePersistedView(currentState: Record<string, unknown> | undefined, nextState: Record<string, unknown>): boolean {

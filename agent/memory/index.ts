@@ -1,6 +1,6 @@
 export { initializeSchema, SCHEMA_VERSION } from "./schema.js";
 export { SqliteHistoryRepository } from "./sqlite-repository.js";
-export { RepositoryError } from "./types.js";
+export { RepositoryError, ToolAttemptBlockedError } from "./types.js";
 export {
   DefaultHistoryRecorder,
   DRAFT_FLUSH_BYTES,
@@ -11,6 +11,8 @@ export {
 export type {
   AcceptRunInputInput,
   AppendEntryInput,
+  AssistantCommitInput,
+  AssistantCommitResult,
   AssistantDeltaKind,
   CreateProjectInput,
   CreateToolInvocationInput,
@@ -29,10 +31,12 @@ export type {
   ProjectContextInput,
   ProjectContextRecord,
   RecordedRunStatus,
+  ToolInvocationPlan,
   RegisterToolInvocationInput,
   ToolInvocationPhase,
   ToolInvocationRecord,
   ToolCommitContext,
+  ToolCall,
   ToolOutcomeInput,
   ToolOutcomeStatus,
   ToolRecoveryMode,

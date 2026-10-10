@@ -66,7 +66,7 @@ class TrailPointer {
       size: sizeOverride ?? this.options.size,
       streamline: this.options.streamline,
       last: !this.options.keepHead,
-    });
+    }).map(([x, y]): [number, number] => [x, y]);
   }
 }
 

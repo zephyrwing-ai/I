@@ -20,7 +20,6 @@ import { ImageExportDialog } from "./ImageExportDialog";
 import { FixedSideContainer } from "./FixedSideContainer";
 import { LoadingMessage } from "./LoadingMessage";
 import { LockButton } from "./LockButton";
-import { PasteChartDialog } from "./PasteChartDialog";
 import { Section } from "./Section";
 import Stack from "./Stack";
 import { PenModeButton } from "./PenModeButton";
@@ -32,8 +31,6 @@ import { HandButton } from "./HandButton";
 import { isHandToolActive } from "../appState";
 import { TunnelsContext, useInitializeTunnels } from "../context/tunnels";
 import { UIAppStateContext } from "../context/ui-appState";
-import { Stats } from "./Stats";
-import { actionToggleStats } from "../actions";
 import ElementLinkDialog from "./ElementLinkDialog";
 import OffscreenContentIndicator from "./OffscreenContentIndicator";
 
@@ -53,12 +50,10 @@ interface LayerUIProps {
   selectedElements: readonly NonDeletedCanvasEditorElement[];
   onLockToggle: () => void;
   onHandToolToggle: () => void;
-  temporaryHandActive: boolean;
   onPenModeToggle: AppClassProperties["togglePenMode"];
   showExitZenModeBtn: boolean;
   langCode: Language["code"];
   renderTopRightUI?: CanvasEditorProps["renderTopRightUI"];
-  renderCustomStats?: CanvasEditorProps["renderCustomStats"];
   UIOptions: AppProps["UIOptions"];
   onExportImage: AppClassProperties["onExportImage"];
   renderWelcomeScreen: boolean;
@@ -89,11 +84,9 @@ const LayerUI = ({
   canvas,
   onLockToggle,
   onHandToolToggle,
-  temporaryHandActive,
   onPenModeToggle,
   showExitZenModeBtn,
   renderTopRightUI,
-  renderCustomStats,
   UIOptions,
   onExportImage,
   renderWelcomeScreen,
@@ -155,14 +148,13 @@ const LayerUI = ({
               />
               <div className="App-toolbar__divider" />
               <HandButton
-                checked={isHandToolActive(appState) || temporaryHandActive}
+                checked={isHandToolActive(appState)}
                 onChange={() => onHandToolToggle()}
                 title={t("toolBar.hand")}
               />
               <ShapesSwitcher
                 appState={appState}
                 activeTool={appState.activeTool}
-                temporaryHandActive={temporaryHandActive}
                 UIOptions={UIOptions}
                 app={app}
               />
@@ -174,12 +166,6 @@ const LayerUI = ({
   };
 
   const renderFixedSideContainer = () => {
-    const shouldShowStats =
-      appState.stats.open &&
-      !appState.zenModeEnabled &&
-      !appState.viewModeEnabled &&
-      appState.openDialog?.name !== "elementLinkSelector";
-
     return (
       <FixedSideContainer side="top">
         <div className="App-menu App-menu_top">
@@ -192,15 +178,6 @@ const LayerUI = ({
             )}
           >
             {renderTopRightUI?.(device.editor.isMobile, appState)}
-            {shouldShowStats && (
-              <Stats
-                app={app}
-                onClose={() => {
-                  actionManager.executeAction(actionToggleStats);
-                }}
-                renderCustomStats={renderCustomStats}
-              />
-            )}
           </div>
         </div>
       </FixedSideContainer>
@@ -241,17 +218,6 @@ const LayerUI = ({
       )}
       <tunnels.OverwriteConfirmDialogTunnel.Out />
       {renderImageExportDialog()}
-      {appState.pasteDialog.shown && (
-        <PasteChartDialog
-          setAppState={setAppState}
-          appState={appState}
-          onClose={() =>
-            setAppState({
-              pasteDialog: { shown: false, data: null },
-            })
-          }
-        />
-      )}
       <div className="layer-ui__wrapper">
         {renderWelcomeScreen && <tunnels.WelcomeScreenCenterTunnel.Out />}
         {renderFixedSideContainer()}

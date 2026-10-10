@@ -34,6 +34,14 @@ type Sample = {
   scroll: number[];
   buttonSizeToken: string;
 };
+type NavigationState = {
+  tool: string;
+  locked: boolean;
+  checkedTools: string[];
+  cursor: string;
+  selectedIds: string[];
+  scroll: number[];
+};
 
 test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景", { timeout: 90_000 }, async (t) => {
   const temporary = await mkdtemp(join(tmpdir(), "canvas-layout-regression-"));
@@ -69,11 +77,61 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
       initialZoom: number;
       initialScroll: number[];
       errors: string[];
+      outlineRendering: Array<{ type: string; hasLegacyFill: boolean; paintedPixels: number; center: number[]; fillSets: number; redSvgFill: boolean; interiorHit: boolean | null; arrowhead: string | null; arrowShapes: number | null }>;
+      documentChanges: { documentVersion: number; versionAfterFocus: number; versionAfterEdit: number; versionAfterResourceAdd: number; editSucceeded: boolean; createdIds: string[]; previousElementPreserved: boolean; elementCount: number; resourceOwnKey: boolean };
+      persistence: {
+        coldStart: { ok: boolean; savedElements: number; requests: number; canRelease: boolean };
+        focusSaved: boolean;
+        conflict: { code: string; localX: number; diskX: number; externalPreserved: boolean; actions: string[]; canRelease: boolean };
+        conflictRetried: boolean;
+        recovered: { ok: boolean; elements: number; canRelease: boolean };
+      };
       codecs: {
         json: { valid: boolean; type: string; version: number; id: string };
         clipboard: { type: string; ids: string[] };
         png: { type: string; keyword: string; sceneType: string; ids: string[] };
         svg: { sceneType: string; ids: string[] };
+      };
+      textInput: { text: string | null; fontFamily: number | null };
+      textFonts: Array<{ fontFamily: number; restoredFamily: number; pngType: string; paintedPixels: number; pngText: string; pngFamily: number; svgText: string; svgFontFamily: string; embeddedFamilies: string[]; embeddedFontData: boolean }>;
+      languageFallback: Array<{ requested: string; current: string; documentLanguage: string; direction: string; label: string }>;
+      capabilities: { toolAfterFrameShortcut: string; toolAfterUnsupportedAPI: string; libraryAPI: boolean; generationAPI: boolean; legacy: Array<{ type: string; visible: boolean; activeDOM: boolean }> };
+      handSelection: {
+        coldStart: NavigationState;
+        sceneReplacement: NavigationState;
+        handPan: NavigationState & { unchanged: boolean };
+        commandPressed: NavigationState;
+        commandSelected: NavigationState;
+        commandMoved: NavigationState & { position: number[] };
+        commandReleased: NavigationState;
+        shortcuts: { copyIds: string[]; positionAfterUndo: number[]; toolAfterUndo: string };
+        commandDuringPan: NavigationState;
+        commandAfterPan: NavigationState;
+        afterDeferredPan: NavigationState;
+        explicitSelectionMoved: NavigationState & { position: number[] };
+        explicitSelectionAfterRelease: NavigationState;
+        releaseDuringDrag: NavigationState;
+        releaseAfterDrag: NavigationState & { position: number[] };
+        originalToolOverridden: NavigationState;
+        secondCommandStillHeld: NavigationState;
+        originalToolRestored: NavigationState;
+        spacePan: NavigationState & { unchanged: boolean };
+        commandOutsideCanvas: NavigationState;
+        commandOutsidePointerUp: NavigationState;
+        commandHeldOnEntry: NavigationState;
+        commandHeldOnPointerDown: NavigationState;
+        explicitToolSwitch: NavigationState;
+        heldPointerAfterExplicitSwitch: NavigationState;
+        explicitToolAfterRelease: NavigationState;
+        explicitHandClick: NavigationState;
+        explicitHandAfterRelease: NavigationState;
+        beforeLockClick: NavigationState;
+        explicitLockClick: NavigationState;
+        explicitLockAfterRelease: NavigationState;
+        ignoredInputs: Array<NavigationState & { tagName: string }>;
+        afterBlur: NavigationState;
+        afterHeldSceneReplacement: NavigationState;
+        afterRemount: NavigationState;
       };
     };
     assert.deepEqual(result.errors, [], "renderer has no runtime errors");
@@ -113,6 +171,164 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
       assert.deepEqual(clipboard, { type: "excalidraw/clipboard", ids: [json.id] });
       assert.deepEqual(png, { type: "image/png", keyword: "application/vnd.excalidraw+json", sceneType: "excalidraw", ids: [json.id] });
       assert.deepEqual(svg, { sceneType: "excalidraw", ids: [json.id] });
+    });
+    await t.test("图形填充退出场景、栅格、SVG 和命中检测，文字与图片保持可绘制", () => {
+      const outlines = new Set(["rectangle", "diamond", "ellipse", "line", "freedraw"]);
+      assert.deepEqual(result.outlineRendering.map(({ type }) => type), ["rectangle", "diamond", "ellipse", "line", "freedraw", "arrow", "text", "image"]);
+      for (const sample of result.outlineRendering) {
+        assert.equal(sample.hasLegacyFill, false, `${sample.type}: legacy fill fields are removed`);
+        assert.equal(sample.fillSets, 0, `${sample.type}: no background fill geometry`);
+        assert.equal(sample.redSvgFill, false, `${sample.type}: SVG has no legacy background`);
+        assert.ok(sample.paintedPixels > 0, `${sample.type}: actual pixels remain visible`);
+        if (outlines.has(sample.type)) {
+          assert.equal(sample.center[3], 0, `${sample.type}: center remains transparent`);
+          assert.equal(sample.interiorHit, false, `${sample.type}: empty interior is not a filled hit area`);
+        }
+      }
+      assert.deepEqual(result.outlineRendering.find(({ type }) => type === "image")?.center, [0, 170, 0, 255], "image pixel content is retained");
+      const arrow = result.outlineRendering.find(({ type }) => type === "arrow")!;
+      assert.equal(arrow.arrowhead, "arrow", "legacy filled arrowheads normalize to the supported outline arrow");
+      assert.equal(arrow.arrowShapes, 3, "arrow body and two outline head strokes remain present");
+    });
+    await t.test("焦点重绘保持文档版本，Agent 命令更新实时场景并保留已有元素", () => {
+      const change = result.documentChanges;
+      assert.equal(change.versionAfterFocus, change.documentVersion);
+      assert.ok(change.versionAfterEdit > change.documentVersion);
+      assert.ok(change.versionAfterResourceAdd > change.versionAfterEdit);
+      assert.equal(change.editSucceeded, true);
+      assert.equal(change.createdIds.length, 1);
+      assert.equal(change.previousElementPreserved, true);
+      assert.equal(change.elementCount, 2);
+      assert.equal(change.resourceOwnKey, true, "resource IDs remain own keys across editor and storage");
+    });
+    await t.test("CanvasSurface 冷启动提交、焦点、保存冲突和重载沿同一持久化链路", () => {
+      const state = result.persistence;
+      assert.deepEqual(state.coldStart, { ok: true, savedElements: 2, requests: 1, canRelease: true });
+      assert.equal(state.focusSaved, false);
+      assert.deepEqual(state.conflict, { code: "persistence_conflict", localX: 200, diskX: 100, externalPreserved: true, actions: ["Export draft", "Reload saved"], canRelease: false });
+      assert.equal(state.conflictRetried, false);
+      assert.deepEqual(state.recovered, { ok: true, elements: 4, canRelease: true });
+    });
+    await t.test("中文和 emoji 经文字输入提交，历史字体保持 PNG/SVG 导出", () => {
+      assert.deepEqual(result.textInput, { text: "中文输入 😀 👩‍💻", fontFamily: 2 });
+      const fontNames: Record<number, string> = { 1: "Virgil", 2: "Helvetica", 3: "Cascadia", 5: "Excalifont", 6: "Nunito", 7: "Lilita One", 8: "Comic Shanns", 9: "Helvetica" };
+      assert.deepEqual(result.textFonts.map((sample) => sample.fontFamily), [1, 2, 3, 5, 6, 7, 8, 9]);
+      for (const sample of result.textFonts) {
+        const expectedFamily = sample.fontFamily === 9 ? 2 : sample.fontFamily;
+        assert.equal(sample.restoredFamily, expectedFamily);
+        assert.equal(sample.pngFamily, expectedFamily);
+        assert.equal(sample.pngType, "image/png");
+        assert.ok(sample.paintedPixels > 0, `${fontNames[sample.fontFamily]}: exported PNG contains text pixels`);
+        assert.equal(sample.pngText, "Canvas 画布 😀 👩‍💻");
+        assert.equal(sample.svgText, "Canvas 画布 😀 👩‍💻");
+        assert.ok(sample.svgFontFamily.includes(fontNames[sample.fontFamily]));
+        if (expectedFamily === 2) {
+          assert.deepEqual(sample.embeddedFamilies, [], "system UI fonts stay local");
+        } else {
+          assert.ok(sample.embeddedFamilies.includes(fontNames[sample.fontFamily]), `historical text font is embedded in SVG: ${JSON.stringify(sample)}`);
+          assert.equal(sample.embeddedFontData, true);
+        }
+        if (expectedFamily === 5) assert.ok(sample.embeddedFamilies.includes("Xiaolai"), "CJK fallback glyphs remain embedded");
+      }
+    });
+    await t.test("已有语言配置统一使用产品英语界面", () => {
+      assert.deepEqual(result.languageFallback, ["zh-CN", "ar-SA"].map((requested) => ({ requested, current: "en", documentLanguage: "en", direction: "ltr", label: "Move canvas" })));
+    });
+    await t.test("产品工具边界与历史嵌入元素的静态兼容保持一致", () => {
+      assert.deepEqual(result.capabilities, {
+        toolAfterFrameShortcut: "selection", toolAfterUnsupportedAPI: "selection", libraryAPI: false, generationAPI: false,
+        legacy: ["iframe", "embeddable", "magicframe"].map((type) => ({ type, visible: true, activeDOM: false })),
+      });
+    });
+    await t.test("冷启动与项目场景替换默认抓手，主键拖动只平移视口", () => {
+      const state = result.handSelection;
+      for (const sample of [state.coldStart, state.sceneReplacement, state.handPan]) {
+        assert.equal(sample.tool, "hand");
+        assert.deepEqual(sample.checkedTools, ["hand"]);
+        assert.equal(sample.cursor, "grab", JSON.stringify(sample));
+      }
+      assert.equal(state.handPan.unchanged, true);
+      assert.deepEqual(state.handPan.selectedIds, []);
+      assert.deepEqual(state.handPan.scroll, [50, 30]);
+    });
+    await t.test("静止 Command 切换真实选择工具，可选中和移动已有选区，释放保留选区", () => {
+      const state = result.handSelection;
+      assert.equal(state.commandPressed.tool, "selection");
+      assert.deepEqual(state.commandPressed.checkedTools, ["selection"]);
+      assert.equal(state.commandPressed.cursor, "auto");
+      for (const sample of [state.commandSelected, state.commandMoved]) {
+        assert.equal(sample.tool, "selection");
+        assert.deepEqual(sample.selectedIds, ["navigation-rectangle"]);
+        assert.deepEqual(sample.scroll, [0, 0]);
+      }
+      assert.deepEqual(state.commandMoved.position, [220, 170]);
+      assert.equal(state.commandReleased.tool, "hand");
+      assert.deepEqual(state.commandReleased.checkedTools, ["hand"]);
+      assert.equal(state.commandReleased.cursor, "grab");
+      assert.deepEqual(state.commandReleased.selectedIds, ["navigation-rectangle"]);
+      assert.deepEqual(state.shortcuts.copyIds, ["navigation-rectangle"]);
+      assert.deepEqual(state.shortcuts.positionAfterUndo, [180, 140]);
+      assert.equal(state.shortcuts.toolAfterUndo, "hand");
+      assert.deepEqual(state.explicitSelectionMoved.position, [220, 170], "Command keeps ordinary drag semantics after choosing the selection tool explicitly");
+      for (const sample of [state.explicitSelectionMoved, state.explicitSelectionAfterRelease]) {
+        assert.equal(sample.tool, "selection");
+        assert.deepEqual(sample.checkedTools, ["selection"]);
+        assert.deepEqual(sample.selectedIds, ["navigation-rectangle"]);
+        assert.deepEqual(sample.scroll, [0, 0]);
+      }
+    });
+    await t.test("手势内按下或释放 Command 保持当前手势，pointerup 后应用待切换", () => {
+      const state = result.handSelection;
+      assert.equal(state.commandDuringPan.tool, "hand");
+      assert.equal(state.commandAfterPan.tool, "selection");
+      assert.deepEqual(state.commandAfterPan.scroll, [25, 15]);
+      assert.equal(state.afterDeferredPan.tool, "hand");
+      assert.equal(state.releaseDuringDrag.tool, "selection");
+      assert.equal(state.releaseAfterDrag.tool, "hand", JSON.stringify(state.releaseAfterDrag));
+      assert.deepEqual(state.releaseAfterDrag.position, [210, 160]);
+      assert.deepEqual(state.releaseAfterDrag.selectedIds, ["navigation-rectangle"]);
+    });
+    await t.test("Command 恢复原工具并识别仍按住的另一侧 Command，Space 保持平移", () => {
+      const state = result.handSelection;
+      for (const sample of [state.originalToolOverridden, state.secondCommandStillHeld]) {
+        assert.equal(sample.tool, "selection");
+        assert.deepEqual(sample.checkedTools, ["selection"]);
+      }
+      assert.equal(state.originalToolRestored.tool, "rectangle");
+      assert.deepEqual(state.originalToolRestored.checkedTools, ["rectangle"]);
+      assert.equal(state.spacePan.tool, "rectangle");
+      assert.equal(state.spacePan.cursor, "crosshair");
+      assert.equal(state.spacePan.unchanged, true);
+      assert.deepEqual(state.spacePan.scroll, [20, 10]);
+      for (const sample of [state.explicitToolSwitch, state.heldPointerAfterExplicitSwitch, state.explicitToolAfterRelease]) {
+        assert.equal(sample.tool, "ellipse", "explicit user tool choice owns the interaction session");
+        assert.deepEqual(sample.checkedTools, ["ellipse"]);
+      }
+      for (const sample of [state.explicitHandClick, state.explicitHandAfterRelease]) {
+        assert.equal(sample.tool, "hand", "the hand toolbar choice replaces the temporary selection session");
+        assert.deepEqual(sample.checkedTools, ["hand"]);
+      }
+      assert.equal(state.beforeLockClick.locked, false);
+      for (const sample of [state.explicitLockClick, state.explicitLockAfterRelease]) {
+        assert.equal(sample.tool, "selection");
+        assert.equal(sample.locked, true, "the toolbar lock choice survives releasing Command");
+      }
+    });
+    await t.test("输入控件保持文字快捷键，blur、项目切换与卸载释放临时选择状态", () => {
+      const state = result.handSelection;
+      assert.equal(state.commandOutsideCanvas.tool, "hand");
+      assert.equal(state.commandOutsidePointerUp.tool, "hand", "pointerup outside Canvas does not start a Canvas selection session");
+      assert.equal(state.commandHeldOnEntry.tool, "selection");
+      assert.deepEqual(state.commandHeldOnEntry.checkedTools, ["selection"]);
+      assert.equal(state.commandHeldOnPointerDown.tool, "selection");
+      assert.deepEqual(state.commandHeldOnPointerDown.selectedIds, ["navigation-rectangle"]);
+      assert.deepEqual(state.ignoredInputs.map(({ tagName }) => tagName), ["input", "textarea"]);
+      for (const sample of [...state.ignoredInputs, state.afterBlur, state.afterHeldSceneReplacement, state.afterRemount]) {
+        assert.equal(sample.tool, "hand");
+        assert.deepEqual(sample.checkedTools, ["hand"]);
+        assert.equal(sample.cursor, "grab", JSON.stringify(sample));
+        assert.deepEqual(sample.selectedIds, []);
+      }
     });
   } finally {
     await rm(temporary, { recursive: true, force: true });

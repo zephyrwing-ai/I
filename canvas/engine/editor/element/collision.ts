@@ -11,14 +11,13 @@ import type { FrameNameBounds } from "../types";
 import type { GeometricShape } from "@agent-studio/canvas-utils/geometry/shape";
 import { getPolygonShape } from "@agent-studio/canvas-utils/geometry/shape";
 import { isPointInShape, isPointOnShape } from "@agent-studio/canvas-utils/collision";
-import { isTransparent } from "../utils";
 import {
   hasBoundTextElement,
   isIframeLikeElement,
   isImageElement,
   isTextElement,
 } from "./typeChecks";
-import { getBoundTextShape, isPathALoop } from "../shapes";
+import { getBoundTextShape } from "../shapes";
 import type {
   GlobalPoint,
   LineSegment,
@@ -46,25 +45,16 @@ import {
 } from "./utils";
 
 export const shouldTestInside = (element: CanvasEditorElement) => {
-  if (element.type === "arrow") {
+  if (element.type === "arrow" || element.type === "line" || element.type === "freedraw") {
     return false;
   }
 
-  const isDraggableFromInside =
-    !isTransparent(element.backgroundColor) ||
+  return (
     hasBoundTextElement(element) ||
     isIframeLikeElement(element) ||
-    isTextElement(element);
-
-  if (element.type === "line") {
-    return isDraggableFromInside && isPathALoop(element.points);
-  }
-
-  if (element.type === "freedraw") {
-    return isDraggableFromInside && isPathALoop(element.points);
-  }
-
-  return isDraggableFromInside || isImageElement(element);
+    isTextElement(element) ||
+    isImageElement(element)
+  );
 };
 
 export type HitTestArgs<Point extends GlobalPoint | LocalPoint> = {

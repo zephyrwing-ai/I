@@ -7,39 +7,24 @@ import { SqliteHistoryRepository, createHistoryRecorder } from "../../agent/memo
 import type { ModelConfig } from "../../agent/model/index.js";
 import type { ModelMessage, ModelStreamEvent } from "../../agent/model/types.js";
 import { RunInputInbox } from "../../shell/main/run-input-inbox.js";
+import { toolInputHash } from "../../agent/tools/identity.js";
 
-function createTestRecorder(initial: ModelMessage[] = []): HistoryRecorder & { messages: ModelMessage[]; commits: string[] } {
-  const messages = initial.slice();
+async function createTestRecorder(initial: ModelMessage[] = []): Promise<HistoryRecorder & { readonly messages: ModelMessage[]; commits: string[] }> {
+  const recorder = await createTransientHistoryRecorder(initial);
   const commits: string[] = [];
-  return {
-    projectId: null,
-    messages,
-    commits,
-    snapshot: () => messages.slice(),
-    commitUser: async (message) => {
-      commits.push("user");
-      messages.push(message);
-    },
-    recordAssistantDelta: () => undefined,
-    finishAssistantAttempt: async (_context, status, message) => {
-      commits.push(status === "completed" ? "assistant" : `assistant-${status}`);
-      if (status === "completed" && message) messages.push(message);
-    },
-    commitAssistant: async (message) => {
-      commits.push("assistant");
-      messages.push(message);
-    },
-    commitToolResult: async (message) => {
-      commits.push("tool");
-      messages.push(message);
-    },
-    acceptRunInput: async () => { throw new Error("This test recorder has no pending input store."); },
-    applyRunInputs: async () => { throw new Error("This test recorder has no pending input store."); },
-    abandonRunInputs: async () => [],
-    finalizeAnswerDuration: async () => undefined,
-    finishRun: async () => undefined,
-    close: async () => undefined,
+  const commitUser = recorder.commitUser.bind(recorder);
+  const archive = recorder.archiveUnappliedUser.bind(recorder);
+  const finish = recorder.finishAssistantAttempt.bind(recorder);
+  const commitTool = recorder.commitToolResult.bind(recorder);
+  recorder.commitUser = async (message, context) => { commits.push("user"); await commitUser(message, context); };
+  recorder.archiveUnappliedUser = async (message, context) => { commits.push("user-interrupted"); await archive(message, context); };
+  recorder.finishAssistantAttempt = async (context, status, message, plans) => {
+    commits.push(status === "completed" ? "assistant" : `assistant-${status}`);
+    return finish(context, status, message, plans);
   };
+  recorder.commitToolResult = async (message, context) => { commits.push("tool"); await commitTool(message, context); };
+  const extended = Object.assign(recorder, { messages: [] as ModelMessage[], commits });
+  return Object.defineProperty(extended, "messages", { get: () => recorder.snapshot() });
 }
 
 test("session transcript accumulates across runs and seeds the model context", async () => {
@@ -59,7 +44,7 @@ test("session transcript accumulates across runs and seeds the model context", a
     cwd: process.cwd(),
     tools: new Map(),
   };
-  const recorder = createTestRecorder();
+  const recorder = await createTestRecorder();
 
   await run(
     "第一句",
@@ -239,7 +224,7 @@ test("cancelling a run archives accepted steering text and reports its input ID"
 
 test("run-scoped canvas context is visible for one run but never enters the session snapshot", async () => {
   const seen: ModelMessage[][] = [];
-  const recorder = createTestRecorder();
+  const recorder = await createTestRecorder();
   const fakeResponse = async function* (
     _modelConfig: ModelConfig,
     messages: ModelMessage[],
@@ -268,7 +253,7 @@ test("run-scoped canvas context is visible for one run but never enters the sess
 });
 
 test("persistence barriers complete before provider, tools, and next provider request", async () => {
-  const recorder = createTestRecorder();
+  const recorder = await createTestRecorder();
   const order: string[] = [];
   let requestCount = 0;
   const fakeResponse = async function* (
@@ -289,36 +274,31 @@ test("persistence barriers complete before provider, tools, and next provider re
   };
   const tool = {
     definition: { name: "test", description: "test", parameters: { type: "object" as const, properties: {}, required: [] } },
+    recovery: { version: "1", mode: "safe" as const },
     execute: async () => {
       order.push("tool-execute");
       return { ok: true, output: "ok", returncode: 0, truncated: false };
     },
   };
 
+  const commitUser = recorder.commitUser.bind(recorder);
+  const finishAssistant = recorder.finishAssistantAttempt.bind(recorder);
+  const commitTool = recorder.commitToolResult.bind(recorder);
+  const finishRun = recorder.finishRun.bind(recorder);
+  recorder.commitUser = async (message, context) => { order.push("commit-user"); await commitUser(message, context); };
+  recorder.finishAssistantAttempt = async (context, status, message, plans) => {
+    if (status === "completed") order.push("commit-assistant");
+    return finishAssistant(context, status, message, plans);
+  };
+  recorder.commitToolResult = async (message, context) => { order.push("commit-tool"); await commitTool(message, context); };
+  recorder.finishRun = async (status) => { order.push(`finish-${status.status}`); await finishRun(status); };
+
   const result = await run("执行", { provider: "openai", model: "fake" }, {
     runId: "run-barrier",
     systemPrompt: "test",
     cwd: process.cwd(),
     tools: new Map([["test", tool]]),
-    recorder: {
-      ...recorder,
-      commitUser: async (message, context) => {
-        order.push("commit-user");
-        await recorder.commitUser(message, context);
-      },
-      finishAssistantAttempt: async (context, status, message) => {
-        if (status === "completed") order.push("commit-assistant");
-        await recorder.finishAssistantAttempt(context, status, message);
-      },
-      commitToolResult: async (message, context) => {
-        order.push("commit-tool");
-        await recorder.commitToolResult(message, context);
-      },
-      finishRun: async (status) => {
-        order.push(`finish-${status.status}`);
-        await recorder.finishRun(status);
-      },
-    },
+    recorder,
     responseImpl: fakeResponse,
   });
 
@@ -373,21 +353,19 @@ test("runtime recovers a safe effect_pending invocation before the next model re
   const repository = new SqliteHistoryRepository(":memory:");
   const first = await createHistoryRecorder(repository, null);
   const call = { id: "recover-call", name: "test", input: {}, inputComplete: true } as const;
-  await first.commitAssistant({ role: "assistant", content: "", toolCalls: [call] }, { runId: "old-run", turnId: "old-turn", turnOrdinal: 1 });
-  const invocation = await first.registerToolInvocation({
+  const [invocation] = await first.finishAssistantAttempt({ runId: "old-run", turnId: "old-turn", turnOrdinal: 1 }, "completed", { role: "assistant", content: "", toolCalls: [call] }, [{
     runId: "old-run",
     turnId: "old-turn",
     cwd: process.cwd(),
-    assistantEntryId: "old-assistant",
     toolCallId: call.id,
     ordinal: 0,
     toolName: call.name,
     toolVersion: "1",
     inputJson: "{}",
-    inputHash: "recovery-hash",
+    inputHash: toolInputHash(call.name, "1", call.input),
     recoveryModeSnapshot: "safe",
-  });
-  await first.beginToolAttempt(invocation.id);
+  }]);
+  await first.beginToolAttempt(invocation!.id);
 
   const recorder = await createHistoryRecorder(repository, null);
   let executionCount = 0;
@@ -419,7 +397,7 @@ test("runtime recovers a safe effect_pending invocation before the next model re
 });
 
 test("a model stream without completed fails with a model protocol error", async () => {
-  const recorder = createTestRecorder();
+  const recorder = await createTestRecorder();
   const result = await run("缺少终态", { provider: "openai", model: "fake" }, {
     runId: "run-protocol",
     systemPrompt: "test",
@@ -438,7 +416,7 @@ test("a model stream without completed fails with a model protocol error", async
 });
 
 test("a reasoning-only response is interrupted, retried, and does not enter the next model context", async () => {
-  const recorder = createTestRecorder();
+  const recorder = await createTestRecorder();
   const seen: ModelMessage[][] = [];
   const retries: string[] = [];
   let requestCount = 0;

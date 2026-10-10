@@ -1,9 +1,9 @@
-import { mkdir, writeFile, stat } from "node:fs/promises";
-import { isAbsolute, resolve, relative, dirname } from "node:path";
+import { relative } from "node:path";
 import { mediaTypeForPath } from "../environment.js";
 import type { ToolDef } from "../model/types.js";
-import type { RegisteredTool, ToolResult } from "./types.js";
-import { checkpointForTextFile, readTextFileIfPresent, reconcileTextFile, resolveToolPath } from "./recovery.js";
+import type { PreparedToolExecution, RegisteredTool, ToolExecutionContext, ToolResult } from "./types.js";
+import { checkpointForFilePublication, reconcileTextFile, resolveToolPath } from "./recovery.js";
+import { checkFileCancellation, fileErrorResult, filePublicationExecution, observeFile, planFilePublication } from "./atomic-file.js";
 
 /** Write 工具定义 — 整文件写入；目标目录不存在时创建父目录。 */
 export const WRITE_TOOL: ToolDef = {
@@ -25,59 +25,33 @@ export function createWriteTool(): RegisteredTool {
     recovery: {
       version: "1",
       mode: "reconcile",
-      async prepare(input, context) {
-        if (typeof input.path !== "string" || typeof input.content !== "string") return undefined;
-        const target = resolveToolPath(input.path, context.cwd);
-        const previous = await readTextFileIfPresent(target);
-        return checkpointForTextFile(target, previous.exists ? previous.content : null, input.content, previous.exists ? "updated" : "created", mediaTypeForPath(target));
-      },
-      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Write"),
+      reconcile: (input, checkpoint, context) => reconcileTextFile(checkpoint, context, "Write", input.path),
     },
+    prepare: prepareWrite,
     async execute(input, context): Promise<ToolResult> {
-      if (typeof input.path !== "string" || input.path.trim() === "") {
-        return { ok: false, output: "Tool parameter path must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
-      }
-      if (typeof input.content !== "string") {
-        return { ok: false, output: "Tool parameter content must be a non-empty string.", returncode: -1, truncated: false, error: "invalid_arguments" };
-      }
-
-      const target = isAbsolute(input.path) ? input.path : resolve(context.cwd, input.path);
-
-      let exists = false;
-      try {
-        const stats = await stat(target);
-        if (stats.isDirectory()) {
-          return { ok: false, output: `Target is a directory; Write expects a file: ${input.path}`, returncode: -1, truncated: false, error: "target_is_directory" };
-        }
-        exists = true;
-      } catch {
-        exists = false;
-      }
-
-      try {
-        await mkdir(dirname(target), { recursive: true });
-        await writeFile(target, input.content, "utf8");
-      } catch (error) {
-          return { ok: false, output: `Write failed: ${error instanceof Error ? error.message : String(error)}`, returncode: -1, truncated: false, error: "write_failed" };
-      }
-
-      const bytes = Buffer.byteLength(input.content, "utf8");
-      const rel = relative(context.cwd, target) || target;
-      const operation = exists ? "updated" : "created";
-      // 与 Bash 侧 snapshot 产物同构：相同文件在同一回合内按调用顺序执行，不会并发覆盖。
-      return {
-        ok: true,
-        output: `Wrote ${rel} (${bytes} bytes, ${operation === "created" ? "created" : "overwritten"})`,
-        returncode: 0,
-        truncated: false,
-        artifacts: [{
-          path: target,
-          operation,
-          mediaType: mediaTypeForPath(target),
-          byteSize: bytes,
-          updatedAt: new Date().toISOString(),
-        }],
-      };
+      const prepared = await prepareWrite(input, context);
+      return prepared.kind === "result" ? prepared.result : prepared.execute(context);
     },
   };
+}
+
+async function prepareWrite(input: Record<string, unknown>, context: ToolExecutionContext): Promise<PreparedToolExecution> {
+  if (typeof input.path !== "string" || input.path.trim() === "" || input.path.includes("\0")) {
+    return { kind: "result", result: { ok: false, output: "Tool parameter path must be a non-empty string without NUL.", returncode: -1, truncated: false, error: "invalid_arguments" } };
+  }
+  if (typeof input.content !== "string") {
+    return { kind: "result", result: { ok: false, output: "Tool parameter content must be a string.", returncode: -1, truncated: false, error: "invalid_arguments" } };
+  }
+  try {
+    checkFileCancellation(context);
+    const target = resolveToolPath(input.path, context.cwd);
+    const source = await observeFile(target);
+    const plan = await planFilePublication(source, Buffer.from(input.content, "utf8"), context);
+    const mediaType = mediaTypeForPath(target);
+    const rel = relative(context.cwd, target) || target;
+    const output = `Wrote ${rel} (${plan.bytes.length} bytes, ${source.state.exists ? "overwritten" : "created"})`;
+    return filePublicationExecution(plan, checkpointForFilePublication(plan, mediaType), "Write", output, mediaType);
+  } catch (error) {
+    return { kind: "result", result: fileErrorResult("Write", error, "read_failed") };
+  }
 }

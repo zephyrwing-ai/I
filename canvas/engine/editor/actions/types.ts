@@ -12,13 +12,6 @@ import type {
 } from "../types";
 import type { CaptureUpdateActionType } from "../store";
 
-export type ActionSource =
-  | "ui"
-  | "keyboard"
-  | "contextMenu"
-  | "api"
-  | "commandPalette";
-
 /** if false, the action should be prevented */
 export type ActionResult =
   | {
@@ -55,7 +48,6 @@ export type ActionName =
   | "gridMode"
   | "zenMode"
   | "objectsSnapMode"
-  | "stats"
   | "undo"
   | "redo"
   | "finalize"
@@ -75,8 +67,6 @@ export type ActionName =
   | "toggleFullScreen"
   | "group"
   | "ungroup"
-  | "goToCollaborator"
-  | "addToLibrary"
   | "alignTop"
   | "alignBottom"
   | "alignLeft"
@@ -101,17 +91,12 @@ export type ActionName =
   | "selectAllElementsInFrame"
   | "removeAllElementsFromFrame"
   | "updateFrameRendering"
-  | "setFrameAsActiveTool"
-  | "setEmbeddableAsActiveTool"
   | "createContainerFromText"
   | "wrapTextInContainer"
-  | "commandPalette"
   | "autoResize"
-  | "elementStats"
   | "copyElementLink"
   | "linkToElement"
-  | "cropEditor"
-  | "wrapSelectionInFrame";
+  | "cropEditor";
 
 export type PanelComponentProps = {
   elements: readonly CanvasEditorElement[];
@@ -154,26 +139,6 @@ export interface Action {
     app: AppClassProperties,
   ) => boolean;
   checked?: (appState: Readonly<AppState>) => boolean;
-  trackEvent:
-    | false
-    | {
-        category:
-          | "toolbar"
-          | "element"
-          | "canvas"
-          | "export"
-          | "history"
-          | "menu"
-          | "collab"
-          | "hyperlink"
-          | "search_menu";
-        action?: string;
-        predicate?: (
-          appState: Readonly<AppState>,
-          elements: readonly CanvasEditorElement[],
-          value: any,
-        ) => boolean;
-      };
   /** if set to `true`, allow action to be performed in viewMode.
    *  Defaults to `false` */
   viewMode?: boolean;

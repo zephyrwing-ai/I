@@ -26,7 +26,7 @@ function buildMessageBlocks(
     const run = runs[record.runId];
     if (!run) return [];
     if (record.kind === "user") {
-      const input = record.inputId ? run.inputs[record.inputId] : undefined;
+      const input = run.inputs[record.inputId];
       if (!input) return [];
       const taskText = normalizePunctuation(record.text ?? "");
       return [{
@@ -50,7 +50,6 @@ function buildMessageBlocks(
         ),
       }];
     }
-    if (!record.turnIds) return [];
     return [{
       blockId: record.blockId,
       kind: record.kind,

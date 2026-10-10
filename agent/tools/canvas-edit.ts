@@ -23,7 +23,7 @@ const CHANGE_FIELDS = new Set(["x", "y", "width", "height", "angle", "text", "po
 
 export const CANVAS_EDIT_TOOL: ToolDef = {
   name: "canvas_edit",
-  description: "Create elements from the user's instructions. To update, delete, duplicate, group, lock, or reorder existing elements, use the elements explicitly supplied through Use selection. Operations apply to the live scene; targets must come from that reference or an earlier successful canvas_edit result. A conflict returns the affected current elements. Use one call for related operations.",
+  description: "Create elements from the user's instructions. To update, delete, duplicate, group, lock, or reorder existing elements, use the elements explicitly supplied through Use selection. Operations apply to the live scene; targets must come from that reference or an earlier successful canvas_edit result. A conflict returns the affected current elements. Use one call for related operations. The editor applies changes to its live scene and a successful result confirms project persistence. Canvas scene files are managed by the application's save pipeline. An outcome_unknown error means an edit may already have applied; ask the user to verify the Canvas and provide a fresh reference before retrying.",
   parameters: {
     type: "object",
     properties: {
@@ -73,6 +73,7 @@ export const CANVAS_EDIT_TOOL: ToolDef = {
               required: [],
             },
             direction: { type: "string", description: "Reorder direction", enum: [...DIRECTIONS] },
+            axis: { type: "string", description: "Image flip axis", enum: ["horizontal", "vertical"] },
             locked: { type: "boolean", description: "Lock state" },
             offsetX: { type: "number", description: "Duplicate X offset" },
             offsetY: { type: "number", description: "Duplicate Y offset" },
@@ -207,7 +208,7 @@ export function createCanvasEditTool(scope: CanvasEditToolScope): RegisteredTool
 
       if (!result.ok) {
         const payload = {
-          status: result.conflicts?.length ? "conflict" : "failed",
+          status: result.conflicts?.length || result.error === "persistence_conflict" ? "conflict" : "failed",
           error: result.error,
           conflicts: (result.conflicts ?? []).map((conflict) => ({
             id: conflict.id,
@@ -217,7 +218,10 @@ export function createCanvasEditTool(scope: CanvasEditToolScope): RegisteredTool
           ...(visibleAffected.length ? { appliedInMemory: true, totalAffected: visibleAffected.length, elements: visibleAffected.slice(0, 64).map(compactElement) } : {}),
           ...(result.createdIds?.length ? { createdIds: result.createdIds } : {}),
         };
-        return failure(JSON.stringify(payload), result.conflicts?.length ? "canvas_conflict" : "canvas_edit_failed");
+        const error = result.conflicts?.length ? "canvas_conflict"
+          : result.error === "persistence_conflict" || result.error === "persistence_failed" ? result.error
+          : "canvas_edit_failed";
+        return failure(JSON.stringify(payload), error);
       }
       const compactElements = visibleAffected.map(compactElement);
       return {

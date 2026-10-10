@@ -9,12 +9,16 @@ description: 项目范围历史、目录上下文缓存和 HistoryRecorder 的�
 - [x] 创建 `project_context` 表，保存有界目录树、hash、扫描策略和 dirty 状态。
 - [x] 将 `entries` 改为 nullable `project_id` 范围和全局 `entry_order`。
 - [x] 将 `tool_invocations` 改为 nullable `project_id` 范围，并使用 `run_id + tool_call_id` 关联工具调用。
-- [x] 增加旧 sessions 数据迁移，将既有历史归入无项目范围。
+- [x] 增加旧 sessions 数据迁移，将既有历史归入无项目范围；覆盖 v1 无工具表、v2 无 cwd、后续已有工具账本和项目范围 v8。
+- [x] schema v9 增加 `run_cancellations`，持久保存用户主动停止的事实。
 
 ## HistoryRecorder 与 Runtime
 
 - [x] 将持久化契约命名为 `HistoryRecorder`。
 - [x] 保持用户消息、助手草稿、完整助手消息、工具结果和恢复账本的提交屏障。
+- [x] 完整工具调用型 Assistant Message 与整批 planned invocation 在单事务中登记，任一冲突整批回滚。
+- [x] 主动取消后为未执行与未知结果调用结算 Tool Message，下一 run 不隐式重放；保留已有确定 outcome。
+- [x] Canvas 等不允许跨 run 调度的 planned 调用直接结算 interrupted，保持 attemptCount 为零。
 - [x] 以 `projectId: string | null` 绑定 Recorder 历史范围。
 - [x] 将项目上下文作为 transient Runtime context 注入模型请求。
 
@@ -37,7 +41,8 @@ description: 项目范围历史、目录上下文缓存和 HistoryRecorder 的�
 
 - [x] `npm run typecheck:node`。
 - [x] `npm run typecheck:web`。
-- [x] `npm test`。
+- [x] Agent Runtime、工具事务、历史迁移与 Main Stop 的 39 项聚焦回归；新增测试的 strict TypeScript 检查。
+- [ ] `npm test` 全量检查通过。
 - [ ] `npm run build`。
 - [ ] 文档相对链接检查。
 - [ ] `git diff --check`。

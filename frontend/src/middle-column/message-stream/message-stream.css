@@ -36,12 +36,7 @@
 /* Run 活动行统一承载同一 steer 区间内的 reasoning 与工具细节。 */
 .run-work { min-width: 0; }
 .run-work-toggle { width: fit-content; min-height: 26px; padding: 0; border: 0; background: transparent; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 8px; font-size: 14px; line-height: 22px; cursor: pointer; }
-.run-work-toggle:hover { color: var(--text); }
 .run-work-label { min-height: 26px; color: var(--text-muted); font-size: 14px; line-height: 22px; }
-.run-work .chevron { opacity: 0; transition: opacity 120ms var(--ease-standard), transform 180ms var(--ease-standard); }
-.run-work-toggle:hover .chevron,
-.run-work-toggle:focus-visible .chevron,
-.run-work.is-open .chevron { opacity: 1; }
 .run-work-detail { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 200ms var(--ease-standard), opacity 180ms ease; }
 .run-work.is-open .run-work-detail { grid-template-rows: 1fr; opacity: 1; }
 .run-work-clip { min-height: 0; max-height: 320px; overflow: auto; }
@@ -86,23 +81,15 @@
 /* 最终答案：作为独立 MessageBlock 进入阅读流，与消息流左对齐、右侧留白；文字 14px / 24px 行高、阅读黑 #3B352B、0.02em 字距 */
 .final-answer { margin: 0; font-size: 14px; line-height: 24px; color: var(--text-reading); letter-spacing: 0.02em; }
 
-/* ===== 时间戳与复制行：13px 时间 + 14×14 复制/Check 图标；用户消息右对齐、模型消息左对齐，距消息下缘 8px；默认隐藏，悬停/聚焦消息区域时淡入 ===== */
+/* ===== 时间戳与复制行：13px 时间 + 14×14 复制/Check 图标；用户消息右对齐、模型消息左对齐，距消息下缘 8px；始终可见 ===== */
 .model-message { width: 100%; display: flex; flex-direction: column; }
 .model-message > .message-meta { align-self: flex-start; }
-.message-meta { margin-top: 8px; display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity 120ms var(--ease-standard); }
-.message-meta.has-copy-feedback { opacity: 1; }
-.user-message-group:hover .message-meta,
-.user-message-group:focus-within .message-meta,
-.model-message:hover .message-meta,
-.model-message:focus-within .message-meta { opacity: 1; }
+.message-meta { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
 .message-virtual-block.block-assistant { margin-bottom: 28px; }
 .message-time { color: var(--text-muted); font-size: 13px; line-height: 20px; }
 .message-copy { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); display: grid; place-items: center; transition: color 120ms var(--ease-standard); }
-.message-copy:hover { color: var(--text); }
 .message-copy.is-copied { color: var(--text); }
-.message-copy.is-copied:hover { color: var(--text); }
 .message-copy.is-copy-error { color: var(--danger); }
-.message-copy.is-copy-error:hover { color: var(--danger); }
 
 /* ===== 回合动作折叠：一个回合的 agent 操作合并为一级折叠，行与消息左缘对齐 ===== */
 .turn-action { margin-top: 6px; min-width: 0; }
@@ -155,5 +142,5 @@
 .ghost-btn:hover { border-color: var(--accent); }
 
 @media (prefers-reduced-motion: reduce) {
-  .run-work-detail, .turn-action-detail, .tool-detail, .chevron, .run-work .chevron, .tool-row .chevron, .turn-action .chevron, .message-copy { transition: none; }
+  .run-work-detail, .turn-action-detail, .tool-detail, .chevron, .tool-row .chevron, .turn-action .chevron, .message-copy { transition: none; }
 }

@@ -186,7 +186,6 @@ const ImageExportModal = ({
                 setProjectName(event.target.value);
                 actionManager.executeAction(
                   actionChangeProjectName,
-                  "ui",
                   event.target.value,
                 );
               }}
@@ -221,7 +220,6 @@ const ImageExportModal = ({
               setExportWithBackground(checked);
               actionManager.executeAction(
                 actionChangeExportBackground,
-                "ui",
                 checked,
               );
             }}
@@ -239,7 +237,6 @@ const ImageExportModal = ({
                 setExportDarkMode(checked);
                 actionManager.executeAction(
                   actionExportWithDarkMode,
-                  "ui",
                   checked,
                 );
               }}
@@ -258,7 +255,6 @@ const ImageExportModal = ({
               setEmbedScene(checked);
               actionManager.executeAction(
                 actionChangeExportEmbedScene,
-                "ui",
                 checked,
               );
             }}
@@ -273,7 +269,7 @@ const ImageExportModal = ({
             value={exportScale}
             onChange={(scale) => {
               setExportScale(scale);
-              actionManager.executeAction(actionChangeExportScale, "ui", scale);
+              actionManager.executeAction(actionChangeExportScale, scale);
             }}
             choices={EXPORT_SCALES.map((scale) => ({
               value: scale,

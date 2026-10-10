@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { initializeSchema } from "./schema.js";
+import { canonicalJson as canonical, jsonEqual } from "../json.js";
+import { readModelMessage, type ToolCall } from "../model/types.js";
+import { toolInputHash, toolInputHashFromJson } from "../tools/identity.js";
+import { readToolCheckpoint, readToolResult, toolOutcomeStatus, toolResultMessage } from "../tools/result.js";
 import {
   RepositoryError,
+  ToolAttemptBlockedError,
   type AcceptRunInputInput,
   type AppendEntryInput,
+  type AssistantCommitInput,
+  type AssistantCommitResult,
   type CreateProjectInput,
   type CreateToolInvocationInput,
   type EntryPatch,
@@ -17,6 +24,7 @@ import {
   type Project,
   type ProjectContextInput,
   type ProjectContextRecord,
+  type ToolInvocationPlan,
   type ToolInvocationPhase,
   type ToolInvocationRecord,
   type ToolOutcomeInput,
@@ -26,25 +34,30 @@ import {
 
 type Row = Record<string, unknown>;
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function sqliteRepositoryError(error: unknown, prefix = ""): RepositoryError {
+  const errcode = error !== null && typeof error === "object" && "errcode" in error ? error.errcode : undefined;
+  const primaryCode = typeof errcode === "number" ? errcode & 0xff : undefined;
+  return new RepositoryError(`${prefix}${error instanceof Error ? error.message : String(error)}`, primaryCode === 19 ? "conflict" : "storage", {
+    cause: error,
+    // Only lock contention is known to be transient; IO, corruption and full disks are not retried.
+    retryable: primaryCode === 5 || primaryCode === 6,
+  });
+}
+
 function now(): number {
   return Date.now();
 }
 
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
 function serializeJson(value: unknown, field: string): string {
-  const serialized = JSON.stringify(value);
-  if (serialized === undefined) throw new RepositoryError(`${field} must be JSON serializable.`, "invalid");
-  return serialized;
+  try {
+    return canonical(value);
+  } catch (cause) {
+    throw new RepositoryError(`${field} must be JSON serializable.`, "invalid", { cause });
+  }
 }
 
 function parseJson(value: unknown, field: string): unknown | null {
@@ -65,16 +78,16 @@ function parsePayload(value: unknown): HistoryEntry["payload"] {
   } catch {
     throw new RepositoryError("Stored entry payload is invalid JSON.", "storage");
   }
-  if (!parsed || typeof parsed !== "object" || !["user", "assistant", "tool"].includes((parsed as { role?: unknown }).role as string) || typeof (parsed as { content?: unknown }).content !== "string") {
-    throw new RepositoryError("Stored entry payload is not a ModelMessage.", "storage");
-  }
-  return parsed as HistoryEntry["payload"];
+  const message = readModelMessage(parsed);
+  if (!message) throw new RepositoryError("Stored entry payload is not a ModelMessage.", "storage");
+  return message;
 }
 
 function validatePayloadForType(type: EntryType, payload: HistoryEntry["payload"], toolCallId: string | null | undefined): void {
+  if (!readModelMessage(payload)) throw new RepositoryError("Entry payload must be a valid ModelMessage.", "invalid");
   const expectedRole = type === "user_message" ? "user" : type === "assistant_message" ? "assistant" : "tool";
   if (payload.role !== expectedRole) throw new RepositoryError(`${type} payload must use role ${expectedRole}.`, "invalid");
-  if (type === "tool_result" && !toolCallId) throw new RepositoryError("tool_result requires toolCallId.", "invalid");
+  if (type === "tool_result" && (!toolCallId || payload.toolCallId !== toolCallId)) throw new RepositoryError("tool_result requires a matching toolCallId.", "invalid");
 }
 
 function rowToProject(row: Row): Project {
@@ -100,6 +113,7 @@ function rowToProjectContext(row: Row): ProjectContextRecord {
 }
 
 function rowToEntry(row: Row): HistoryEntry {
+  if (Number(row.payload_version) !== 1) throw new RepositoryError(`Unsupported stored payload version: ${row.payload_version}`, "storage");
   return {
     id: String(row.id),
     projectId: row.project_id === null || row.project_id === undefined ? null : String(row.project_id),
@@ -113,7 +127,7 @@ function rowToEntry(row: Row): HistoryEntry {
     payloadVersion: Number(row.payload_version),
     payload: parsePayload(row.payload_json),
     createdAt: Number(row.created_at),
-    updatedAt: Number(row.updated_at),
+    completedAt: row.completed_at === null || row.completed_at === undefined ? null : Number(row.completed_at),
     durationMs: row.duration_ms === null || row.duration_ms === undefined ? null : Number(row.duration_ms),
   };
 }
@@ -231,65 +245,73 @@ export class SqliteHistoryRepository implements HistoryRepository {
   }
 
   async appendEntry(projectId: HistoryScope, entry: AppendEntryInput): Promise<HistoryEntry> {
+    return this.transaction(() => this.appendEntryInTransaction(projectId, entry));
+  }
+
+  private appendEntryInTransaction(projectId: HistoryScope, entry: AppendEntryInput): HistoryEntry {
     validatePayloadForType(entry.type, entry.payload, entry.toolCallId);
-    return this.transaction(() => {
-      if (projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)) {
-        throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
-      }
-      const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id) as Row | undefined;
-      if (existingRow) {
-        const existing = rowToEntry(existingRow);
-        const same = existing.projectId === projectId
-          && existing.type === entry.type
-          && existing.status === entry.status
-          && existing.runId === entry.runId
-          && existing.turnId === (entry.turnId ?? null)
-          && existing.toolCallId === (entry.toolCallId ?? null)
-          && existing.payloadVersion === (entry.payloadVersion ?? 1)
-          && canonical(existing.payload) === canonical(entry.payload);
-        if (same) return existing;
-        throw new RepositoryError(`Entry already exists with different content: ${entry.id}`, "conflict");
-      }
-      const timestamp = entry.createdAt ?? now();
-      const updatedAt = entry.updatedAt ?? timestamp;
-      const nextOrder = Number((this.database.prepare("SELECT COALESCE(MAX(entry_order), 0) + 1 AS next_order FROM entries").get() as { next_order: number }).next_order);
-      this.database.prepare(`
-        INSERT INTO entries
-          (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
-           revision, payload_version, payload_json, created_at, updated_at, duration_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        entry.id, projectId, nextOrder, entry.type, entry.status, entry.runId,
-        entry.turnId ?? null, entry.toolCallId ?? null, entry.revision ?? 0,
-        entry.payloadVersion ?? 1, JSON.stringify(entry.payload), timestamp, updatedAt,
-        entry.durationMs ?? null,
-      );
-      return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id) as Row);
-    });
+    if (projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)) {
+      throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
+    }
+    const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id) as Row | undefined;
+    if (existingRow) {
+      const existing = rowToEntry(existingRow);
+      const same = existing.projectId === projectId
+        && existing.type === entry.type
+        && existing.status === entry.status
+        && existing.runId === entry.runId
+        && existing.turnId === (entry.turnId ?? null)
+        && existing.toolCallId === (entry.toolCallId ?? null)
+        && existing.payloadVersion === (entry.payloadVersion ?? 1)
+        && canonical(existing.payload) === canonical(entry.payload);
+      if (same) return existing;
+      throw new RepositoryError(`Entry already exists with different content: ${entry.id}`, "conflict");
+    }
+    const completedAt = entry.type === "assistant_message" && entry.status === "completed"
+      ? entry.completedAt ?? now()
+      : null;
+    const timestamp = entry.createdAt ?? completedAt ?? now();
+    const nextOrder = Number((this.database.prepare("SELECT COALESCE(MAX(entry_order), 0) + 1 AS next_order FROM entries").get() as { next_order: number }).next_order);
+    this.database.prepare(`
+      INSERT INTO entries
+        (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
+         revision, payload_version, payload_json, created_at, completed_at, duration_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      entry.id, projectId, nextOrder, entry.type, entry.status, entry.runId,
+      entry.turnId ?? null, entry.toolCallId ?? null, entry.revision ?? 0,
+      entry.payloadVersion ?? 1, JSON.stringify(entry.payload), timestamp, completedAt,
+      entry.durationMs ?? null,
+    );
+    return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id) as Row);
   }
 
   async updateEntry(entryId: string, expectedRevision: number, patch: EntryPatch): Promise<HistoryEntry> {
-    return this.transaction(() => {
-      const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId) as Row | undefined;
-      if (!existingRow) throw new RepositoryError(`Entry not found: ${entryId}`, "not_found");
-      const existing = rowToEntry(existingRow);
-      if (existing.revision !== expectedRevision) throw new RepositoryError(`Entry revision conflict: ${entryId}`, "conflict");
-      const updatedAt = patch.updatedAt ?? now();
-      const nextStatus = patch.status ?? existing.status;
-      const nextPayload = patch.payload ?? existing.payload;
-      const nextPayloadVersion = patch.payloadVersion ?? existing.payloadVersion;
-      const nextTurnId = patch.turnId === undefined ? existing.turnId : patch.turnId;
-      const nextToolCallId = patch.toolCallId === undefined ? existing.toolCallId : patch.toolCallId;
-      const nextDurationMs = patch.durationMs === undefined ? existing.durationMs : patch.durationMs;
-      validatePayloadForType(existing.type, nextPayload, nextToolCallId);
-      this.database.prepare(`
-        UPDATE entries
-        SET status = ?, turn_id = ?, tool_call_id = ?, revision = revision + 1,
-            payload_version = ?, payload_json = ?, updated_at = ?, duration_ms = ?
-        WHERE id = ? AND revision = ?
-      `).run(nextStatus, nextTurnId, nextToolCallId, nextPayloadVersion, JSON.stringify(nextPayload), updatedAt, nextDurationMs, entryId, expectedRevision);
-      return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId) as Row);
-    });
+    return this.transaction(() => this.updateEntryInTransaction(entryId, expectedRevision, patch));
+  }
+
+  private updateEntryInTransaction(entryId: string, expectedRevision: number, patch: EntryPatch): HistoryEntry {
+    const existingRow = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId) as Row | undefined;
+    if (!existingRow) throw new RepositoryError(`Entry not found: ${entryId}`, "not_found");
+    const existing = rowToEntry(existingRow);
+    if (existing.revision !== expectedRevision) throw new RepositoryError(`Entry revision conflict: ${entryId}`, "conflict");
+    const nextStatus = patch.status ?? existing.status;
+    const completedAt = existing.type === "assistant_message" && nextStatus === "completed"
+      ? existing.completedAt ?? patch.completedAt ?? now()
+      : null;
+    const nextPayload = patch.payload ?? existing.payload;
+    const nextPayloadVersion = patch.payloadVersion ?? existing.payloadVersion;
+    const nextTurnId = patch.turnId === undefined ? existing.turnId : patch.turnId;
+    const nextToolCallId = patch.toolCallId === undefined ? existing.toolCallId : patch.toolCallId;
+    const nextDurationMs = patch.durationMs === undefined ? existing.durationMs : patch.durationMs;
+    validatePayloadForType(existing.type, nextPayload, nextToolCallId);
+    this.database.prepare(`
+      UPDATE entries
+      SET status = ?, turn_id = ?, tool_call_id = ?, revision = revision + 1,
+          payload_version = ?, payload_json = ?, completed_at = ?, duration_ms = ?
+      WHERE id = ? AND revision = ?
+    `).run(nextStatus, nextTurnId, nextToolCallId, nextPayloadVersion, JSON.stringify(nextPayload), completedAt, nextDurationMs, entryId, expectedRevision);
+    return rowToEntry(this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entryId) as Row);
   }
 
   async getEntry(entryId: string): Promise<HistoryEntry | null> {
@@ -330,6 +352,25 @@ export class SqliteHistoryRepository implements HistoryRepository {
       LIMIT ?
     `).all(projectId, beforeOrder, limit) as Row[];
     return rows.map(rowToEntry);
+  }
+
+  async getToolOutcomesForEntries(projectId: HistoryScope, entryIds: string[]): Promise<Map<string, unknown>> {
+    const ids = [...new Set(entryIds)];
+    if (ids.length === 0) return new Map();
+    const rows = this.database.prepare(`
+      SELECT e.id AS entry_id, t.outcome_json
+      FROM entries e
+      JOIN tool_invocations t ON t.result_entry_id = e.id
+        AND t.project_id IS e.project_id
+        AND t.run_id = e.run_id
+        AND t.turn_id = e.turn_id
+        AND t.tool_call_id = e.tool_call_id
+      WHERE e.project_id IS ? AND e.type = 'tool_result'
+        AND t.phase IN ('outcome_ready', 'completed')
+        AND t.outcome_json IS NOT NULL
+        AND e.id IN (${ids.map(() => "?").join(", ")})
+    `).all(projectId, ...ids) as Row[];
+    return new Map(rows.map((row) => [String(row.entry_id), parseJson(row.outcome_json, "tool outcome")]));
   }
 
   async acceptRunInput(projectId: HistoryScope, input: AcceptRunInputInput): Promise<PendingRunInput> {
@@ -454,52 +495,198 @@ export class SqliteHistoryRepository implements HistoryRepository {
   }
 
   async registerToolInvocation(input: CreateToolInvocationInput): Promise<ToolInvocationRecord> {
-    this.validateToolInvocationInput(input);
+    return (await this.registerToolBatch([input]))[0]!;
+  }
+
+  async registerToolBatch(inputs: CreateToolInvocationInput[]): Promise<ToolInvocationRecord[]> {
+    if (inputs.length === 0) throw new RepositoryError("A tool batch cannot be empty.", "invalid");
+    this.validateToolBatchInputs(inputs);
+    const first = inputs[0]!;
+    return this.transaction(() => {
+      if (first.projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(first.projectId)) {
+        throw new RepositoryError(`Project not found: ${first.projectId}`, "not_found");
+      }
+      return inputs.map((input) => this.registerToolInvocationInTransaction(input));
+    });
+  }
+
+  async commitAssistantAttempt(projectId: HistoryScope, assistant: AssistantCommitInput, plans: ToolInvocationPlan[]): Promise<AssistantCommitResult> {
+    const entry = assistant.entry;
+    validatePayloadForType(entry.type, entry.payload, entry.toolCallId);
+    if (entry.type !== "assistant_message" || entry.status === "streaming" || !entry.turnId) {
+      throw new RepositoryError("Assistant completion requires a terminal assistant entry and turn identity.", "invalid");
+    }
+    const inputs = plans.map((plan) => ({ ...plan, projectId, assistantEntryId: entry.id }));
+    this.validateToolBatchInputs(inputs);
+    const calls = entry.status === "completed" ? entry.payload.toolCalls ?? [] : [];
+    if (calls.length !== plans.length || plans.some((plan, index) => {
+      const call = calls[index]!;
+      return plan.runId !== entry.runId || plan.turnId !== entry.turnId || plan.ordinal !== index
+        || call.id !== plan.toolCallId || call.name !== plan.toolName || !call.inputComplete
+        || !jsonEqual(call.input, JSON.parse(plan.inputJson));
+    })) throw new RepositoryError("The assistant response must match its entire tool plan.", "invalid");
+    return this.transaction(() => {
+      const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(entry.id) as Row | undefined;
+      const previous = row ? rowToEntry(row) : undefined;
+      if (previous && (previous.projectId !== projectId || previous.type !== entry.type || previous.runId !== entry.runId || previous.turnId !== entry.turnId)) {
+        throw new RepositoryError("The assistant entry belongs to a different scope or attempt.", "conflict");
+      }
+      let committed: HistoryEntry;
+      if (previous && previous.status !== "streaming") {
+        if (previous.status !== entry.status || !jsonEqual(previous.payload, entry.payload)) {
+          throw new RepositoryError(`Assistant entry already exists with different content: ${entry.id}`, "conflict");
+        }
+        committed = previous;
+      } else if (assistant.expectedRevision === null) {
+        committed = this.appendEntryInTransaction(projectId, entry);
+      } else {
+        if (!previous) throw new RepositoryError(`Assistant draft not found: ${entry.id}`, "not_found");
+        committed = this.updateEntryInTransaction(entry.id, assistant.expectedRevision, {
+          status: entry.status, payload: entry.payload, completedAt: entry.completedAt,
+        });
+      }
+      const invocations = inputs.map((input) => this.registerToolInvocationInTransaction(input));
+      return { assistant: committed, invocations };
+    });
+  }
+
+  private validateToolBatchInputs(inputs: CreateToolInvocationInput[]): void {
+    const first = inputs[0];
+    if (!first) return;
+    const callIds = new Set<string>();
+    for (const [index, input] of inputs.entries()) {
+      this.validateToolInvocationInput(input);
+      if (input.projectId !== first.projectId || input.runId !== first.runId || input.turnId !== first.turnId || input.assistantEntryId !== first.assistantEntryId
+        || callIds.has(input.toolCallId) || (inputs.length > 1 && input.ordinal !== index)) {
+        throw new RepositoryError("Tool batch scope, call identities and ordinal order must be consistent.", "invalid");
+      }
+      callIds.add(input.toolCallId);
+    }
+  }
+
+  private registerToolInvocationInTransaction(input: CreateToolInvocationInput): ToolInvocationRecord {
     const id = input.id ?? randomUUID();
     const resultEntryId = input.resultEntryId ?? randomUUID();
     const timestamp = input.createdAt ?? now();
     const updatedAt = input.updatedAt ?? timestamp;
     const checkpointJson = input.checkpoint === undefined ? null : serializeJson(input.checkpoint, "checkpoint");
-    return this.transaction(() => {
-      if (input.projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(input.projectId)) {
-        throw new RepositoryError(`Project not found: ${input.projectId}`, "not_found");
+    const previous = this.database.prepare("SELECT * FROM tool_invocations WHERE run_id = ? AND tool_call_id = ?").get(input.runId, input.toolCallId) as Row | undefined;
+    if (previous) {
+      const existing = rowToToolInvocation(previous);
+      if (existing.projectId !== input.projectId || existing.turnId !== input.turnId || existing.assistantEntryId !== input.assistantEntryId
+        || existing.cwd !== input.cwd || existing.toolName !== input.toolName || existing.toolVersion !== input.toolVersion
+        || existing.ordinal !== input.ordinal || existing.inputHash !== input.inputHash || canonical(JSON.parse(existing.inputJson)) !== canonical(JSON.parse(input.inputJson))
+        || existing.recoveryModeSnapshot !== input.recoveryModeSnapshot
+        || (input.resultEntryId !== undefined && input.resultEntryId !== existing.resultEntryId)) {
+        throw new RepositoryError(`Tool call identity conflict: ${input.toolCallId}`, "conflict");
       }
-      try {
-        this.database.prepare(`
-          INSERT INTO tool_invocations
-            (id, project_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
-             tool_name, tool_version, input_json, input_hash, phase, outcome_status,
-             outcome_json, recovery_mode_snapshot, attempt_count, checkpoint_json,
-             result_entry_id, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, ?, 0, ?, ?, ?, ?)
-        `).run(
-          id, input.projectId, input.runId, input.turnId, input.cwd, input.assistantEntryId,
-          input.toolCallId, input.ordinal, input.toolName, input.toolVersion,
-          input.inputJson, input.inputHash, input.recoveryModeSnapshot,
-          checkpointJson, resultEntryId, timestamp, updatedAt,
-        );
-      } catch (error) {
-        throw new RepositoryError(`Failed to register tool invocation: ${error instanceof Error ? error.message : String(error)}`, "conflict");
-      }
-      return this.getToolInvocationById(id)!;
+      return existing;
+    }
+    try {
+      this.database.prepare(`
+        INSERT INTO tool_invocations
+          (id, project_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
+           tool_name, tool_version, input_json, input_hash, phase, outcome_status,
+           outcome_json, recovery_mode_snapshot, attempt_count, checkpoint_json,
+           result_entry_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, ?, 0, ?, ?, ?, ?)
+      `).run(
+        id, input.projectId, input.runId, input.turnId, input.cwd, input.assistantEntryId,
+        input.toolCallId, input.ordinal, input.toolName, input.toolVersion,
+        input.inputJson, input.inputHash, input.recoveryModeSnapshot,
+        checkpointJson, resultEntryId, timestamp, updatedAt,
+      );
+    } catch (error) {
+      throw sqliteRepositoryError(error, "Failed to register tool invocation: ");
+    }
+    return this.getToolInvocationById(id)!;
+  }
+
+  async requestRunCancellation(projectId: HistoryScope, runId: string): Promise<void> {
+    if (!runId) throw new RepositoryError("runId is required for cancellation.", "invalid");
+    this.transaction(() => {
+      const existing = this.database.prepare("SELECT project_id FROM run_cancellations WHERE run_id = ?").get(runId) as Row | undefined;
+      if (existing && existing.project_id !== projectId) throw new RepositoryError(`Run cancellation scope conflict: ${runId}`, "conflict");
+      this.database.prepare("INSERT INTO run_cancellations (run_id, project_id, cancelled_at) VALUES (?, ?, ?) ON CONFLICT(run_id) DO NOTHING").run(runId, projectId, now());
     });
   }
 
-  async beginToolAttempt(invocationId: string): Promise<ToolInvocationRecord> {
+  async isRunCancelled(projectId: HistoryScope, runId: string): Promise<boolean> {
+    return Boolean(this.database.prepare("SELECT 1 FROM run_cancellations WHERE run_id = ? AND project_id IS ?").get(runId, projectId));
+  }
+
+  async isToolInvocationBlocked(invocationId: string): Promise<boolean> {
+    const invocation = this.getToolInvocationById(invocationId);
+    if (!invocation) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
+    return this.hasPriorInterruptedInvocation(invocation);
+  }
+
+  async getToolInvocationCall(invocationId: string): Promise<ToolCall> {
+    return this.transaction(() => {
+      const invocation = this.getToolInvocationById(invocationId);
+      if (!invocation) throw new RepositoryError(`Stored tool invocation not found: ${invocationId}`, "storage");
+      const input = parseJson(invocation.inputJson, "tool input");
+      if (!isJsonObject(input)) throw new RepositoryError(`Stored tool input must be an object: ${invocationId}`, "storage");
+      const hash = toolInputHash(invocation.toolName, invocation.toolVersion, input);
+      const legacyHash = toolInputHashFromJson(invocation.toolName, invocation.toolVersion, invocation.inputJson);
+      if (invocation.inputHash !== hash && invocation.inputHash !== legacyHash) {
+        throw new RepositoryError(`Stored tool input hash does not match: ${invocationId}`, "storage");
+      }
+      const row = this.database.prepare("SELECT * FROM entries WHERE id = ?").get(invocation.assistantEntryId) as Row | undefined;
+      if (!row) throw new RepositoryError(`Stored tool invocation has no source Assistant: ${invocationId}`, "storage");
+      const assistant = rowToEntry(row);
+      const call = assistant.payload.toolCalls?.[invocation.ordinal];
+      if (assistant.type !== "assistant_message" || assistant.status !== "completed" || assistant.payload.role !== "assistant"
+        || assistant.projectId !== invocation.projectId || assistant.runId !== invocation.runId || assistant.turnId !== invocation.turnId
+        || !call || call.id !== invocation.toolCallId || call.name !== invocation.toolName || !call.inputComplete || !jsonEqual(call.input, input)) {
+        throw new RepositoryError(`Stored tool invocation differs from its source Assistant: ${invocationId}`, "storage");
+      }
+      return call;
+    });
+  }
+
+  private hasPriorInterruptedInvocation(invocation: ToolInvocationRecord): boolean {
+    return Boolean(this.database.prepare(`
+      SELECT 1 FROM tool_invocations
+      WHERE project_id IS ? AND run_id = ? AND assistant_entry_id = ? AND ordinal < ? AND outcome_status = 'interrupted'
+      LIMIT 1
+    `).get(invocation.projectId, invocation.runId, invocation.assistantEntryId, invocation.ordinal));
+  }
+
+  async beginToolAttempt(invocationId: string, checkpoint?: unknown): Promise<ToolInvocationRecord> {
+    if (checkpoint !== undefined && !readToolCheckpoint(checkpoint)) throw new RepositoryError("Tool checkpoint must contain a version, kind and data object.", "invalid");
+    const checkpointJson = checkpoint === undefined ? null : serializeJson(checkpoint, "checkpoint");
     return this.transaction(() => {
       const existing = this.getToolInvocationById(invocationId);
       if (!existing) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
-      if (existing.phase === "effect_pending") {
-        this.database.prepare("UPDATE tool_invocations SET attempt_count = attempt_count + 1, updated_at = ? WHERE id = ? AND phase = 'effect_pending'").run(now(), invocationId);
-        return this.getToolInvocationById(invocationId)!;
+      if (this.database.prepare("SELECT 1 FROM run_cancellations WHERE run_id = ? AND project_id IS ?").get(existing.runId, existing.projectId)) {
+        throw new ToolAttemptBlockedError("cancelled", `Cancelled run cannot start a tool attempt: ${existing.runId}`);
       }
-      if (existing.phase !== "planned") throw new RepositoryError(`Tool invocation cannot begin from phase ${existing.phase}: ${invocationId}`, "conflict");
-      this.database.prepare("UPDATE tool_invocations SET phase = 'effect_pending', attempt_count = attempt_count + 1, updated_at = ? WHERE id = ? AND phase = 'planned'").run(now(), invocationId);
+      if (existing.phase !== "planned" && existing.phase !== "effect_pending") throw new RepositoryError(`Tool invocation cannot begin from phase ${existing.phase}: ${invocationId}`, "conflict");
+      if (existing.phase === "planned" && this.hasPriorInterruptedInvocation(existing)) {
+        throw new ToolAttemptBlockedError("prior_interrupted", `A prior tool invocation was interrupted: ${invocationId}`);
+      }
+      this.database.prepare("UPDATE tool_invocations SET phase = 'effect_pending', attempt_count = attempt_count + 1, checkpoint_json = ?, updated_at = ? WHERE id = ? AND phase = ?")
+        .run(checkpointJson, now(), invocationId, existing.phase);
       return this.getToolInvocationById(invocationId)!;
     });
   }
 
   async saveToolOutcome(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord> {
+    return this.persistToolOutcome(invocationId, outcome, "effect_pending");
+  }
+
+  async settleUnstartedToolInvocation(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord> {
+    if (outcome.status === "succeeded") {
+      throw new RepositoryError("An unstarted invocation can only be failed, cancelled or interrupted.", "invalid");
+    }
+    return this.persistToolOutcome(invocationId, outcome, "planned");
+  }
+
+  private persistToolOutcome(invocationId: string, outcome: ToolOutcomeInput, expectedPhase: "planned" | "effect_pending"): ToolInvocationRecord {
+    const result = readToolResult(outcome.outcome);
+    if (!result || toolOutcomeStatus(result) !== outcome.status) throw new RepositoryError("Tool outcome must contain a valid result with matching status.", "invalid");
+    if (outcome.checkpoint !== undefined && !readToolCheckpoint(outcome.checkpoint)) throw new RepositoryError("Tool checkpoint must contain a version, kind and data object.", "invalid");
     const outcomeJson = serializeJson(outcome.outcome, "tool outcome");
     const checkpointJson = outcome.checkpoint === undefined ? null : serializeJson(outcome.checkpoint, "checkpoint");
     return this.transaction(() => {
@@ -509,29 +696,41 @@ export class SqliteHistoryRepository implements HistoryRepository {
         if (existing.outcomeStatus !== outcome.status || canonical(existing.outcomeJson) !== canonical(outcome.outcome)) throw new RepositoryError(`Tool outcome already exists with different content: ${invocationId}`, "conflict");
         return existing;
       }
-      if (existing.phase !== "effect_pending") throw new RepositoryError(`Tool invocation cannot save outcome from phase ${existing.phase}: ${invocationId}`, "conflict");
+      if (existing.phase !== expectedPhase) throw new RepositoryError(`Tool invocation cannot save outcome from phase ${existing.phase}: ${invocationId}`, "conflict");
       this.database.prepare(`
         UPDATE tool_invocations
         SET phase = 'outcome_ready', outcome_status = ?, outcome_json = ?,
             checkpoint_json = COALESCE(?, checkpoint_json), updated_at = ?
-        WHERE id = ? AND phase = 'effect_pending'
-      `).run(outcome.status, outcomeJson, checkpointJson, outcome.updatedAt ?? now(), invocationId);
+        WHERE id = ? AND phase = ?
+      `).run(outcome.status, outcomeJson, checkpointJson, outcome.updatedAt ?? now(), invocationId, expectedPhase);
       return this.getToolInvocationById(invocationId)!;
     });
   }
 
-  async completeToolInvocation(invocationId: string, resultEntryId: string): Promise<ToolInvocationRecord> {
-    if (!resultEntryId) throw new RepositoryError("resultEntryId is required.", "invalid");
+  async commitToolResult(projectId: HistoryScope, entry: AppendEntryInput, invocationId?: string): Promise<HistoryEntry> {
+    validatePayloadForType(entry.type, entry.payload, entry.toolCallId);
+    if (entry.type !== "tool_result" || entry.status !== "completed") throw new RepositoryError("Tool result materialization requires a completed tool message.", "invalid");
     return this.transaction(() => {
+      if (!invocationId) return this.appendEntryInTransaction(projectId, entry);
       const existing = this.getToolInvocationById(invocationId);
       if (!existing) throw new RepositoryError(`Tool invocation not found: ${invocationId}`, "not_found");
-      if (existing.phase === "completed") {
-        if (existing.resultEntryId !== resultEntryId) throw new RepositoryError(`Tool invocation already completed with a different result: ${invocationId}`, "conflict");
-        return existing;
+      if (existing.projectId !== projectId || existing.runId !== entry.runId || existing.turnId !== entry.turnId
+        || existing.toolCallId !== entry.toolCallId || (existing.resultEntryId !== null && existing.resultEntryId !== entry.id)) {
+        throw new RepositoryError(`Tool result identity conflict: ${invocationId}`, "conflict");
       }
-      if (existing.phase !== "outcome_ready") throw new RepositoryError(`Tool invocation cannot complete from phase ${existing.phase}: ${invocationId}`, "conflict");
-      this.database.prepare("UPDATE tool_invocations SET phase = 'completed', result_entry_id = ?, updated_at = ? WHERE id = ? AND phase = 'outcome_ready'").run(resultEntryId, now(), invocationId);
-      return this.getToolInvocationById(invocationId)!;
+      if (existing.phase !== "outcome_ready" && existing.phase !== "completed") throw new RepositoryError(`Tool invocation cannot materialize from phase ${existing.phase}: ${invocationId}`, "conflict");
+      if (existing.phase === "completed" && !this.database.prepare("SELECT 1 FROM entries WHERE id = ?").get(entry.id)) {
+        throw new RepositoryError(`Completed invocation has no persisted result message: ${invocationId}`, "storage");
+      }
+      const result = readToolResult(existing.outcomeJson);
+      if (!result || toolOutcomeStatus(result) !== existing.outcomeStatus) throw new RepositoryError(`Stored tool outcome is invalid: ${invocationId}`, "storage");
+      const expectedMessage = toolResultMessage({ id: existing.toolCallId, name: existing.toolName }, result);
+      if (!jsonEqual(expectedMessage, entry.payload)) throw new RepositoryError(`Tool message differs from its persisted outcome: ${invocationId}`, "conflict");
+      const committed = this.appendEntryInTransaction(projectId, entry);
+      if (existing.phase !== "completed") {
+        this.database.prepare("UPDATE tool_invocations SET phase = 'completed', result_entry_id = ?, updated_at = ? WHERE id = ? AND phase = 'outcome_ready'").run(committed.id, now(), invocationId);
+      }
+      return committed;
     });
   }
 
@@ -542,8 +741,8 @@ export class SqliteHistoryRepository implements HistoryRepository {
 
   async listOpenToolInvocations(projectId: HistoryScope, runId?: string): Promise<ToolInvocationRecord[]> {
     const rows = runId
-      ? this.database.prepare("SELECT * FROM tool_invocations WHERE project_id IS ? AND run_id = ? AND phase != 'completed' ORDER BY ordinal ASC, created_at ASC, id ASC").all(projectId, runId) as Row[]
-      : this.database.prepare("SELECT * FROM tool_invocations WHERE project_id IS ? AND phase != 'completed' ORDER BY ordinal ASC, created_at ASC, id ASC").all(projectId) as Row[];
+      ? this.database.prepare("SELECT t.* FROM tool_invocations t LEFT JOIN entries e ON e.id = t.assistant_entry_id WHERE t.project_id IS ? AND t.run_id = ? AND t.phase != 'completed' ORDER BY COALESCE(e.entry_order, t.created_at), t.ordinal ASC, t.id ASC").all(projectId, runId) as Row[]
+      : this.database.prepare("SELECT t.* FROM tool_invocations t LEFT JOIN entries e ON e.id = t.assistant_entry_id WHERE t.project_id IS ? AND t.phase != 'completed' ORDER BY COALESCE(e.entry_order, t.created_at), t.ordinal ASC, t.id ASC").all(projectId) as Row[];
     return rows.map(rowToToolInvocation);
   }
 
@@ -552,18 +751,26 @@ export class SqliteHistoryRepository implements HistoryRepository {
   }
 
   private transaction<T>(operation: () => T): T {
-    this.database.exec("BEGIN IMMEDIATE");
+    let began = false;
     try {
+      this.database.exec("BEGIN IMMEDIATE");
+      began = true;
       const result = operation();
       this.database.exec("COMMIT");
       return result;
     } catch (error) {
-      try {
-        this.database.exec("ROLLBACK");
-      } catch {
-        // Preserve the original transaction error.
+      let safeToRetry = !began;
+      if (began) {
+        try {
+          this.database.exec("ROLLBACK");
+          safeToRetry = true;
+        } catch {
+          // An uncertain transaction must not be automatically replayed.
+        }
       }
-      throw error;
+      const failure = error instanceof RepositoryError ? error : sqliteRepositoryError(error);
+      if (failure.retryable && !safeToRetry) throw new RepositoryError(failure.message, failure.code, { cause: failure });
+      throw failure;
     }
   }
 
@@ -612,11 +819,11 @@ export class SqliteHistoryRepository implements HistoryRepository {
     this.database.prepare(`
       INSERT INTO entries
         (id, project_id, entry_order, type, status, run_id, turn_id, tool_call_id,
-         revision, payload_version, payload_json, created_at, updated_at, duration_ms)
-      VALUES (?, ?, ?, 'user_message', ?, ?, NULL, NULL, 0, 1, ?, ?, ?, NULL)
+         revision, payload_version, payload_json, created_at, completed_at, duration_ms)
+      VALUES (?, ?, ?, 'user_message', ?, ?, NULL, NULL, 0, 1, ?, ?, NULL, NULL)
     `).run(
       item.inputId, item.projectId, entryOrder, state === "applied" ? "completed" : "interrupted",
-      item.runId, JSON.stringify({ role: "user", content: item.content }), item.acceptedAt, timestamp,
+      item.runId, JSON.stringify({ role: "user", content: item.content }), item.acceptedAt,
     );
     const changed = this.database.prepare(`
       UPDATE pending_run_inputs

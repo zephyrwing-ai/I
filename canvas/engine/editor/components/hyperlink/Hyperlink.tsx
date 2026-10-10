@@ -4,11 +4,9 @@ import {
   viewportCoordsToSceneCoords,
   wrapEvent,
 } from "../../utils";
-import { getEmbedLink, embeddableURLValidator } from "../../element/embeddable";
 import { mutateElement } from "../../element/mutateElement";
 import type {
   ElementsMap,
-  CanvasEditorEmbeddableElement,
   NonDeletedCanvasEditorElement,
 } from "../../element/types";
 
@@ -30,9 +28,7 @@ import { getTooltipDiv, updateTooltipPosition } from "../../components/Tooltip";
 import { getSelectedElements } from "../../scene";
 import { hitElementBoundingBox } from "../../element/collision";
 import { isLocalLink, normalizeLink } from "../../data/url";
-import { trackEvent } from "../../analytics";
-import { useAppProps, useDevice, useCanvasEditorAppState } from "../App";
-import { isEmbeddableElement } from "../../element/typeChecks";
+import { useDevice, useCanvasEditorAppState } from "../App";
 import { getLinkHandleFromCoords } from "./helpers";
 import { pointFrom, type GlobalPoint } from "@agent-studio/canvas-math";
 import { isElementLink } from "../../element/elementLink";
@@ -47,33 +43,19 @@ const AUTO_HIDE_TIMEOUT = 500;
 
 let IS_HYPERLINK_TOOLTIP_VISIBLE = false;
 
-const embeddableLinkCache = new Map<
-  CanvasEditorEmbeddableElement["id"],
-  string
->();
 
 export const Hyperlink = ({
   element,
   elementsMap,
   setAppState,
   onLinkOpen,
-  setToast,
-  updateEmbedValidationStatus,
 }: {
   element: NonDeletedCanvasEditorElement;
   elementsMap: ElementsMap;
   setAppState: React.Component<any, AppState>["setState"];
   onLinkOpen: CanvasEditorProps["onLinkOpen"];
-  setToast: (
-    toast: { message: string; closable?: boolean; duration?: number } | null,
-  ) => void;
-  updateEmbedValidationStatus: (
-    element: CanvasEditorEmbeddableElement,
-    status: boolean,
-  ) => void;
 }) => {
   const appState = useCanvasEditorAppState();
-  const appProps = useAppProps();
   const device = useDevice();
 
   const linkVal = element.link || "";
@@ -89,80 +71,8 @@ export const Hyperlink = ({
 
     const link = normalizeLink(inputRef.current.value) || null;
 
-    if (!element.link && link) {
-      trackEvent("hyperlink", "create");
-    }
-
-    if (isEmbeddableElement(element)) {
-      if (appState.activeEmbeddable?.element === element) {
-        setAppState({ activeEmbeddable: null });
-      }
-      if (!link) {
-        mutateElement(element, {
-          link: null,
-        });
-        updateEmbedValidationStatus(element, false);
-        return;
-      }
-
-      if (!embeddableURLValidator(link, appProps.validateEmbeddable)) {
-        if (link) {
-          setToast({ message: t("toast.unableToEmbed"), closable: true });
-        }
-        element.link && embeddableLinkCache.set(element.id, element.link);
-        mutateElement(element, {
-          link,
-        });
-        updateEmbedValidationStatus(element, false);
-      } else {
-        const { width, height } = element;
-        const embedLink = getEmbedLink(link);
-        if (embedLink?.error instanceof URIError) {
-          setToast({
-            message: t("toast.unrecognizedLinkFormat"),
-            closable: true,
-          });
-        }
-        const ar = embedLink
-          ? embedLink.intrinsicSize.w / embedLink.intrinsicSize.h
-          : 1;
-        const hasLinkChanged =
-          embeddableLinkCache.get(element.id) !== element.link;
-        mutateElement(element, {
-          ...(hasLinkChanged
-            ? {
-                width:
-                  embedLink?.type === "video"
-                    ? width > height
-                      ? width
-                      : height * ar
-                    : width,
-                height:
-                  embedLink?.type === "video"
-                    ? width > height
-                      ? width / ar
-                      : height
-                    : height,
-              }
-            : {}),
-          link,
-        });
-        updateEmbedValidationStatus(element, true);
-        if (embeddableLinkCache.has(element.id)) {
-          embeddableLinkCache.delete(element.id);
-        }
-      }
-    } else {
-      mutateElement(element, { link });
-    }
-  }, [
-    element,
-    setToast,
-    appProps.validateEmbeddable,
-    appState.activeEmbeddable,
-    setAppState,
-    updateEmbedValidationStatus,
-  ]);
+    mutateElement(element, { link });
+  }, [element]);
 
   useLayoutEffect(() => {
     return () => {
@@ -212,13 +122,11 @@ export const Hyperlink = ({
   }, [appState, element, isEditing, setAppState, elementsMap]);
 
   const handleRemove = useCallback(() => {
-    trackEvent("hyperlink", "delete");
     mutateElement(element, { link: null });
     setAppState({ showHyperlinkPopup: false });
   }, [setAppState, element]);
 
   const onEdit = () => {
-    trackEvent("hyperlink", "edit", "popup-ui");
     setAppState({ showHyperlinkPopup: "editor" });
   };
   const { x, y } = getCoordsForPopover(element, appState, elementsMap);
@@ -321,7 +229,7 @@ export const Hyperlink = ({
           }}
           icon={elementLinkIcon}
         />
-        {linkVal && !isEmbeddableElement(element) && (
+        {linkVal && (
           <ToolButton
             type="button"
             title={t("buttons.remove")}
@@ -357,9 +265,7 @@ export const getContextMenuLabel = (
   appState: UIAppState,
 ) => {
   const selectedElements = getSelectedElements(elements, appState);
-  const label = isEmbeddableElement(selectedElements[0])
-    ? "labels.link.editEmbed"
-    : selectedElements[0]?.link
+  const label = selectedElements[0]?.link
     ? "labels.link.edit"
     : "labels.link.create";
   return label;
@@ -420,7 +326,6 @@ const renderTooltip = (
     },
     "top",
   );
-  trackEvent("hyperlink", "tooltip", "link-icon");
 
   IS_HYPERLINK_TOOLTIP_VISIBLE = true;
 };

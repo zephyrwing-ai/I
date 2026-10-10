@@ -1,6 +1,6 @@
-import type { ModelMessage } from "../model/types.js";
+import type { ModelMessage, ToolCall } from "../model/types.js";
 
-export type { ModelMessage } from "../model/types.js";
+export type { ModelMessage, ToolCall } from "../model/types.js";
 
 export type HistoryScope = string | null;
 export type EntryType = "user_message" | "assistant_message" | "tool_result";
@@ -59,7 +59,7 @@ export interface HistoryEntry {
   payloadVersion: number;
   payload: ModelMessage;
   createdAt: number;
-  updatedAt: number;
+  completedAt: number | null;
   durationMs: number | null;
 }
 
@@ -94,7 +94,7 @@ export interface AppendEntryInput {
   payloadVersion?: number;
   payload: ModelMessage;
   createdAt?: number;
-  updatedAt?: number;
+  completedAt?: number | null;
   durationMs?: number | null;
 }
 
@@ -104,7 +104,7 @@ export interface EntryPatch {
   payloadVersion?: number;
   turnId?: string | null;
   toolCallId?: string | null;
-  updatedAt?: number;
+  completedAt?: number | null;
   durationMs?: number | null;
 }
 
@@ -112,17 +112,22 @@ export interface MessageCommitContext {
   runId: string;
   /** Main-generated ID shared with the live Renderer message block. */
   entryId?: string;
+  /** Fixed creation time shared by admission, persistence and live delivery. */
+  createdAt?: number;
 }
 
 export interface TurnCommitContext extends MessageCommitContext {
   turnId: string;
   turnOrdinal: number;
   attempt?: number;
+  /** Fixed output completion time reused by local commit retries. */
+  completedAt?: number;
 }
 
 export interface ToolCommitContext extends TurnCommitContext {
   toolCallId: string;
   entryId?: string;
+  invocationId?: string;
 }
 
 export interface RegisterToolInvocationInput {
@@ -179,6 +184,19 @@ export interface ToolOutcomeInput {
   updatedAt?: number;
 }
 
+export type ToolInvocationPlan = Omit<RegisterToolInvocationInput, "assistantEntryId">;
+
+/** Assistant terminal state and its optional complete execution plan share one commit. */
+export interface AssistantCommitInput {
+  entry: AppendEntryInput;
+  expectedRevision: number | null;
+}
+
+export interface AssistantCommitResult {
+  assistant: HistoryEntry;
+  invocations: ToolInvocationRecord[];
+}
+
 export interface HistoryRepository {
   createProject(input: CreateProjectInput): Promise<Project>;
   getProject(projectId: string): Promise<Project | null>;
@@ -194,6 +212,7 @@ export interface HistoryRepository {
   listEntries(projectId: HistoryScope, cursor?: number, limit?: number): Promise<HistoryEntry[]>;
   listLatestEntries(projectId: HistoryScope, limit: number): Promise<HistoryEntry[]>;
   listEntriesBefore(projectId: HistoryScope, beforeOrder: number, limit: number): Promise<HistoryEntry[]>;
+  getToolOutcomesForEntries(projectId: HistoryScope, entryIds: string[]): Promise<Map<string, unknown>>;
   acceptRunInput(projectId: HistoryScope, input: AcceptRunInputInput): Promise<PendingRunInput>;
   listAcceptedRunInputs(projectId: HistoryScope, runId: string): Promise<PendingRunInput[]>;
   applyRunInputs(projectId: HistoryScope, runId: string, inputIds: string[]): Promise<HistoryEntry[]>;
@@ -201,18 +220,35 @@ export interface HistoryRepository {
   recoverAcceptedRunInputs(reason: string): Promise<HistoryEntry[]>;
   finalizeAnswerDuration(projectId: HistoryScope, turnId: string, durationMs: number): Promise<void>;
   registerToolInvocation(input: CreateToolInvocationInput): Promise<ToolInvocationRecord>;
-  beginToolAttempt(invocationId: string): Promise<ToolInvocationRecord>;
+  registerToolBatch(inputs: CreateToolInvocationInput[]): Promise<ToolInvocationRecord[]>;
+  commitAssistantAttempt(projectId: HistoryScope, assistant: AssistantCommitInput, plans: ToolInvocationPlan[]): Promise<AssistantCommitResult>;
+  commitToolResult(projectId: HistoryScope, entry: AppendEntryInput, invocationId?: string): Promise<HistoryEntry>;
+  requestRunCancellation(projectId: HistoryScope, runId: string): Promise<void>;
+  isRunCancelled(projectId: HistoryScope, runId: string): Promise<boolean>;
+  isToolInvocationBlocked(invocationId: string): Promise<boolean>;
+  getToolInvocationCall(invocationId: string): Promise<ToolCall>;
+  beginToolAttempt(invocationId: string, checkpoint?: unknown): Promise<ToolInvocationRecord>;
+  settleUnstartedToolInvocation(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord>;
   saveToolOutcome(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord>;
-  completeToolInvocation(invocationId: string, resultEntryId: string): Promise<ToolInvocationRecord>;
   getToolInvocation(projectId: HistoryScope, runId: string, toolCallId: string): Promise<ToolInvocationRecord | null>;
   listOpenToolInvocations(projectId: HistoryScope, runId?: string): Promise<ToolInvocationRecord[]>;
   close?(): Promise<void> | void;
 }
 
 export class RepositoryError extends Error {
-  constructor(message: string, readonly code: "not_found" | "conflict" | "invalid" | "storage") {
-    super(message);
+  readonly retryable: boolean;
+
+  constructor(message: string, readonly code: "not_found" | "conflict" | "invalid" | "storage", options: ErrorOptions & { retryable?: boolean } = {}) {
+    super(message, options);
     this.name = "RepositoryError";
+    this.retryable = options.retryable ?? false;
+  }
+}
+
+export class ToolAttemptBlockedError extends RepositoryError {
+  constructor(readonly reason: "cancelled" | "prior_interrupted", message: string) {
+    super(message, "conflict", { retryable: false });
+    this.name = "ToolAttemptBlockedError";
   }
 }
 
@@ -221,6 +257,7 @@ export interface HistoryRecorder {
   snapshot(): ModelMessage[];
   getAssistantEntryId?(turnId: string): Promise<string | null>;
   commitUser(message: ModelMessage, context: MessageCommitContext): Promise<void>;
+  archiveUnappliedUser(message: ModelMessage, context: MessageCommitContext): Promise<void>;
   acceptRunInput(input: AcceptRunInputInput): Promise<PendingRunInput>;
   listAcceptedRunInputs(runId: string): Promise<PendingRunInput[]>;
   applyRunInputs(runId: string, inputIds: string[]): Promise<HistoryEntry[]>;
@@ -231,13 +268,17 @@ export interface HistoryRecorder {
     context: TurnCommitContext,
     status: "completed" | "interrupted" | "failed",
     message?: ModelMessage,
-  ): Promise<void>;
-  commitAssistant(message: ModelMessage, context: TurnCommitContext): Promise<void>;
+    plans?: ToolInvocationPlan[],
+  ): Promise<ToolInvocationRecord[]>;
   commitToolResult(message: ModelMessage, context: ToolCommitContext): Promise<void>;
   registerToolInvocation(input: RegisterToolInvocationInput): Promise<ToolInvocationRecord>;
-  beginToolAttempt(invocationId: string): Promise<ToolInvocationRecord>;
+  requestRunCancellation(runId: string): Promise<void>;
+  isRunCancelled(runId: string): Promise<boolean>;
+  isToolInvocationBlocked(invocationId: string): Promise<boolean>;
+  getToolInvocationCall(invocationId: string): Promise<ToolCall>;
+  beginToolAttempt(invocationId: string, checkpoint?: unknown): Promise<ToolInvocationRecord>;
+  settleUnstartedToolInvocation(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord>;
   saveToolOutcome(invocationId: string, outcome: ToolOutcomeInput): Promise<ToolInvocationRecord>;
-  completeToolInvocation(invocationId: string, resultEntryId: string): Promise<ToolInvocationRecord>;
   getToolInvocation(runId: string, toolCallId: string): Promise<ToolInvocationRecord | null>;
   listOpenToolInvocations(runId?: string): Promise<ToolInvocationRecord[]>;
   finishRun(result: { runId: string; status: RecordedRunStatus }): Promise<void>;

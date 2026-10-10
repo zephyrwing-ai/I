@@ -17,18 +17,17 @@ export function useOutsideClick<T extends HTMLElement>(
    * Returning `undefined` will fallback to the default behavior.
    */
   isInside?: (
-    event: Event & { target: HTMLElement },
+    event: Event & { target: Element },
     /** the element of the passed ref */
     container: T,
   ) => boolean | undefined,
 ) {
   useEffect(() => {
     function onOutsideClick(event: Event) {
-      const _event = event as Event & { target: T };
-
-      if (!ref.current) {
+      if (!ref.current || !(event.target instanceof Element)) {
         return;
       }
+      const _event = event as Event & { target: Element };
 
       const isInsideOverride = isInside?.(_event, ref.current);
 

@@ -1,12 +1,6 @@
 import type { CanvasEditorElement } from "../element/types";
-import type {
-  AppState,
-  BinaryFiles,
-  LibraryItems,
-  LibraryItems_anyVersion,
-} from "../types";
+import type { AppState, BinaryFiles } from "../types";
 import type { cleanAppStateForExport } from "../appState";
-import type { VERSIONS } from "../constants";
 
 export interface ExportedDataState {
   type: string;
@@ -42,18 +36,5 @@ export interface ImportedDataState {
     >
   > | null;
   scrollToContent?: boolean;
-  libraryItems?: LibraryItems_anyVersion;
   files?: BinaryFiles;
-}
-
-export interface ExportedLibraryData {
-  type: string;
-  version: typeof VERSIONS.canvasLibrary;
-  source: string;
-  libraryItems: LibraryItems;
-}
-
-export interface ImportedLibraryData extends Partial<ExportedLibraryData> {
-  /** @deprecated v1 */
-  library?: LibraryItems;
 }

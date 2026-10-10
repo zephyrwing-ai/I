@@ -118,18 +118,24 @@ export interface CanvasContextDescriptor {
   hasVisual: boolean;
 }
 
-export interface CanvasDocumentResult {
-  document: CanvasDocument;
+export interface CanvasPersistenceVersion {
   revision: number;
+  fingerprint: string;
 }
 
-export interface CanvasSaveResult {
-  revision: number;
+export interface CanvasDocumentResult {
+  document: CanvasDocument;
+  version: CanvasPersistenceVersion;
 }
+
+export type CanvasSaveResult =
+  | { status: "saved"; version: CanvasPersistenceVersion }
+  | { status: "conflict"; version: CanvasPersistenceVersion };
 
 export interface CanvasSaveRequest {
   projectId: string | null;
   document: CanvasDocument;
+  expectedVersion: CanvasPersistenceVersion;
 }
 
 export interface RunRequest {
@@ -184,7 +190,7 @@ export type RunError = {
   retryable?: boolean;
 };
 
-export type RunStartAck = { ok: true; runId: string; inputId: string } | { ok: false; error: string };
+export type RunStartAck = { ok: true; runId: string; inputId: string; createdAt: number } | { ok: false; error: string };
 
 export interface HistoryPageRequest {
   cursor: string | null;
@@ -203,8 +209,10 @@ export interface HistoryPageEntry {
   revision: number;
   payload: ModelMessage;
   createdAt: number;
-  updatedAt: number;
+  completedAt: number | null;
   durationMs: number | null;
+  /** Public projection of the invocation outcome associated with this result entry. */
+  toolResult?: ToolResult;
 }
 
 export interface HistoryPageResult {
@@ -260,7 +268,7 @@ export type AgentEvent =
   | { type: "turnStarted"; runId: string; turnId: string; turnOrdinal: number; attempt?: number }
   | { type: "assistantDelta"; runId: string; turnId: string; delta: string; attempt?: number }
   | { type: "reasoningDelta"; runId: string; turnId: string; delta: string; attempt?: number }
-  | { type: "assistantCompleted"; runId: string; turnId: string; content: string; toolCalls: ToolCall[]; stopReason: string }
+  | { type: "assistantCompleted"; runId: string; turnId: string; content: string; toolCalls: ToolCall[]; stopReason: string; completedAt: number }
   | { type: "toolStarted"; runId: string; turnId: string; toolCallId: string; name: string; input: Record<string, unknown> }
   | { type: "toolCompleted"; runId: string; turnId: string; toolCallId: string; name: string; result: ToolResult }
   | { type: "outputFileRegistered"; runId: string; file: OutputFileDescriptor }

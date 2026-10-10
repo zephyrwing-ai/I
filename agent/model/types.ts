@@ -57,6 +57,31 @@ export interface ModelMessage {
   media?: { mediaType: string; dataUrl: string };
 }
 
+/** Validate stored model-message fields while preserving their JSON payload. */
+export function readModelMessage(value: unknown): ModelMessage | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const message = value as Record<string, unknown>;
+  if (!["user", "assistant", "tool"].includes(message.role as string) || typeof message.content !== "string") return undefined;
+  for (const field of ["reasoning", "toolCallId", "toolName"]) {
+    if (message[field] !== undefined && typeof message[field] !== "string") return undefined;
+  }
+  if (message.isError !== undefined && typeof message.isError !== "boolean") return undefined;
+  if (message.toolCalls !== undefined) {
+    if (!Array.isArray(message.toolCalls) || !message.toolCalls.every((item: unknown) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      const call = item as Record<string, unknown>;
+      return typeof call.id === "string" && typeof call.name === "string" && typeof call.inputComplete === "boolean"
+        && call.input !== null && typeof call.input === "object" && !Array.isArray(call.input);
+    })) return undefined;
+  }
+  if (message.media !== undefined) {
+    if (!message.media || typeof message.media !== "object" || Array.isArray(message.media)) return undefined;
+    const media = message.media as Record<string, unknown>;
+    if (typeof media.mediaType !== "string" || typeof media.dataUrl !== "string") return undefined;
+  }
+  return value as ModelMessage;
+}
+
 /** 统一的模型返回，Runtime 不读取 Provider 原始响应格式。 */
 export interface LlmResponse {
   content: string;

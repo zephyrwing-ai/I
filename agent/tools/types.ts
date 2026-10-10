@@ -29,7 +29,6 @@ export interface ToolRecoverySpec {
   mode: ToolRecoveryMode;
   /** Whether a planned invocation from an earlier run may execute on recovery. */
   resumePlanned?: boolean;
-  prepare?(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolCheckpoint | undefined>;
   reconcile?(
     input: Record<string, unknown>,
     checkpoint: ToolCheckpoint | undefined,
@@ -50,10 +49,16 @@ export interface ToolResult extends ExecResult {
   media?: ToolResultMedia;
 }
 
+/** One prepared attempt owns the exact bytes and evidence that its executor will use. */
+export type PreparedToolExecution =
+  | { kind: "ready"; checkpoint?: ToolCheckpoint; execute(context: ToolExecutionContext): Promise<ToolResult> }
+  | { kind: "result"; result: ToolResult };
+
 /** 注册表项：模型可见的定义 + 宿主可执行的实现。 */
 export interface RegisteredTool {
   definition: ToolDef;
   recovery: ToolRecoverySpec;
+  prepare?(input: Record<string, unknown>, context: ToolExecutionContext): Promise<PreparedToolExecution>;
   execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolResult>;
 }
 

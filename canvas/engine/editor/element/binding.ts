@@ -42,7 +42,6 @@ import type Scene from "../scene/Scene";
 import { LinearElementEditor } from "./linearElementEditor";
 import {
   arrayToMap,
-  isBindingFallthroughEnabled,
   tupleToCoors,
 } from "../utils";
 import { KEYS } from "../keys";
@@ -580,7 +579,6 @@ export const getHoveredElementForBinding = (
   considerAllElements?: boolean,
 ): NonDeleted<CanvasEditorBindableElement> | null => {
   if (considerAllElements) {
-    let cullRest = false;
     const candidateElements = getAllElementsAtPositionForBinding(
       elements,
       (element) =>
@@ -590,25 +588,12 @@ export const getHoveredElementForBinding = (
           pointerCoords,
           elementsMap,
           zoom,
-          (fullShape ||
-            !isBindingFallthroughEnabled(
-              element as CanvasEditorBindableElement,
-            )) &&
+          fullShape &&
             // disable fullshape snapping for frame elements so we
             // can bind to frame children
             !isFrameLikeElement(element),
         ),
-    ).filter((element) => {
-      if (cullRest) {
-        return false;
-      }
-
-      if (!isBindingFallthroughEnabled(element as CanvasEditorBindableElement)) {
-        cullRest = true;
-      }
-
-      return true;
-    }) as NonDeleted<CanvasEditorBindableElement>[] | null;
+    ) as NonDeleted<CanvasEditorBindableElement>[] | null;
 
     // Return early if there are no candidates or just one candidate
     if (!candidateElements || candidateElements.length === 0) {
@@ -646,8 +631,7 @@ export const getHoveredElementForBinding = (
         zoom,
         // disable fullshape snapping for frame elements so we
         // can bind to frame children
-        (fullShape || !isBindingFallthroughEnabled(element)) &&
-          !isFrameLikeElement(element),
+        fullShape && !isFrameLikeElement(element),
       ),
   );
 

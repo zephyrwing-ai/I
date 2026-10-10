@@ -52,7 +52,7 @@ declare module "@agent-studio/canvas-editor/types" {
     updateScene(options: { appState?: Partial<AppState> }): void;
     replaceScene(scene: { elements: readonly Record<string, unknown>[]; appState: Partial<AppState>; files: BinaryFiles }): void;
     getSceneElements(): readonly Record<string, unknown>[];
-    getSceneVersion(): number | undefined;
+    getDocumentVersion(): number;
     getAppState(): AppState;
     getFiles(): BinaryFiles;
     getName(): string;

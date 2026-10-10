@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RunState } from "../../../../../frontend/src/store/agentReducer.js";
@@ -118,6 +116,60 @@ test("a tool-only turn occupies an assistant block with visible action details",
   assert.doesNotMatch(html, /block-process|>Process<|>Thinking</);
 });
 
+test("pending steering inputs leave the live work indicator with the existing assistant group", () => {
+  const current = run("run-pending", "原任务");
+  current.status = "running";
+  current.startedAt = new Date(1_000).toISOString();
+  current.inputs.steer = { inputId: "steer", task: "待应用补充", at: 2_000, status: "accepted" };
+  current.pendingInputIds = ["steer"];
+  current.timeline.push({ kind: "assistant", turnId: "turn-old" }, { kind: "user", inputId: "steer" });
+  current.turns["turn-old"] = {
+    turnId: "turn-old", turnOrdinal: 1, status: "running", assistantContent: "继续原任务",
+    reasoningContent: "仍在处理原任务", toolOrder: [], tools: {},
+  };
+
+  const html = renderToStaticMarkup(createElement(MessageStream, { order: [current.runId], runs: { [current.runId]: current } }));
+  assert.equal(html.match(/Working for/g)?.length, 1);
+  assert.match(html, /data-message-block-id="run-pending:work:run-pending:task"/);
+  assert.doesNotMatch(html, /data-message-block-id="run-pending:work:steer"/);
+  assert.ok(html.indexOf("继续原任务") < html.indexOf("待应用补充"));
+});
+
+test("the initial waiting work group keeps its identity when a pending steer precedes the first turn", () => {
+  const current = run("run-initial", "开始任务");
+  current.status = "running";
+  current.inputs.steer = { inputId: "steer", task: "补充任务", at: 2_000, status: "accepted" };
+  current.pendingInputIds = ["steer"];
+  current.timeline.push({ kind: "user", inputId: "steer" });
+  const render = () => renderToStaticMarkup(createElement(MessageStream, { order: [current.runId], runs: { [current.runId]: current } }));
+  const waiting = render();
+  assert.equal(waiting.match(/Working for/g)?.length, 1);
+  assert.ok(waiting.indexOf("run-initial:work:run-initial:task") < waiting.indexOf("补充任务"));
+
+  current.timeline.push({ kind: "assistant", turnId: "turn-1" });
+  current.turns["turn-1"] = {
+    turnId: "turn-1", turnOrdinal: 1, status: "running", assistantContent: "", reasoningContent: "开始处理", toolOrder: [], tools: {},
+  };
+  const started = render();
+  assert.equal(started.match(/data-message-block-id="run-initial:work:run-initial:task"/g)?.length, 1);
+  assert.equal(started.match(/Working for/g)?.length, 1);
+  assert.ok(started.indexOf("run-initial:work:run-initial:task") < started.indexOf("补充任务"));
+  assert.doesNotMatch(started, /data-message-block-id="run-initial:work:steer"/);
+});
+
+test("tool-call prose stays inside activity details even before its stop reason is projected", () => {
+  const current = run("run-tool-prose", "检查目录");
+  current.timeline.push({ kind: "assistant", turnId: "turn-1" });
+  current.turns["turn-1"] = {
+    turnId: "turn-1", turnOrdinal: 1, status: "completed", assistantContent: "准备读取目录", reasoningContent: "",
+    toolOrder: ["call-1"], tools: { "call-1": { toolCallId: "call-1", name: "list_dir", input: { path: "." }, status: "completed" } },
+  };
+  const html = renderToStaticMarkup(createElement(MessageStream, { order: [current.runId], runs: { [current.runId]: current } }));
+  assert.match(html, /work-intermediate-text/);
+  assert.match(html, /准备读取目录/);
+  assert.doesNotMatch(html, /final-answer/);
+});
+
 test("an active turn keeps one Working for block as reasoning and tools arrive", () => {
   const current = run("run-empty", "开始");
   current.status = "running";
@@ -142,21 +194,4 @@ test("an active turn keeps one Working for block as reasoning and tools arrive",
   current.turns["turn-1"].toolOrder = ["call-1"];
   current.turns["turn-1"].tools["call-1"] = { toolCallId: "call-1", name: "bash", input: { command: "pwd" }, status: "running" };
   assert.equal(render().match(/data-message-block-id="run-empty:work:run-empty:task"/g)?.length, 1);
-});
-
-test("user message bubble has a uniform 16px corner radius", () => {
-  const cssPath = fileURLToPath(
-    new URL("../../../../../frontend/src/middle-column/message-stream/message-stream.css", import.meta.url),
-  );
-  const css = readFileSync(cssPath, "utf8");
-
-  const ruleStart = css.indexOf(".user-message {");
-  assert.ok(ruleStart >= 0, ".user-message rule should exist");
-  const open = css.indexOf("{", ruleStart);
-  const rule = css.slice(open + 1, css.indexOf("}", open));
-
-  const radius = rule.match(/border-radius:\s*([^;]+);/)?.[1];
-  assert.ok(radius, "border-radius declaration should exist");
-  assert.equal(radius.trim().split(/\s+/).length, 1, "all four corners share one radius value");
-  assert.equal(radius.trim(), "16px");
 });

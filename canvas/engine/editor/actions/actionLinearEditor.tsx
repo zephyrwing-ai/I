@@ -1,4 +1,3 @@
-import { DEFAULT_CATEGORIES } from "../components/CommandPalette/CommandPalette";
 import { LinearElementEditor } from "../element/linearElementEditor";
 import { isElbowArrow, isLinearElement } from "../element/typeChecks";
 import type { CanvasEditorLinearElement } from "../element/types";
@@ -10,7 +9,6 @@ import { lineEditorIcon } from "../components/icons";
 
 export const actionToggleLinearEditor = register({
   name: "toggleLinearEditor",
-  category: DEFAULT_CATEGORIES.elements,
   label: (elements, appState, app) => {
     const selectedElement = app.scene.getSelectedElements({
       selectedElementIds: appState.selectedElementIds,
@@ -21,9 +19,6 @@ export const actionToggleLinearEditor = register({
       : "labels.lineEditor.edit";
   },
   keywords: ["line"],
-  trackEvent: {
-    category: "element",
-  },
   predicate: (elements, appState, _, app) => {
     const selectedElements = app.scene.getSelectedElements(appState);
     if (
