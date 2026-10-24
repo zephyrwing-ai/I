@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Icon } from "../../components/Icon";
+import { Icon } from "../../shared/ui/Icon";
+import { useI18n } from "../../shared/i18n";
 
 const messageTimeFormatter = new Intl.DateTimeFormat("en-US", {
   weekday: "short",
@@ -41,6 +42,7 @@ export function MessageMeta({
   text: string;
   copyLabel?: string;
 }) {
+  const t = useI18n();
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const feedbackTimer = useRef<number | null>(null);
 
@@ -66,7 +68,7 @@ export function MessageMeta({
     }
   };
 
-  const feedbackLabel = copyState === "success" ? "Copied" : copyState === "error" ? "Copy failed" : copyLabel;
+  const feedbackLabel = t(copyState === "success" ? "Copied" : copyState === "error" ? "Copy failed" : copyLabel);
   const iconName = copyState === "success" ? "check" : copyState === "error" ? "warning" : "copy";
 
   return (
@@ -82,7 +84,7 @@ export function MessageMeta({
         <Icon name={iconName} width={14} height={14} strokeWidth={2} />
       </button>
       <span className="sr-only" role="status" aria-live="polite">
-        {copyState === "success" ? "Copied" : copyState === "error" ? "Copy failed" : ""}
+        {copyState === "success" ? t("Copied") : copyState === "error" ? t("Copy failed") : ""}
       </span>
     </div>
   );

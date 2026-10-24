@@ -1,0 +1,5 @@
+.settings-general-list { margin: 0; overflow: hidden; border: 0; border-radius: 8px; background: var(--input); font-size: var(--font-size-body); font-weight: 400; line-height: calc(22px + var(--ui-font-offset)); }
+.settings-general-row { min-height: 48px; padding: 4px calc(2 * var(--workbench-frame-gap)); display: flex; align-items: center; justify-content: space-between; gap: calc(2 * var(--workbench-frame-gap)); }
+.settings-general-row + .settings-general-row { border-top: 1px solid var(--border); }
+.settings-general-row dt { color: var(--text); }
+.settings-general-row dd { max-width: 60%; margin: 0; color: var(--text-secondary); }

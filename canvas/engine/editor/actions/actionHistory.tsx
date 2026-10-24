@@ -16,34 +16,32 @@ import { useEmitter } from "../hooks/useEmitter";
 const executeHistoryAction = (
   app: AppClassProperties,
   appState: Readonly<AppState>,
-  updater: () => [SceneElementsMap, AppState] | void,
+  updater: (preserveAppState: boolean) => [SceneElementsMap, AppState] | void,
 ): ActionResult => {
-  if (
-    !appState.multiElement &&
-    !appState.resizingElement &&
-    !appState.editingTextElement &&
-    !appState.newElement &&
-    !appState.selectedElementsAreBeingDragged &&
-    !appState.selectionElement &&
-    !app.flowChartCreator.isCreatingChart
-  ) {
-    const result = updater();
+  const preserveAppState = !!(
+    appState.multiElement ||
+    appState.resizingElement ||
+    appState.editingTextElement ||
+    appState.newElement ||
+    appState.selectedElementsAreBeingDragged ||
+    appState.selectionElement ||
+    appState.editingLinearElement ||
+    appState.croppingElementId ||
+    appState.cursorButton === "down" ||
+    app.flowChartCreator.isCreatingChart
+  );
+  const result = updater(preserveAppState);
 
-    if (!result) {
-      return { captureUpdate: CaptureUpdateAction.EVENTUALLY };
-    }
-
-    const [nextElementsMap, nextAppState] = result;
-    const nextElements = Array.from(nextElementsMap.values());
-
-    return {
-      appState: nextAppState,
-      elements: nextElements,
-      captureUpdate: CaptureUpdateAction.NEVER,
-    };
+  if (!result) {
+    return { captureUpdate: CaptureUpdateAction.EVENTUALLY };
   }
 
-  return { captureUpdate: CaptureUpdateAction.EVENTUALLY };
+  const [nextElementsMap, nextAppState] = result;
+  return {
+    appState: preserveAppState ? appState : nextAppState,
+    elements: Array.from(nextElementsMap.values()),
+    captureUpdate: CaptureUpdateAction.NEVER,
+  };
 };
 
 type ActionCreator = (history: History, store: Store) => Action;
@@ -54,11 +52,13 @@ export const createUndoAction: ActionCreator = (history, store) => ({
   icon: UndoIcon,
   viewMode: false,
   perform: (elements, appState, value, app) =>
-    executeHistoryAction(app, appState, () =>
+    executeHistoryAction(app, appState, (preserveAppState) =>
       history.undo(
         arrayToMap(elements) as SceneElementsMap, // TODO: #7348 refactor action manager to already include `SceneElementsMap`
         appState,
         store.snapshot,
+        (ids) => app.canApplyHumanEdit(ids, "undo"),
+        { preserveAppState },
       ),
     ),
   keyTest: (event) =>
@@ -92,11 +92,13 @@ export const createRedoAction: ActionCreator = (history, store) => ({
   icon: RedoIcon,
   viewMode: false,
   perform: (elements, appState, _, app) =>
-    executeHistoryAction(app, appState, () =>
+    executeHistoryAction(app, appState, (preserveAppState) =>
       history.redo(
         arrayToMap(elements) as SceneElementsMap, // TODO: #7348 refactor action manager to already include `SceneElementsMap`
         appState,
         store.snapshot,
+        (ids) => app.canApplyHumanEdit(ids, "redo"),
+        { preserveAppState },
       ),
     ),
   keyTest: (event) =>

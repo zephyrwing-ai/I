@@ -9,7 +9,7 @@
   .Dialog__title {
     margin: 0;
     text-align: left;
-    font-size: 1.25rem;
+    font-size: calc(1.25rem + var(--ui-font-offset, 0px));
     border-bottom: 1px solid var(--dialog-border-color);
     padding: 0 0 0.75rem;
     margin-bottom: 1.5rem;

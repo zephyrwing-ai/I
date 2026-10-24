@@ -3,9 +3,12 @@ import { Column } from "./middle-column/Column";
 import { MessageStream, type MessageStreamHandle } from "./middle-column/message-stream/MessageStream";
 import { StreamRegion } from "./middle-column/message-stream/StreamScrollbar";
 import { Composer } from "./middle-column/composer/Composer";
-import { TopBar, SearchPopover } from "./components/TopBar";
-import { ConfigPanel } from "./components/ConfigPanel";
-import { OutputSidebar } from "./components/OutputSidebar";
+import { TopBar } from "./workbench/titlebar/TopBar";
+import { SearchPopover } from "./workbench/titlebar/search/SearchPopover";
+import { SettingsPage, type SettingsSection } from "./workbench/settings/SettingsPage";
+import { OutputSidebar } from "./workbench/output/OutputSidebar";
+import { ProjectNavigation } from "./workbench/navigation/ProjectNavigation";
+import { ProjectsPanel } from "./workbench/project/ProjectsPanel";
 import {
   CanvasSurface,
   type CanvasSurfaceHandle,
@@ -13,23 +16,41 @@ import {
   preloadCanvasEditor,
   resetPreloadedCanvasDocument,
 } from "../../canvas/ui/CanvasSurface";
-import { useFloatingPanel } from "./hooks/useFloatingPanel";
 import { useSessionHistory } from "./hooks/useSessionHistory";
-import { useGlobalSearch } from "./hooks/useGlobalSearch";
+import { useProjects } from "./workbench/project/useProjects";
+import { useGlobalSearch } from "./workbench/titlebar/search/useGlobalSearch";
 import { agentReducer, initialAgentState } from "./store/agentReducer";
-import { useProviderCatalog } from "./store/providerCatalog";
-import type { AgentEvent, CanvasContextDescriptor, ProjectDescriptor, RunRequest, SteerRequest } from "../../shell/shared/ipc";
+import { useProviderCatalog } from "./workbench/settings/providers/providerCatalog";
+import { UiPreferencesProvider, useUiPreferences } from "./shared/preferences/uiPreferences";
+import { useI18n } from "./shared/i18n";
+import type { AgentEvent, CanvasContextDescriptor, ProjectActionRequest, ProjectDescriptor, RunRequest, SteerRequest } from "../../shell/shared/ipc";
 import type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types";
 
 export default function App() {
+  return <UiPreferencesProvider><Workbench /></UiPreferencesProvider>;
+}
+
+function Workbench() {
+  const t = useI18n();
+  const { theme, language } = useUiPreferences();
   const [state, dispatch] = useReducer(agentReducer, initialAgentState);
   const catalog = useProviderCatalog();
-  const [configOpen, setConfigOpen] = useState(false);
+  const [activePage, setActivePage] = useState<"workbench" | "settings">("workbench");
+  const settingsOpen = activePage === "settings";
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [sidebarPanel, setSidebarPanel] = useState<"outputs" | "canvas" | null>(null);
   const [canvasContexts, setCanvasContexts] = useState<CanvasContextDescriptor[]>([]);
   const [pendingCanvasEdit, setPendingCanvasEdit] = useState<CanvasEditRequest | null>(null);
   const [canvasCanRelease, setCanvasCanRelease] = useState(true);
   const [project, setProject] = useState<ProjectDescriptor>({ projectId: null, displayName: "Choose folder", canonicalPath: null });
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [selectedView, setSelectedView] = useState<"ordinary" | "projects" | null>(null);
+  const projectView = selectedView === "projects" || (selectedView === null && project.projectId !== null);
+  const projectList = useProjects();
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [projectOperation, setProjectOperation] = useState<string | null>(null);
+  const projectTransitionRef = useRef(false);
+  const retryProjectActionRef = useRef<(() => void) | null>(null);
   const canvasSurfaceRef = useRef<CanvasSurfaceHandle>(null);
   const projectRequestEpochRef = useRef(0);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -39,13 +60,13 @@ export default function App() {
   const historyReadyRef = useRef(false);
   const eventFrame = useRef<number | null>(null);
   const streamRef = useRef<HTMLElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = useState(0);
   const searchButtonRef = useRef<HTMLButtonElement>(null);
   const searchPanelRef = useRef<HTMLDivElement>(null);
   const messageStreamRef = useRef<MessageStreamHandle>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
-  const settingsPanel = useFloatingPanel(configOpen, settingsButtonRef);
   const running = state.status === "running" || state.status === "starting" || state.status === "stopping";
   const stopping = state.status === "stopping";
   const currentRun = state.currentRunId ? state.runs[state.currentRunId] : undefined;
@@ -98,6 +119,20 @@ export default function App() {
     setPendingCanvasEdit((current) => current?.requestId === result.requestId ? null : current);
   }, []);
 
+  useEffect(() => {
+    if (typeof window.agentAPI?.onPrepareToQuit !== "function") return;
+    return window.agentAPI.onPrepareToQuit(({ requestId }) => {
+      void (async () => {
+        try {
+          await canvasSurfaceRef.current?.flush();
+          window.agentAPI.completeQuitPreparation({ requestId });
+        } catch (error) {
+          window.agentAPI.completeQuitPreparation({ requestId, error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+    });
+  }, []);
+
   const history = useSessionHistory(state, dispatch);
   const search = useGlobalSearch(state, history.loadSearch);
   const showEmptyState = history.hydrated && state.runOrder.length === 0 && !history.loadingOlder && !history.error;
@@ -119,17 +154,6 @@ export default function App() {
     hydrationEventQueue.current = [];
     pending.forEach((event) => dispatch({ type: "event", event }));
   }, [history.hydrated]);
-
-  useEffect(() => {
-    if (!configOpen) return;
-    const close = (event: PointerEvent): void => {
-      const target = event.target as Node;
-      if (settingsPanel.panelRef.current?.contains(target) || settingsButtonRef.current?.contains(target)) return;
-      setConfigOpen(false);
-    };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, [configOpen, settingsPanel.panelRef]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -167,6 +191,7 @@ export default function App() {
   }, [search.activeBlockId, search.selectionVersion, searchOpen]);
 
   useEffect(() => {
+    if (settingsOpen) return;
     const onKeyDown = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
@@ -178,9 +203,10 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [search.clear, searchOpen]);
+  }, [search.clear, searchOpen, settingsOpen]);
 
   const handleRun = async (req: RunRequest): Promise<boolean> => {
+    if (projectTransitionRef.current) return false;
     dispatch({ type: "runRequested" });
     try {
       const ack = await window.agentAPI.run(req);
@@ -222,138 +248,259 @@ export default function App() {
     window.agentAPI.stop();
   };
 
-  const handleSelectProject = async (): Promise<void> => {
-    if (running) return;
-    try {
-      projectRequestEpochRef.current += 1;
-      await canvasSurfaceRef.current?.flush();
-      resetPreloadedCanvasDocument();
-      const selected = await window.agentAPI.selectProject();
-      if (!selected) return;
-      setProject(selected);
-      setCanvasContexts([]);
-      void preloadCanvasDocument(selected.projectId).catch(() => undefined);
-      await history.reload(selected.projectId);
-    } catch (error) {
-      dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
-    }
+  const applyProjectDescriptor = (selected: ProjectDescriptor): Promise<void> | undefined => {
+    setProject(selected);
+    if (selected.projectId === project.projectId) return;
+    setCanvasContexts([]);
+    resetPreloadedCanvasDocument();
+    setRestoreDraft(null);
+    search.clear();
+    void preloadCanvasDocument(selected.projectId).catch(() => undefined);
+    return history.reload(selected.projectId);
   };
 
-  const handleClearProject = async (): Promise<void> => {
-    if (running) return;
+  const switchProject = async (
+    operation: string,
+    activate: () => Promise<ProjectDescriptor | null>,
+    closeProjects = false,
+  ): Promise<void> => {
+    if (running || projectTransitionRef.current) return;
+    projectTransitionRef.current = true;
+    projectRequestEpochRef.current += 1;
+    setProjectOperation(operation);
+    setProjectError(null);
+    let historyRequest: Promise<void> | undefined;
     try {
-      projectRequestEpochRef.current += 1;
       await canvasSurfaceRef.current?.flush();
-      resetPreloadedCanvasDocument();
-      const cleared = await window.agentAPI.clearProject();
-      setProject(cleared);
-      setCanvasContexts([]);
-      void preloadCanvasDocument(cleared.projectId).catch(() => undefined);
-      await history.reload(cleared.projectId);
+      const selected = await activate();
+      if (!selected) return;
+      if (closeProjects) {
+        setProjectsOpen(false);
+        setSelectedView("ordinary");
+      }
+      // Main also consumes canvas references when an existing folder is added again.
+      if (selected.projectId === project.projectId) setCanvasContexts([]);
+      historyRequest = applyProjectDescriptor(selected);
+      if (operation === "add") await projectList.refresh();
     } catch (error) {
-      dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
+      setProjectError(error instanceof Error ? error.message : String(error));
+    } finally {
+      projectTransitionRef.current = false;
+      setProjectOperation(null);
     }
+    // Allow another choice while the current history page is loading.
+    await historyRequest;
+  };
+
+  const handleOrdinary = (): void => {
+    if (running || projectTransitionRef.current) return;
+    if (project.projectId === null) {
+      setProjectsOpen(false);
+      setSelectedView("ordinary");
+      setProjectError(null);
+      return;
+    }
+    retryProjectActionRef.current = handleOrdinary;
+    void switchProject("ordinary", () => window.agentAPI.clearProject(), true);
+  };
+
+  const handleActivateProject = (projectId: string): void => {
+    if (projectId === project.projectId || running || projectTransitionRef.current) return;
+    retryProjectActionRef.current = () => handleActivateProject(projectId);
+    void switchProject(projectId, () => window.agentAPI.activateProject(projectId));
+  };
+
+  const handleAddProject = (): void => {
+    retryProjectActionRef.current = handleAddProject;
+    void switchProject("add", () => window.agentAPI.selectProject());
+  };
+
+  const handleProjectAction = async (request: ProjectActionRequest): Promise<void> => {
+    if (running || projectTransitionRef.current) return;
+    projectTransitionRef.current = true;
+    projectRequestEpochRef.current += 1;
+    setProjectOperation(`action:${request.projectId}`);
+    setProjectError(null);
+    retryProjectActionRef.current = () => void handleProjectAction(request);
+    let historyRequest: Promise<void> | undefined;
+    try {
+      if (request.action === "delete" && request.projectId === project.projectId) {
+        await canvasSurfaceRef.current?.flush();
+      }
+      const result = await window.agentAPI.performProjectAction(request);
+      if (result.projects) projectList.replace(result.projects);
+      historyRequest = applyProjectDescriptor(result.activeProject);
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : String(error));
+    } finally {
+      projectTransitionRef.current = false;
+      setProjectOperation(null);
+    }
+    await historyRequest;
+  };
+
+  const handleProjects = (): void => {
+    setProjectsOpen((open) => !open);
+    if (!projectsOpen) void projectList.ensureLoaded();
+  };
+
+  const handleProjectNavigation = (): void => {
+    setSelectedView("projects");
+    setProjectsOpen(true);
+    void projectList.ensureLoaded();
+  };
+
+  const openSettings = (): void => {
+    setSearchOpen(false);
+    setActivePage("settings");
+  };
+
+  const closeSettings = (): void => {
+    setActivePage("workbench");
+    requestAnimationFrame(() => settingsButtonRef.current?.focus());
   };
 
   return (
-    <div className="app">
-      <TopBar
-        outputOpen={outputOpen}
-        outputCount={outputFiles.length}
-        canvasOpen={canvasOpen}
-        searchOpen={searchOpen}
-        settingsOpen={configOpen}
-        searchButtonRef={searchButtonRef}
-        settingsButtonRef={settingsButtonRef}
-        onOutput={() => setSidebarPanel((value) => value === "outputs" ? null : "outputs")}
-        onCanvas={() => setSidebarPanel((value) => value === "canvas" ? null : "canvas")}
-        onSearch={() => setSearchOpen((value) => !value)}
-        onSettings={() => setConfigOpen((value) => !value)}
-      />
-      {searchOpen && (
-        <SearchPopover
-          query={search.query}
-          onQueryChange={search.setQuery}
-          results={search.results}
-          activeBlockId={search.activeBlockId}
-          loadingHistory={search.loadingHistory}
-          hydrated={search.hydrated}
-          hasMoreHistory={search.hasMoreHistory}
-          error={search.error}
-          panelRef={searchPanelRef}
-          onSelect={search.selectResult}
-          onRetry={search.retryHistory}
+    <div className={`app${projectsOpen ? " projects-open" : ""}`}>
+      <div className="workbench-page" hidden={settingsOpen}>
+        <ProjectNavigation
+          selected={projectView ? "projects" : "ordinary"}
+          projectsOpen={projectsOpen}
+          settingsOpen={settingsOpen}
+          settingsButtonRef={settingsButtonRef}
+          disabled={running || projectOperation !== null}
+          onOrdinary={handleOrdinary}
+          onProjects={handleProjectNavigation}
+          onSettings={openSettings}
         />
-      )}
-      <div className="workspace">
-        <section className="main-column">
-          <Column>
-            <StreamRegion scrollRef={streamRef}>
-              {state.error && <div className="error-banner">{state.error}</div>}
-              <MessageStream
-                ref={messageStreamRef}
-                projectId={state.history.projectId}
-                historyGeneration={state.history.requestGeneration}
-                historyHydrationVersion={state.history.hydrationVersion}
-                historyReady={history.hydrated}
-                order={state.runOrder}
-                runs={state.runs}
-                scrollRef={streamRef}
-                hasMore={history.hasMore}
-                loadingOlder={history.loadingOlder}
-                historyError={history.error}
-                onLoadOlder={history.loadOlder}
-                activeSearchBlockId={search.activeBlockId}
-                onResendInput={handleResendInput}
-              />
-              <div style={{ height: composerHeight }} />
-            </StreamRegion>
-            {showEmptyState && (
-              <div className="column-empty-state" style={{ bottom: composerHeight }}>
-                What can I do for you ?
-              </div>
-            )}
-            <div ref={composerRef} className="composer-inner">
-              <Composer
-                running={running}
-                stopping={stopping}
-                activeRunId={running ? state.currentRunId : null}
-                restoreDraft={restoreDraft}
-                ready={history.hydrated}
-                modelOptions={catalog.modelOptions}
-                modelLoading={catalog.loading}
-                project={project}
-                onSelectProject={() => void handleSelectProject()}
-                onClearProject={() => void handleClearProject()}
-                onRun={handleRun}
-                onSteer={handleSteer}
-                onStop={handleStop}
-                canvasContexts={canvasContexts}
-                onRemoveCanvasContext={(contextId) => setCanvasContexts((current) => current.filter((context) => context.contextId !== contextId))}
-                onClearCanvasContexts={(contextIds) => {
-                  const consumed = new Set(contextIds);
-                  setCanvasContexts((current) => current.filter((context) => !consumed.has(context.contextId)));
-                }}
-              />
-            </div>
-          </Column>
-        </section>
-      </div>
-      <OutputSidebar
-        open={sidebarPanel !== null}
-        activePanel={sidebarPanel ?? "outputs"}
-        files={outputFiles}
-        canvasCanRelease={canvasCanRelease}
-        onOpenChange={(open) => { if (!open) setSidebarPanel(null); }}
-        canvas={<CanvasSurface ref={canvasSurfaceRef} projectId={project.projectId} pendingEdit={pendingCanvasEdit} onEditResult={completeCanvasEdit} onContextPrepared={(descriptor) => {
-          if (descriptor.projectId === project.projectId) setCanvasContexts((current) => [...current, descriptor]);
-        }} onCanReleaseChange={setCanvasCanRelease} />}
-      />
-
-      {settingsPanel.mounted && (
-        <div ref={settingsPanel.panelRef} className={`config-floating phase-${settingsPanel.phase}`} onTransitionEnd={settingsPanel.onTransitionEnd}>
-          <ConfigPanel profiles={catalog.profiles} loading={catalog.loading} error={catalog.error} disabled={running} onClose={() => setConfigOpen(false)} onRefresh={catalog.refresh} />
+        <div className="workbench-frame">
+          <TopBar
+            projectMode={projectView}
+            projectsOpen={projectsOpen}
+            onProjects={handleProjects}
+            outputOpen={outputOpen}
+            outputCount={outputFiles.length}
+            canvasOpen={canvasOpen}
+            searchOpen={searchOpen}
+            searchButtonRef={searchButtonRef}
+            onOutput={() => setSidebarPanel((value) => value === "outputs" ? null : "outputs")}
+            onCanvas={() => setSidebarPanel((value) => value === "canvas" ? null : "canvas")}
+            onSearch={() => setSearchOpen((value) => !value)}
+          />
+          <ProjectsPanel
+            open={projectsOpen}
+            onToggle={handleProjects}
+            onOpenChange={setProjectsOpen}
+            workspaceRef={workspaceRef}
+            projects={projectList.projects}
+            activeProjectId={project.projectId}
+            loading={projectList.loading}
+            error={projectError ?? projectList.error}
+            disabled={running || projectOperation !== null}
+            adding={projectOperation === "add"}
+            selectingProjectId={projectOperation}
+            onAdd={handleAddProject}
+            onSelect={handleActivateProject}
+            onAction={handleProjectAction}
+            onRetry={() => projectError ? retryProjectActionRef.current?.() : void projectList.refresh()}
+          />
+          <section ref={workspaceRef} className="workspace">
+            <section className="main-column">
+              <Column>
+                <StreamRegion scrollRef={streamRef}>
+                  {state.error && <div className="error-banner">{state.error}</div>}
+                  {!projectsOpen && projectError && (
+                    <div className="error-banner" role="alert">
+                      {projectError} <button type="button" onClick={() => retryProjectActionRef.current?.()}>{t("Try again")}</button>
+                    </div>
+                  )}
+                  <MessageStream
+                    ref={messageStreamRef}
+                    projectId={state.history.projectId}
+                    historyGeneration={state.history.requestGeneration}
+                    historyHydrationVersion={state.history.hydrationVersion}
+                    historyReady={history.hydrated}
+                    order={state.runOrder}
+                    runs={state.runs}
+                    scrollRef={streamRef}
+                    hasMore={history.hasMore}
+                    loadingOlder={history.loadingOlder}
+                    historyError={history.error}
+                    onLoadOlder={history.loadOlder}
+                    activeSearchBlockId={search.activeBlockId}
+                    onResendInput={handleResendInput}
+                  />
+                  <div style={{ height: composerHeight }} />
+                </StreamRegion>
+                {showEmptyState && (
+                  <div className="column-empty-state" style={{ bottom: composerHeight }}>
+                    What can I do for you ?
+                  </div>
+                )}
+                <div ref={composerRef} className="composer-inner">
+                  <Composer
+                    running={running}
+                    stopping={stopping}
+                    activeRunId={running ? state.currentRunId : null}
+                    restoreDraft={restoreDraft}
+                    ready={history.hydrated && projectOperation === null}
+                    modelOptions={catalog.modelOptions}
+                    modelLoading={catalog.loading}
+                    project={project}
+                    onRun={handleRun}
+                    onSteer={handleSteer}
+                    onStop={handleStop}
+                    canvasContexts={canvasContexts}
+                    onRemoveCanvasContext={(contextId) => setCanvasContexts((current) => current.filter((context) => context.contextId !== contextId))}
+                    onClearCanvasContexts={(contextIds) => {
+                      const consumed = new Set(contextIds);
+                      setCanvasContexts((current) => current.filter((context) => !consumed.has(context.contextId)));
+                    }}
+                  />
+                </div>
+              </Column>
+            </section>
+          </section>
+          <OutputSidebar
+            workspaceRef={workspaceRef}
+            open={sidebarPanel !== null}
+            activePanel={sidebarPanel ?? "outputs"}
+            files={outputFiles}
+            canvasCanRelease={canvasCanRelease}
+            onOpenChange={(open) => { if (!open) setSidebarPanel(null); }}
+            canvas={<CanvasSurface ref={canvasSurfaceRef} theme={theme} language={language} projectId={project.projectId} pendingEdit={pendingCanvasEdit} onEditResult={completeCanvasEdit} onContextPrepared={(descriptor) => {
+              if (descriptor.projectId === project.projectId) setCanvasContexts((current) => [...current, descriptor]);
+            }} onCanReleaseChange={setCanvasCanRelease} />}
+          />
         </div>
+
+        {searchOpen && (
+          <SearchPopover
+            query={search.query}
+            onQueryChange={search.setQuery}
+            results={search.results}
+            activeBlockId={search.activeBlockId}
+            loadingHistory={search.loadingHistory}
+            hydrated={search.hydrated}
+            hasMoreHistory={search.hasMoreHistory}
+            error={search.error}
+            panelRef={searchPanelRef}
+            onSelect={search.selectResult}
+            onRetry={search.retryHistory}
+          />
+        )}
+      </div>
+      {settingsOpen && (
+        <SettingsPage
+          section={settingsSection}
+          profiles={catalog.profiles}
+          loading={catalog.loading}
+          error={catalog.error}
+          disabled={running}
+          onSectionChange={setSettingsSection}
+          onBack={closeSettings}
+          onRefresh={catalog.refresh}
+        />
       )}
     </div>
   );

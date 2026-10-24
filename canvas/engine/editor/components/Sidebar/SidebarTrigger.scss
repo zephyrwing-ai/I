@@ -14,7 +14,7 @@
 
     line-height: 0;
 
-    font-size: 0.75rem;
+    font-size: calc(0.75rem + var(--ui-font-offset, 0px));
     letter-spacing: 0.4px;
 
     svg {

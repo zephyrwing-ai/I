@@ -36,7 +36,7 @@
     box-sizing: border-box;
     border-radius: var(--border-radius-lg) 0 0 var(--border-radius-lg);
     color: var(--icon-fill-color);
-    font-size: 0.875rem;
+    font-size: calc(0.875rem + var(--ui-font-offset, 0px));
     font-variant-numeric: tabular-nums;
 
     &:hover,

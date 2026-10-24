@@ -6,7 +6,7 @@ import type { PluggableList } from "unified";
 import { normalizeMdast } from "../../utils/punctuation-md";
 
 /**
- * 模型输出统一渲染出口：思考块、过程文本、最终答案共用。
+ * 用户可见模型正文的统一渲染出口：过程文本与最终答案共用。
  * 管道顺序：结构解析（mdast）→ 标点规范化（mdast 级，punctuation-md.ts）→ 渲染：
  * - remark-gfm：表格、删除线、任务列表；
  * - remark-breaks：单个换行渲染 <br>，延续既有"行贴着行"的展示节奏；

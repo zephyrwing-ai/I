@@ -89,6 +89,78 @@ test("HistoryRecorder coalesces deltas and restores a project history", async ()
   }
 });
 
+test("HistoryRecorder restores only the usable snapshot tail while recovering all scoped drafts", async () => {
+  const repository = new SqliteHistoryRepository(":memory:");
+  const project = await repository.createProject({ canonicalPath: "/tmp/context-tail", displayName: "context-tail" });
+  try {
+    for (const [index, projectId] of [null, project.id].entries()) {
+      const prefix = `scope-${index}`;
+      const original = await repository.appendEntry(projectId, {
+        id: `${prefix}-original`, type: "user_message", status: "completed", runId: `${prefix}-old`,
+        payload: { role: "user", content: "original request" },
+      });
+      const coveredDraft = await repository.appendEntry(projectId, {
+        id: `${prefix}-covered-draft`, type: "assistant_message", status: "streaming", runId: `${prefix}-old`,
+        turnId: `${prefix}-partial`, payload: { role: "assistant", content: "partial before snapshot" },
+      });
+      const covered = await repository.appendEntry(projectId, {
+        id: `${prefix}-covered`, type: "assistant_message", status: "completed", runId: `${prefix}-old`,
+        turnId: `${prefix}-done`, payload: { role: "assistant", content: "earlier work" },
+      });
+      const recent = await repository.appendEntry(projectId, {
+        id: `${prefix}-recent`, type: "user_message", status: "completed", runId: `${prefix}-recent`,
+        payload: { role: "user", content: "continue with recent work" },
+      });
+      const tailDraft = await repository.appendEntry(projectId, {
+        id: `${prefix}-tail-draft`, type: "assistant_message", status: "streaming", runId: `${prefix}-recent`,
+        turnId: `${prefix}-tail-partial`, payload: { role: "assistant", content: "partial after snapshot" },
+      });
+      await repository.saveContextSnapshot({
+        projectId, summary: "Earlier request and work.", coveredThroughOrder: covered.entryOrder,
+        baselineThroughOrder: recent.entryOrder, baselineTokens: 100, modelId: "test/model", policyVersion: "1",
+        sourceVersion: await repository.getContextSourceVersion(projectId, recent.entryOrder), expectedVersion: null,
+      });
+      const reads: number[] = [];
+      const listEntries = repository.listEntries.bind(repository);
+      repository.listEntries = (scope, cursor = 0, limit) => {
+        reads.push(cursor);
+        return listEntries(scope, cursor, limit);
+      };
+      try {
+        const recorder = await createHistoryRecorder(repository, projectId);
+        try {
+          assert.equal(recorder.repository, repository);
+          assert.deepEqual(reads, [covered.entryOrder]);
+          assert.deepEqual(recorder.snapshot(), [recent.payload]);
+          for (const draft of [coveredDraft, tailDraft]) {
+            assert.equal((await repository.getEntry(draft.id))?.status, "interrupted");
+          }
+          await recorder.commitUser({ role: "user", content: "new input" }, { runId: `${prefix}-new` });
+          assert.deepEqual(recorder.snapshot().map((message) => message.content), ["continue with recent work", "new input"]);
+        } finally {
+          await recorder.close();
+        }
+
+        await repository.updateEntry(original.id, original.revision, { payload: { role: "user", content: "revised original request" } });
+        reads.length = 0;
+        const restored = await createHistoryRecorder(repository, projectId);
+        try {
+          assert.deepEqual(reads, [0]);
+          assert.deepEqual(restored.snapshot().map((message) => message.content), [
+            "revised original request", "earlier work", "continue with recent work", "new input",
+          ]);
+        } finally {
+          await restored.close();
+        }
+      } finally {
+        repository.listEntries = listEntries;
+      }
+    }
+  } finally {
+    repository.close();
+  }
+});
+
 test("SQLite history queries page backward with a strict entryOrder cursor", async () => {
   const repository = new SqliteHistoryRepository(":memory:");
   const project = await repository.createProject({ canonicalPath: "/tmp/project-a", displayName: "project-a" });
@@ -215,6 +287,7 @@ test("legacy session storage migrates entries and tool records into the unprojec
     assert.equal(entries.length, 1);
     assert.equal(entries[0]?.payload.content, "legacy");
     assert.equal((await repository.listOpenToolInvocations(null, "legacy-run")).length, 1);
+    assert.ok(!repository.database.prepare("PRAGMA table_info(tool_invocations)").all().some((column) => column.name === "updated_at"));
     const queued = await repository.acceptRunInput(null, { inputId: "legacy-input", runId: "legacy-run", content: "more" });
     assert.equal(queued.state, "accepted");
     assert.equal(Number((repository.database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version), SCHEMA_VERSION);

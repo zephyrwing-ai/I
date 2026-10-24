@@ -8,6 +8,7 @@ import type { RegisteredTool } from "./types.js";
 
 export type { RegisteredTool, ToolResult, ToolExecutionContext, ToolResultMedia, ToolRecoveryMode, ToolRecoverySpec, ToolRecoveryResult, ToolCheckpoint, PreparedToolExecution } from "./types.js";
 export { toolResultForInvalidCall } from "./types.js";
+export { createHistoryReadTool } from "./history-read.js";
 
 /**
  * 工具注册表 — 模型可见能力的完整清单。

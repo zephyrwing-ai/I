@@ -1,0 +1,298 @@
+前端实现总索引。
+
+- 覆盖范围：本清单收束工作台前端、Electron Renderer、消息渲染、Agent Trace、语音交互、弹性滚动、Canvas Surface、项目历史和统一图标系统。
+- 证据规则：每项以当前源码为准，并给出实现行为、关键参数或状态条件、可见效果与源码位置；现有设计文档作为背景材料，冲突时采用源码。
+- 技术栈：React 18、TypeScript、Electron 44、electron-vite、React Markdown、Radix Popover/Tabs、Jotai 与本地 Canvas 编辑器共同组成桌面界面。
+- 渲染分层：React 管理页面状态和结构，Canvas 承担高频语音波形与绘图，requestAnimationFrame 合帧事件和滚动动画，CSS 负责排版、过渡与 reduced-motion 分支。
+- 主入口：`frontend/src/main.tsx` 挂载 `App`，全局主题由 `frontend/src/styles.css` 引入，工作台组合入口位于 `frontend/src/App.tsx`。
+- 运行边界：Renderer 只通过 `window.agentAPI` 调用受限 IPC；项目、历史、运行、工具、语音、输出文件与 Canvas 的宿主资源由 Main 协调。
+
+应用外壳与布局。
+
+- 窗口几何：默认 1180×820，最小 840×560；窗口使用 `hiddenInset` 标题栏，macOS 红黄绿按钮定位到 `{ x: 16, y: 20 }`，页面在 `ready-to-show` 后显示，首帧直接呈现已有内容（`shell/main/index.ts:108`）。
+- 外层导航：`.project-navigation` 固定在应用左侧，宽度 56px，顶部为原生交通灯留出 52px 标题区与 8px 外壳留白，底部余量为 12px（`frontend/src/styles.css:1`、`frontend/src/workbench/navigation/ProjectNavigation.css:1`）。
+- 工作台内框：内框距外层 8px，圆角 16px，1px 半透明边界，单层 `0 1px 3px` 阴影；表面与外壳通过色差、边界和阴影形成层次（`frontend/src/styles.css:5`、`frontend/src/styles.css:144`）。
+- 网格结构：工作台使用“项目列、消息主列、右侧栏”三列与“52px 标题行、剩余内容行”两行；项目列跨两行，标题栏占中间列到右端，内容从第二行开始（`frontend/src/styles.css:145`）。
+- 主内容宽度：消息流和 Composer 共用 `min(760px, 100%)` 居中列，滚动视口填满消息主列，Composer 绝对定位在底部（`frontend/src/middle-column/Column.css:2`）。
+- Composer 占位：`ResizeObserver` 持续测量 Composer 实际高度，滚动内容末尾同步保留等高占位，末条消息可以完整停在 Composer 上缘（`frontend/src/App.tsx:171`）。
+- 底部跟随：Composer 高度改变时，仅当消息流距底部小于 8px 就保持吸底，用户位于阅读中段时保留当前位置（`frontend/src/App.tsx:182`）。
+- 空会话：历史完成且消息为空时，在 Composer 上方的可用高度中居中显示 `What can I do for you ?`，文字 20px、字重 400（`frontend/src/App.tsx:129`、`frontend/src/middle-column/Column.css:3`）。
+- 窄窗口：Electron 限制最小 840×560；左右侧栏分别用局部可用宽高计算最大宽度，消息主列保留至少 360px（`frontend/src/shared/sidebar/sidebarGeometry.ts:1`、`frontend/src/shared/sidebar/useResizableSidebar.ts:34`）。
+- 标题拖拽区：标题栏、项目标题和外层导航使用 `-webkit-app-region: drag`，按钮和输入控件使用 `no-drag`，拖动窗口与点击操作共享同一界面（`frontend/src/styles.css:158`、`frontend/src/workbench/project/ProjectsPanel.css:8`）。
+
+左侧导航与项目会话。
+
+- 导航入口：左侧固定提供 `I` 与 `Project` 两个入口，每个入口由图标和名称共同组成 60px 高的可点击区域，悬停和选中使用同一 `--hover` 背景（`frontend/src/workbench/navigation/ProjectNavigation.tsx:21`、`frontend/src/workbench/navigation/ProjectNavigation.css:2`）。
+- 应用标识：`I` 入口使用透明底 `AppMark`，图标继承当前文字颜色；完整暖米色应用图标继续用于 favicon、Dock 和原生应用资源（`frontend/src/workbench/navigation/ProjectNavigation.tsx:31`、`frontend/src/workbench/navigation/AppMark.tsx:4`）。
+- 双状态导航：`selectedView` 管理 `ordinary/projects` 视觉模式，`projectsOpen` 独立管理项目列开合，活动 `projectId` 独立管理历史范围（`frontend/src/App.tsx:35`）。
+- 普通范围：点击 `I` 进入 `projectId = NULL` 的连续历史，成功切换后收起项目列；运行期间导航入口进入禁用态并保持当前范围（`frontend/src/App.tsx:296`）。
+- 项目范围：点击 `Project` 进入项目模式并展开列表；当前 `projectId` 决定项目条目选中态，项目列表开合与历史范围分别保存（`frontend/src/App.tsx:38`、`frontend/src/App.tsx:348`）。
+- 项目缓存：首次展开通过 `listProjects()` 读取，后续沿用缓存；同一次在途读取被复用，刷新结果按 generation 接纳，错误保留既有列表并提供重试（`frontend/src/workbench/project/useProjects.ts:11`）。
+- 项目列表：条目最小 40px 高、圆角 8px，名称单行省略，规范路径放在 title，置顶条目带 pin 图标，切换中的条目带旋转 refresh 图标（`frontend/src/workbench/project/ProjectsPanel.tsx:228`、`frontend/src/workbench/project/ProjectsPanel.css:17`）。
+- 添加项目：列表标题右侧的 plus 按钮调用系统目录选择器；选择取消时保持当前范围，成功后刷新元数据、选中目录并加载对应历史（`frontend/src/App.tsx:314`、`frontend/src/workbench/project/ProjectsPanel.tsx:178`）。
+- 范围切换顺序：先等待当前 Canvas `flush()`，再激活目标项目；成功后更新项目描述、清空旧画布引用、预加载新画布、重新加载历史，失败时恢复当前界面状态并显示可重试错误（`frontend/src/App.tsx:263`）。
+- 历史身份：项目条目的 `projectId` 对应唯一历史范围，普通范围使用 `NULL`；条目的重命名只改变显示名，稳定身份和目录路径保持原值（`frontend/src/store/sessionHistory.ts:3`、`frontend/src/workbench/project/ProjectsPanel.tsx:208`）。
+- 项目菜单：右键或 `Shift+F10/ContextMenu` 打开菜单，菜单通过 Portal 挂到 `body`，位置限制在窗口四周 8px 内，打开后焦点落在首个菜单项（`frontend/src/workbench/project/ProjectsPanel.tsx:82`、`frontend/src/workbench/project/ProjectsPanel.tsx:125`）。
+- 菜单键盘：ArrowUp/ArrowDown 循环、Home/End 跳到首尾，Escape/Tab 关闭并把焦点还给项目条目；点击外部、窗口 resize 或 blur 也会关闭（`frontend/src/workbench/project/ProjectsPanel.tsx:91`、`frontend/src/workbench/project/ProjectsPanel.tsx:141`）。
+- 项目操作：菜单提供 Pin/Unpin、Reveal in Finder、Rename session 与 Delete session；删除使用系统确认，成功后由 Main 返回项目快照和活动项目（`frontend/src/workbench/project/ProjectsPanel.tsx:253`）。
+- 行内改名：点击 Rename 后条目原位切换输入框，文本自动聚焦并全选，Enter 提交，Escape 取消，名称 trim 后有内容时保存按钮可用，最大长度 200（`frontend/src/workbench/project/ProjectsPanel.tsx:112`、`frontend/src/workbench/project/ProjectsPanel.tsx:216`）。
+- 焦点迁移：收起项目列时，若焦点位于面板或菜单内，焦点转到当前可见的项目开合按钮；展开和改名结束后恢复到原项目条目（`frontend/src/workbench/project/ProjectsPanel.tsx:64`、`frontend/src/workbench/project/ProjectsPanel.tsx:118`）。
+- 运行期门控：项目选择、添加、改名、置顶、删除与范围切换在运行或项目操作期间禁用，项目列开合保持可用（`frontend/src/App.tsx:359`、`frontend/src/workbench/project/ProjectsPanel.tsx:182`）。
+- 空态与错误：空列表显示添加项目引导；加载失败显示 `Try again`，项目操作失败显示同一重试入口，已加载对话保持在原位置（`frontend/src/workbench/project/ProjectsPanel.tsx:193`、`frontend/src/App.tsx:401`）。
+
+双侧栏与宽度交互。
+
+- 项目列尺寸：默认 240px、最小 180px，向左侧缩小到 132px 时进入待收起状态，松开后关闭；拖动使用 requestAnimationFrame 节流，拖动期间宽度动画停止（`frontend/src/workbench/project/projectSidebarState.ts`、`frontend/src/shared/sidebar/useResizableSidebar.ts:88`）。
+- 右侧栏尺寸：默认 360px、最小 280px，可用最大宽度为局部空间减去 360px 消息主列；同一个共享 hook 提供左右方向对应的拖动计算（`frontend/src/workbench/output/outputSidebarState.ts:3`、`frontend/src/shared/sidebar/useResizableSidebar.ts:98`）。
+- 侧栏拖拽热区：可见边界 1px，实际热区 8px；悬停、键盘聚焦和待收起状态把边界强调为 2px（`frontend/src/workbench/project/ProjectsPanel.css:5`、`frontend/src/styles.css:278`）。
+- 键盘调宽：方向键按 16px 步进，Shift 加方向键按 64px 步进；到达最小方向后继续向外按键会收起侧栏（`frontend/src/shared/sidebar/useResizableSidebar.ts:158`）。
+- 拖拽恢复：双击拖拽条恢复默认宽度；拖动中按 Escape、pointercancel 或窗口失焦都恢复拖动前宽度（`frontend/src/shared/sidebar/useResizableSidebar.ts:125`、`frontend/src/shared/sidebar/useResizableSidebar.ts:137`）。
+- 宽度记忆：项目列和右侧栏分别保存到 `workbench.projectsSidebarWidth` 与 `workbench.outputSidebarWidth`，窗口变窄时只限制有效宽度，窗口恢复后重新使用用户偏好（`frontend/src/workbench/project/ProjectsPanel.tsx:55`、`frontend/src/workbench/output/OutputSidebar.tsx:29`）。
+- 收起隔离：关闭的侧栏宽度归零，并同步设置 `inert` 与 `aria-hidden`，其内部焦点和拖拽条退出键盘顺序（`frontend/src/shared/sidebar/useResizableSidebar.ts:71`）。
+- 开合动画：侧栏宽度使用 180ms 标准缓动，宽度 transition 结束后才提交 open/closed 阶段；reduced-motion 下直接切换（`frontend/src/styles.css:269`、`frontend/src/shared/sidebar/useResizableSidebar.ts:57`）。
+- 右侧内容淡入：打开时内容在 180ms 内淡入，关闭时 90ms 淡出，宽度和透明度按不同节奏分工（`frontend/src/styles.css:273`）。
+- 单侧栏壳体：输出文件与 Canvas 共用同一个右侧栏，同一时间展示一个面板，宽度、开合和拖拽状态保持连续（`frontend/src/App.tsx:454`）。
+
+标题栏、搜索与设置。
+
+- 顶部操作组：右侧依次放置输出、Canvas、搜索三个 30×30px 图标按钮，间距4px；透明常态、悬停与激活共享背景，按钮提供 title、aria-label、aria-expanded；Settings 齿轮入口位于左侧导航底部（`frontend/src/workbench/titlebar/TopBar.tsx:27`、`frontend/src/workbench/navigation/ProjectNavigation.tsx`）。
+- 输出角标：右侧栏处于输出面板以外的状态时，按钮显示当前输出文件数；数量超过 9 时显示 `9+`（`frontend/src/workbench/titlebar/TopBar.tsx:30`）。
+- 项目开合按钮：项目模式且项目列收起时，顶部左侧显示展开入口；展开后同一按钮移动到项目标题，保持 `aria-expanded`、`aria-controls` 与原焦点目标（`frontend/src/workbench/titlebar/TopBar.tsx:28`、`frontend/src/workbench/project/ProjectSidebarToggle.tsx:12`）。
+- 搜索入口：Command+F 或 Ctrl+F 打开全局搜索，Escape 关闭并清空查询、选择和主消息流高亮；点击按钮或浮层外部收起浮层并保留查询与选中状态（`frontend/src/App.tsx:195`）。
+- 搜索浮层：宽 `min(560px, 100vw - 24px)`，圆角 18px，2px 毛玻璃遮罩，160ms 位移缩放淡入；挂载后输入框自动聚焦（`frontend/src/styles.css:166`、`frontend/src/workbench/titlebar/search/SearchPopover.tsx`）。
+- 搜索匹配：对已加载 MessageBlock 做折叠大小写后的子串匹配，每个消息块保留首次命中，摘要在命中前后保留 48 个字符并添加省略号（`frontend/src/workbench/titlebar/search/search.ts:29`、`frontend/src/workbench/titlebar/search/search.ts:68`）。
+- 搜索历史：`query.trim()` 有内容且 `hasMore=true` 时，以 120ms debounce 通过统一历史分页器继续读取；查询、旧页加载与滚动加载共享 cursor 和在途状态（`frontend/src/workbench/titlebar/search/useGlobalSearch.ts:5`、`frontend/src/workbench/titlebar/search/useGlobalSearch.ts:53`）。
+- 搜索结果：每条为一个单行消息摘要，左侧统一 18px 中性圆环，命中词用 `<mark>` 提升为主要文字与 600 字重，行高 22px 并省略超宽内容（`frontend/src/workbench/titlebar/search/SearchPopover.tsx`、`frontend/src/styles.css:177`）。
+- 搜索键盘：ArrowUp/ArrowDown 循环切换结果，Enter 选中当前项；输入框通过 `aria-activedescendant` 与 listbox option 关联（`frontend/src/workbench/titlebar/search/SearchPopover.tsx`）。
+- 搜索定位：选中结果后通过稳定 `blockId` 让虚拟消息流挂载对应块，先按累计高度居中对齐，再用 DOM 几何修正到居中位置（`frontend/src/App.tsx:190`、`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:319`）。
+- 搜索高亮：主消息流按 `blockId` 添加 4px `--selection-strong` 外轮廓和 2px offset；查询或范围变化后高亮随结果选择更新（`frontend/src/styles.css:186`、`frontend/src/middle-column/message-stream/MessageStream.tsx:40`）。
+- 设置页面：左下齿轮入口进入完整接管窗口的 Settings 页面；左侧排列 Back、General、Providers、Usage 和 TTS，右侧内框展示对应内容并独立滚动；原工作台继续挂载以保留草稿、历史和 Canvas 状态（`frontend/src/workbench/settings/SettingsPage.tsx`、`frontend/src/App.tsx`）。
+- 设置列表：Provider 卡片显示名称与模型列表，chevron 展开时旋转 90°，展开高度 200ms、透明度 150ms（`frontend/src/workbench/settings/providers/ConfigPanel.tsx:113`、`frontend/src/styles.css:210`）。
+- 危险删除：第一次点击 trash 进入危险色确认态，4 秒后自动复位；第二次点击提交删除，点击其他操作立即清除确认（`frontend/src/workbench/settings/providers/ConfigPanel.tsx:36`、`frontend/src/workbench/settings/providers/ConfigPanel.tsx:42`）。
+- 模型刷新：刷新期间图标以 0.7s 线性旋转，完成后切换 check 图标 2.2 秒，再恢复 refresh；失败错误显示在对应卡片下方（`frontend/src/workbench/settings/providers/ConfigPanel.tsx:67`、`frontend/src/styles.css:222`）。
+- Provider 编辑器：名称、Base URL、API Key、模型发现与导入在 Settings 右侧 Providers 模块内展示；列表与编辑视图在模块内部切换，进入编辑视图后名称输入框自动聚焦（`frontend/src/workbench/settings/providers/ConfigPanel.tsx`、`frontend/src/workbench/settings/providers/ProviderEditor.tsx`）。
+- API Key 反馈：输入框默认 password，可切换 eye/eye-off；地址的 origin 改变时要求新凭据，同 origin 路径调整可以沿用已保存凭据（`frontend/src/workbench/settings/providers/ProviderEditor.tsx:107`、`frontend/src/workbench/settings/providers/ProviderEditor.tsx:257`）。
+- 模型筛选：按模型 ID 与显示名折叠大小写后过滤；全选作用于当前可见结果，混合选择通过 checkbox indeterminate 呈现（`frontend/src/workbench/settings/providers/ProviderEditor.tsx:96`、`frontend/src/workbench/settings/providers/ProviderEditor.tsx:112`）。
+- 模型发现：获取期间按钮显示 spinner 与 `Fetching`，并提供 Cancel；取消后通过 requestId 丢弃迟到结果（`frontend/src/workbench/settings/providers/ProviderEditor.tsx:116`、`frontend/src/workbench/settings/providers/ProviderEditor.tsx:280`）。
+- 模型容量：每个模型有 `Model limits` 折叠区，编辑 context window 与可选 max output；提交时校验正整数，并要求输出值小于等于窗口（`frontend/src/workbench/settings/providers/ProviderEditor.tsx:36`、`frontend/src/workbench/settings/providers/ProviderEditor.tsx:299`）。
+
+输出文件侧栏。
+
+- 文件范围：右侧列表显示当前运行登记的输出文件，按 `updatedAt` 倒序排列；同一文件再次更新时保留原 `fileId`，列表位置随最新时间变化（`frontend/src/store/agentReducer.ts:505`）。
+- 自动选择：文件列表有内容时默认选中第一项；当前文件仍存在时保持选择，目标消失时切回第一项（`frontend/src/workbench/output/OutputSidebar.tsx:26`、`frontend/src/workbench/output/OutputSidebar.tsx:64`）。
+- 列表布局：文件区高度为侧栏的 34%、最小 108px；条目最小 42px，包含文件/图片图标、文件名、可读路径与 `Created/Updated` 状态（`frontend/src/styles.css:274`、`frontend/src/styles.css:284`）。
+- 文件预览：文本以 SF Mono 11px 显示，保留换行并软折行；图片等比适配；超过 512KiB 的文本截取前段并显示提示；`unsupported` 媒体类型进入专用提示（`frontend/src/workbench/output/OutputSidebar.tsx:113`、`frontend/src/styles.css:298`）。
+- 预览请求门控：目标以 `runId + fileId + updatedAt` 识别，预览与系统打开各使用递增 generation；切换文件立即隐藏旧内容，当前目标的最新 generation 独占提交权（`frontend/src/workbench/output/useOutputFilePreview.ts:9`、`frontend/src/workbench/output/outputFilePreview.ts:26`）。
+- 刷新与打开：预览标题栏提供 28px 的 refresh 与 external 按钮；读取和系统打开错误分别显示在当前文件状态区域（`frontend/src/workbench/output/OutputSidebar.tsx:114`）。
+- 弹性列表：输出文件列表和消息流共用弹簧回弹 hook，列表内部完成边界跟手与回弹，文件选择、预览和滚动几何保持同一视图（`frontend/src/workbench/output/OutputSidebar.tsx:33`）。
+- Canvas 保留：Canvas 首次打开后保持挂载；切到输出或关闭侧栏时进入隐藏，连续隐藏 10 分钟且允许释放后卸载编辑器实例（`frontend/src/workbench/output/OutputSidebar.tsx:20`、`frontend/src/workbench/output/OutputSidebar.tsx:39`）。
+
+Composer 输入与提交。
+
+- 外壳：Composer 最小高 116px，20px 圆角、1px 边界和 `0 1px 3px`/`0 8px 24px` 两层阴影；输入区与页面同色，层次由边界与阴影建立（`frontend/src/middle-column/composer/Composer.css:3`）。
+- 多行输入：任务框最小 40px、最大 180px，输入时以 `scrollHeight` 同步增长，超过上限后改为内部纵向滚动（`frontend/src/middle-column/composer/Composer.tsx:270`）。
+- 键盘语义：Enter 提交，Shift+Enter 换行，输入法组字期间的 Enter 用于候选确认（`frontend/src/middle-column/composer/sendKey.ts:1`、`frontend/src/middle-column/composer/Composer.tsx:261`）。
+- 单按钮状态机：同一按钮在 start、starting、steer、stop、submitting、stopping 之间切换；运行中空草稿显示 Stop，有文字时显示向当前运行追加输入的 Send（`frontend/src/middle-column/composer/Composer.tsx:20`）。
+- 发送门控：新任务需要历史就绪、trim 后有文字和可用模型；追加输入需要已确认 `activeRunId` 与可用的 steer 入口；语音处于请求、录音或转写阶段时发送暂停（`frontend/src/middle-column/composer/Composer.tsx:112`）。
+- 提交确认：提交先捕获文本 revision、附件 ID 与 Canvas context ID；ACK 接受后只清理与本次 revision 和 ID 集匹配的内容，失败时保留原草稿（`frontend/src/middle-column/composer/Composer.tsx:220`）。
+- 焦点连续：鼠标发送或焦点仍在 textarea 时，ACK 后在下一帧恢复输入框焦点；用户已移动到其他控件时保留新焦点（`frontend/src/middle-column/composer/Composer.tsx:252`）。
+- 编辑重发：`interrupted` 输入显示 `Not applied` 与 `Edit and resend`，点击后把原文填入 Composer、重算高度并聚焦（`frontend/src/middle-column/message-stream/MessageStream.tsx:41`、`frontend/src/App.tsx:242`）。
+- 按钮反馈：悬停亮度为 0.9，按下 80ms 缩放到 0.94；默认禁用透明度 0.38，停止处理中透明度 0.72（`frontend/src/middle-column/composer/Composer.css:52`）。
+- 附件合并：文件选择结果按 `attachmentId` 合并，Map 为每个 ID 保持单一 chip，重复选择更新原条目（`frontend/src/middle-column/composer/Composer.tsx:209`）。
+- 附件 chip：42px 高、最大 230px 宽，包含图片/文件图标、名称、体积与 26px 圆形移除按钮，长名称与体积单行省略（`frontend/src/middle-column/composer/Composer.css:4`）。
+- Canvas chip：最大 280px 宽，展示引用名称与 `Text snapshot`/`Text + visual snapshot` 类型；项目切换和成功发送后只移除对应 contextId（`frontend/src/middle-column/composer/Composer.tsx:318`、`frontend/src/App.tsx:252`）。
+- 输入提示：草稿存在但缺少可用模型时，Composer 底部显示危险色 10px 说明，发送按钮保持禁用（`frontend/src/middle-column/composer/Composer.tsx:422`）。
+
+模型选择器。
+
+- 唯一状态归属：Composer 独立持有 `selectedModelOptionId`，Provider 目录负责给出可选项，项目历史与 Provider 凭据各自维护自己的数据（`frontend/src/middle-column/composer/Composer.tsx:428`）。
+- 偏好恢复：`workbench.modelPickerLayout.v1` 保存模型 ID 与显示名，`workbench.modelOptionId` 保持兼容；启动时先展示缓存名称，再按最新目录校验可用性（`frontend/src/middle-column/composer/Composer.tsx:10`、`frontend/src/middle-column/composer/Composer.tsx:58`）。
+- 名称测量：绘制前临时解除 flex 收缩和最大宽度，读取小数几何宽度并向上取整，附加 43px 后写回按钮（`frontend/src/middle-column/composer/Composer.tsx:139`）。
+- 宽度缓动：用户主动切换模型时宽高变化使用 180ms 标准缓动，启动恢复直接采用测量值并关闭 transition（`frontend/src/middle-column/composer/Composer.tsx:157`、`frontend/src/middle-column/composer/Composer.css:40`）。
+- 胶囊形态：模型名与 chevron 组在 28px、14px 圆角的胶囊中，名称居中、chevron 固定 15px；展开时箭头旋转 -90°（`frontend/src/middle-column/composer/Composer.css:40`）。
+- 弹层形态：250px 宽、最大 300px 高、16px 圆角、4px 内边距；150ms 从右下原点淡入并上移 4px；700px 以下改成 220px 并靠按钮右侧（`frontend/src/middle-column/composer/Composer.css:43`、`frontend/src/middle-column/composer/Composer.css:65`）。
+- 键盘导航：ArrowUp/ArrowDown 循环，Home/End 跳到首尾；Escape、选择条目和点击外部收起，Escape 与选择会恢复触发器焦点（`frontend/src/middle-column/composer/Composer.tsx:175`、`frontend/src/middle-column/composer/Composer.tsx:193`）。
+- 视觉状态：触发器悬停、聚焦和展开使用 `--surface-bubble`；选项悬停/聚焦使用 `--surface-secondary`；当前模型显示 check 图标（`frontend/src/middle-column/composer/Composer.css:45`）。
+
+语音输入与波形。
+
+- 状态模型：语音经历 `idle → requesting → recording → transcribing → idle`；请求、录音与转写阶段都可取消，当前 requestId 决定结果归属（`frontend/src/middle-column/composer/voice.ts:10`、`frontend/src/middle-column/composer/useVoiceInput.ts:126`）。
+- 录音工具栏：进入录音后上传、模型和发送控件暂时退出，换成 18px Stop、全宽波形和 16px Cancel；波形高 28px、左右各 7px 间距（`frontend/src/middle-column/composer/Composer.tsx:339`、`frontend/src/middle-column/composer/Composer.css:36`）。
+- 呼吸反馈：语音按钮在请求、录音或转写阶段使用选中背景，并以 1.6s 循环扩散 4px 外环；波形区域以 140ms 淡入（`frontend/src/middle-column/composer/Composer.css:34`、`frontend/src/middle-column/composer/Composer.css:62`）。
+- 草稿保留：录音和转写期间 textarea 保持可编辑；识别完成后读取最新草稿并在其后追加文字，用户期间输入的内容持续保留（`frontend/src/middle-column/composer/Composer.tsx:277`、`frontend/src/middle-column/composer/voice.ts:42`）。
+- 采集参数：麦克风使用单声道、回声消除、噪声抑制和自动增益；采样后统一降为 16kHz 16-bit PCM/WAV（`frontend/src/middle-column/composer/useVoiceInput.ts:134`、`frontend/src/middle-column/composer/voice.ts:65`）。
+- 容量边界：20MiB WAV 预算扣除 44 字节头部后派生 PCM 样本容量，达到上限自动结束录音并进入转写（`frontend/src/middle-column/composer/voice.ts:3`、`frontend/src/middle-column/composer/useVoiceInput.ts:171`）。
+- 资源释放：停止或取消时断开 source/analyser/processor、停止媒体轨并关闭 AudioContext；项目切换、运行开始、历史加载与卸载复用同一 cleanup 路径（`frontend/src/middle-column/composer/useVoiceInput.ts:70`、`frontend/src/middle-column/composer/useVoiceInput.ts:236`）。
+- 错误反馈：权限拒绝、设备缺失、设备占用、麦克风断开、空录音、超限与转写失败使用对应提示，错误行支持手动关闭（`frontend/src/middle-column/composer/voice.ts:49`、`frontend/src/middle-column/composer/Composer.tsx:417`）。
+- 波形滚动：每 200ms 推进一根柱，柱宽与间距各 3px；柱列按真实帧间隔连续位移，缓存容量 160（`frontend/src/middle-column/composer/VoiceWaveform.tsx:3`、`frontend/src/middle-column/composer/VoiceWaveform.tsx:75`）。
+- 波形门控：100–4000Hz 频段参与能量检测，阈值取自适应噪声底乘 5 与 0.01 的较大值，250ms hold 连接音节间隙（`frontend/src/middle-column/composer/VoiceWaveform.tsx:89`）。
+- 波形造型：幅度小于 0.04 时显示半径 1.2px 的圆点，语音柱最小高 3px、上下各留 4px、两端全圆角（`frontend/src/middle-column/composer/VoiceWaveform.tsx:7`、`frontend/src/middle-column/composer/VoiceWaveform.tsx:114`）。
+- 波形起落：输入能量上升时立即跟随，衰减时按 `current × .82 + target × .18` 平滑释放；两端以 `destination-in` 渐变遮罩淡出（`frontend/src/middle-column/composer/VoiceWaveform.tsx:103`、`frontend/src/middle-column/composer/VoiceWaveform.tsx:136`）。
+- 高清绘制：Canvas backing size 按 devicePixelRatio 放大，CSS 尺寸由 ResizeObserver 更新；柱色读取全局 `--text`（`frontend/src/middle-column/composer/VoiceWaveform.tsx:54`）。
+- 渲染性能：波形在独立 requestAnimationFrame 循环中用 Float32Array 写入 Canvas，React 只管理 Canvas 挂载与分析器引用（`frontend/src/middle-column/composer/VoiceWaveform.tsx:29`）。
+
+消息流与 Markdown 渲染。
+
+- 阅读块：消息投影只产生 `user` 与 `assistant` 两类稳定 MessageBlock；用户块以 inputId 为身份，助手组以 `runId + anchorInputId` 为身份（`frontend/src/store/messageBlocks.ts:3`、`frontend/src/store/messageBlocks.ts:87`）。
+- 用户气泡：右对齐，最大宽度 76%，14px/24px 字体、16px 全圆角、`--surface-bubble` 填充、0.02em 字距，保留换行（`frontend/src/middle-column/message-stream/message-stream.css:24`）。
+- 助手正文：最终回答独立在活动折叠之外，14px/24px、`--text-reading`，与消息左缘对齐；最终回答和活动组间距 8px（`frontend/src/middle-column/message-stream/message-stream.css:46`、`frontend/src/middle-column/message-stream/message-stream.css:80`）。
+- Markdown 管线：`react-markdown` 解析 mdast，随后运行 `remark-gfm`、`remark-breaks` 与 `normalizeMdast`，最后生成 React 结构（`frontend/src/middle-column/message-stream/MarkdownText.tsx:8`）。
+- Markdown 结构：标题、列表、引用、代码块、表格与任务列表保留结构；行内 strong/em/del 以普通文字呈现；单换行渲染为 br（`frontend/src/middle-column/message-stream/MarkdownText.tsx:16`）。
+- 表格与代码：表格放入独立横向滚动容器；围栏代码有 16px 圆角、表面填充与边框，按可用宽度软折行并保留长 token 的换行能力（`frontend/src/middle-column/message-stream/MarkdownText.tsx:22`、`frontend/src/middle-column/message-stream/message-stream.css:66`）。
+- 链接：外链设置 `target="_blank"` 与 `rel="noopener noreferrer"`，Electron 的 `setWindowOpenHandler` 将链接交给系统浏览器（`frontend/src/middle-column/message-stream/MarkdownText.tsx:20`、`shell/main/index.ts:130`）。
+- 标点：含汉字文本将全角标点映射为半角并补 ASCII 空格；代码、URL、路径、小数、时间与文件名保留原样（`frontend/src/utils/punctuation.ts:21`、`frontend/src/utils/punctuation-md.ts:69`）。
+- 渲染 memo：`MarkdownText` 使用 `memo`，消息流式更新与折叠状态变化时只重渲染输入发生变化的正文（`frontend/src/middle-column/message-stream/MarkdownText.tsx:48`）。
+- 时间与复制：时间格式为 `Thu Sep 17 11:45 AM`，复制按钮 24px 热区与 14px 图标始终可见；复制成功变 check、失败变 warning，状态保持 2 秒并通过 aria-live 播报（`frontend/src/middle-column/message-stream/MessageMeta.tsx:4`、`frontend/src/middle-column/message-stream/MessageMeta.tsx:21`）。
+
+Agent Trace 展示。
+
+- 代码中的对应：工作台通过 `run-work`、`turn-action` 与 `tool-row` 三级结构展示运行过程，这组界面承担产品中的 Agent Trace（`frontend/src/middle-column/message-stream/AssistantMessage.tsx:98`）。
+- 外层运行折叠：活动组标题显示 `Working for <time>` 或 `Worked for <time>`；运行中默认展开，结束后默认收起，用户选择在当前阶段内覆盖默认值（`frontend/src/middle-column/message-stream/AssistantMessage.tsx:47`、`frontend/src/middle-column/message-stream/AssistantMessage.tsx:82`）。
+- 计时更新：运行中每 1 秒刷新 elapsed；0–10 秒保留一位小数，10–60 秒取整秒，分钟和小时组合成 `2m6s`、`1h2m3s`（`frontend/src/middle-column/message-stream/AssistantMessage.tsx:9`、`frontend/src/middle-column/message-stream/AssistantMessage.tsx:83`）。
+- 空活动反馈：首个过程文字或工具到达前显示本地化等待文案；中文任务显示“正在等待过程说明。”，英文任务显示 `Waiting for a process explanation.`（`frontend/src/middle-column/message-stream/AssistantMessage.tsx:118`）。
+- 回合顺序：每个 turn 按“公开过程文字 → 一个工具组 → 下一个 turn 文字”排列，最终回答放在全部活动之后（`frontend/src/store/assistantActivity.ts:12`、`frontend/src/middle-column/message-stream/AssistantMessage.tsx:108`）。
+- 工具组摘要：同类工具只出现一次并按调用顺序拼接，例如 `Read files, ran commands`；工具组最大高 320px，内部滚动（`frontend/src/store/toolActivity.ts:73`、`frontend/src/middle-column/message-stream/message-stream.css:99`）。
+- 单条工具行：行内显示真实操作标签，例如 `Ran <command>`、`Read <path>`、`Searched <query> in <path>`；超宽内容单行省略（`frontend/src/store/toolActivity.ts:37`、`frontend/src/middle-column/message-stream/message-stream.css:104`）。
+- 工具图标：bash/shell 用 terminal，read/history 用 book-open，write/edit/canvas 用 edit，search 用 search，目录用 folder，其他用 tool，失败用 warning（`frontend/src/middle-column/message-stream/AssistantMessage.tsx:22`）。
+- 详情挂载：收起工具行只渲染操作摘要；展开后按需挂载缩进 JSON 输入、完整输出与错误，pre 最大高 240px 并独立滚动（`frontend/src/middle-column/message-stream/AssistantMessage.tsx:165`、`frontend/src/middle-column/message-stream/message-stream.css:104`）。
+- 失败证据：失败行保留危险色图标与 `Failed`/“执行失败”标记，详情继续给出实际输入、输出和错误（`frontend/src/store/toolActivity.ts:58`、`frontend/src/middle-column/message-stream/AssistantMessage.tsx:169`）。
+- 折叠动画：外层和回合工具组使用 `grid-template-rows` 从 0fr 到 1fr，展开 200ms、透明度 180ms；chevron 180ms 旋转 90°（`frontend/src/middle-column/message-stream/message-stream.css:32`、`frontend/src/middle-column/message-stream/message-stream.css:93`）。
+- 无障碍折叠：三个层级都使用原生 button 与 `aria-expanded`；折叠详情同时设置 `aria-hidden` 和 `inert`，键盘焦点留在可操作入口（`frontend/src/middle-column/message-stream/AssistantMessage.tsx:100`、`frontend/src/middle-column/message-stream/AssistantMessage.tsx:150`）。
+- 推理数据：raw reasoning 保存在状态、历史与 Provider 续轮字段；界面呈现公开过程文字与工具事实，兼容记录通过 `work-legacy-notice` 说明原文保存位置（`frontend/src/store/assistantActivity.ts:26`、`frontend/src/middle-column/message-stream/AssistantMessage.tsx:123`）。
+
+历史加载、会话投影与虚拟渲染。
+
+- 首屏历史：当前范围每次加载 100 条；请求绑定 `projectId` 与 generation，只有范围匹配且 generation 最新的页面进入当前状态（`frontend/src/hooks/useSessionHistory.ts:27`）。
+- 分页去重：旧页请求按 generation 合并，同一范围同时只保留一个在途分页 Promise；滚动加载与搜索加载共用 `nextCursor` 和 `hasMore`（`frontend/src/hooks/useSessionHistory.ts:47`）。
+- 范围切换：目标范围开始加载时先清空旧 `runs/runOrder`、切换历史 `projectId` 并进入 loading；页面返回后再一次建立新的 RunState 序列（`frontend/src/store/agentReducer.ts:301`）。
+- 历史合并：entries 以 `entryId` 去重，revision 更新较新记录，最终按 `entryOrder` 稳定排序；`snapshotOrder` 记录当前读取快照（`frontend/src/store/sessionHistory.ts:35`）。
+- 会话投影：历史 user/assistant/tool entries 重建 RunState、TurnState、ToolState、输入状态、工具顺序、最终回答、时间与运行总耗时（`frontend/src/store/sessionProjection.ts:48`）。
+- 实时续写：AgentEvent 在历史 hydrate 前进入等待队列；hydrate 完成后按顺序补放，之后的事件在 requestAnimationFrame 中合帧并依次 dispatch（`frontend/src/App.tsx:67`）。
+- 事件身份：实时状态以 `runId → turnId → toolCallId` 定位，当前运行校验负责接纳事件；同一 run 的模型 retry 会清空旧尝试草稿并按 attempt 接纳新增量（`frontend/src/store/agentReducer.ts:370`、`frontend/src/store/agentReducer.ts:411`）。
+- steer FIFO：提交 ACK 可以乱序返回，界面按 Main 的 `acceptOrder` 在尾部已接收输入中插入；`inputsApplied` 再按批次最终顺序整理时间线（`frontend/src/store/agentReducer.ts:168`、`frontend/src/store/agentReducer.ts:185`）。
+- 中断输入：停止、失败或完成事件携带的 `unappliedInputIds` 把对应气泡标为 interrupted，Composer 可将其文字恢复到编辑重发入口（`frontend/src/store/agentReducer.ts:522`、`frontend/src/App.tsx:242`）。
+- 虚拟窗口：MessageStream 只挂载 visibleRange 与上下各 600px overscan 内的块，前后 spacer 保持完整滚动高度（`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:35`、`frontend/src/middle-column/message-stream/MessageStream.tsx:145`）。
+- 高度测量：首次使用用户 88px、助手 160px 的估算高度，挂载后 ResizeObserver 写入真实块高；宽度变化、流式文字与折叠展开共享同一测量反馈（`frontend/src/middle-column/message-stream/MessageStream.tsx:16`、`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:173`）。
+- 顶部锚点：旧页插入使首块位置增加时，布局修正把相同 delta 加回 `scrollTop`，阅读内容在视口中的位置保持不变（`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:244`）。
+- 动态高度锚点：用户离开底部后，上方块的实时增高会补偿 scrollTop；用户仍在底部时下一帧直接吸底（`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:260`）。
+- 首屏定位：历史 hydrate 边界把有消息的新范围瞬时定位到最新内容；空范围回到 `scrollTop = 0`（`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:304`）。
+- 自动分页：滚动位置进入顶部 240px 阈值时请求旧页；generation 与在途标记共同去重，同一 cursor 的任何停留段只对应一个在途请求（`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:37`、`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:186`）。
+- 底部判定：距底部 24px 以内视为跟随最新消息，大于该距离视为阅读中段；跟随状态在每次 passive scroll 事件中更新（`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:38`、`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:219`）。
+- 历史状态：正在加载时显示 `Loading history…` 或 `Loading earlier messages…`；旧页失败在原位置显示可点击重试条，已加载内容继续显示（`frontend/src/middle-column/message-stream/MessageStream.tsx:132`）。
+
+消息滚动条与弹簧回弹。
+
+- 自绘滚动条：消息流隐藏原生滑块，使用 12px 轨道与 8px 视觉滑块；滑块距右边和上下端各 2px，最小 48px、最大 72px（`frontend/src/middle-column/message-stream/message-stream.css:1`、`frontend/src/middle-column/message-stream/StreamScrollbar.tsx:4`）。
+- 滚动条材质：滑块采用中性灰垂直渐变与 0.5px 顶部内高光，悬停和拖动切换强化色，外观过渡 120ms（`frontend/src/middle-column/message-stream/message-stream.css:9`）。
+- 指针拖动：按下滑块后获取 pointer capture，按原生滚动比例换算 `scrollTop`；失去 capture、pointerup 与 pointercancel 都结束拖动（`frontend/src/middle-column/message-stream/StreamScrollbar.tsx:44`）。
+- 键盘滚动：滑块提供 scrollbar 语义；Arrow 上下移动 40px，PageUp/PageDown 移动一屏，Home/End 到端点，当前百分比通过 aria-valuenow 暴露（`frontend/src/middle-column/message-stream/StreamScrollbar.tsx:67`）。
+- 弹性结构：滚动容器保持正常文档高度，内层 layout 负责裁剪，content 层只用 `translateY` 承担视觉位移；滚动条读取原生滚动几何并保持独立（`frontend/src/shared/scroll/useElasticScroll.ts:63`、`frontend/src/middle-column/message-stream/StreamScrollbar.tsx:85`）。
+- 拉力曲线：拉力映射使用 `MAX × (1 - 1 / (pull / SATURATION + 1))`；MAX 96px、SATURATION 400px，400px 拉力对应 48px 位移（`frontend/src/shared/scroll/useElasticScroll.ts:4`、`frontend/src/shared/scroll/useElasticScroll.ts:17`）。
+- 回弹弹簧：解析步进使用 ω=28 rad/s、ζ=0.9，按真实 frame delta 计算位置和速度；位移小于 0.3px 且速度小于 5px/s 时归零（`frontend/src/shared/scroll/useElasticScroll.ts:26`、`frontend/src/shared/scroll/useElasticScroll.ts:102`）。
+- wheel 节奏：最后一次 wheel 后 40ms 进入回弹；同一手势间隔 160ms 内连续，越界跟手最长 200ms，超时后停止继续拉伸并开始归位（`frontend/src/shared/scroll/useElasticScroll.ts:8`、`frontend/src/shared/scroll/useElasticScroll.ts:131`）。
+- 触摸节奏：单指移动累计拉力，touchend 或 touchcancel 触发回弹；手指保持接触时维持跟手（`frontend/src/shared/scroll/useElasticScroll.ts:188`）。
+- 反向输入：反向手势先抵消已有拉力，余量交回原生 `scrollTop`；回弹过程中再次输入时从当前视觉位移反算拉力，位置保持连续（`frontend/src/shared/scroll/useElasticScroll.ts:160`）。
+- 嵌套滚动：内部代码块、工具输出或表格先消耗自身纵向余量，内部边界到达后外层消息流再接续滚动；Ctrl 手势和横向手势保留原生行为（`frontend/src/shared/scroll/useElasticScroll.ts:50`、`frontend/src/shared/scroll/useElasticScroll.ts:181`）。
+- 输入单位：wheel 把 page/line/pixel 三种 `deltaMode` 统一换算为像素；短内容两个方向都可进入弹性状态（`frontend/src/shared/scroll/useElasticScroll.ts:181`、`frontend/src/shared/scroll/useElasticScroll.ts:41`）。
+- 减少动态：系统启用 reduced-motion 时弹性消费直接退出，内容保持原生滚动；偏好变化时立即复位当前位移（`frontend/src/shared/scroll/useElasticScroll.ts:90`、`frontend/src/shared/scroll/useElasticScroll.ts:214`）。
+
+颜色与视觉令牌。
+
+- 背景与表面：浅色页面 `#F8F8F8`、主表面 `#FFFFFF`、外壳 `#EEEEEE`、次级表面 `#EEEEEE`、气泡 `#F3F3F3`；深色页面 `#171717`、主表面 `#212121`、次级 `#1D1D1D`、气泡 `#242424`（`frontend/src/styles.css:8`、`frontend/src/styles.css:90`）。
+- 输入表面：`--input` 引用 `--bg`，Composer 和设置字段继承页面底色，通过边界与阴影形成层次（`frontend/src/styles.css:31`）。
+- 文字灰阶：浅色使用 `#171717/#444444/#666666/#888888/#A9A9A9` 五档阅读层级，深色使用 `#F8F8F8/#EEEEEE/#D8D8D8/#BABABA/#7C7C7C`（`frontend/src/styles.css:33`、`frontend/src/styles.css:101`）。
+- 交互灰阶：浅色 hover 为 `#1717170A`，selection 为 `#1717171A`，强调 selection 为 `#17171733`；文本选区独立为 `#1717172E`（`frontend/src/styles.css:43`）。
+- 焦点：全局 button/input/textarea/separator 使用 2px 主焦点轮廓与 2px offset；输入面板内部使用 `--focus-ring` 单独形成外环（`frontend/src/styles.css:142`、`frontend/src/styles.css:248`）。
+- 状态色：危险、成功、警告均有独立前景、软背景与深色主题对应值；普通导航和 Accent 继续使用中性墨色（`frontend/src/styles.css:52`、`frontend/src/styles.css:116`）。
+- 阴影：软、搜索、中、强四档阴影全部由同一种墨色派生；浅色使用黑色低透明，深色使用更深黑色（`frontend/src/styles.css:61`、`frontend/src/styles.css:125`）。
+- 边界：工作台分隔色由 `--border` 与透明色混合为 45% 强度，外层边界、项目列和右侧栏共享这一层级（`frontend/src/styles.css:40`）。
+- 滚动条令牌：浅色常态 `#D8D8D8`、悬停 `#BABABA`；深色常态 `#545454`、悬停 `#7C7C7C`，顶部内高光单独保存（`frontend/src/styles.css:66`、`frontend/src/styles.css:129`）。
+- 系统主题：由 `prefers-color-scheme` 自动切换 `color-scheme` 与整套语义令牌；组件读取语义变量并同步换肤（`frontend/src/styles.css:2`、`frontend/src/styles.css:90`）。
+- 全局原生滚动条：轨道 14px，滑块视觉宽度 6px，常态透明，hover/focus-within 显示并在 hover 时加深（`frontend/src/styles.css:150`）。
+- 文本选择：`::selection` 使用独立 `--text-selection`，与 hover 和控件选中背景分开（`frontend/src/styles.css:44`、`frontend/src/styles.css:147`）。
+
+字体与字号。
+
+- 界面字体：`SF Pro Text`、`-apple-system`、`BlinkMacSystemFont`、`PingFang SC`、`Hiragino Sans GB`、`sans-serif`；代码和文件内容使用 `SF Mono`、`ui-monospace`、Menlo（`frontend/src/styles.css:71`）。
+- 基准字重：页面继承 500，任务输入、模型选择与工具操作显式 400；标题和选中状态按层级提升到 500/600（`frontend/src/styles.css:139`、`frontend/src/middle-column/composer/Composer.css:22`）。
+- 全局缩放：`--ui-font-offset` 当前为 0px，所有界面字号使用 `calc(base + offset)`；Canvas UI 也读取该偏移，画布文档文字由元素自身 `fontSize` 控制（`frontend/src/styles.css:73`、`canvas/ui/CanvasSurface.css:79`）。
+- 字号阶梯：detail 9px、hint 10px、caption 11px、code 12px、meta 13px、body 14px、subheading 15px、title 16px、heading 17px、display 18px、hero 20px（`frontend/src/styles.css:74`）。
+- 正文节奏：用户气泡与模型正文 14px/24px，Composer 输入与模型选择 14px/22px，元信息 13px/20px（`frontend/src/middle-column/message-stream/message-stream.css:24`、`frontend/src/middle-column/message-stream/message-stream.css:80`）。
+- 字距：用户气泡与最终答案使用 0.02em，Markdown 标题使用 0.02em；普通工具行保持系统默认字距（`frontend/src/middle-column/message-stream/message-stream.css:27`、`frontend/src/middle-column/message-stream/message-stream.css:53`）。
+- 高分组：设置标题 16px、项目标题 16px、搜索与主要控件正文 14px、输出文件名称 11px、路径和时间细节 9px（`frontend/src/styles.css:202`、`frontend/src/workbench/project/ProjectsPanel.css:9`）。
+
+图标与应用标识。
+
+- 统一图标组件：`Icon` 使用 24×24 viewBox、默认 20px、1.8px 描边、圆头端点、圆角连接、`fill:none` 与 `currentColor`，默认 `aria-hidden`（`frontend/src/shared/ui/Icon.tsx:64`）。
+- 图标语义：组件集中定义 29 个名称，包括 arrow-up、book-open、check、chevron-right、close、copy、download、edit、eye、external、folder、image、line-squiggle、microphone、pin、plus、refresh、search、settings、sidebar、stop、terminal、tool、trash、warning（`frontend/src/shared/ui/Icon.tsx:3`）。
+- 操作尺寸：顶部按钮使用 18px 图标，工具行使用 16px，消息复制与 shell 控件使用 14–15px，语音麦克风使用 17px，停止与发送使用 18px（`frontend/src/workbench/titlebar/TopBar.tsx:30`、`frontend/src/middle-column/message-stream/AssistantMessage.tsx:152`）。
+- 轻量按钮：仅图标按钮提供 title 与 aria-label；悬停、active 和 focus-visible 共享同一灰阶语义，选择器、列表和工具区复用相同 Icon 组件。
+- 应用主标识：`AppMark` 使用 192×192 viewBox，路径表现一条连续轨道弧线与右上方圆点，透明背景并继承当前文字色（`frontend/src/workbench/navigation/AppMark.tsx:3`）。
+- 完整应用图标：SVG 为 192×192 暖米色 44px 圆角底板、深棕轨道形与圆点；PNG 为 1024×1024 RGBA，用于运行时 Dock 和打包图标（`frontend/src/assets/app-icon.svg:1`、`frontend/src/assets/app-icon.png`）。
+- 图标来源链路：SVG 用于 favicon，PNG 用于 Main 的 Dock 和 `scripts/macos-app.mjs` 的 `.icns` 生成；缓存键包含图标内容 SHA-256（`frontend/index.html:6`、`shell/main/index.ts:10`、`scripts/macos-app.mjs:29`）。
+- 视觉主题：暖米色底板与深棕图形承担应用身份，工作台内容区使用中性灰阶；导航中的透明符号抽取主标识的内部轨道与圆点（`frontend/src/workbench/navigation/ProjectNavigation.tsx:31`、`frontend/src/assets/app-icon.svg:2`）。
+
+动画与过渡总表。
+
+- 标准缓动：全局 `--ease-standard` 为 `cubic-bezier(.22, 1, .36, 1)`，快速反馈使用 80–140ms，浮层使用 150–180ms，内容展开使用 200ms（`frontend/src/styles.css:85`）。
+- 搜索动画：浮层 160ms 从下方 6px、0.985 缩放入场；reduced-motion 直接显示（`frontend/src/styles.css:168`）。
+- 设置切换：Settings 与工作台通过页面状态切换展示和交互区域；Back 恢复工作台，下一动画帧将焦点返回左下设置入口，拖拽带与内容热区分别定义（`frontend/src/App.tsx:353`、`frontend/src/workbench/settings/SettingsPage.css`）。
+- Provider 动画：chevron 180ms 旋转，模型列表 200ms 高度展开与 150ms 淡入，refresh 与项目加载图标分别以 0.7s/1s 线性旋转（`frontend/src/styles.css:210`、`frontend/src/workbench/project/ProjectsPanel.css:38`）。
+- 模型选择器动画：trigger 宽度 180ms、chevron 180ms、popover 150ms；切换名称仅执行一次宽度过渡（`frontend/src/middle-column/composer/Composer.css:40`）。
+- 发送按钮动画：active 缩放 80ms、状态颜色 120ms、发送/停止图标 120ms 缩放入场（`frontend/src/middle-column/composer/Composer.css:52`）。
+- 语音动画：按钮 1.6s 循环呼吸环，波形区域 140ms 淡入，波形本身按帧连续滚动、瞬时 attack 与平滑 release（`frontend/src/middle-column/composer/Composer.css:34`、`frontend/src/middle-column/composer/VoiceWaveform.tsx:103`）。
+- Agent Trace 动画：chevron 180ms，活动与工具折叠高度 200ms、透明度 180ms（`frontend/src/middle-column/message-stream/message-stream.css:32`）。
+- 侧栏动画：宽度 180ms，内容打开淡入 180ms、关闭淡出 90ms；拖拽阶段关闭 transition（`frontend/src/styles.css:269`）。
+- 页面状态动画：事件以 requestAnimationFrame 合帧 dispatch，侧栏拖拽以 requestAnimationFrame 节流，Canvas 选区浮层以 requestAnimationFrame 对齐（`frontend/src/App.tsx:76`、`frontend/src/shared/sidebar/useResizableSidebar.ts:115`、`canvas/ui/CanvasSurface.tsx:365`）。
+- 减少动态：全局 reduced-motion 将动画时长压到 .001ms、循环次数设为 1、transition 归零；侧栏、弹性滚动、Canvas 浮层和 Agent Trace 另有即时状态分支（`frontend/src/styles.css:312`）。
+
+Canvas 前端集成。
+
+- 入口：顶部 line-squiggle 按钮把右侧栏切换到 Canvas；Agent 发起画布编辑时，`onCanvasEditRequest` 自动打开 Canvas 并挂起待执行请求（`frontend/src/App.tsx:93`、`frontend/src/workbench/titlebar/TopBar.tsx:34`）。
+- 加载策略：Canvas 编辑器模块与当前项目文档在启动后预热，Canvas 组件使用 `lazy`/`Suspense` 首次渲染；加载期间显示 `Loading drawing tools…`（`frontend/src/App.tsx:131`、`canvas/ui/CanvasSurface.tsx:103`）。
+- 项目场景：每个 `projectId` 读取独立 CanvasDocument；`null` 使用 `__unprojected__` 缓存键；场景替换时清空旧元素、文件和选区（`canvas/ui/CanvasSurface.tsx:28`、`canvas/ui/CanvasSurface.tsx:184`）。
+- 主题同步：Canvas 场景背景读取全局 `--bg` 并写入 `viewBackgroundColor`；工具栏按钮、选择色、表面色、hover、active 和 focus 全部映射到工作台灰阶令牌（`canvas/ui/CanvasSurface.tsx:199`、`canvas/ui/CanvasSurface.css:23`）。
+- 编辑器 UI：`UIOptions` 开启保存到当前文件、图片导出与 Save As Image；工具栏保持选择、平移、图形、线条、文字、图片、橡皮擦、撤销和重做等绘图能力（`canvas/ui/CanvasSurface.tsx:357`、`canvas/ui/CanvasSurface.tsx:628`）。
+- 选区浮层：选中元素后在选区上方或下方显示横向工具栏；浮层位置按选区共同边界、当前 zoom/scroll、旋转手柄高度与视口四周边距计算（`canvas/ui/CanvasSurface.tsx:365`）。
+- 浮层定位：上方空间小于工具栏高度与 58px 顶部约束时自动放到选区下方；左右位置按工具栏半宽限制在编辑器内，位置变化小于 1px 时复用原 state（`canvas/ui/CanvasSurface.tsx:398`、`canvas/ui/CanvasSurface.tsx:425`）。
+- 浮层样式：高 2rem、11px 圆角、半透明主表面、1px 边界和中等阴影；按钮 hover 使用 `--hover`，active 使用 `--selection`，分隔线贯穿内容高度（`canvas/ui/CanvasSurface.css:86`）。
+- Use selection：读取所有选中元素，计算共同 bounds，序列化 scene JSON、selectionBounds 与坐标空间；含图片时额外导出 24px padding 的 PNG visual（`canvas/ui/CanvasSurface.tsx:523`）。
+- 引用 chip：准备成功后把 descriptor 交给 App 的 `canvasContexts`，进入 Composer 的 Canvas chip；项目切换、单项移除与成功发送分别清理对应引用（`canvas/ui/CanvasSurface.tsx:564`、`frontend/src/App.tsx:443`）。
+- JSON 与图片导出：Save JSON 导出完整场景或写入 `fileHandle: null` 的 draft，Save image 打开编辑器原生图片导出对话框；用户取消保存时界面保持安静（`canvas/ui/CanvasSurface.tsx:584`、`canvas/ui/CanvasSurface.tsx:608`）。
+- 保存状态：Canvas 自动保存期间显示 `Saving…`，成功与错误通过底部半透明状态条播报；普通错误提供 Retry，冲突提供 Export draft 与 Reload saved（`canvas/ui/CanvasSurface.tsx:670`）。
+- Agent 编辑流程：待执行请求先核对项目、deadline、加载状态、编辑器 ready 与保存冲突，再依次执行 apply、等待场景 change、等待 save flush（`canvas/ui/CanvasSurface.tsx:237`）。
+- 编辑反馈：成功显示 `Canvas updated by the Agent.`；部分成功、冲突、未知结果和取消分别返回结构化错误；可见但保存失败时提示重新保存（`canvas/ui/CanvasSurface.tsx:304`、`canvas/ui/CanvasSurface.tsx:312`）。
+- 错误隔离：编辑器渲染异常由 React error boundary 捕获，Canvas 区域显示 Retry；工作台其余区域保持可操作（`canvas/ui/CanvasSurface.tsx:66`）。
+- 画布字体：Canvas UI 读取 `--ui-font-offset`，画布文档文字继续使用元素自身字体与 `fontSize`；默认文字为系统无衬线 14px（`canvas/ui/CanvasSurface.css:79`、`frontend/src/styles.css:73`）。
+
+UX/UI 决策归纳。
+
+- 阅读层级：消息、折叠过程、工具详情和最终回答分层；最终回答持续位于折叠外并直接呈现结论（`frontend/src/store/messageBlocks.ts:41`、`frontend/src/middle-column/message-stream/AssistantMessage.tsx:136`）。
+- 输入连续性：语音回填与编辑重发都读取最新草稿，发送 ACK 后按焦点来源恢复 textarea，连续键盘输入保持单一路径（`frontend/src/middle-column/composer/Composer.tsx:252`、`frontend/src/middle-column/composer/Composer.tsx:277`）。
+- 用户意图保护：请求失败保留草稿、附件与 Canvas 引用；停止或失败后的 interrupted steer 输入保留 `Edit and resend` 入口（`frontend/src/middle-column/composer/Composer.tsx:238`、`frontend/src/middle-column/message-stream/MessageStream.tsx:41`）。
+- 稳定身份：`inputId` 标识输入，`blockId` 标识阅读块，`turnId` 标识模型回合，`toolCallId` 标识工具调用，`contextId` 标识 Canvas 引用；实时、历史和搜索共用这些身份（`frontend/src/store/agentReducer.ts:55`、`frontend/src/store/messageBlocks.ts:29`）。
+- 过期结果隔离：项目 scope、history generation、preview generation、voice requestId、Canvas requestId 和 Provider discovery requestId 分别把异步结果绑定到发起时的界面状态。
+- 反馈层级：hover 提供可点击提示，active 提供当前面板状态，focus-visible 提供键盘位置，aria-busy 提供进行中状态，role=alert/status 提供错误与结果播报。
+- 错误恢复：历史、项目、Provider、语音、输出预览和 Canvas 都在原上下文提供对应重试、取消、导出草稿或重新加载入口。
+- 危险操作：Provider 删除使用 4 秒二次确认；项目删除由 Main 使用系统确认；Canvas 冲突同时保留内存草稿和磁盘场景入口。
+- 窄空间策略：内容列限制 760px，左右侧栏按局部可用空间收缩，模型菜单在 700px 以下切换为右侧锚定，Canvas 工具条由侧栏宽度自然裁切。
+- 键盘优先：导航、项目菜单、模型列表、搜索结果、侧栏拖拽、消息滚动条与 Agent Trace 都提供明确键盘路径和可见焦点。
+- 视觉一致性：颜色、字号、缓动、圆角、边界、阴影和状态色集中在全局令牌；项目列、右侧栏、搜索、设置、Composer、消息流和 Canvas 共用同一套语义。
+
+渲染性能与维护边界。
+
+- 事件合帧：IPC AgentEvent 先写入队列，同一动画帧只 dispatch 一次批次，流式 token 高频到达时 React 更新次数受屏幕帧节奏约束（`frontend/src/App.tsx:67`）。
+- 消息虚拟化：已加载历史保留在状态中，DOM 只挂载视口附近的块；真实高度缓存与二分查找生成 visible range（`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:77`、`frontend/src/middle-column/message-stream/useVirtualMessageWindow.ts:114`）。
+- 正文复用：`MarkdownText` 使用 memo，工具详情使用展开后挂载，折叠区域使用 `inert` 退出交互树（`frontend/src/middle-column/message-stream/MarkdownText.tsx:48`、`frontend/src/middle-column/message-stream/AssistantMessage.tsx:165`）。
+- 高频动画：波形由 Canvas 独立绘制，弹性滚动由 transform 与 requestAnimationFrame 更新，侧栏拖拽由帧节流写入宽度，Canvas 选区位移由帧节流提交。
+- 模块加载：Canvas 编辑器使用动态 import，消息正文使用 React 组件树，Renderer 与 Canvas 引擎按需拆分；项目文档通过 preload promise 缓存（`canvas/ui/CanvasSurface.tsx:28`、`canvas/ui/CanvasSurface.tsx:36`）。
+- 状态归属：`App` 协调页面级范围与浮层，`Composer` 拥有模型选择和任务草稿，`AgentState` 拥有运行/历史投影，`useResizableSidebar` 拥有侧栏交互，`CanvasSurface` 拥有编辑器实例和保存协调器（`frontend/src/App.tsx:27`、`frontend/src/middle-column/composer/Composer.tsx:84`）。
+- 可维护性：语义颜色、字号、缓动与图标集中定义；左右侧栏共用宽度 hook，两类消息共用 Markdown 渲染，实时与历史共用 MessageBlock/ToolActivity 投影。
+- 可测试性：Composer、voice、MessageStream、AssistantMessage、ProjectNavigation、OutputSidebar、elastic-scroll browser、Canvas editor layout 都有独立测试入口（`tests/frontend/src/middle-column/composer/Composer.test.ts:45`、`tests/frontend/src/middle-column/message-stream/AssistantMessage.test.ts:46`、`tests/frontend/src/hooks/elasticScroll.browser.test.ts:39`）。
+
+资料同步点。
+
+- 当前代码状态：搜索结果对应的主消息流块使用 4px `--selection-strong` 外轮廓与 2px offset 标记当前命中（`frontend/src/styles.css:186`）。
+- 文档状态：`titlebar/search.mdx` 仍将同一定位反馈描述为 `--hover` 背景（`docs/desktop/design/workbench/titlebar/search.mdx:15`）。
+- 前端处理：以 `styles.css` 的 selection outline 作为当前实现，更新搜索页说明即可完成资料同步。
+- 后端处理：搜索定位、历史读取与检索结果保持不变，搜索文档校准只涉及 Renderer 资料层。

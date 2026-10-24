@@ -1,7 +1,7 @@
 /* 唯一列定义：消息列与对话框列共用，宽度只在此处声明一次。 */
 .column { min-width: 0; min-height: 0; width: 100%; margin-inline: auto; position: relative; display: grid; grid-template-rows: minmax(0, 1fr); }
-.column-empty-state { position: absolute; top: var(--topbar-height); left: 0; right: 0; min-height: 0; padding: 0 16px; display: grid; place-items: center; pointer-events: none; color: #000; font-size: 20px; font-weight: 400; line-height: 28px; text-align: center; }
-/* 760px 内容列：滚动区与 Composer 内部各自居中，滚动条随滚动容器占满窗口宽 */
+.column-empty-state { position: absolute; top: 0; left: 0; right: 0; min-height: 0; padding: 0 16px; display: grid; place-items: center; pointer-events: none; color: var(--text); font-size: var(--font-size-hero); font-weight: 400; line-height: calc(28px + var(--ui-font-offset)); text-align: center; }
+/* 760px 内容列：滚动区与 Composer 内部各自居中，滚动容器填满内框的消息主列。 */
 .stream-content, .composer-inner { width: min(760px, 100%); margin-inline: auto; }
-/* 覆盖布局：Composer 出流并以绝对定位钉在列底，滚动区与滚动条轨道因此贯穿整列 */
+/* Composer 钉在框内消息列底部，滚动区与滚动条轨道覆盖该列的可用高度。 */
 .composer-inner { position: absolute; left: 0; right: 0; bottom: 0; }

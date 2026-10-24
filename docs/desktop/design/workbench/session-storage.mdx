@@ -1,82 +1,98 @@
 历史存储装配。
 
-## 数据归属
+数据归属。
 
 - Main 使用 `app.getPath("userData")` 生成 `agent-sessions.sqlite`。
-- `projects` 保存真实项目目录的稳定身份、规范化路径和最近激活时间。
+- `projects` 保存真实项目目录的稳定身份、规范化路径、显示名称、置顶状态、登记时间和最近激活时间。
 - `entries.project_id` 保存项目历史范围；`NULL` 保存无项目历史范围。
 - `project_context` 保存项目的优先排序、有界导航地图和省略元数据。
 - 独立的待处理输入存储保存 Main 已接收的运行中补充文本及其应用状态；`entries` 保存 completed 用户消息与终态归档的 interrupted 用户输入。
 - `HistoryRecorder` 保存当前历史范围的模型可见消息、流式草稿和工具恢复账本。
-- Renderer 保存页面事件队列、项目展示状态和历史投影。
+- Renderer 保存页面事件队列、项目元数据缓存、项目展示状态和历史投影；项目列表缓存承载名称、路径和置顶等描述，聊天消息由历史分页与实时事件链路维护。
 
-## 项目范围
+项目范围。
 
-应用初始使用 `projectId = NULL` 的无项目历史范围，Composer 显示 `Choose folder`。用户选择目录后，Main 规范化路径并查询 `projects.canonical_path`：已有记录沿用原 `projectId`，新目录创建新的项目记录。Main 将选中的项目范围作为当前历史范围，并加载对应的 `project_context`。
+- 初始范围：应用初始使用 `projectId = NULL` 的普通历史范围，左侧选中 `I`。项目添加和条目选择由[项目导航](./project-navigation.mdx)定义，Main 负责登记项目和激活目标范围。
+- 项目列表：`listProjects()` 通过 Repository 返回项目描述，按 `pinned DESC, created_at ASC, id ASC` 稳定排列；列表读取使用已登记的名称、路径和置顶元数据，目录上下文在项目激活时准备。
+- 列表恢复：Renderer 首次展开项目列表时读取 Main，成功后保留列表；后续展开、收起和项目激活沿用前端缓存列表，添加成功后刷新一次列表，置顶、改名和删除成功后提交 Main 返回的列表快照。
+- 列表状态：Renderer 维护加载完成、加载中、错误与在途请求身份，合并同一读取请求，并在重试时重新查询；这些状态归属当前页面生命周期。
+- 添加目录：`selectProject()` 打开系统目录选择器，Main 规范化路径并查询 `projects.canonical_path`；已有记录沿用原 `projectId`，新目录创建项目记录，添加成功后激活对应范围。
+- 激活项目：`activateProject(projectId)` 按稳定 ID 读取已登记项目，校验目录并准备对应 `HistoryRecorder` 与 `project_context`，更新最近激活时间和活动项目描述。
+- 元数据操作：Main 按稳定 `projectId` 更新显示名称和置顶状态，名称编辑保留规范路径和磁盘目录；最近激活时间独立于列表排序。
+- 目录定位：Main 读取项目的规范路径，通过系统 Finder 定位该目录。
+- 项目删除：Main 在系统确认后关闭并移除该项目缓存的 Recorder，Repository 在事务中清理项目的 entries、工具恢复账本、待处理输入、取消记录、上下文缓存和压缩快照，再删除项目元数据；项目文件夹和其中的用户文件继续保留。
+- 删除路由：当前活动项目删除后，Main 准备普通范围的 Recorder 并激活 `projectId = NULL`；Renderer 接收新的活动描述，沿用已有范围切换链路加载普通历史和 Canvas。
+- 普通入口：`clearProject()` 激活 `projectId = NULL`，复用该范围的 HistoryRecorder 与普通历史。
+- 路由对象：项目切换同步更新 active project descriptor、`HistoryRecorder(projectId)`、`HistoryService(projectId)`、`project_context` 和 `Canvas document route(projectId)`。
+- 切换时机：项目切换发生在运行空闲时。运行开始时，Runner 固定 `projectId`、`cwd`、HistoryRecorder 和项目上下文版本。
+- 页面衔接：Renderer 先等待当前 Canvas 的 `flush()`，在 Main 激活成功后更新项目描述、清理原 Canvas 引用并预加载目标文档，再调用现有 `history.reload(projectId)`；取消目录选择或激活失败时保留原范围，历史加载结果继续使用项目身份和请求代次门控。
+- 展示开合：项目列表的展开与收起由 Renderer 布局状态控制，Main 的活动项目、Recorder 和历史范围继续保持原值；列表开合与聊天历史分页分别管理数据读取。
+- 画布路由：CanvasSurface 以项目 ID 加载对应场景，Main 以每次画布请求携带的项目 ID 派生文档路径；每个项目的写入队列按顺序提交其最新场景。
 
-项目切换更新以下对象：
+运行链路。
 
-```text
-active project descriptor
-active HistoryRecorder(projectId)
-active HistoryService(projectId)
-active project_context
-Canvas document route(projectId)
+- 任务提交：Composer 提交任务、模型 ID、attachmentIds、canvasContextIds 和当前 `projectId`。
+- 材料解析：Main 校验项目范围，解析文件附件与 Canvas 选区引用，并从 `project_context` 取得有界目录上下文。
+- 运行身份：Main 创建或取得绑定当前 `projectId` 的 `HistoryRecorder`，生成初始 `inputId` 与固定的 `createdAt`，运行 ACK 与 Runtime 共享这组值。
+- 材料装配：Runner 将文件路径提示并入当前任务，同时把选区 JSON 与项目上下文作为运行期消息交给 Runtime。
+- 模型输入：Runtime 读取 `HistoryRecorder.snapshot()`，追加运行期项目上下文、Canvas 选区 JSON 和当前用户消息。
+- 调用顺序：Runtime 按提交屏障调用模型、工具和 Recorder。
+- 实时与历史：Renderer 通过 AgentEvent 渲染实时过程，通过 `history:load-page` 读取当前范围的持久化历史。用户消息从 ACK 和历史 entry 取得相同的 `createdAt`；助手消息从完成事件和历史 entry 取得相同的 `completedAt`。
+- 公开内容：Assistant payload 的 `content` 保存该 turn 的原生公开正文，`reasoning` 保存原始推理，`toolCalls` 保存完整调用集合；历史 `progress` 字段按保存值恢复。Recorder 保存事实字段，Renderer 通过[历史投影](./history-projection.mdx)和[消息流](./message-stream.mdx)确定文字与工具的阅读位置。
+- 回答身份：成功运行通过 `runCompleted.finalTurnId` 交付最终回合，历史通过最终 Assistant entry 的 `durationMs` 恢复同一身份；最终身份待确认的正文保留在活动详情，已应用补充输入的任务边界保留前组已提交回答。工具展开详情直接读取同一 ToolState 的参数与结果，阶段展开和手动覆盖归属 Renderer 视图状态。
+
+运行中输入装配。
+
+- 输入接收：Renderer 在当前模型输出或工具执行期间提交文本快照、独立 `inputId`、`activeRunId` 和当前 `projectId`；Preload 把 `steer` 请求交给 Main。项目、工作目录、模型、附件与画布选区继续使用 Runner 启动时捕获的配置。
+- 归属校验：Main 通过 Runner 核对活动 `runId` 与项目范围，其中 `projectId = null` 与项目运行使用同一接收契约。Main 在应用数据库中持久化待处理输入，并按接收顺序分配 `acceptOrder`。
+- 接收确认：持久化完成后，Main 返回携带 `inputId`、`acceptOrder` 和接收时间的 ACK。ACK 表示 Main 已绑定并保存输入，`inputsApplied` 表示 Runtime 已把输入交给下一次模型请求。
+- 边界提交：Runtime 完成当前 Assistant Message 和已发起工具的全部 Tool Message 提交，在安全边界调用 Recorder。Recorder 在一个事务中按 `acceptOrder` 把本批输入写为 completed 用户 entries，并更新待处理状态；用户 entry 沿用 `inputId`。
+- 上下文应用：Runtime 在事务完成后按顺序扩展内存 `messages`，发出 `inputsApplied` 并继续下一次模型请求。Renderer 依据 `inputId` 合并接收 ACK、应用事件与持久化 entry。
+- 终态封闭：Runner 使用同一串行门控处理入队与终态封闭。门控内已接收的输入进入安全边界；封闭后收到的请求返回拒绝，发送方保留对应文本快照。停止、失败和启动恢复通过 Recorder 在事务中写入同 `inputId` 的 interrupted 用户 entries，并把剩余输入转为 `unapplied` 状态。
+- 输入范围：待处理输入以运行范围为归属，项目配置沿用运行启动时的快照；`projectId = null` 的终态输入记录进入通用历史范围。相同 `inputId` 的重试返回同一持久化接收记录，连续两条独立输入按 FIFO 处理。物理存储结构由实现确定，`entries` 的 `entryOrder` 继续表达 completed 消息的 Assistant、Tool、User 顺序，并保存 interrupted 用户输入的归档位置。
+
+历史分页。
+
+- 分页服务：`HistoryService` 保存一个 Main 侧当前范围读取器。Renderer 提交游标和页大小，Main 使用 `project_id = ?` 或 `project_id IS NULL` 读取 entries，并按照 `entry_order` 生成正序页面、下一页游标和 `snapshotOrder`。
+- 消息时间：页面 DTO 保存 `createdAt`、可空的 `completedAt` 和 `durationMs`。Runner 将 Runtime 的 `assistantCompleted.completedAt` 原样交给 IPC，Renderer 的 reducer 与历史投影将该值写入同一助手日期字段。初始用户 ACK 的 `createdAt` 同时进入 Runtime 提交上下文；补充用户输入的 `acceptedAt` 成为持久化 entry 的 `createdAt`。
+- 运行时长：Run 级时长以 `runStarted.startedAt` 为唯一计时起点，在运行终态计算总时长。HistoryRecorder 把总时长保存到最终 Assistant Message 的 `durationMs`；`runCompleted.finalTurnId` 与 `finalDurationMs` 提供最终回合身份和实时总时长，历史分页提供持久化时长。`inputsApplied.startedAt` 标记补充文本进入模型上下文的时刻。活动组时长归属见[消息流视图规范](./message-stream.mdx)。
+- 游标与去重：HistoryService 继续分页 `entries` 并使用 `entryOrder` 游标。Renderer 以 `inputId` 归并运行 ACK、`runCompleted.unappliedInputIds` 和 completed/interrupted 用户 entries，并以项目范围和历史请求代次约束历史结果。
+- 项目描述：`getActiveProject()` 返回当前活动的 `ProjectDescriptor`。
+- 项目列表：`listProjects()` 返回已登记的 `ProjectDescriptor[]`，供项目列表栏展示和选择。
+- 添加项目：`selectProject()` 返回所选目录对应的 `ProjectDescriptor`；用户取消时返回 `null`。
+- 选择项目：`activateProject(projectId)` 接收已登记项目 ID，返回激活后的 `ProjectDescriptor`，供 Renderer 继续调用历史与 Canvas 加载链路。
+- 项目描述字段：`ProjectDescriptor` 提供 `projectId`、`displayName`、`canonicalPath` 和 `pinned`；Main 为普通范围提供 `pinned = false`。
+- 项目操作：`performProjectAction({ projectId, action, name? })` 接收 `pin`、`unpin`、`reveal`、`rename` 和 `delete`；`rename` 使用 `name` 作为新的显示名称。
+- 操作结果：`performProjectAction()` 返回 `{ status, projects?, activeProject }`；`status` 为 `completed` 或 `cancelled`，成功的置顶、取消置顶、改名与删除提供更新后的 `projects` 列表，Renderer 接收该快照后更新项目缓存；目录定位与取消操作保留既有列表缓存，各结果继续提供当前活动项目描述。
+- 普通范围：`clearProject()` 返回 `projectId = NULL` 的 `ProjectDescriptor`。
+- 历史页面：`loadHistoryPage()` 使用现有当前范围分页协议。
+- 补充输入：`steer()` 提交运行中补充文本并接收持久化 ACK。
+- 访问边界：Renderer 通过上述受限接口读取项目描述和当前历史页面。数据库路径、Repository 和其他项目历史范围由 Main 持有。
+- 接入位置：`shell/shared/ipc.ts` 和 `shell/preload/index.ts` 提供项目列表、按 ID 激活和项目操作方法，`shell/main/index.ts` 注册处理器并串行协调范围变更，`shell/main/project-registry.ts` 统一目录登记、项目激活、元数据更新与上下文准备；Repository 维护稳定排序和项目关联记录删除事务，HistoryService 分页与历史投影沿用现有链路。
+
+项目归属伪代码。
+
+- 切换：Renderer 激活项目后读取活动范围的历史页，并校验返回页面的项目归属。
+- 读写：Main 捕获活动范围，Repository 按同一范围查询记录，新的运行与消息保存该范围。
+
+```ts
+// Renderer: 选择项目、恢复历史、提交消息
+const project = await agentAPI.activateProject(selectedProjectId);
+const page = await agentAPI.loadHistoryPage({ cursor: null, limit: 100 });
+acceptHistory(project.projectId, page);
+await agentAPI.run({ ...runInput, projectId: project.projectId });
+
+// Main / Repository: 捕获并使用本次请求的活动范围
+const scope = projects.activeScope; // string 或 null
+const entries = await repository.listLatestEntries(scope, limit + 1);
+// 对应 SQL 条件：WHERE project_id IS ?，参数为 scope
 ```
 
-项目切换发生在运行空闲时。运行开始时，Runner 固定 `projectId`、`cwd`、HistoryRecorder 和项目上下文版本。
-CanvasSurface 以项目 ID 加载对应场景，Main 以每次画布请求携带的项目 ID 派生文档路径；每个项目的写入队列按顺序提交其最新场景。
-
-## 运行链路
-
-1. Composer 提交任务、模型 ID、attachmentIds、canvasContextIds 和当前 `projectId`。
-2. Main 校验项目范围，解析文件附件与 Canvas 选区引用，并从 `project_context` 取得有界目录上下文。
-3. Main 创建或取得绑定当前 `projectId` 的 `HistoryRecorder`，生成初始 `inputId` 与固定的 `createdAt`，运行 ACK 与 Runtime 共享这组值。
-4. Runner 将文件路径提示并入当前任务，同时把选区 JSON 与项目上下文作为运行期消息交给 Runtime。
-5. Runtime 读取 `HistoryRecorder.snapshot()`，追加运行期项目上下文、Canvas 选区 JSON 和当前用户消息。
-6. Runtime 按提交屏障调用模型、工具和 Recorder。
-7. Renderer 通过 AgentEvent 渲染实时过程，通过 `history:load-page` 读取当前范围的持久化历史。用户消息从 ACK 和历史 entry 取得相同的 `createdAt`；助手消息从完成事件和历史 entry 取得相同的 `completedAt`。
-
-## 运行中输入装配
-
-1. Renderer 在当前模型输出或工具执行期间提交文本快照、独立 `inputId`、`activeRunId` 和当前 `projectId`；Preload 把 `steer` 请求交给 Main。项目、工作目录、模型、附件与画布选区继续使用 Runner 启动时捕获的配置。
-2. Main 通过 Runner 核对活动 `runId` 与项目范围，其中 `projectId = null` 与项目运行使用同一接收契约。Main 在应用数据库中持久化待处理输入，并按接收顺序分配 `acceptOrder`。
-3. 持久化完成后，Main 返回携带 `inputId`、`acceptOrder` 和接收时间的 ACK。ACK 表示 Main 已绑定并保存输入，`inputsApplied` 表示 Runtime 已把输入交给下一次模型请求。
-4. Runtime 完成当前 Assistant Message 和已发起工具的全部 Tool Message 提交，在安全边界调用 Recorder。Recorder 在一个事务中按 `acceptOrder` 把本批输入写为 completed 用户 entries，并更新待处理状态；用户 entry 沿用 `inputId`。
-5. Runtime 在事务完成后按顺序扩展内存 `messages`，发出 `inputsApplied` 并继续下一次模型请求。Renderer 依据 `inputId` 合并接收 ACK、应用事件与持久化 entry。
-6. Runner 使用同一串行门控处理入队与终态封闭。门控内已接收的输入进入安全边界；封闭后收到的请求返回拒绝，发送方保留对应文本快照。停止、失败和启动恢复通过 Recorder 在事务中写入同 `inputId` 的 interrupted 用户 entries，并把剩余输入转为 `unapplied` 状态。
-
-待处理输入以运行范围为归属，项目配置沿用运行启动时的快照；`projectId = null` 的终态输入记录进入通用历史范围。相同 `inputId` 的重试返回同一持久化接收记录，连续两条独立输入按 FIFO 处理。物理存储结构由实现确定，`entries` 的 `entryOrder` 继续表达 completed 消息的 Assistant、Tool、User 顺序，并保存 interrupted 用户输入的归档位置。
-
-## 历史分页
-
-`HistoryService` 保存一个 Main 侧当前范围读取器。Renderer 提交游标和页大小，Main 使用 `project_id = ?` 或 `project_id IS NULL` 读取 entries，并按照 `entry_order` 生成正序页面、下一页游标和 `snapshotOrder`。
-
-页面 DTO 保存 `createdAt`、可空的 `completedAt` 和 `durationMs`。Runner 将 Runtime 的 `assistantCompleted.completedAt` 原样交给 IPC，Renderer 的 reducer 与历史投影将该值写入同一助手日期字段。初始用户 ACK 的 `createdAt` 同时进入 Runtime 提交上下文；补充用户输入的 `acceptedAt` 成为持久化 entry 的 `createdAt`。
-
-Run 级时长以 `runStarted.startedAt` 为唯一计时起点，在运行终态计算总时长。HistoryRecorder 把总时长保存到最终 Assistant Message 的 `durationMs`；`runCompleted.finalTurnId` 与 `finalDurationMs` 提供最终回合身份和实时总时长，历史分页提供持久化时长。`inputsApplied.startedAt` 标记补充文本进入模型上下文的时刻。活动组时长归属见[消息流视图规范](./message-stream.mdx)。
-
-HistoryService 继续分页 `entries` 并使用 `entryOrder` 游标。Renderer 以 `inputId` 归并运行 ACK、`runCompleted.unappliedInputIds` 和 completed/interrupted 用户 entries，并以项目范围和历史请求代次约束历史结果。
-
-Preload 暴露：
-
-- `getActiveProject()`；
-- `selectProject()`；
-- `clearProject()`；
-- `loadHistoryPage()`。
-- `steer()`：提交运行中补充文本并接收持久化 ACK。
-
-Renderer 只能通过这些受限接口读取项目描述和当前历史页面。数据库路径、Repository 和其他项目历史范围由 Main 持有。
-
-## 项目上下文
-
-Main 以以下条件决定目录扫描：
+项目上下文。
 
 - 项目第一次激活；
 - 项目上下文缓存缺失；
 - 扫描策略版本变化；
 - 工具修改项目文件后缓存被标记 dirty。
-
-每次项目范围的模型请求都取得缓存中的有界导航地图，以可读的工作目录说明和结构化目录行加入 transient `project_context`。地图标注深度、目录条目和总节点上限，并明确指出省略位置；文件正文由同一工作目录下的文件工具按需读取。目录地图不会进入 `entries`；Runtime 按本次运行固定的 `cwd` 提供文件操作上下文。
-
-无项目范围拥有稳定的历史记录和模型上下文。它使用 `projectId = NULL`，以应用当前工作目录 `process.cwd()` 执行文件工具，并向模型提供该目录的简短说明；项目目录地图保持为空。文件工具注册独立于项目历史范围，因此无项目运行与项目运行使用相同的文件工具集。
+- 地图装配：每次项目范围的模型请求都取得缓存中的有界导航地图，以可读的工作目录说明和结构化目录行加入 transient `project_context`。地图标注深度、目录条目和总节点上限，并明确指出省略位置；文件正文由同一工作目录下的文件工具按需读取。目录地图作为 transient 材料传递，`entries` 继续保存对话事实；Runtime 按本次运行固定的 `cwd` 提供文件操作上下文。
+- General：无项目范围拥有稳定的历史记录和模型上下文。它使用 `projectId = NULL`，以应用当前工作目录 `process.cwd()` 执行文件工具，并向模型提供该目录的简短说明；项目目录地图保持为空。文件工具注册独立于项目历史范围，因此无项目运行与项目运行使用相同的文件工具集。

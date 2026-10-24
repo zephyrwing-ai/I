@@ -276,7 +276,7 @@
 
     &--size-large {
       font-weight: 600;
-      font-size: 0.875rem;
+      font-size: calc(0.875rem + var(--ui-font-offset, 0px));
       min-height: 3rem;
       padding: 0.5rem 1.5rem;
 
@@ -289,7 +289,7 @@
 
     &--size-medium {
       font-weight: 600;
-      font-size: 0.75rem;
+      font-size: calc(0.75rem + var(--ui-font-offset, 0px));
       min-height: 2.5rem;
       padding: 0.5rem 1rem;
 

@@ -9,7 +9,7 @@ import {
   scrollToBottomInstant,
   shouldStickToBottom,
 } from "../../../../frontend/src/middle-column/message-stream/useVirtualMessageWindow";
-import type { HistoryPageEntry } from "../../../../shell/shared/ipc";
+import type { AgentEvent, HistoryPageEntry } from "../../../../shell/shared/ipc";
 
 function entry(partial: Partial<HistoryPageEntry> & Pick<HistoryPageEntry, "entryId" | "entryOrder" | "type" | "runId" | "payload">): HistoryPageEntry {
   return {
@@ -44,6 +44,7 @@ test("history projection rebuilds runs, turns and tool results from persisted en
       payload: {
         role: "assistant",
         content: "我来读取。",
+        progress: "先检查文件的具体内容。",
         reasoning: "需要先查看文件。",
         toolCalls: [{ id: "call-1", name: "read", input: { path: "README.md" }, inputComplete: true }],
       },
@@ -67,8 +68,78 @@ test("history projection rebuilds runs, turns and tool results from persisted en
   assert.equal(turn.assistantAt, 1_700_000_001_234);
   assert.equal(turn.anchorInputId, "u1");
   assert.equal(turn.reasoningContent, "需要先查看文件。");
+  assert.equal(turn.progressContent, "先检查文件的具体内容。");
   assert.equal(turn.tools["call-1"]?.status, "completed");
   assert.equal(turn.tools["call-1"]?.result?.output, "内容");
+});
+
+test("cancellation after an assistant commit preserves answer identity across reload and applied steering", () => {
+  for (const appliedSteer of [false, true]) {
+    const runId = `cancel-at-boundary-${appliedSteer}`;
+    let live = agentReducer(initialAgentState, { type: "runAccepted", runId, inputId: "user", projectId: null, task: "检查实现", taskAt: 100 });
+    const send = (event: AgentEvent) => { live = agentReducer(live, { type: "event", event }); };
+    send({ type: "turnStarted", runId, turnId: "committed", turnOrdinal: 1 });
+    send({ type: "assistantCompleted", runId, turnId: "committed", content: "已提交的公开正文", stopReason: "stop", toolCalls: [], completedAt: 200 });
+    send({ type: "turnCompleted", runId, turnId: "committed" });
+    const entries = [
+      entry({ entryId: "user", entryOrder: 1, type: "user_message", runId, createdAt: 100, payload: { role: "user", content: "检查实现" } }),
+      entry({ entryId: "assistant", entryOrder: 2, type: "assistant_message", runId, turnId: "committed", completedAt: 200, payload: { role: "assistant", content: "已提交的公开正文" } }),
+    ];
+    if (appliedSteer) {
+      live = agentReducer(live, { type: "steerAccepted", runId, projectId: null, inputId: "steer", task: "补充检查", acceptedAt: 300, acceptOrder: 1 });
+      send({ type: "inputsApplied", runId, inputIds: ["steer"], startedAt: 350 });
+      const waiting = buildMessageBlockRecords(live).filter((block) => block.kind === "assistant");
+      assert.deepEqual(waiting.map((block) => [block.anchorInputId, block.isWorking]), [["user", true]]);
+      assert.equal(waiting[0].text, undefined, "the new group begins when its model turn starts");
+      entries.push(entry({ entryId: "steer", entryOrder: 3, type: "user_message", runId, createdAt: 300, payload: { role: "user", content: "补充检查" } }));
+    }
+    // Cancellation occurs before another turn is created or a final run identity is issued.
+    send({ type: "runCompleted", runId, status: "cancelled", turnCount: 1 });
+    const reloaded = mergePersistedEntries({ runs: {}, runOrder: [] }, entries);
+    const blocks = buildMessageBlockRecords(live);
+    assert.deepEqual(blocks, buildMessageBlockRecords(reloaded));
+    const assistant = blocks.find((block) => block.kind === "assistant")!;
+    assert.equal(assistant.text, appliedSteer ? "已提交的公开正文" : undefined);
+    assert.equal(live.runs[runId].turns.committed.assistantContent, "已提交的公开正文");
+    assert.equal(reloaded.runs[runId].finalTurnId, undefined);
+  }
+});
+
+test("pure progress survives live completion and history reload independently of answer and reasoning", () => {
+  const runId = "pure-progress";
+  let live = agentReducer(initialAgentState, { type: "runAccepted", runId, inputId: "user", projectId: null, task: "分析问题", taskAt: 100 });
+  live = agentReducer(live, { type: "event", event: { type: "progressDelta", runId, turnId: "analysis", delta: "先梳理约束" } });
+  live = agentReducer(live, { type: "event", event: { type: "assistantCompleted", runId, turnId: "analysis", progress: "先梳理约束", content: "", toolCalls: [], stopReason: "stop", completedAt: 200 } });
+  live = agentReducer(live, { type: "event", event: { type: "reasoningDelta", runId, turnId: "answer", delta: "PRIVATE English reasoning" } });
+  live = agentReducer(live, { type: "event", event: { type: "progressDelta", runId, turnId: "answer", delta: "再形成结论" } });
+  live = agentReducer(live, { type: "event", event: { type: "assistantCompleted", runId, turnId: "answer", progress: "再形成结论", content: "中文答案", toolCalls: [], stopReason: "stop", completedAt: 400 } });
+  live = agentReducer(live, { type: "event", event: { type: "runCompleted", runId, status: "completed", turnCount: 2, finalTurnId: "answer", finalDurationMs: 300 } });
+  const reloaded = mergePersistedEntries({ runs: {}, runOrder: [] }, [
+    entry({ entryId: "user", entryOrder: 1, type: "user_message", runId, createdAt: 100, payload: { role: "user", content: "分析问题" } }),
+    entry({ entryId: "analysis", entryOrder: 2, type: "assistant_message", runId, turnId: "analysis", completedAt: 200, payload: { role: "assistant", content: "", progress: "先梳理约束" } }),
+    entry({ entryId: "answer", entryOrder: 3, type: "assistant_message", runId, turnId: "answer", completedAt: 400, durationMs: 300, payload: { role: "assistant", content: "中文答案", progress: "再形成结论", reasoning: "PRIVATE English reasoning" } }),
+  ]);
+  assert.deepEqual(buildMessageBlockRecords(live), buildMessageBlockRecords(reloaded));
+  for (const turnId of ["analysis", "answer"]) {
+    const actual = reloaded.runs[runId].turns[turnId];
+    const expected = live.runs[runId].turns[turnId];
+    assert.equal(actual.progressContent, expected.progressContent);
+    assert.equal(actual.assistantContent, expected.assistantContent);
+    assert.equal(actual.reasoningContent, expected.reasoningContent);
+    assert.equal(actual.assistantAt, expected.assistantAt);
+    assert.deepEqual(actual.toolOrder, []);
+  }
+});
+
+test("interrupted progress-only history remains visible while raw reasoning-only history stays absent", () => {
+  for (const progress of [undefined, "已确认问题约束"]) {
+    const reloaded = mergePersistedEntries({ runs: {}, runOrder: [] }, [
+      entry({ entryId: "user", entryOrder: 1, type: "user_message", runId: "interrupted", payload: { role: "user", content: "分析问题" } }),
+      entry({ entryId: "partial", entryOrder: 2, type: "assistant_message", runId: "interrupted", turnId: "partial", status: "interrupted", payload: { role: "assistant", content: "", progress, reasoning: "PRIVATE REASONING" } }),
+    ]);
+    assert.equal(reloaded.runs.interrupted.turns.partial.progressContent, progress ?? "");
+    assert.equal(buildMessageBlockRecords(reloaded).filter((block) => block.kind === "assistant").length, progress ? 1 : 0);
+  }
 });
 
 test("history projection preserves the public tool outcome rather than reconstructing it from model text", () => {
@@ -79,6 +150,21 @@ test("history projection preserves the public tool outcome rather than reconstru
     toolResult,
   })]);
   assert.deepEqual(projected.runs.run.turns.turn.tools.call.result, toolResult);
+});
+
+test("a completed progress retry restores final status and prose instead of the interrupted attempt", () => {
+  const reloaded = mergePersistedEntries({ runs: {}, runOrder: [] }, [
+    entry({ entryId: "user", entryOrder: 1, type: "user_message", runId: "retry", payload: { role: "user", content: "分析指标" } }),
+    entry({ entryId: "partial", entryOrder: 2, type: "assistant_message", runId: "retry", turnId: "analysis", status: "interrupted", payload: { role: "assistant", content: "", progress: "第一轮尚未完成", reasoning: "PRIVATE FIRST ATTEMPT" } }),
+    entry({ entryId: "complete", entryOrder: 3, type: "assistant_message", runId: "retry", turnId: "analysis", durationMs: 900, payload: { role: "assistant", content: "完整答案", progress: "重新核对后形成结论" } }),
+  ]);
+  const run = reloaded.runs.retry;
+  assert.equal(run.status, "completed");
+  assert.equal(run.turns.analysis.status, "completed");
+  assert.equal(run.turns.analysis.progressContent, "重新核对后形成结论");
+  assert.equal(run.turns.analysis.assistantContent, "完整答案");
+  assert.equal(run.turns.analysis.reasoningContent, "");
+  assert.equal(buildMessageBlockRecords(reloaded).filter((block) => block.kind === "assistant")[0]?.showDuration, true);
 });
 
 test("history projection restores two steering inputs, the continued answer and an unapplied tail", () => {

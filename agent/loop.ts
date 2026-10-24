@@ -6,6 +6,11 @@ import { canonicalJson } from "./json.js";
 import { toolInputHash } from "./tools/identity.js";
 import type { RegisteredTool, PreparedToolExecution, ToolExecutionContext, ToolRecoveryResult, ToolResult } from "./tools/index.js";
 import { readToolCheckpoint, readToolResult, toolOutcomeStatus, toolResultMessage } from "./tools/result.js";
+import { createTransientHistoryRecorder } from "./memory/session-recorder.js";
+import { ContextManager, type PreparedContext } from "./context/manager.js";
+import { resolveContextPolicy } from "./context/policy.js";
+import { DEFAULT_CODING_AGENT_PROMPT } from "./prompts.js";
+import { withToolActivity } from "./tools/activity.js";
 
 export type RunStatus = "completed" | "cancelled" | "failed";
 
@@ -87,6 +92,7 @@ export type RetryReason =
   | "invalid_tool_calls"
   | "network_error"
   | "provider_error"
+  | "context_overflow"
   | "model_protocol";
 
 export type TurnOutcome =
@@ -100,6 +106,7 @@ export interface AgentEvents {
   onRunStart?: (ctx: { runId: string; startedAt: string }) => void;
   onTurnStart?: (ctx: TurnContext) => void;
   onReasoningDelta?: (delta: string, ctx: TurnContext) => void;
+  onProgressDelta?: (delta: string, ctx: TurnContext) => void;
   onAssistantDelta?: (delta: string, ctx: TurnContext) => void;
   onAssistantCompleted?: (response: LlmResponse, ctx: TurnContext & { completedAt: number }) => void;
   onToolStart?: (call: ToolCall, ctx: TurnContext) => void;
@@ -119,12 +126,10 @@ export interface AgentEvents {
 }
 
 export interface AgentError {
-  kind: "config" | "network" | "provider" | "model_protocol" | "tool" | "runtime";
+  kind: "config" | "network" | "provider" | "model_protocol" | "context_overflow" | "tool" | "runtime";
   message: string;
   retryable?: boolean;
 }
-
-const DEFAULT_SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
 
 /**
  * 流式输出的唯一处理函数：消费模型事件流、同步 Recorder 与宿主事件、聚合整回合。
@@ -150,6 +155,11 @@ async function collectTurn(
         recorder?.recordAssistantDelta("reasoning", event.delta, ctx);
         events.onReasoningDelta?.(event.delta, ctx);
         break;
+      case "progress_delta":
+        aggregated.progress = (aggregated.progress ?? "") + event.delta;
+        recorder?.recordAssistantDelta("progress", event.delta, ctx);
+        events.onProgressDelta?.(event.delta, ctx);
+        break;
       case "text_delta":
         aggregated.content += event.delta;
         recorder?.recordAssistantDelta("text", event.delta, ctx);
@@ -158,10 +168,12 @@ async function collectTurn(
       case "completed":
         completed = true;
         aggregated.content = event.content;
+        aggregated.progress = event.progress ?? aggregated.progress;
         aggregated.reasoning = event.reasoning;
         aggregated.toolCalls = event.toolCalls;
         aggregated.stopReason = event.stopReason;
         aggregated.rawStopReason = event.rawStopReason;
+        aggregated.usage = event.usage;
         break;
     }
   }
@@ -174,10 +186,14 @@ export async function run(
   config: AgentRunConfig,
   events: AgentEvents = {},
 ): Promise<{ runId: string; status: RunStatus; error?: AgentError; turnCount: number; unappliedInputIds?: string[]; finalTurnId?: string; finalDurationMs?: number }> {
+  config = { ...config, tools: new Map([...config.tools].map(([name, tool]) => [name, withToolActivity(tool)])) };
   const clock = config.clock ?? Date.now;
   const runStartedAt = clock();
   const startedAt = new Date(runStartedAt).toISOString();
-  const messages: ModelMessage[] = [...(config.recorder?.snapshot() ?? [])];
+  const ownedRecorder = config.recorder ? undefined : await createTransientHistoryRecorder();
+  config = { ...config, recorder: config.recorder ?? ownedRecorder };
+  const recorder = config.recorder!;
+  const context = new ContextManager(recorder.repository, recorder.projectId, config.responseImpl ?? response);
   const userMessage: ModelMessage = { role: "user", content: task };
   const initialUserEntryId = config.initialUserEntryId ?? randomUUID();
   const initialUserCreatedAt = config.initialUserCreatedAt ?? runStartedAt;
@@ -190,6 +206,9 @@ export async function run(
   let finished = false;
   let initialUserCommitted = false;
   let readyInputs: SteeringInput[] = [];
+  let prepared: PreparedContext | undefined;
+  let overflowRecovered = false;
+  let forceCompactPending = false;
 
   const finish = async (status: RunStatus, error?: AgentError, finalTurnId?: string) => {
     if (finished) return { runId: config.runId, status, error, turnCount: turnOrdinal };
@@ -233,6 +252,15 @@ export async function run(
         finalError = toAgentError(durationError);
       }
     }
+    if (ownedRecorder) {
+      try {
+        await ownedRecorder.close();
+        await ownedRecorder.repository.close?.();
+      } catch (closeError) {
+        finalStatus = "failed";
+        finalError = toAgentError(closeError);
+      }
+    }
     const result = {
       runId: config.runId,
       status: finalStatus,
@@ -255,7 +283,6 @@ export async function run(
     if (entries.length !== batch.length || entries.some((entry, index) => entry.id !== inputIds[index])) {
       throw new Error("Steering input persistence returned a different input batch.");
     }
-    messages.push(...entries.map((entry) => entry.payload));
     events.onInputsApplied?.({ runId: config.runId, inputIds, startedAt: clock() });
   };
 
@@ -263,7 +290,6 @@ export async function run(
     if (config.signal?.aborted) return finish("cancelled");
     await recoverOpenToolInvocations(config);
     if (config.signal?.aborted) return finish("cancelled");
-    if (config.recorder) messages.splice(0, messages.length, ...config.recorder.snapshot());
   } catch (error) {
     return finish("failed", toAgentError(error));
   }
@@ -274,7 +300,6 @@ export async function run(
   } catch (error) {
     return finish("failed", toAgentError(error));
   }
-  messages.push(...(config.runScopedContext ?? []), userMessage);
   events.onRunStart?.({ runId: config.runId, startedAt });
 
   while (true) {
@@ -291,6 +316,9 @@ export async function run(
       currentTurnId = randomUUID();
       turnOrdinal += 1;
       attempt = 0;
+      prepared = undefined;
+      overflowRecovered = false;
+      forceCompactPending = false;
     }
     attempt += 1;
     const ctx: TurnContext = { runId: config.runId, turnId: currentTurnId, turnOrdinal, attempt };
@@ -299,7 +327,31 @@ export async function run(
     let collected: { response: LlmResponse; completed: boolean } | undefined;
     let outcome: TurnOutcome;
     try {
-      collected = await collectTurn(modelConfig, messages, config.systemPrompt || DEFAULT_SYSTEM_PROMPT, tools, ctx, events, config.recorder, config.signal, config.responseImpl ?? response);
+      const policy = resolveContextPolicy(modelConfig.context, modelConfig.capabilities);
+      const requestConfig = { ...modelConfig, maxOutputTokens: Math.min(modelConfig.maxOutputTokens ?? policy.outputReserveTokens, policy.outputReserveTokens) };
+      const prepareInput = {
+        model: requestConfig,
+        system: config.systemPrompt || DEFAULT_CODING_AGENT_PROMPT,
+        tools,
+        userEntryId: initialUserEntryId,
+        materials: config.runScopedContext ?? [],
+        signal: config.signal,
+      };
+      prepared ??= await context.prepare({ ...prepareInput, forceCompact: forceCompactPending });
+      forceCompactPending = false;
+      if (config.signal?.aborted) throw new ModelAdapterError("network", "Context preparation was cancelled.");
+      try {
+        collected = await collectTurn(requestConfig, prepared.messages, prepareInput.system, tools, ctx, events, config.recorder, config.signal, config.responseImpl ?? response);
+      } catch (error) {
+        if (!(error instanceof ModelAdapterError) || error.kind !== "context_overflow" || overflowRecovered || config.signal?.aborted) throw error;
+        await recorder.finishAssistantAttempt(ctx, "failed");
+        overflowRecovered = true;
+        prepared = undefined;
+        forceCompactPending = true;
+        events.onTurnRetrying?.({ runId: config.runId, turnId: ctx.turnId, attempt, nextAttempt: attempt + 1, reason: "context_overflow", delayMs: 0, maxAttempts: attempt + 1 });
+        continue;
+      }
+      context.observeUsage(prepared, collected.response.usage, requestConfig);
       if (config.signal?.aborted) outcome = { kind: "cancelled", reason: "aborted" };
       else if (!collected.completed) outcome = { kind: "incomplete", reason: "missing_finish_reason", response: collected.response };
       else outcome = classifyTurn(collected.response);
@@ -343,7 +395,6 @@ export async function run(
         return finish("failed", toAgentError(error));
       }
       if (config.signal?.aborted) return finish("cancelled");
-      messages.push(message);
       events.onAssistantCompleted?.(outcome.response, { ...ctx, completedAt: commitContext.completedAt });
 
       if (outcome.kind === "answer") {
@@ -365,7 +416,6 @@ export async function run(
         events.onToolStart?.(call, ctx);
         const invocation = invocations.get(call.id);
         let toolResult: ToolResult;
-        let toolMessage: ModelMessage;
         try {
           let executionInvocation = invocation;
           if (invocation?.phase === "completed" || invocation?.phase === "outcome_ready") {
@@ -382,13 +432,12 @@ export async function run(
               toolResult = executed.result;
             }
           }
-          toolMessage = await materializeToolResult(call, toolResult, config, executionInvocation, ctx);
+          await materializeToolResult(call, toolResult, config, executionInvocation, ctx);
         } catch (error) {
           if (error instanceof ToolAttemptBlockedError && error.reason === "cancelled") return finish("cancelled");
           if (config.signal?.aborted && !(error instanceof RepositoryError)) return finish("cancelled");
           return finish("failed", toAgentError(error));
         }
-        messages.push(toolMessage);
         events.onToolCompleted?.(call, toolResult, ctx);
       }
       events.onTurnCompleted?.(ctx);
@@ -488,7 +537,10 @@ function toAgentError(error: unknown): AgentError {
 }
 
 function assistantMessage(response: LlmResponse): ModelMessage {
-  return { role: "assistant", content: response.content, reasoning: response.reasoning, toolCalls: response.toolCalls };
+  return {
+    role: "assistant", content: response.content, reasoning: response.reasoning, toolCalls: response.toolCalls,
+    ...(response.progress !== undefined ? { progress: response.progress } : {}),
+  };
 }
 
 function retryFailureMessage(reason: RetryReason): string {
@@ -500,6 +552,7 @@ function retryFailureMessage(reason: RetryReason): string {
     invalid_tool_calls: "The model did not produce a complete tool call after retries.",
     network_error: "The model request failed after retries.",
     provider_error: "The provider request failed after retries.",
+    context_overflow: "The model context remains above its input limit after compression.",
     model_protocol: "The model response did not satisfy the protocol after retries.",
   };
   return messages[reason];

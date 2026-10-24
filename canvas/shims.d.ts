@@ -48,7 +48,8 @@ declare module "@agent-studio/canvas-editor/types" {
       operations: import("./commands/types").CanvasEditOperation[],
       sourceElements: import("./commands/types").CanvasEditElementRecord[],
       imageFiles?: import("./commands/types").CanvasEditImageFile[],
-    ): import("./commands/types").CanvasEditOutcome;
+      execution?: import("./commands/types").CanvasEditExecutionOptions,
+    ): Promise<import("./commands/types").CanvasEditOutcome>;
     updateScene(options: { appState?: Partial<AppState> }): void;
     replaceScene(scene: { elements: readonly Record<string, unknown>[]; appState: Partial<AppState>; files: BinaryFiles }): void;
     getSceneElements(): readonly Record<string, unknown>[];

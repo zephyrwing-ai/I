@@ -240,6 +240,7 @@ for (const version of [1, 2]) {
       assert.deepEqual(entries.map((entry) => [entry.id, entry.entryOrder, entry.status, entry.payload.content]), [["user", 1, "completed", "preserved"], ["draft", 2, "interrupted", "partial"]]);
       const invocations = await repository.listOpenToolInvocations(null);
       assert.equal(invocations.length, version === 2 ? 1 : 0);
+      assert.ok(!repository.database.prepare("PRAGMA table_info(tool_invocations)").all().some((column) => column.name === "updated_at"));
       if (version === 2) {
         assert.deepEqual([invocations[0]!.phase, invocations[0]!.attemptCount, invocations[0]!.cwd], ["effect_pending", 1, ""]);
         assert.deepEqual(invocations[0]!.checkpoint, { version: 1 });

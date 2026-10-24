@@ -1,19 +1,31 @@
 安全边界。
 
-明文 API Key 存在于 Renderer 的当前编辑草稿和发往 Main 的保存或发现请求中。Main 使用 Electron `safeStorage` 加密后，以 `encryptedApiKey` 字段写入 `provider-profiles.json`；该文件按 `providerProfileId` 独立保存每个提供商的名称、Base URL、密文和模型目录。临时文件权限为 `0600`，写入完成后以 rename 替换正式文件；应用重启后，在系统解密能力可用时继续使用已保存凭据。加密能力不可用时，Main 拒绝保存新凭据；不回退到明文存储。eye/eye-off 只改变当前草稿的输入显示。
+- 职责：Renderer 呈现状态并发起用户意图，Preload 暴露受限类型化接口，Main 管理凭据、文件系统、系统能力与 Provider 网络请求，Agent Runtime 管理模型调用、工具执行与运行生命周期。
+- 当前进程：AgentRunner 与模型适配器在 Main 进程执行；本地 Bash 以应用用户权限运行，cwd 决定相对路径解析与初始工作目录。独立 Runner 进程、命令审批和 Bash 文件系统隔离属于后续能力。
+- Renderer 隔离：窗口启用 `contextIsolation` 和 Renderer sandbox，`nodeIntegration` 保持关闭；宿主能力通过 Preload 接口进入页面。
 
-提供商列表只向 Renderer 返回是否已配置凭据和模型可用状态，不返回密文或已保存的明文。模型可用状态同时受系统解密能力约束。运行开始时，Main 解析模型所属提供商并捕获该连接的 Base URL 和密文快照；每次模型请求通过 `apiKeyProvider` 解密该快照，保证运行中的地址与凭据来自同一连接版本。随后编辑或轮换凭据只影响新解析的连接。模型发现使用当前草稿中的显式 API Key，或同 origin 的已保存密文；发现本身不保存草稿或轮换已保存凭据。AgentRunner 和模型适配器当前同在 Main 进程执行。运行请求、公共事件与工具结果类型不包含专门的凭据字段。
+凭据存储与复用。
 
-独立保存提供商并不足以阻止把旧凭据发送到新地址。保存和模型发现都由 Main 检查凭据复用边界：Base URL 的协议、主机或端口变化时，留空 API Key 的请求被拒绝；用户须显式输入新地址的凭据。只调整同 origin 的路径时允许复用，域名大小写和默认端口按标准 URL origin 规范化。Renderer 使用相同规则控制输入提示与按钮启用状态；草稿变更不会删除或修改已保存的连接，只有保存成功后才替换该 profile。版本 1、2、3 的历史数据继续加载，历史凭据按其已保存 Base URL 应用相同规则。
+- 明文范围：API Key 保存在 Renderer 当前编辑草稿和发往 Main 的保存或发现请求中，eye/eye-off 切换当前草稿的显示方式。
+- 加密保存：Main 使用 Electron `safeStorage` 加密，以 `encryptedApiKey` 写入 `provider-profiles.json`。每个 `providerProfileId` 独立保存名称、Base URL、密文和模型目录；临时文件权限为 `0600`，完成后通过 rename 替换正式文件。
+- 系统能力：应用重启后在系统解密能力可用时使用已保存凭据；系统加密能力缺失时，新凭据保存进入拒绝状态，既有加密存储继续保留。
+- 公共目录：提供商列表向 Renderer 返回凭据配置布尔状态和模型可用状态，密文与已保存明文由 Main 持有。模型可用状态同时取决于系统解密能力。
+- 连接快照：Main 在运行开始时捕获提供商 Base URL 与密文；每次请求通过 `apiKeyProvider` 解密同一快照。后续编辑或轮换影响新解析的连接，当前运行沿用捕获版本。
+- 发现：使用当前草稿显式 API Key，或同 origin 的已保存密文；模型发现更新草稿目录，已保存连接与凭据继续由保存动作更新。
+- origin 门禁：保存和发现入口比较协议、主机和端口；新 origin 配合空 API Key 时返回拒绝，用户提供该地址的显式凭据后继续。相同 origin 的路径变化允许复用，域名大小写与默认端口按标准 URL origin 规范化。
+- 草稿边界：Renderer 按相同 origin 规则显示提示并控制按钮；已保存连接在草稿编辑期间保持原状，保存成功后替换对应 profile。版本 1、2、3 的历史配置按各自保存的 Base URL 继续读取并采用同一复用规则。
+- 类型边界：运行请求、公共事件和工具结果使用业务字段，凭据由 Main 的独立连接契约提供。
 
-敏感信息不得进入消息、事件和普通日志是设计约束。模型请求只向 UI 暴露稳定错误码与安全文案；完整诊断进入受限、可清理的日志并以 `diagnosticId` 关联。Bash/tool 输出使用有界内存、脱敏策略和 TTL 临时文件，项目历史只保存经过边界处理的模型可见事实。
+文件访问。
 
-输出文件访问使用 Main 维护的 runId 和 fileId 注册表。可读路径只用于界面识别，不构成读取和打开授权。
+- 产物身份：Main 使用 runId 与 fileId 注册表授权预览和打开，可读路径用于界面识别；范围和生命周期见[输出文件侧边栏](./titlebar/sidebar/index.mdx)。
+- 路径复查：每次预览和打开前，Main 重新核对真实路径与登记路径，并确认目标为普通文件。
+- 输入附件：Main 原生文件选择器登记本地文件，Renderer 提交 attachmentId；运行前 Main 解析引用并复查文件，把路径提示加入模型任务文本。
 
-预览和打开前，Main 重新检查真实路径是否仍与登记路径一致、目标是否仍为普通文件。注册范围与生命周期见[输出文件侧边栏](./titlebar/sidebar/index.mdx)。输入附件也由 Main 的原生文件选择器登记，Renderer 提交 attachmentId；Main 在运行前解析并复查文件，再把本地路径加入模型任务文本。
+后续安全治理。
 
-Renderer 负责呈现状态和发起用户意图。Preload 负责暴露受限的类型化接口。Main 负责凭据，文件系统，系统能力和 Provider 网络请求。Agent Runtime 负责模型调用，工具执行和运行生命周期。
-
-窗口已启用 `contextIsolation`、关闭 `nodeIntegration` 并启用 Renderer sandbox。Main 必须拒绝非工作台来源的顶层导航，并对每个 IPC handler 校验 trusted sender/frame、运行时输入 schema、大小和 origin；生产 Renderer 还必须提供 CSP。模型 Markdown 的图片只允许受控的本地/内联资源，远程或相对图片默认不加载；外链只允许明确的 `https:` 等协议并交给系统浏览器。它们隔离 Renderer 的直接 Node 能力；本地 Bash 仍以应用用户权限执行，cwd 仅表示初始工作目录，不是文件访问隔离边界。当前没有独立 Runner 进程、命令审批层或 Bash 文件系统沙箱。Preload 的 TypeScript 类型也不替代 Main 的运行时输入校验。
-
-实现状态：Provider JSON 加密存储、Main 的保存与发现 origin 校验、连接快照及 Renderer 的凭据提示已实现。导航、IPC sender 校验和 CSP 尚未完整落地；其差异记录在[实现状态与工程审计](../../../IMPLEMENTATION_STATUS.md)。
+- 敏感数据：设计要求消息、公共事件和普通日志使用边界处理后的模型可见事实；模型错误向界面提供稳定错误码与安全文案，受限、可清理诊断日志通过 `diagnosticId` 关联。
+- 工具输出：设计要求 Bash/tool 输出使用有界内存、脱敏策略与 TTL 临时文件，项目历史保存经过处理的结果。
+- 页面来源：设计要求 Main 对工作台来源的顶层导航采用允许策略，并在每个 IPC handler 核对 trusted sender/frame、运行时输入 schema、大小和 origin；Preload 类型与 Main 运行时校验分别承担编译与执行边界。
+- 内容策略：生产 Renderer 的 CSP 与资源策略属于后续完善范围；设计要求 Markdown 图片使用受控本地或内联资源，外链使用明确允许的 `https:` 等协议并交给系统浏览器。
+- 状态：Provider JSON 加密、Main 保存与发现 origin 校验、连接快照和 Renderer 凭据提示已实现；导航、IPC sender 校验与 CSP 的后续接入差异记录在[实现状态与工程审计](../../../IMPLEMENTATION_STATUS.md)。

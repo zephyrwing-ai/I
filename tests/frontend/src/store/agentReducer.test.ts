@@ -3,11 +3,49 @@ import test from "node:test";
 import type { AgentEvent, OutputFileDescriptor } from "../../../../shell/shared/ipc.js";
 import { agentReducer, initialAgentState } from "../../../../frontend/src/store/agentReducer.js";
 import { buildMessageBlockRecords } from "../../../../frontend/src/store/messageBlocks.js";
+import { projectAssistantActivity } from "../../../../frontend/src/store/assistantActivity.js";
 
 function acceptRun(runId: string, task = `task for ${runId}`) {
   let state = agentReducer(initialAgentState, { type: "runRequested" });
   return agentReducer(state, { type: "runAccepted", runId, inputId: `${runId}:task`, projectId: null, task, taskAt: 1_000 });
 }
+
+test("native content keeps its activity identity through tool batches until the final run event", () => {
+  type RunEvent<T = AgentEvent> = T extends AgentEvent ? Omit<T, "runId"> : never;
+  const runId = "native-trace";
+  let state = acceptRun(runId, "检查实现");
+  const apply = (value: RunEvent) => { state = event(state, { ...value, runId }); };
+  const group = () => buildMessageBlockRecords(state).find((block) => block.kind === "assistant")!;
+  const activity = () => {
+    const block = group();
+    assert.equal(block.kind, "assistant");
+    if (block.kind !== "assistant") throw new Error("Expected activity group");
+    return projectAssistantActivity(state.runs[runId], block.turnIds, block.answerTurnId, block.isWorking, "zh");
+  };
+  apply({ type: "turnStarted", turnId: "read", turnOrdinal: 1 });
+  apply({ type: "assistantDelta", turnId: "read", delta: "先检查实现" });
+  assert.equal(group().text, undefined);
+  assert.equal(activity().turns[0].text, "先检查实现");
+  apply({ type: "assistantCompleted", turnId: "read", content: "先检查实现", stopReason: "tool_use", completedAt: 2_000,
+    toolCalls: ["a", "b"].map((id) => ({ id, name: "read", input: { path: `${id}.ts` }, inputComplete: true })) });
+  assert.equal(activity().turns[0].toolsRunning, true);
+  const result = { ok: true, output: "file body", returncode: 0, truncated: false };
+  apply({ type: "toolCompleted", turnId: "read", toolCallId: "a", name: "read", result });
+  assert.equal(activity().turns[0].toolsRunning, true, "the queued second call keeps the batch expanded");
+  apply({ type: "toolCompleted", turnId: "read", toolCallId: "b", name: "read", result });
+  assert.equal(activity().turns[0].toolsRunning, false);
+  apply({ type: "turnCompleted", turnId: "read" });
+  apply({ type: "turnStarted", turnId: "answer", turnOrdinal: 2 });
+  apply({ type: "assistantDelta", turnId: "answer", delta: "这是结论" });
+  assert.deepEqual(activity().turns.map((turn) => turn.text), ["先检查实现", "这是结论"]);
+  assert.equal(group().text, undefined);
+  apply({ type: "assistantCompleted", turnId: "answer", content: "这是结论", stopReason: "stop", toolCalls: [], completedAt: 3_000 });
+  apply({ type: "turnCompleted", turnId: "answer" });
+  assert.equal(group().text, undefined, "model stop still awaits the runtime steering boundary");
+  apply({ type: "runCompleted", status: "completed", finalTurnId: "answer", finalDurationMs: 2_000, turnCount: 2 });
+  assert.equal(group().text, "这是结论");
+  assert.deepEqual(activity().turns.map((turn) => turn.text), ["先检查实现", ""]);
+});
 
 function outputFile(
   fileId: string,
@@ -233,6 +271,74 @@ test("agentReducer exposes model retrying without marking the turn completed", (
   assert.equal(turn.reasoningContent, "partial thought");
 });
 
+test("progress deltas stay independent and completion reconciles the full process text", () => {
+  let state = acceptRun("run-progress", "分析问题");
+  state = event(state, { type: "turnStarted", runId: "run-progress", turnId: "turn-1", turnOrdinal: 1 });
+  assert.equal(state.runs["run-progress"].turns["turn-1"].progressContent, "");
+  state = event(state, { type: "reasoningDelta", runId: "run-progress", turnId: "turn-1", delta: "PRIVATE English reasoning" });
+  state = event(state, { type: "progressDelta", runId: "run-progress", turnId: "turn-1", delta: "先比较约束" });
+  state = event(state, { type: "assistantDelta", runId: "run-progress", turnId: "turn-1", delta: "中文答案" });
+  state = event(state, { type: "progressDelta", runId: "run-progress", turnId: "turn-1", delta: "，再整理结论" });
+  const streamed = state.runs["run-progress"].turns["turn-1"];
+  assert.equal(streamed.progressContent, "先比较约束，再整理结论");
+  assert.equal(streamed.assistantContent, "中文答案");
+  assert.equal(streamed.reasoningContent, "PRIVATE English reasoning");
+  state = event(state, {
+    type: "assistantCompleted", runId: "run-progress", turnId: "turn-1", progress: "完整的过程说明", content: "完整的中文答案",
+    completedAt: 2_000, toolCalls: [], stopReason: "stop",
+  });
+  state = event(state, { type: "progressDelta", runId: "run-progress", turnId: "turn-1", delta: "late delta" });
+  const completed = state.runs["run-progress"].turns["turn-1"];
+  assert.equal(completed.progressContent, "完整的过程说明");
+  assert.equal(completed.assistantContent, "完整的中文答案");
+  assert.equal(completed.reasoningContent, streamed.reasoningContent);
+  assert.equal(streamed.progressContent, "先比较约束，再整理结论", "the previous streaming state stays immutable");
+});
+
+test("optional completion progress preserves streamed progress and an explicit empty value clears it", () => {
+  for (const progress of [undefined, ""]) {
+    let state = acceptRun("run-optional");
+    state = event(state, { type: "progressDelta", runId: "run-optional", turnId: "turn-1", delta: "Recorded process" });
+    state = event(state, {
+      type: "assistantCompleted", runId: "run-optional", turnId: "turn-1", progress, content: "Answer",
+      completedAt: 2_000, toolCalls: [], stopReason: "stop",
+    });
+    assert.equal(state.runs["run-optional"].turns["turn-1"].progressContent, progress ?? "Recorded process");
+  }
+});
+
+test("retry attempts replace progress and cancellation retains it without accepting late deltas", () => {
+  const runId = "run-progress-retry";
+  let state = acceptRun(runId);
+  state = event(state, { type: "turnStarted", runId, turnId: "turn-1", turnOrdinal: 1, attempt: 1 });
+  for (const type of ["progressDelta", "assistantDelta", "reasoningDelta"] as const) {
+    state = event(state, { type, runId, turnId: "turn-1", attempt: 1, delta: "discarded attempt" });
+  }
+  state = event(state, { type: "turnRetrying", runId, turnId: "turn-1", attempt: 1, nextAttempt: 2, reason: "network", delayMs: 0, maxAttempts: 3 });
+  assert.equal(state.runs[runId].turns["turn-1"].progressContent, "discarded attempt");
+  state = event(state, { type: "turnStarted", runId, turnId: "turn-1", turnOrdinal: 1, attempt: 2 });
+  assert.equal(state.runs[runId].turns["turn-1"].progressContent, "");
+  assert.equal(state.runs[runId].turns["turn-1"].assistantContent, "");
+  assert.equal(state.runs[runId].turns["turn-1"].reasoningContent, "");
+  state = event(state, { type: "progressDelta", runId, turnId: "turn-1", attempt: 2, delta: "新的过程" });
+  for (const type of ["progressDelta", "assistantDelta", "reasoningDelta"] as const) {
+    state = event(state, { type, runId, turnId: "turn-1", attempt: 1, delta: "stale attempt" });
+  }
+  state = event(state, { type: "turnStarted", runId, turnId: "turn-1", turnOrdinal: 1, attempt: 1 });
+  state = event(state, { type: "turnRetrying", runId, turnId: "turn-1", attempt: 1, nextAttempt: 2, reason: "network", delayMs: 0, maxAttempts: 3 });
+  assert.equal(state.runs[runId].turns["turn-1"].status, "running");
+  state = event(state, { type: "progressDelta", runId, turnId: "turn-1", attempt: 2, delta: "继续处理" });
+  state = event(state, { type: "runCompleted", runId, status: "cancelled", turnCount: 1 });
+  const cancelled = state;
+  state = event(state, { type: "progressDelta", runId, turnId: "turn-1", attempt: 2, delta: "late cancellation delta" });
+  assert.strictEqual(state, cancelled);
+  assert.equal(state.runs[runId].turns["turn-1"].progressContent, "新的过程继续处理");
+  assert.equal(state.runs[runId].turns["turn-1"].assistantContent, "");
+  assert.equal(state.runs[runId].turns["turn-1"].reasoningContent, "");
+  assert.deepEqual(state.runs[runId].timeline.filter((item) => item.kind === "assistant"), [{ kind: "assistant", turnId: "turn-1" }]);
+  assert.equal(buildMessageBlockRecords(state).filter((block) => block.kind === "assistant").length, 1);
+});
+
 test("a rejected start exposes the error without creating a phantom run", () => {
   let state = agentReducer(initialAgentState, { type: "runRequested" });
   state = agentReducer(state, { type: "runRejected", error: "请选择模型。" });
@@ -260,7 +366,8 @@ test("accepted steering bubbles keep stable IDs as a new assistant turn starts b
   assert.deepEqual(state.runs["run-steer"].pendingInputIds, ["s1", "s2"]);
 
   state = event(state, { type: "assistantDelta", runId: "run-steer", turnId: "turn-old", delta: "继续输出" });
-  assert.equal(buildMessageBlockRecords(state).find((block) => block.blockId === "run-steer:work:run-steer:task")?.text, "旧回复继续输出");
+  assert.equal(state.runs["run-steer"].turns["turn-old"].assistantContent, "旧回复继续输出");
+  assert.equal(buildMessageBlockRecords(state).find((block) => block.blockId === "run-steer:work:run-steer:task")?.text, undefined, "streamed prose has no final answer identity");
 
   state = event(state, { type: "turnCompleted", runId: "run-steer", turnId: "turn-old" });
   state = event(state, { type: "inputsApplied", runId: "run-steer", inputIds: ["s1", "s2"], startedAt: 2_000 });
@@ -291,7 +398,7 @@ test("a steer ACK before a queued turn start cannot reanchor that turn when the 
   });
   assert.equal(state.runs["run-queued"].appliedInputId, "run-queued:task");
   state = event(state, { type: "turnStarted", runId: "run-queued", turnId: "turn-old", turnOrdinal: 1 });
-  state = event(state, { type: "reasoningDelta", runId: "run-queued", turnId: "turn-old", delta: "继续处理原任务" });
+  state = event(state, { type: "assistantDelta", runId: "run-queued", turnId: "turn-old", delta: "继续处理原任务" });
   const oldBlocks = buildMessageBlockRecords(state);
   assert.deepEqual(oldBlocks.map((block) => block.blockId), ["run-queued:task", "run-queued:work:run-queued:task", "steer"]);
   assert.equal(state.runs["run-queued"].turns["turn-old"].anchorInputId, "run-queued:task");

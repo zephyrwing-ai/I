@@ -14,6 +14,7 @@ import { decodePngMetadata, getTEXtChunk } from "../../../canvas/engine/editor/d
 import { decodeSvgBase64Payload } from "../../../canvas/engine/editor/scene/export";
 import { createPasteEvent, parseClipboard, serializeAsClipboardJSON } from "../../../canvas/engine/editor/clipboard";
 import type { CanvasEditorImperativeAPI } from "../../../canvas/engine/editor/types";
+import type { CanvasEditOutcome } from "../../../canvas/commands/types";
 import { newElement, newFreeDrawElement, newLinearElement, newArrowElement, newTextElement, newImageElement } from "../../../canvas/engine/editor/element/newElement";
 import { getElementShape } from "../../../canvas/engine/editor/shapes";
 import { hitElementItself } from "../../../canvas/engine/editor/element/collision";
@@ -158,6 +159,25 @@ async function checkHandSelection(coldStart: ReturnType<typeof navigationState>)
   await key("keyup", "Meta");
   const explicitSelectionAfterRelease = navigationState();
 
+  const pastes = [];
+  for (const kind of ["text", "elements"]) {
+    for (const releasedBeforeInsert of [false, true]) {
+      await replace();
+      await key("keydown", "Meta", true);
+      await pointer("pointermove", point(500, 300), true);
+      const clipboardData = new DataTransfer();
+      clipboardData.setData("text/plain", kind === "text" ? "Command paste" : serializeAsClipboardJSON({ elements, files: null }));
+      canvas.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }));
+      // Release synchronously before asynchronous clipboard parsing finishes.
+      if (releasedBeforeInsert) canvas.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Meta", metaKey: false }));
+      await until(() => editor!.getSceneElements().length === 2, "Command paste insertion");
+      await frames();
+      const toolAfterInsertion = editor!.getAppState().activeTool.type;
+      if (!releasedBeforeInsert) await key("keyup", "Meta");
+      pastes.push({ kind, releasedBeforeInsert, toolAfterInsertion, ...navigationState() });
+    }
+  }
+
   await replace();
   await key("keydown", "Meta", true);
   const heldStart = point(250, 140);
@@ -177,7 +197,7 @@ async function checkHandSelection(coldStart: ReturnType<typeof navigationState>)
   await key("keyup", "Meta", true);
   const secondCommandStillHeld = navigationState();
   await key("keyup", "Meta");
-  const originalToolRestored = navigationState();
+  const rectangleAfterRelease = navigationState();
   const beforeSpace = JSON.stringify(editor!.getSceneElements());
   await key("keydown", " ");
   await drag(point(700, 400), { x: 20, y: 10 });
@@ -262,9 +282,9 @@ async function checkHandSelection(coldStart: ReturnType<typeof navigationState>)
 
   return {
     coldStart, sceneReplacement, handPan, commandPressed, commandSelected, commandMoved, commandReleased,
-    shortcuts, commandDuringPan, commandAfterPan, afterDeferredPan, explicitSelectionMoved, explicitSelectionAfterRelease,
+    shortcuts, commandDuringPan, commandAfterPan, afterDeferredPan, explicitSelectionMoved, explicitSelectionAfterRelease, pastes,
     releaseDuringDrag, releaseAfterDrag,
-    originalToolOverridden, secondCommandStillHeld, originalToolRestored, spacePan, commandOutsideCanvas, commandOutsidePointerUp, commandHeldOnEntry, commandHeldOnPointerDown,
+    originalToolOverridden, secondCommandStillHeld, rectangleAfterRelease, spacePan, commandOutsideCanvas, commandOutsidePointerUp, commandHeldOnEntry, commandHeldOnPointerDown,
     explicitToolSwitch, heldPointerAfterExplicitSwitch, explicitToolAfterRelease,
     explicitHandClick, explicitHandAfterRelease, beforeLockClick, explicitLockClick, explicitLockAfterRelease,
     ignoredInputs, afterBlur, afterHeldSceneReplacement,
@@ -401,6 +421,210 @@ async function checkTextInput() {
   return { text: element?.type === "text" ? element.originalText : null, fontFamily: element?.type === "text" ? element.fontFamily : null };
 }
 
+async function checkAgentEditProtection() {
+  const canvas = document.querySelector<HTMLCanvasElement>("canvas.interactive")!;
+  const container = document.querySelector<HTMLElement>(".agent-canvas-container")!;
+  const point = (sceneX: number, sceneY: number) => sceneCoordsToViewportCoords({ sceneX, sceneY }, editor!.getAppState());
+  const pointer = async (type: "pointerdown" | "pointermove" | "pointerup", sceneX: number, sceneY: number) => {
+    const location = point(sceneX, sceneY);
+    const nativeInput = (window as Window & {
+      canvasFixtureInput: (input: { type: string; x: number; y: number; pressed: boolean }) => Promise<void>;
+    }).canvasFixtureInput;
+    await nativeInput({
+      type: type === "pointerdown" ? "mouseDown" : type === "pointerup" ? "mouseUp" : "mouseMove",
+      x: Math.round(location.x), y: Math.round(location.y), pressed: type !== "pointerup",
+    });
+    await frames();
+  };
+  const key = async (key: string, metaKey = false, code?: string) => {
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key, code, metaKey }));
+    await frames();
+    canvas.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key, code, metaKey: false }));
+    await frames();
+  };
+  const find = (id: string) => editor!.getSceneElements().find((element) => element.id === id);
+  const source = (id: string) => [structuredClone(find(id)!)];
+  const options = (requestId: string, signal?: AbortSignal) => ({ requestId, deadlineAt: Date.now() + 20_000, signal });
+  const replace = async (includeText = false) => {
+    const elements = convertToCanvasEditorElements([
+      { type: "rectangle", id: "protection-A", x: 120, y: 120, width: 100, height: 80 },
+      { type: "rectangle", id: "protection-B", x: 450, y: 120, width: 100, height: 80 },
+      ...(includeText ? [{ type: "text" as const, id: "protection-text", x: 120, y: 320, text: "base text" }] : []),
+    ], { regenerateIds: false });
+    editor!.replaceScene({ elements, appState: { zoom: { value: 1 as never }, scrollX: 0, scrollY: 0 }, files: {} });
+    editor!.setActiveTool({ type: "selection" });
+    container.focus();
+    await frames();
+  };
+
+  // The real pointer gesture owns B's object and can continue after A commits.
+  await replace();
+  const aSource = source("protection-A");
+  editor!.setActiveTool({ type: "freedraw" });
+  await frames();
+  await pointer("pointerdown", 520, 350);
+  await pointer("pointermove", 540, 370);
+  const liveStroke = editor!.getSceneElements().find((element) => element.type === "freedraw");
+  if (!liveStroke) throw new Error(`Canvas protection fixture could not start its live stroke; tool=${editor!.getAppState().activeTool.type}`);
+  const initialPoints = liveStroke.type === "freedraw" ? liveStroke.points.length : 0;
+  const agentEdit = await editor!.applyCanvasEdit([{ action: "update", id: "protection-A", changes: { x: 180 } }], aSource, undefined, options("independent-gesture"));
+  const sameStroke = find(liveStroke.id) === liveStroke;
+  await pointer("pointermove", 570, 390);
+  await pointer("pointerup", 570, 390);
+  const continuedStroke = find(liveStroke.id);
+  const continuedPoints = continuedStroke?.type === "freedraw" ? continuedStroke.points.length : 0;
+  await key("z", true, "KeyZ");
+  const afterHumanUndo = { aX: find("protection-A")?.x, strokePresent: !!find(liveStroke.id) };
+  await key("z", true, "KeyZ");
+  const afterAgentUndo = { aX: find("protection-A")?.x, strokePresent: !!find(liveStroke.id) };
+  const independentGesture = { ok: agentEdit.ok, sameStroke, initialPoints, continuedPoints, afterHumanUndo, afterAgentUndo };
+
+  // Undo owns the IDs changed by that history step, rather than the selection.
+  await replace();
+  await pointer("pointerdown", 500, 120);
+  await pointer("pointermove", 520, 120);
+  await pointer("pointerup", 520, 120);
+  const beforeUndoX = find("protection-B")?.x;
+  const independentUndoSource = source("protection-A");
+  await pointer("pointerdown", 170, 120);
+  await pointer("pointermove", 180, 130);
+  let independentUndoResult: CanvasEditOutcome | undefined;
+  const waitingUndo = editor!.applyCanvasEdit([{ action: "setLocked", id: "protection-A", locked: true }], independentUndoSource, undefined, options("pending-independent-undo"))
+    .then((result) => { independentUndoResult = result; return result; });
+  await frames();
+  const waitedBeforeUndo = !independentUndoResult;
+  const selectionBeforeUndo = Object.keys(editor!.getAppState().selectedElementIds);
+  await key("z", true, "KeyZ");
+  const afterUndoX = find("protection-B")?.x;
+  const selectionAfterUndo = Object.keys(editor!.getAppState().selectedElementIds);
+  const aPositionAfterUndo = [find("protection-A")?.x, find("protection-A")?.y];
+  await pointer("pointermove", 200, 150);
+  await pointer("pointerup", 200, 150);
+  const completedUndo = await waitingUndo;
+  const editState = () => ({ aPosition: [find("protection-A")?.x, find("protection-A")?.y], aLocked: find("protection-A")?.locked, bX: find("protection-B")?.x });
+  const afterAgentCommit = editState();
+  await key("z", true, "KeyZ");
+  const afterLockUndo = editState();
+  await key("z", true, "KeyZ");
+  const afterGestureUndo = editState();
+  const independentUndo = { beforeUndoX, afterUndoX, waitedBeforeUndo, ok: completedUndo.ok, aPositionAfterUndo, selectionBeforeUndo, selectionAfterUndo, afterAgentCommit, afterLockUndo, afterGestureUndo };
+
+  // A pending command reserves A; the user's already-started drag can finish.
+  await replace();
+  const dragSource = source("protection-A");
+  await pointer("pointerdown", 170, 120);
+  let dragResult: CanvasEditOutcome | undefined;
+  const waitingDrag = editor!.applyCanvasEdit([{ action: "update", id: "protection-A", changes: { x: 300 } }], dragSource, undefined, options("pending-drag"))
+    .then((result) => { dragResult = result; return result; });
+  await frames();
+  const waitedForDrag = !dragResult;
+  await key("Delete", false, "Delete");
+  const deleteRejected = !!find("protection-A");
+  const cutData = new DataTransfer();
+  const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator.clipboard, "writeText");
+  let cutWrites = 0;
+  Object.defineProperty(navigator.clipboard, "writeText", { configurable: true, value: async () => { cutWrites += 1; } });
+  try {
+    canvas.dispatchEvent(new ClipboardEvent("cut", { bubbles: true, cancelable: true, clipboardData: cutData }));
+    await frames();
+  } finally {
+    if (clipboardDescriptor) Object.defineProperty(navigator.clipboard, "writeText", clipboardDescriptor);
+    else Reflect.deleteProperty(navigator.clipboard, "writeText");
+  }
+  const cutRejected = !!find("protection-A") && cutData.types.length === 0 && cutWrites === 0;
+  await pointer("pointermove", 195, 135);
+  const userPosition = [find("protection-A")?.x, find("protection-A")?.y];
+  await pointer("pointerup", 195, 135);
+  const completedDrag = await waitingDrag;
+  const pendingDrag = {
+    waitedForDrag, deleteRejected, cutRejected,
+    ok: completedDrag.ok, error: completedDrag.error,
+    userPosition, finalPosition: [find("protection-A")?.x, find("protection-A")?.y],
+  };
+
+  // Composition is a real target-editing session; abort only the Agent request.
+  await replace(true);
+  const textSource = source("protection-text");
+  editor!.setActiveTool({ type: "text" });
+  await frames();
+  await pointer("pointerdown", 140, 328);
+  await pointer("pointerup", 140, 328);
+  await until(() => !!document.querySelector('textarea[data-type="wysiwyg"]'), "protected text editing session");
+  const textInput = document.querySelector<HTMLTextAreaElement>('textarea[data-type="wysiwyg"]')!;
+  textInput.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  const userText = "用户正在输入 😀";
+  textInput.value = userText;
+  textInput.dispatchEvent(new InputEvent("input", { bubbles: true, data: userText, inputType: "insertCompositionText", isComposing: true }));
+  const cancellation = new AbortController();
+  let textResult: CanvasEditOutcome | undefined;
+  const waitingText = editor!.applyCanvasEdit([{ action: "update", id: "protection-text", changes: { text: "Agent replacement" } }], textSource, undefined, options("pending-composition", cancellation.signal))
+    .then((result) => { textResult = result; return result; });
+  await frames();
+  const waitedForComposition = !textResult;
+  const sameInput = document.querySelector('textarea[data-type="wysiwyg"]') === textInput;
+  cancellation.abort();
+  const cancelledText = await waitingText;
+  textInput.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: userText }));
+  textInput.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+  await until(() => !document.querySelector('textarea[data-type="wysiwyg"]'), "human composition commit after Agent cancellation");
+  await frames();
+  const committedText = find("protection-text");
+  const composition = { waitedForComposition, sameInput, ok: cancelledText.ok, error: cancelledText.error, text: committedText?.type === "text" ? committedText.originalText : null };
+
+  // Scene replacement invalidates the pending request's scene identity.
+  await replace();
+  const oldSource = source("protection-A");
+  await pointer("pointerdown", 170, 120);
+  let replacementResult: CanvasEditOutcome | undefined;
+  const waitingReplacement = editor!.applyCanvasEdit([{ action: "update", id: "protection-A", changes: { x: 300 } }], oldSource, undefined, options("replaced-request"))
+    .then((result) => { replacementResult = result; return result; });
+  await frames();
+  const waitedBeforeReplacement = !replacementResult;
+  editor!.replaceScene({
+    elements: convertToCanvasEditorElements([{ type: "ellipse", id: "replacement-scene", x: 400, y: 240, width: 80, height: 80 }], { regenerateIds: false }),
+    appState: { zoom: { value: 1 as never }, scrollX: 0, scrollY: 0 }, files: {},
+  });
+  const invalidated = await waitingReplacement;
+  await pointer("pointerup", 170, 120);
+  await frames();
+  const replacement = { waitedBeforeReplacement, ok: invalidated.ok, error: invalidated.error, ids: editor!.getSceneElements().map((element) => element.id) };
+
+  // A new bound arrow writes endpoint metadata, so endpoint gestures hand over.
+  await replace();
+  const endpointSource = source("protection-A");
+  await pointer("pointerdown", 170, 120);
+  let bindingResult: CanvasEditOutcome | undefined;
+  const waitingBinding = editor!.applyCanvasEdit([{
+    action: "create", element: { type: "arrow", x: 150, y: 160, points: [[0, 0], [200, 0]], startElementId: "protection-A" },
+  }], endpointSource, undefined, options("pending-binding"))
+    .then((result) => { bindingResult = result; return result; });
+  await frames();
+  const waitedForEndpoint = !bindingResult;
+  await pointer("pointerup", 170, 120);
+  const completedBinding = await waitingBinding;
+  const boundArrow = editor!.getSceneElements().find((element) => element.type === "arrow");
+  const binding = {
+    waitedForEndpoint, ok: completedBinding.ok,
+    endpoint: boundArrow?.type === "arrow" ? boundArrow.startBinding?.elementId : null,
+    affectedEndpoint: completedBinding.appliedElements?.some((element) => element.id === "protection-A") ?? false,
+  };
+  const reorderElements = convertToCanvasEditorElements([
+    { type: "rectangle", id: "reorder-container", x: 120, y: 120, width: 100, height: 80 },
+    { type: "rectangle", id: "reorder-neighbour", x: 450, y: 120, width: 100, height: 80 },
+  ], { regenerateIds: false });
+  const boundLabel = { ...newTextElement({ x: 135, y: 140, text: "bound label", fontSize: 14 }), id: "reorder-label", containerId: "reorder-container" };
+  reorderElements[0].boundElements = [{ id: boundLabel.id, type: "text" }];
+  editor!.replaceScene({
+    elements: [reorderElements[0], boundLabel, reorderElements[1]],
+    appState: { zoom: { value: 1 as never }, scrollX: 0, scrollY: 0 }, files: {},
+  });
+  await frames();
+  const neighbour = find("reorder-neighbour");
+  const reordered = await editor!.applyCanvasEdit([{ action: "reorder", id: "reorder-container", direction: "forward" }], source("reorder-container"), undefined, options("bound-reorder"));
+  const boundReorder = { ok: reordered.ok, error: reordered.error, neighbourPreserved: find("reorder-neighbour") === neighbour, ids: editor!.getSceneElements().map((element) => element.id) };
+  return { independentGesture, independentUndo, pendingDrag, composition, replacement, binding, boundReorder };
+}
+
 async function checkLanguageFallback() {
   const samples = [];
   for (const language of [{ code: "zh-CN", label: "Chinese" }, { code: "ar-SA", label: "Arabic", rtl: true }]) {
@@ -445,7 +669,7 @@ async function runCanvasLayoutRegression() {
         <div className="canvas-panel-editor">
           <CanvasEditor
             canvasAPI={(api) => { editor = api; }}
-            initialData={{ elements, appState: { viewBackgroundColor: "#f7f3ee", zoom: { value: 0.75 as never }, scrollX: 32, scrollY: 18 } }}
+            initialData={{ elements, appState: { viewBackgroundColor: "#f9f9f7", zoom: { value: 0.75 as never }, scrollX: 32, scrollY: 18 } }}
             langCode="en"
           />
         </div>
@@ -520,7 +744,7 @@ async function runCanvasLayoutRegression() {
   window.dispatchEvent(new Event("focus"));
   await frames();
   const versionAfterFocus = editor!.getDocumentVersion();
-  const editResult = editor!.applyCanvasEdit([
+  const editResult = await editor!.applyCanvasEdit([
     { action: "create", element: { type: "rectangle", x: 420, y: 140, width: 120, height: 80 } },
   ], []);
   await frames();
@@ -542,6 +766,7 @@ async function runCanvasLayoutRegression() {
   };
   const textInput = await checkTextInput();
   const handSelection = await checkHandSelection(coldStartNavigation);
+  const editProtection = await checkAgentEditProtection();
   const capabilities = await checkProductCapabilities(appState);
   const textFonts = await checkTextFonts(appState);
   const languageFallback = await checkLanguageFallback();
@@ -558,7 +783,7 @@ async function runCanvasLayoutRegression() {
   const afterRemount = navigationState();
   nextRoot.unmount();
   const persistence = await checkCanvasSurfacePersistence();
-  return { samples, initialZoom, initialScroll, codecs, outlineRendering, documentChanges, persistence, textInput, textFonts, languageFallback, capabilities, handSelection: { ...handSelection, afterRemount } };
+  return { samples, initialZoom, initialScroll, codecs, outlineRendering, documentChanges, persistence, textInput, textFonts, languageFallback, capabilities, editProtection, handSelection: { ...handSelection, afterRemount } };
 }
 
 Object.assign(window, { runCanvasLayoutRegression });

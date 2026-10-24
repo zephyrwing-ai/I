@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
-import { useElasticScroll } from "../../hooks/useElasticScroll";
+import { useElasticScroll } from "../../shared/scroll/useElasticScroll";
 
 const THUMB_MIN = 48;
 const THUMB_MAX = 72;

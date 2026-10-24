@@ -366,6 +366,9 @@ import { Emitter } from "../emitter";
 import { COLOR_PALETTE } from "../colors";
 import { Store, CaptureUpdateAction } from "../store";
 import { applyCanvasEdit } from "../commands/applyCanvasEdit";
+import { EditProtectionSession, EditProtectionError, type HumanEditToken } from "../commands/EditProtectionSession";
+import { expandHumanEditFootprint, getCanvasEditFootprint } from "../commands/operationFootprint";
+import type { CanvasEditElementRecord, CanvasEditExecutionOptions, CanvasEditImageFile, CanvasEditOperation, CanvasEditOutcome } from "../../../commands/types";
 import { DocumentVersionTracker } from "../scene/DocumentVersion";
 import { AnimationFrameHandler } from "../animation-frame-handler";
 import { AnimatedTrail } from "../animated-trail";
@@ -502,9 +505,27 @@ const gesture: Gesture = {
 
 class App extends React.Component<AppProps, AppState> {
   private documentEpoch = 0;
+  private humanPointerEdit: HumanEditToken | null = null;
+  private humanPointerAnchors = new Set<string>();
+  private humanTextEdit: HumanEditToken | null = null;
+  private humanFootprintCache: {
+    elements: readonly CanvasEditorElement[];
+    primary: string;
+    relations: string;
+    ids: Set<string>;
+  } | null = null;
+  private readonly editProtection = new EditProtectionSession({
+    getEpoch: () => this.documentEpoch,
+    onChange: (state) => {
+      if (this.unmounted || !this.canvasContainerRef.current) return;
+      if (state?.phase === "waiting") this.setToast({ message: "Agent is waiting for your edit to finish.", duration: 1500 });
+      this.setState({});
+    },
+  });
   private commandSelectionHeld = false;
   private commandSelectionSuppressed = false;
   private temporarySelectionReturnTool: AppState["activeTool"] | null = null;
+  private temporarySelectionActive = false;
   canvas: AppClassProperties["canvas"];
   interactiveCanvas: AppClassProperties["interactiveCanvas"] = null;
   rc: RoughCanvas;
@@ -638,29 +659,7 @@ class App extends React.Component<AppProps, AppState> {
     if (canvasAPI) {
       const documentVersion = new DocumentVersionTracker();
       const api: CanvasEditorImperativeAPI = {
-        applyCanvasEdit: (operations, sourceElements, imageFiles) => {
-          const result = applyCanvasEdit({
-            elements: this.scene.getElementsIncludingDeleted(),
-            appState: this.state,
-            files: this.files,
-            operations,
-            sourceElements,
-            imageFiles,
-          });
-          if (!result.ok || result.changed === false || !result.elements) return result;
-          if (result.filesToAdd?.length) {
-            const { addedFiles } = this.addMissingFiles(result.filesToAdd);
-            this.clearImageShapeCache(addedFiles);
-          }
-          this.updateScene({
-            elements: result.elements,
-            ...(result.appState ? { appState: { ...this.state, ...result.appState } } : {}),
-            captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-          });
-          if (result.filesToAdd?.length) void this.addNewImagesToImageCache();
-          const { filesToAdd: _filesToAdd, ...outcome } = result;
-          return outcome;
-        },
+        applyCanvasEdit: this.executeCanvasEdit,
         updateScene: this.updateScene,
         replaceScene: this.replaceScene,
         addFiles: this.addFiles,
@@ -780,6 +779,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private resetEditingFrame = (frame: CanvasEditorFrameLikeElement | null) => {
+    if (frame && (this.scene.getElement(frame.id) !== frame || !this.canApplyHumanEdit([frame.id], "text-input"))) return;
     if (frame) {
       mutateElement(frame, { name: frame.name?.trim() || null });
     }
@@ -838,6 +838,7 @@ class App extends React.Component<AppProps, AppState> {
             autoFocus
             value={frameNameInEdit}
             onChange={(e) => {
+              if (!this.canApplyHumanEdit([f.id], "text-input")) return;
               mutateElement(f, {
                 name: e.target.value,
               });
@@ -919,6 +920,7 @@ class App extends React.Component<AppProps, AppState> {
           onWheel={(event) => this.handleWheel(event)}
           onContextMenu={this.handleCanvasContextMenu}
           onDoubleClick={() => {
+            if (!this.canApplyHumanEdit([f.id])) return;
             this.setState({
               editingFrame: f.id,
             });
@@ -1224,7 +1226,14 @@ class App extends React.Component<AppProps, AppState> {
       return;
     }
 
-    if (actionResult.captureUpdate === CaptureUpdateAction.NEVER) {
+    const explicitSnapshot = actionResult.captureUpdate === CaptureUpdateAction.NEVER && !!actionResult.elements;
+    if (explicitSnapshot) {
+      this.updateScene({
+        elements: actionResult.elements,
+        appState: actionResult.appState ? { ...this.state, ...actionResult.appState } : undefined,
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+    } else if (actionResult.captureUpdate === CaptureUpdateAction.NEVER) {
       this.store.shouldUpdateSnapshot();
     } else if (actionResult.captureUpdate === CaptureUpdateAction.IMMEDIATELY) {
       this.store.shouldCaptureIncrement();
@@ -1234,7 +1243,7 @@ class App extends React.Component<AppProps, AppState> {
 
     let editingTextElement: AppState["editingTextElement"] | null = null;
     if (actionResult.elements) {
-      this.scene.replaceAllElements(actionResult.elements);
+      if (!explicitSnapshot) this.scene.replaceAllElements(actionResult.elements);
       didUpdate = true;
     }
 
@@ -1341,6 +1350,7 @@ class App extends React.Component<AppProps, AppState> {
    */
   private resetScene = withBatchedUpdates(
     (opts?: { resetLoadingState: boolean }) => {
+      this.resetEditProtection();
       this.scene.replaceAllElements([]);
       this.setState((state) => ({
         ...getDefaultAppState(),
@@ -1359,29 +1369,32 @@ class App extends React.Component<AppProps, AppState> {
       appState: Partial<AppState>;
       files: BinaryFiles;
     }) => {
+      this.resetEditProtection();
       this.commandSelectionHeld = false;
       this.commandSelectionSuppressed = false;
       this.temporarySelectionReturnTool = null;
-      this.documentEpoch += 1;
+      this.temporarySelectionActive = false;
       this.resetStore();
       this.resetHistory();
       this.clearImageShapeCache();
       this.imageCache.clear();
       this.addMissingFiles(sceneData.files, true);
-      this.updateScene({
-        elements: sceneData.elements,
-        appState: {
-          ...getDefaultAppState(),
-          ...sceneData.appState,
-          width: this.state.width,
-          height: this.state.height,
-          offsetLeft: this.state.offsetLeft,
-          offsetTop: this.state.offsetTop,
-          selectedElementIds: {},
-          selectedGroupIds: {},
-        },
-        captureUpdate: CaptureUpdateAction.NEVER,
-      });
+      const elements = syncInvalidIndices(sceneData.elements ?? []);
+      const appState = {
+        ...getDefaultAppState(),
+        ...sceneData.appState,
+        width: this.state.width,
+        height: this.state.height,
+        offsetLeft: this.state.offsetLeft,
+        offsetTop: this.state.offsetTop,
+        selectedElementIds: {},
+        selectedGroupIds: {},
+      };
+      // Loading a document establishes a complete baseline, independently
+      // from incremental commits that preserve unfinished human gestures.
+      this.scene.replaceAllElements(elements);
+      this.store.updateSnapshot(this.scene.getElementsMapIncludingDeleted(), appState);
+      this.setState(appState);
       this.addNewImagesToImageCache();
     },
   );
@@ -1630,9 +1643,11 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   public componentWillUnmount() {
+    this.editProtection.destroy();
     this.commandSelectionHeld = false;
     this.commandSelectionSuppressed = false;
     this.temporarySelectionReturnTool = null;
+    this.temporarySelectionActive = false;
     (window as any).launchQueue?.setConsumer(() => {});
     this.renderer.destroy();
     this.scene.destroy();
@@ -1799,7 +1814,7 @@ class App extends React.Component<AppProps, AppState> {
 
   componentDidUpdate(prevProps: AppProps, prevState: AppState) {
     if (prevState.activeTool.type !== this.state.activeTool.type) this.updateToolCursor();
-    if (this.commandSelectionHeld || this.temporarySelectionReturnTool) this.syncTemporarySelection();
+    if (this.commandSelectionHeld || this.temporarySelectionActive) this.syncTemporarySelection();
     const elements = this.scene.getElementsIncludingDeleted();
     const elementsMap = this.scene.getElementsMapIncludingDeleted();
     const nonDeletedElementsMap = this.scene.getNonDeletedElementsMap();
@@ -1930,7 +1945,8 @@ class App extends React.Component<AppProps, AppState> {
       prevState.activeTool !== this.state.activeTool &&
       multiElement != null &&
       isBindingEnabled(this.state) &&
-      isBindingElement(multiElement, false)
+      isBindingElement(multiElement, false) &&
+      this.canApplyHumanEdit([multiElement.id, ...this.humanPointerTargets()], "pointer")
     ) {
       maybeBindLinearElement(
         multiElement,
@@ -1948,6 +1964,7 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     this.store.commit(elementsMap, this.state);
+    this.syncHumanEditLifetimes();
 
     // Do not notify consumers if we're still loading the scene. Among other
     // potential issues, this fixes a case where the tab isn't focused during
@@ -2220,8 +2237,8 @@ class App extends React.Component<AppProps, AppState> {
         });
       } else if (data.text) {
         this.addTextFromPaste(data.text);
+        this.updateToolAfterPaste();
       }
-      this.setActiveTool({ type: "selection" });
       event?.preventDefault();
     },
   );
@@ -2360,7 +2377,7 @@ class App extends React.Component<AppProps, AppState> {
         }
       },
     );
-    this.setActiveTool({ type: "selection" });
+    this.updateToolAfterPaste();
 
     if (opts.fitToContent) {
       this.scrollToContent(newElements, {
@@ -3009,11 +3026,177 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   // Input handling
+  private resetEditProtection = () => {
+    this.maybeCleanupAfterMissingPointerUp(null);
+    this.documentEpoch += 1;
+    this.editProtection.reset();
+    this.humanPointerEdit = null;
+    this.humanPointerAnchors.clear();
+    this.humanTextEdit = null;
+    this.humanFootprintCache = null;
+  };
+
+  /** Geometry changes keep the relationship scope stable during pointer moves. */
+  private humanEditFootprint = (elementIds: Iterable<string>): Set<string> => {
+    const primaryIds = [...new Set(elementIds)].sort();
+    const primary = JSON.stringify(primaryIds);
+    const elements = this.scene.getElementsIncludingDeleted();
+    const map = this.scene.getElementsMapIncludingDeleted();
+    const relations = (ids: Iterable<string>) => JSON.stringify([...ids].map(id => {
+      const element = map.get(id);
+      return element ? [id, element.isDeleted, element.frameId, element.groupIds, element.boundElements,
+        "containerId" in element ? element.containerId : null,
+        "startBinding" in element ? element.startBinding?.elementId : null,
+        "endBinding" in element ? element.endBinding?.elementId : null] : [id, null];
+    }));
+    const cached = this.humanFootprintCache;
+    if (cached && cached.elements === elements && cached.primary === primary && cached.relations === relations(cached.ids)) return cached.ids;
+    const ids = expandHumanEditFootprint(primaryIds, elements);
+    this.humanFootprintCache = { elements, primary, ids, relations: relations(ids) };
+    return ids;
+  };
+
+  private humanPointerTargets = (): Set<string> => {
+    const ids = new Set(this.humanPointerAnchors);
+    const { newElement, multiElement, editingLinearElement, croppingElementId } = this.state;
+    if (newElement || multiElement) {
+      if (newElement) ids.add(newElement.id);
+      if (multiElement) ids.add(multiElement.id);
+    } else {
+      for (const id of Object.keys(this.state.selectedElementIds)) ids.add(id);
+    }
+    if (editingLinearElement) ids.add(editingLinearElement.elementId);
+    if (croppingElementId) ids.add(croppingElementId);
+    const linear = newElement ?? multiElement ??
+      (this.state.selectedLinearElement ? this.scene.getElement(this.state.selectedLinearElement.elementId) : null);
+    if (isBindingElement(linear, false)) {
+      if (this.state.startBoundElement) ids.add(this.state.startBoundElement.id);
+      for (const target of this.state.suggestedBindings) {
+        if (Array.isArray(target)) {
+          ids.add(target[0].id);
+          ids.add(target[2].id);
+        } else ids.add(target.id);
+      }
+    }
+    for (const id of this.elementsPendingErasure) ids.add(id);
+    return ids;
+  };
+
+  /** Ends ownership only after the editor has committed gesture finalization. */
+  private syncHumanEditLifetimes = () => {
+    const pointerActive = !isPanning && !isDraggingScrollBar && (
+      this.state.cursorButton === "down" || this.state.newElement ||
+      this.state.multiElement || this.state.editingLinearElement || this.state.croppingElementId || this.flowChartCreator.isCreatingChart
+    );
+    if (pointerActive) {
+      const ids = this.editProtection.isActive ? this.humanEditFootprint(this.humanPointerTargets()) : this.humanPointerTargets();
+      if (this.humanPointerEdit) this.editProtection.updateHumanEdit(this.humanPointerEdit, ids);
+      else this.humanPointerEdit = this.editProtection.beginHumanEdit(ids);
+    } else if (this.humanPointerEdit) {
+      this.editProtection.endHumanEdit(this.humanPointerEdit);
+      this.humanPointerEdit = null;
+      this.humanPointerAnchors.clear();
+    }
+    if (this.state.editingFrame && !this.humanTextEdit) {
+      this.humanTextEdit = this.editProtection.beginHumanEdit(this.humanEditFootprint([this.state.editingFrame]));
+    }
+    if (!this.state.editingTextElement && !this.state.editingFrame && this.humanTextEdit) {
+      this.editProtection.endHumanEdit(this.humanTextEdit);
+      this.humanTextEdit = null;
+    }
+  };
+
+  public canApplyHumanEdit = (elementIds: Iterable<string>, operation?: string): boolean => {
+    if (operation === "undo" || operation === "redo") {
+      this.refreshHumanEditFootprints();
+      return this.editProtection.canApplyHistoryEdit(this.humanEditFootprint(elementIds));
+    }
+    if (!this.editProtection.isActive) return !this.unmounted;
+    const ids = this.humanEditFootprint(elementIds);
+    const finishing = operation === "finalize" ||
+      (operation === "toggleLinearEditor" && !!this.state.editingLinearElement) ||
+      (operation === "cropEditor" && !!this.state.croppingElementId);
+    const token = operation === "text-input" ? this.humanTextEdit
+      : operation === "pointer" || finishing ? this.humanPointerEdit : null;
+    const allowed = token
+      ? this.editProtection.updateHumanEdit(token, ids)
+      : this.editProtection.canStartHumanEdit(ids);
+    if (!allowed) this.setToast({ message: "This element is reserved for an Agent edit.", duration: 1500 });
+    return allowed;
+  };
+
+  private executeCanvasEdit = async (
+    operations: CanvasEditOperation[],
+    sourceElements: CanvasEditElementRecord[],
+    imageFiles?: CanvasEditImageFile[],
+    execution?: CanvasEditExecutionOptions,
+  ): Promise<CanvasEditOutcome> => {
+    if (this.state.isLoading) return { ok: false, error: "canvas_load_failed" };
+    // Capture current relationships before reserving a target, including
+    // indirect writes held by already-running human gestures.
+    this.refreshHumanEditFootprints();
+    try {
+      return await this.editProtection.runAgentEdit({
+        requestId: execution?.requestId ?? nanoid(),
+        deadlineAt: execution?.deadlineAt ?? Date.now() + 20_000,
+        signal: execution?.signal,
+        epoch: this.documentEpoch,
+        getAffectedIds: () => getCanvasEditFootprint(operations, this.scene.getElementsIncludingDeleted()),
+        apply: (protection) => {
+          const result = applyCanvasEdit({
+            elements: this.scene.getElementsIncludingDeleted(),
+            appState: this.state,
+            files: this.files,
+            operations, sourceElements, imageFiles,
+          });
+          if (!result.ok || result.changed === false || !result.elements) return result;
+          protection.ensureAffected((result.appliedElements ?? []).flatMap(element => typeof element.id === "string" ? [element.id] : []));
+          protection.ensureCurrent();
+          if (result.filesToAdd?.length) {
+            const { addedFiles } = this.addMissingFiles(result.filesToAdd);
+            this.clearImageShapeCache(addedFiles);
+          }
+          flushSync(() => this.updateScene({
+            elements: result.elements,
+            ...(result.appState ? { appState: { ...this.state, ...result.appState } } : {}),
+            captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+          }));
+          if (result.filesToAdd?.length) void this.addNewImagesToImageCache();
+          const { filesToAdd: _filesToAdd, ...outcome } = result;
+          return outcome;
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof EditProtectionError)) throw error;
+      return { ok: false, error: error.code === "cancelled" ? "canvas_edit_cancelled"
+        : error.code === "scene_changed" || error.code === "destroyed" ? "project_changed" : "editor_busy" };
+    }
+  };
+
+  private refreshHumanEditFootprints = () => {
+    if (this.humanPointerEdit) this.editProtection.updateHumanEdit(this.humanPointerEdit, this.humanEditFootprint(this.humanPointerTargets()));
+    const textId = this.state.editingTextElement?.id ?? this.state.editingFrame;
+    if (this.humanTextEdit && textId) this.editProtection.updateHumanEdit(this.humanTextEdit, this.humanEditFootprint([textId]));
+  };
+
+  /** Content insertion preserves navigation and the held-Command session. */
+  private updateToolAfterPaste = () => {
+    this.setState((state) => ({
+      activeTool: state.activeTool.type === "hand"
+        ? state.activeTool
+        : updateActiveTool(state, { type: "selection" }),
+      suggestedBindings: [],
+      snapLines: state.snapLines.length ? [] : state.snapLines,
+      originSnapOffset: null,
+    }));
+  };
+
   private cancelTemporarySelectionForToolChoice = () => {
-    if (!this.commandSelectionHeld && !this.temporarySelectionReturnTool) return;
+    if (!this.commandSelectionHeld && !this.temporarySelectionActive) return;
     this.commandSelectionSuppressed = this.commandSelectionHeld;
     this.commandSelectionHeld = false;
     this.temporarySelectionReturnTool = null;
+    this.temporarySelectionActive = false;
   };
 
   private updateToolCursor = () => {
@@ -3027,24 +3210,33 @@ class App extends React.Component<AppProps, AppState> {
 
   /** Changes the actual tool so selection, hit-testing and toolbar share one state. */
   private syncTemporarySelection = (onApplied?: () => void): boolean => {
+    if (this.commandSelectionHeld && !this.temporarySelectionReturnTool) {
+      // Capture on keydown, even when an active gesture defers the tool change.
+      this.temporarySelectionReturnTool = { ...this.state.activeTool };
+    }
     if (
       this.unmounted || isPanning || this.state.cursorButton === "down" ||
       this.state.newElement || this.state.multiElement || this.state.editingTextElement
     ) {
       return false;
     }
-    let activeTool: AppState["activeTool"];
-    if (this.commandSelectionHeld) {
-      if (this.temporarySelectionReturnTool) return false;
-      this.temporarySelectionReturnTool = { ...this.state.activeTool };
-      activeTool = updateActiveTool(this.state, { type: "selection" });
-    } else {
-      if (!this.temporarySelectionReturnTool) return false;
-      activeTool = this.temporarySelectionReturnTool;
-      this.temporarySelectionReturnTool = null;
+    if (
+      (this.commandSelectionHeld && this.temporarySelectionActive) ||
+      (!this.commandSelectionHeld && !this.temporarySelectionActive)
+    ) {
+      if (!this.commandSelectionHeld) this.temporarySelectionReturnTool = null;
+      return false;
     }
+    const activeTool = this.commandSelectionHeld
+      ? updateActiveTool(this.state, { type: "selection" })
+      : this.temporarySelectionReturnTool ?? updateActiveTool(this.state, { type: "hand" });
+    this.temporarySelectionActive = this.commandSelectionHeld;
+    if (!this.commandSelectionHeld) this.temporarySelectionReturnTool = null;
     // Restoring directly preserves selected IDs for the selection action layer.
-    this.setState({ activeTool, isBindingEnabled: true }, () => {
+    this.setState((state) => ({
+      activeTool,
+      isBindingEnabled: true,
+    }), () => {
       onApplied?.();
     });
     return true;
@@ -3077,7 +3269,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private onTemporarySelectionPointerUp = (event: PointerEvent) => {
-    if (!this.commandSelectionHeld && !this.temporarySelectionReturnTool) return;
+    if (!this.commandSelectionHeld && !this.temporarySelectionActive) return;
     this.commandSelectionHeld = event.metaKey && !this.commandSelectionSuppressed;
     // Deferred changes resume when the gesture's state update is committed.
     this.syncTemporarySelection();
@@ -3085,7 +3277,7 @@ class App extends React.Component<AppProps, AppState> {
 
   /** Command selects the tool; editing gestures keep ordinary selection semantics. */
   private selectionInputEvent<T extends { metaKey: boolean }>(event: T): T {
-    if (!this.temporarySelectionReturnTool || !event.metaKey) return event;
+    if (!this.temporarySelectionActive || !event.metaKey) return event;
     return new Proxy(event, {
       get(target, property) {
         if (property === "metaKey") return false;
@@ -3135,6 +3327,11 @@ class App extends React.Component<AppProps, AppState> {
           this.scene.getNonDeletedElementsMap(),
           this.state,
         );
+
+        if (isArrowKey(event.key) && !this.canApplyHumanEdit(selectedElements.map(element => element.id))) {
+          event.preventDefault();
+          return;
+        }
 
         if (
           selectedElements.length === 1 &&
@@ -3800,9 +3997,22 @@ class App extends React.Component<AppProps, AppState> {
       isExistingElement?: boolean;
     },
   ) {
+    const epoch = this.documentEpoch;
+    const editIds = [element.id, ...(element.containerId ? [element.containerId] : [])];
+    const scope = expandHumanEditFootprint(editIds, this.scene.getElementsIncludingDeleted());
+    if (this.humanTextEdit) {
+      if (!this.editProtection.updateHumanEdit(this.humanTextEdit, scope)) return;
+    } else {
+      this.humanTextEdit = this.editProtection.beginHumanEdit(scope);
+      if (!this.humanTextEdit) return;
+    }
+    const token = this.humanTextEdit;
+    const canEdit = () => !this.unmounted && epoch === this.documentEpoch && this.humanTextEdit === token &&
+      this.canApplyHumanEdit(editIds, "text-input");
     const elementsMap = this.scene.getElementsMapIncludingDeleted();
 
     const updateElement = (nextOriginalText: string, isDeleted: boolean) => {
+      if (!canEdit()) return;
       this.scene.replaceAllElements([
         // Not sure why we include deleted elements as well hence using deleted elements map
         ...this.scene.getElementsIncludingDeleted().map((_element) => {
@@ -3841,12 +4051,14 @@ class App extends React.Component<AppProps, AppState> {
         ];
       },
       onChange: withBatchedUpdates((nextOriginalText) => {
+        if (!canEdit()) return;
         updateElement(nextOriginalText, false);
         if (isNonDeletedElement(element)) {
           updateBoundElements(element, this.scene.getNonDeletedElementsMap());
         }
       }),
       onSubmit: withBatchedUpdates(({ viaKeyboard, nextOriginalText }) => {
+        if (!canEdit()) return;
         const isDeleted = !nextOriginalText.trim();
         updateElement(nextOriginalText, isDeleted);
         // select the created text element only if submitting via keyboard
@@ -3897,6 +4109,7 @@ class App extends React.Component<AppProps, AppState> {
       element,
       canvasContainer: this.canvasContainerRef.current,
       app: this,
+      canEdit,
       // when text is selected, it's hard (at least on iOS) to re-position the
       // caret (i.e. deselect). There's not much use for always selecting
       // the text on edit anyway (and users can select-all from contextmenu
@@ -4167,6 +4380,16 @@ class App extends React.Component<AppProps, AppState> {
       existingTextElement = this.getTextElementAtPosition(sceneX, sceneY);
     }
 
+    const textTargets = [
+      ...(existingTextElement ? [existingTextElement.id] : []),
+      ...(container ? [container.id] : []),
+    ];
+    if (!this.canApplyHumanEdit(textTargets, "text-input")) return;
+    if (!this.humanTextEdit) {
+      this.humanTextEdit = this.editProtection.beginHumanEdit(expandHumanEditFootprint(textTargets, this.scene.getElementsIncludingDeleted()));
+      if (!this.humanTextEdit) return;
+    }
+
     const fontFamily =
       existingTextElement?.fontFamily || this.state.currentItemFontFamily;
 
@@ -4271,6 +4494,7 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private startImageCropping = (image: CanvasEditorImageElement) => {
+    if (!this.canApplyHumanEdit([image.id], "cropEditor")) return;
     this.store.shouldCaptureIncrement();
     this.setState({
       croppingElementId: image.id,
@@ -5058,6 +5282,7 @@ class App extends React.Component<AppProps, AppState> {
 
     const processElements = (elements: CanvasEditorElement[]) => {
       for (const element of elements) {
+        if (!this.canApplyHumanEdit([element.id, ...this.humanPointerTargets()], "pointer")) continue;
         if (element.locked) {
           return;
         }
@@ -5251,7 +5476,11 @@ class App extends React.Component<AppProps, AppState> {
       target.setPointerCapture(event.pointerId);
     }
 
-    this.maybeCleanupAfterMissingPointerUp(event.nativeEvent);
+    if (this.humanPointerEdit && this.state.cursorButton === "down") {
+      flushSync(() => this.maybeCleanupAfterMissingPointerUp(event.nativeEvent));
+    } else {
+      this.maybeCleanupAfterMissingPointerUp(event.nativeEvent);
+    }
 
     if (this.state.searchMatches) {
       this.setState((state) => ({
@@ -5426,6 +5655,27 @@ class App extends React.Component<AppProps, AppState> {
 
     // State for the duration of a pointer interaction, which starts with a
     // pointerDown event, ends with a pointerUp event (or another pointerDown)
+    const scenePoint = viewportCoordsToSceneCoords(event, this.state);
+    const tool = this.state.activeTool.type;
+    const hit = ["selection", "text", "eraser", "arrow"].includes(tool)
+      ? this.getElementAtPosition(scenePoint.x, scenePoint.y, { preferSelected: true, includeBoundTextElement: true }) : null;
+    const startIds = tool === "selection" && hit && this.state.selectedElementIds[hit.id]
+      ? Object.keys(this.state.selectedElementIds) : hit ? [hit.id] : [];
+    if (tool === "arrow") {
+      const bindingTarget = getHoveredElementForBinding(scenePoint, this.scene.getNonDeletedElements(), this.scene.getNonDeletedElementsMap(), this.state.zoom);
+      if (bindingTarget) startIds.push(bindingTarget.id);
+    }
+    const frame = tool !== "selection" ? this.getTopLayerFrameAtSceneCoords({ x: scenePoint.x, y: scenePoint.y }) : null;
+    if (frame) startIds.push(frame.id);
+    const startScope = expandHumanEditFootprint(startIds, this.scene.getElementsIncludingDeleted());
+    if (!this.canApplyHumanEdit(startScope, "pointer")) {
+      this.setState({ cursorButton: "up" });
+      return;
+    }
+    if (!this.humanPointerEdit) {
+      this.humanPointerEdit = this.editProtection.beginHumanEdit(startScope);
+      this.humanPointerAnchors = new Set(startIds);
+    }
     const pointerDownState = this.initialPointerDownState(event);
 
     this.setState({
@@ -6660,6 +6910,7 @@ class App extends React.Component<AppProps, AppState> {
   ): (event: KeyboardEvent) => void {
     return withBatchedUpdates((event: KeyboardEvent) => {
       event = this.selectionInputEvent(event);
+      if (!this.canApplyHumanEdit(this.humanPointerTargets(), "pointer")) return;
       if (this.maybeHandleResize(pointerDownState, event)) {
         return;
       }
@@ -6672,6 +6923,7 @@ class App extends React.Component<AppProps, AppState> {
   ): (event: KeyboardEvent) => void {
     return withBatchedUpdates((event: KeyboardEvent) => {
       event = this.selectionInputEvent(event);
+      if (!this.canApplyHumanEdit(this.humanPointerTargets(), "pointer")) return;
       // Prevents focus from escaping excalidraw tab
       event.key === KEYS.ALT && event.preventDefault();
       if (this.maybeHandleResize(pointerDownState, event)) {
@@ -6686,6 +6938,7 @@ class App extends React.Component<AppProps, AppState> {
   ) {
     return withBatchedUpdatesThrottled((event: PointerEvent) => {
       event = this.selectionInputEvent(event);
+      if (!this.canApplyHumanEdit(this.humanPointerTargets(), "pointer")) return;
       if (this.state.openDialog?.name === "elementLinkSelector") {
         return;
       }
@@ -7758,7 +8011,8 @@ class App extends React.Component<AppProps, AppState> {
         } else if (pointerDownState.drag.hasOccurred && !multiElement) {
           if (
             isBindingEnabled(this.state) &&
-            isBindingElement(newElement, false)
+            isBindingElement(newElement, false) &&
+            this.canApplyHumanEdit([newElement.id, ...this.humanPointerTargets()], "pointer")
           ) {
             maybeBindLinearElement(
               newElement,
@@ -8330,7 +8584,8 @@ class App extends React.Component<AppProps, AppState> {
         // the endpoints ("start" or "end").
         const linearElements = this.scene
           .getSelectedElements(this.state)
-          .filter(isLinearElement);
+          .filter(isLinearElement)
+          .filter(element => this.canApplyHumanEdit([element.id, ...this.humanPointerTargets()], "pointer"));
 
         bindOrUnbindLinearElements(
           linearElements,

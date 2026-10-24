@@ -77,7 +77,7 @@ function toolEntryKey(runId: string, toolCallId: string): string {
 
 export class DefaultHistoryRecorder implements HistoryRecorder {
   readonly projectId: HistoryScope;
-  private readonly repository: HistoryRepository;
+  readonly repository: HistoryRepository;
   private readonly completedMessages: ModelMessage[] = [];
   private readonly completedEntryIds = new Set<string>();
   private readonly activeDrafts = new Map<string, DraftState>();
@@ -188,6 +188,7 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
     const draft = this.prepareDraft(context);
     if (draft.terminal) throw new RepositoryError("Assistant attempt is already terminal.", "conflict");
     if (kind === "text") draft.message.content += delta;
+    else if (kind === "progress") draft.message.progress = (draft.message.progress ?? "") + delta;
     else draft.message.reasoning = (draft.message.reasoning ?? "") + delta;
     draft.pendingBytes += Buffer.byteLength(delta, "utf8");
     draft.dirty = true;
@@ -490,9 +491,9 @@ export class DefaultHistoryRecorder implements HistoryRecorder {
   }
 }
 
-async function readAllEntries(repository: HistoryRepository, projectId: HistoryScope): Promise<HistoryEntry[]> {
+async function readEntriesAfter(repository: HistoryRepository, projectId: HistoryScope, afterOrder: number): Promise<HistoryEntry[]> {
   const entries: HistoryEntry[] = [];
-  let cursor = 0;
+  let cursor = afterOrder;
   while (true) {
     const batch = await repository.listEntries(projectId, cursor, 500);
     entries.push(...batch);
@@ -519,13 +520,11 @@ async function recoverAcceptedInputsOnce(repository: HistoryRepository): Promise
 
 export async function createHistoryRecorder(repository: HistoryRepository, projectId: HistoryScope): Promise<DefaultHistoryRecorder> {
   await recoverAcceptedInputsOnce(repository);
-  const entries = await readAllEntries(repository, projectId);
-  for (const entry of entries) {
-    if (entry.status !== "streaming") continue;
+  for (const entry of await repository.listStreamingEntries(projectId)) {
     await repository.updateEntry(entry.id, entry.revision, { status: "interrupted" });
-    entry.status = "interrupted";
-    entry.revision += 1;
   }
+  const snapshot = await repository.getLatestContextSnapshot(projectId);
+  const entries = await readEntriesAfter(repository, projectId, snapshot?.coveredThroughOrder ?? 0);
   return new DefaultHistoryRecorder(projectId, repository, entries);
 }
 

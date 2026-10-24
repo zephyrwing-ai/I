@@ -40,7 +40,7 @@ function newAssistantGroup(runId: string, anchorInputId: string): AssistantMessa
 
 function isVisibleAnswer(turn: TurnState): boolean {
   return Boolean(turn.assistantContent.trim())
-    && turn.stopReason !== "tool_use"
+    && (turn.stopReason === undefined || turn.stopReason === "stop")
     && turn.toolOrder.length === 0;
 }
 
@@ -48,10 +48,20 @@ function projectAssistantGroup(
   group: AssistantMessageBlockRecord,
   run: RunState,
   isWorking: boolean,
+  isEarlierGroup: boolean,
 ): AssistantMessageBlockRecord | null {
   const turns = group.turnIds.map((turnId) => run.turns[turnId]).filter((turn): turn is TurnState => Boolean(turn));
-  const answerTurn = turns.find((turn) => turn.turnId === run.finalTurnId && isVisibleAnswer(turn))
-    ?? [...turns].reverse().find(isVisibleAnswer);
+  // Only the Runtime final event or persisted final-duration entry establishes
+  // the final answer identity, including after a cancelled run is reloaded.
+  const finalTurnId = run.finalTurnId;
+  const finalAnswer = run.status === "completed"
+    ? turns.find((turn) => turn.turnId === finalTurnId && isVisibleAnswer(turn))
+    : undefined;
+  // Applied steering seals the preceding task's group. Its committed answer
+  // keeps the same visible/searchable identity while the new group runs.
+  const answerTurn = finalAnswer ?? (!isWorking && isEarlierGroup
+    ? [...turns].reverse().find((turn) => (turn.finalContent !== undefined || turn.status === "completed") && isVisibleAnswer(turn))
+    : undefined);
   const showDuration = Boolean(
     run.status === "completed"
     && run.finalTurnId
@@ -60,7 +70,7 @@ function projectAssistantGroup(
   );
   const hasActivity = turns.some((turn) => (
     Boolean(turn.assistantContent.trim())
-    || Boolean(turn.reasoningContent.trim())
+    || Boolean(turn.progressContent?.trim())
     || turn.toolOrder.length > 0
   ));
   if (!isWorking && !hasActivity && !showDuration) return null;
@@ -121,7 +131,8 @@ export function buildMessageBlockRecords(
       if (input) records.push({ runId, inputId: item.inputId, blockId: item.inputId, kind: "user", text: input.task });
       const group = groups.get(item.inputId);
       if (!group) continue;
-      const projected = projectAssistantGroup(group, run, runIsWorking && group === currentGroup);
+      const isEarlierGroup = group !== currentGroup || Boolean(waitingInputId && waitingInputId !== group.anchorInputId);
+      const projected = projectAssistantGroup(group, run, runIsWorking && group === currentGroup, isEarlierGroup);
       if (projected) records.push(projected);
     }
     return records;

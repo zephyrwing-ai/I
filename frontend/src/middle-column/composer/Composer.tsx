@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useI18n } from "../../shared/i18n";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SetStateAction } from "react";
 import type { CanvasContextDescriptor, InputAttachmentDescriptor, ModelOption, ProjectDescriptor, RunRequest, SteerRequest } from "../../../../shell/shared/ipc";
-import { Icon } from "../../components/Icon";
+import { Icon } from "../../shared/ui/Icon";
+import { Select } from "../../shared/ui/Select";
 import { isSendKey } from "./sendKey";
+import { useVoiceInput } from "./useVoiceInput";
+import { VoiceWaveform } from "./VoiceWaveform";
+import { appendVoiceTranscript, voiceButtonLabel } from "./voice";
 import "./Composer.css";
 
 const MODEL_OPTION_STORAGE_KEY = "workbench.modelOptionId";
-const MODEL_PICKER_LAYOUT_STORAGE_KEY = "workbench.modelPickerLayout.v1";
+const MODEL_PICKER_PREFERENCE_STORAGE_KEY = "workbench.modelPickerLayout.v1";
 
 export interface StoredModelPickerPreference {
   modelOptionId: string;
   displayName: string;
-  width: number | null;
 }
 
 export type ComposerAction = "start" | "starting" | "steer" | "stop" | "submitting" | "stopping";
@@ -47,8 +51,6 @@ interface ComposerProps {
   onSteer?: (req: SteerRequest) => Promise<boolean>;
   onStop: () => void;
   project?: ProjectDescriptor;
-  onSelectProject?: () => void;
-  onClearProject?: () => void;
   canvasContexts?: CanvasContextDescriptor[];
   onRemoveCanvasContext?: (contextId: string) => void;
   onClearCanvasContexts?: (contextIds: string[]) => void;
@@ -67,48 +69,55 @@ export function parseStoredModelPickerPreference(serialized: string | null, lega
       const parsed = JSON.parse(serialized) as Partial<StoredModelPickerPreference>;
       const modelOptionId = typeof parsed.modelOptionId === "string" ? parsed.modelOptionId.trim() : "";
       const displayName = typeof parsed.displayName === "string" ? parsed.displayName.trim() : "";
-      const width = typeof parsed.width === "number" && Number.isFinite(parsed.width) && parsed.width > 0
-        ? parsed.width
-        : null;
-      if (modelOptionId && displayName && width !== null) {
-        // 旧 key 在用户刚切换模型时会先写入；两者不一致时，以最新的选择为准，避免恢复旧布局对应的模型。
-        if (legacyId && legacyId !== modelOptionId) return { modelOptionId: legacyId, displayName: "", width: null };
-        return { modelOptionId, displayName, width };
+      if (modelOptionId && displayName) {
+        // 模型 ID 在切换时先写入，优先恢复最新选择。
+        if (legacyId && legacyId !== modelOptionId) return { modelOptionId: legacyId, displayName: "" };
+        return { modelOptionId, displayName };
       }
     } catch {
-      // 旧版本或损坏的布局缓存不应阻断 Composer 启动。
+      // 缓存解析失败时使用独立保存的模型 ID。
     }
   }
 
-  return { modelOptionId: legacyId, displayName: "", width: null };
+  return { modelOptionId: legacyId, displayName: "" };
 }
 
 /** 对话框列：输入框 + 附件 + 模型选择 + 发送/停止。位于中间列（Column）的 auto 行。 */
-export function Composer({ running, stopping, activeRunId = null, restoreDraft = null, ready = true, modelOptions, modelLoading, onRun, onSteer, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, onSelectProject = () => undefined, onClearProject = () => undefined, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
+export function Composer({ running, stopping, activeRunId = null, restoreDraft = null, ready = true, modelOptions, modelLoading, onRun, onSteer, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
+  const t = useI18n();
   const [task, setTask] = useState("");
   const taskRevision = useRef(0);
+  const setTaskDraft = useCallback((next: SetStateAction<string>): void => {
+    taskRevision.current += 1;
+    setTask(next);
+  }, []);
   const [attachments, setAttachments] = useState<InputAttachmentDescriptor[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
+  const [narrowModelMenu, setNarrowModelMenu] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 700px)").matches);
   const { selectedModelOptionId, selectModel, storedPreference } = useSelectedModelOption(modelOptions, modelLoading);
-  const modelRootRef = useRef<HTMLDivElement>(null);
   const modelTriggerRef = useRef<HTMLButtonElement>(null);
   const modelLabelRef = useRef<HTMLSpanElement>(null);
   const taskInputRef = useRef<HTMLTextAreaElement>(null);
   const actionButtonRef = useRef<HTMLButtonElement>(null);
   const modelSelectionChangedRef = useRef(false);
-  const modelPickerPreferenceRef = useRef(storedPreference);
-  const [modelTriggerWidth, setModelTriggerWidth] = useState<number | null>(() => (
-    storedPreference.modelOptionId === selectedModelOptionId ? storedPreference.width : null
-  ));
+  const [modelTriggerWidth, setModelTriggerWidth] = useState<number | null>(null);
   const [animateModelWidth, setAnimateModelWidth] = useState(false);
   const selectedModel = modelOptions.find((option) => option.available && option.modelOptionId === selectedModelOptionId);
+  const selectedModelName = selectedModel?.displayName;
   const selectableModels = modelOptions.filter((option) => option.available);
   const cachedModelDisplayName = storedPreference.modelOptionId === selectedModelOptionId
     ? storedPreference.displayName
     : "";
-  const modelDisplayName = selectedModel?.displayName
-    ?? (cachedModelDisplayName || (modelLoading ? "Loading model…" : "Choose model"));
+  const modelDisplayName = selectedModelName
+    ?? (cachedModelDisplayName || t(modelLoading ? "Loading model…" : "Choose model"));
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 700px)");
+    const update = () => setNarrowModelMenu(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
 
   const hasText = task.trim() !== "";
   const action = selectComposerAction({ running, stopping, submitting, activeRunId, hasText });
@@ -126,8 +135,7 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
 
   useEffect(() => {
     if (!restoreDraft) return;
-    taskRevision.current += 1;
-    setTask((current) => current ? `${current}\n${restoreDraft.text}` : restoreDraft.text);
+    setTaskDraft((current) => current ? `${current}\n${restoreDraft.text}` : restoreDraft.text);
     const frame = requestAnimationFrame(() => {
       const input = taskInputRef.current;
       if (!input) return;
@@ -136,24 +144,15 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
       input.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [restoreDraft]);
+  }, [restoreDraft, setTaskDraft]);
 
   /**
-   * 启动时优先使用已缓存的布局快照；只有缓存缺失、模型名称变化或用户切换模型时才重新测量。
-   * 启动校正不启用过渡，避免异步模型目录返回后按钮再次闪动。
+   * 名称跨启动恢复，像素宽度按当前字体在绘制前测量；用户切换模型时启用宽度过渡。
    */
   useLayoutEffect(() => {
     const trigger = modelTriggerRef.current;
     const label = modelLabelRef.current;
     if (!trigger || !label) return;
-    const cachedPreference = modelPickerPreferenceRef.current;
-    const cachedLayoutMatches = cachedPreference.modelOptionId === selectedModelOptionId
-      && cachedPreference.displayName === modelDisplayName
-      && cachedPreference.width !== null
-      && modelTriggerWidth === cachedPreference.width;
-    if (cachedLayoutMatches) return;
-    if (modelLoading && !selectedModel && !cachedModelDisplayName) return;
-
     // 解除 flex 收缩与 max-width 约束后测量文本自然宽，避免被旧宽度裁出省略号污染测量值；
     // 用小数几何宽并向上取整：scrollWidth 按整数取整会丢 0.4~0.9px 的小数部分，
     // 内容宽超出按钮宽的零点几像素会被省略号补齐，反而吃掉末位一两个字母。
@@ -167,57 +166,21 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
     const nextWidth = naturalWidth + 43;
     const shouldAnimate = modelSelectionChangedRef.current;
     modelSelectionChangedRef.current = false;
-    if (modelTriggerWidth !== nextWidth) setModelTriggerWidth(nextWidth);
+    setModelTriggerWidth(nextWidth);
     setAnimateModelWidth(shouldAnimate);
-    if (selectedModel) {
-      const nextPreference = { modelOptionId: selectedModelOptionId, displayName: selectedModel.displayName, width: nextWidth };
-      modelPickerPreferenceRef.current = nextPreference;
-      persistModelPickerPreference(nextPreference);
+  }, [modelDisplayName, selectedModelOptionId]);
+
+  useEffect(() => {
+    if (selectedModelName !== undefined) {
+      persistModelPickerPreference({ modelOptionId: selectedModelOptionId, displayName: selectedModelName });
     }
-  // modelTriggerWidth intentionally stays out of the dependency list: setting the measured width
-  // must not schedule a second measurement for the same model.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cachedModelDisplayName, modelDisplayName, modelLoading, selectedModel?.displayName, selectedModelOptionId, storedPreference.displayName, storedPreference.modelOptionId, storedPreference.width]);
+  }, [selectedModelName, selectedModelOptionId]);
 
   useEffect(() => {
     if (!animateModelWidth) return;
     const timer = window.setTimeout(() => setAnimateModelWidth(false), 220);
     return () => window.clearTimeout(timer);
   }, [animateModelWidth]);
-
-  useEffect(() => {
-    if (!modelOpen) return;
-    const close = (event: PointerEvent): void => {
-      if (!modelRootRef.current?.contains(event.target as Node)) setModelOpen(false);
-    };
-    const closeWithEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
-      setModelOpen(false);
-      modelTriggerRef.current?.focus();
-    };
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", closeWithEscape);
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", closeWithEscape);
-    };
-  }, [modelOpen]);
-
-  const navigateModels = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (!modelOpen || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const options = [...(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)'))];
-    if (!options.length) return;
-    event.preventDefault();
-    const current = options.indexOf(document.activeElement as HTMLButtonElement);
-    const next = event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? options.length - 1
-        : event.key === "ArrowDown"
-          ? (current + 1 + options.length) % options.length
-          : (current - 1 + options.length) % options.length;
-    options[next].focus();
-  };
 
   const pickAttachments = async (): Promise<void> => {
     if (!window.agentAPI || typeof window.agentAPI.selectAttachments !== "function") return;
@@ -231,7 +194,7 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
   };
 
   const submit = async (source: "button" | "keyboard"): Promise<void> => {
-    if (!canSubmit) return;
+    if (!canSubmit || voiceBusy) return;
     const restoreInputFocus = source === "button" || document.activeElement === taskInputRef.current;
     const submittedTask = task.trim();
     const submittedRevision = taskRevision.current;
@@ -250,7 +213,7 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
           } satisfies RunRequest);
       if (!accepted) return;
       if (taskRevision.current === submittedRevision) {
-        setTask("");
+        setTaskDraft("");
         const input = taskInputRef.current;
         if (input) {
           input.style.height = "auto";
@@ -281,55 +244,59 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
   };
 
   const updateTask = (element: HTMLTextAreaElement): void => {
-    taskRevision.current += 1;
-    setTask(element.value);
+    setTaskDraft(element.value);
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, 180)}px`;
     element.style.overflowY = element.scrollHeight > 180 ? "auto" : "hidden";
   };
 
+  const voice = useVoiceInput({
+    ready,
+    running,
+    submitting,
+    scopeKey: project.projectId,
+    onTranscript: (text) => {
+      if (!text.trim()) return;
+      setTaskDraft((current) => appendVoiceTranscript(current, text));
+      requestAnimationFrame(() => {
+        const input = taskInputRef.current;
+        if (!input) return;
+        input.style.height = "auto";
+        input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+        input.style.overflowY = input.scrollHeight > 180 ? "auto" : "hidden";
+        input.focus();
+      });
+    },
+  });
+  const voiceBusy = voice.state.phase !== "idle";
+  const voiceDisabled = !ready || submitting || (running && voice.state.phase === "idle");
+  const submitDisabled = stopAction ? stopping : !canSubmit || voiceBusy;
+  const sendTitle = stopAction
+    ? (stopping ? "Stopping" : "Stop run")
+    : ready ? (disabledReason ?? "Send")
+    : "Loading history";
+
   return (
     <footer className="composer">
-      <div className="composer-project-row">
-          <button
-            type="button"
-            className="composer-project-picker"
-            onClick={(event) => {
-              event.stopPropagation();
-              if (!running) onSelectProject();
-            }}
-            disabled={running}
-            title={project.canonicalPath ?? "Choose folder"}
-            aria-label={project.projectId ? `Project ${project.displayName}` : "Choose folder"}
-          >
-            <Icon name="folder-closed" width="18" height="18" />
-            <span>{project.projectId ? project.displayName : "Choose folder"}</span>
-          </button>
-          {project.projectId && (
-            <button type="button" className="composer-project-clear" onClick={(event) => { event.stopPropagation(); onClearProject(); }} disabled={running} aria-label="Clear project" title="Clear project">
-              <Icon name="close" width="14" height="14" />
-            </button>
-          )}
-      </div>
       <div className="composer-shell">
         {attachments.length > 0 && (
-          <div className="composer-attachments" aria-label="Attachments">
+          <div className="composer-attachments" aria-label={t("Attachments")}>
             {attachments.map((attachment) => (
               <div className="composer-attachment" key={attachment.attachmentId}>
                 <span className="attachment-icon"><Icon name={attachment.mediaType.startsWith("image/") ? "image" : "book-open"} width="15" height="15" /></span>
                 <span className="attachment-info"><strong>{attachment.name}</strong><small>{formatBytes(attachment.byteSize)}</small></span>
-          <button type="button" onClick={() => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId))} disabled={running || !ready} aria-label={`Remove attachment ${attachment.name}`} title="Remove attachment"><Icon name="close" width="14" height="14" /></button>
+          <button type="button" onClick={() => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId))} disabled={running || !ready} aria-label={t("Remove attachment {name}", { name: attachment.name })} title={t("Remove attachment")}><Icon name="close" width="14" height="14" /></button>
               </div>
             ))}
           </div>
         )}
         {canvasContexts.length > 0 && (
-          <div className="composer-canvas-contexts" aria-label="Canvas references">
+          <div className="composer-canvas-contexts" aria-label={t("Canvas references")}>
             {canvasContexts.map((context) => (
               <div className="composer-canvas-context" key={context.contextId}>
                 <Icon name="line-squiggle" width="15" height="15" />
-                <span><strong>{context.label}</strong><small>{context.hasVisual ? "Text + visual snapshot" : "Text snapshot"}</small></span>
-                <button type="button" onClick={() => onRemoveCanvasContext?.(context.contextId)} disabled={running || !ready} aria-label={`Remove ${context.label}`} title="Remove canvas reference"><Icon name="close" width="14" height="14" /></button>
+                <span><strong>{context.label}</strong><small>{t(context.hasVisual ? "Text + visual snapshot" : "Text snapshot")}</small></span>
+                <button type="button" onClick={() => onRemoveCanvasContext?.(context.contextId)} disabled={running || !ready} aria-label={t("Remove {name}", { name: context.label })} title={t("Remove canvas reference")}><Icon name="close" width="14" height="14" /></button>
               </div>
             ))}
           </div>
@@ -337,47 +304,100 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
         <textarea
           ref={taskInputRef}
           className="task-input"
-          placeholder="What's up?"
+          placeholder={t("What's up?")}
           value={task}
           disabled={!ready || submitting}
           onChange={(event) => updateTask(event.currentTarget)}
           onKeyDown={onTaskKeyDown}
-          aria-label="Task"
+          aria-label={t("Task")}
         />
 
         <div className="composer-toolbar">
-          <div className="composer-left">
-            <button type="button" className="composer-icon-button" onClick={() => void pickAttachments()} disabled={running || !ready} aria-label="Upload files" title="Upload files"><Icon name="plus" width="18" height="18" /></button>
-          </div>
-
-          <div className="composer-right">
-            <div className="model-picker" ref={modelRootRef}>
-              <button ref={modelTriggerRef} type="button" className={`model-picker-trigger ${animateModelWidth ? "is-width-animated" : ""}`} style={modelTriggerWidth === null ? undefined : { width: `${modelTriggerWidth}px` }} onClick={() => setModelOpen((value) => !value)} disabled={running || !ready || modelLoading} aria-haspopup="listbox" aria-expanded={modelOpen} title={ready ? "Choose model" : "Loading history"}>
-                <span ref={modelLabelRef}>{modelDisplayName}</span><Icon name="chevron-right" width="15" height="15" />
+          {voice.state.phase === "recording" ? (
+            <>
+              <button
+                type="button"
+                className="composer-icon-button composer-voice-button is-active"
+                onClick={voice.stop}
+                aria-label={t("Stop voice input")}
+                aria-pressed="true"
+                title={t("Stop voice input")}
+              >
+                <Icon name="stop" width={18} height={18} />
               </button>
-              {modelOpen && (
-                <div className="model-popover" role="listbox" aria-label="Choose model" onKeyDown={navigateModels}>
-                  {selectableModels.length === 0 && <div className="model-empty"><span>No available models</span></div>}
-                  {selectableModels.map((model) => (
-                    <button key={model.modelOptionId} type="button" role="option" aria-selected={model.modelOptionId === selectedModelOptionId} onClick={() => {
-                      if (model.modelOptionId !== selectedModelOptionId) modelSelectionChangedRef.current = true;
-                      selectModel(model.modelOptionId);
-                      setModelOpen(false);
-                      modelTriggerRef.current?.focus();
-                    }}>
-                      <strong>{model.displayName}</strong>{model.modelOptionId === selectedModelOptionId && <Icon name="check" width="16" height="16" />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+              <div className="composer-voice-wave" aria-hidden="true">
+                <VoiceWaveform analyser={voice.analyser} />
+              </div>
+              <button
+                type="button"
+                className="composer-icon-button composer-voice-cancel"
+                onClick={voice.cancel}
+                aria-label={t("Cancel voice input")}
+                title={t("Cancel voice input")}
+              >
+                <Icon name="close" width={16} height={16} />
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="composer-left">
+                <button type="button" className="composer-icon-button" onClick={() => void pickAttachments()} disabled={running || !ready} aria-label={t("Upload files")} title={t("Upload files")}><Icon name="plus" width="18" height="18" /></button>
+                <button
+                  type="button"
+                  className={`composer-icon-button composer-voice-button ${voice.state.phase !== "idle" ? "is-active" : ""}`}
+                  onClick={() => {
+                    if (voice.state.phase === "idle") {
+                      void voice.start();
+                    } else {
+                      voice.cancel();
+                    }
+                  }}
+                  disabled={voiceDisabled}
+                  aria-label={t(voiceButtonLabel(voice.state.phase))}
+                  title={t(voiceButtonLabel(voice.state.phase))}
+                >
+                  <Icon name="microphone" width={17} height={17} />
+                </button>
+              </div>
 
-            <button ref={actionButtonRef} type="button" className={`send-stop-button ${stopAction ? "is-stop" : "is-send"}`} onClick={stopAction ? onStop : () => void submit("button")} disabled={stopAction ? stopping : !canSubmit} aria-label={stopAction ? (stopping ? "Stopping" : "Stop run") : "Send"} title={stopAction ? (stopping ? "Stopping" : "Stop run") : (ready ? (disabledReason ?? "Send") : "Loading history")} aria-busy={stopping || submitting || undefined}>
-              <span className="send-stop-icon" key={stopAction ? "stop" : "send"}><Icon name={stopAction ? "stop" : "arrow-up"} width={18} height={18} /></span>
-            </button>
-          </div>
+              <div className="composer-right">
+                <div className="model-picker">
+                  <Select
+                    id="composer-model"
+                    label={t("Choose model")}
+                    value={selectedModelOptionId}
+                    options={selectableModels.map(model => ({ value: model.modelOptionId, label: model.displayName }))}
+                    onValueChange={modelOptionId => {
+                      if (modelOptionId !== selectedModelOptionId) modelSelectionChangedRef.current = true;
+                      selectModel(modelOptionId);
+                    }}
+                    disabled={running || !ready || modelLoading}
+                    displayValue={modelDisplayName}
+                    emptyText={t("No available models")}
+                    side="top"
+                    align={narrowModelMenu ? "end" : "center"}
+                    size="compact"
+                    triggerRef={modelTriggerRef}
+                    labelRef={modelLabelRef}
+                    triggerProps={{ className: `model-picker-trigger ${animateModelWidth ? "is-width-animated" : ""}`, style: { width: modelTriggerWidth === null ? undefined : `${modelTriggerWidth}px`, transition: animateModelWidth ? undefined : "none" }, title: t(ready ? "Choose model" : "Loading history") }}
+                    contentClassName="model-popover"
+                  />
+                </div>
+
+                <button ref={actionButtonRef} type="button" className={`send-stop-button ${stopAction ? "is-stop" : "is-send"}`} onClick={stopAction ? onStop : () => void submit("button")} disabled={submitDisabled} aria-label={t(stopAction ? (stopping ? "Stopping" : "Stop run") : "Send")} title={t(sendTitle)} aria-busy={stopping || submitting || undefined}>
+                  <span className="send-stop-icon" key={stopAction ? "stop" : "send"}><Icon name={stopAction ? "stop" : "arrow-up"} width={18} height={18} /></span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
-        {disabledReason && task.trim() && <span className="composer-hint" role="status">{disabledReason}</span>}
+        {voice.state.error && (
+          <div className="composer-voice-error" role="status">
+            <span>{t(voice.state.error)}</span>
+            <button type="button" onClick={voice.dismissError} aria-label={t("Dismiss voice input error")} title={t("Dismiss")}><Icon name="close" width="12" height="12" /></button>
+          </div>
+        )}
+        {disabledReason && task.trim() && <span className="composer-hint" role="status">{t(disabledReason)}</span>}
       </div>
     </footer>
   );
@@ -407,11 +427,11 @@ function useSelectedModelOption(modelOptions: ModelOption[], modelLoading: boole
 function readStoredModelPickerPreference(): StoredModelPickerPreference {
   try {
     return parseStoredModelPickerPreference(
-      globalThis.localStorage?.getItem(MODEL_PICKER_LAYOUT_STORAGE_KEY) ?? null,
+      globalThis.localStorage?.getItem(MODEL_PICKER_PREFERENCE_STORAGE_KEY) ?? null,
       globalThis.localStorage?.getItem(MODEL_OPTION_STORAGE_KEY) ?? null,
     );
   } catch {
-    return { modelOptionId: "", displayName: "", width: null };
+    return { modelOptionId: "", displayName: "" };
   }
 }
 
@@ -425,10 +445,10 @@ function persistModelOptionId(modelOptionId: string): void {
 
 function persistModelPickerPreference(preference: StoredModelPickerPreference): void {
   try {
-    globalThis.localStorage?.setItem(MODEL_PICKER_LAYOUT_STORAGE_KEY, JSON.stringify(preference));
+    globalThis.localStorage?.setItem(MODEL_PICKER_PREFERENCE_STORAGE_KEY, JSON.stringify(preference));
     globalThis.localStorage?.setItem(MODEL_OPTION_STORAGE_KEY, preference.modelOptionId);
   } catch {
-    // 本地偏好不可写时，Composer 保持本次 Renderer 生命周期内的布局。
+    // 本地偏好不可写时，Composer 保持本次 Renderer 生命周期内的选择和名称。
   }
 }
 

@@ -287,7 +287,7 @@ body.agent-canvas-cursor-resize * {
     background-color: var(--button-gray-1);
     border-radius: var(--space-factor);
     border: 1px solid var(--button-gray-2);
-    font-size: 0.8rem;
+    font-size: calc(0.8rem + var(--ui-font-offset, 0px));
     font-family: inherit;
     outline: none;
     appearance: none;
@@ -483,12 +483,13 @@ body.agent-canvas-cursor-resize * {
 
   .bigger,
   .bigger button {
-    font-size: 1.1em;
+    // Compensate for the font offset already inherited by relative sizes.
+    font-size: calc(1.1em - var(--ui-font-offset, 0px) * 0.1);
   }
 
   .smaller,
   .smaller button {
-    font-size: 0.9em;
+    font-size: calc(0.9em + var(--ui-font-offset, 0px) * 0.1);
   }
 
   .ErrorSplash-details {
@@ -500,7 +501,7 @@ body.agent-canvas-cursor-resize * {
       width: 100%;
       margin: 10px 0;
       font-family: "Cascadia";
-      font-size: 0.8em;
+      font-size: calc(0.8em + var(--ui-font-offset, 0px) * 0.2);
     }
   }
 }

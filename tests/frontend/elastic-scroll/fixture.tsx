@@ -2,6 +2,11 @@ import { createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { StreamRegion } from "../../../frontend/src/middle-column/message-stream/StreamScrollbar";
+import { AssistantMessage } from "../../../frontend/src/middle-column/message-stream/AssistantMessage";
+import { agentReducer, initialAgentState, type RunState } from "../../../frontend/src/store/agentReducer";
+import { buildMessageBlockRecords } from "../../../frontend/src/store/messageBlocks";
+import type { AgentEvent } from "../../../shell/shared/ipc";
+import "../../../frontend/src/styles.css";
 import "../../../frontend/src/middle-column/Column.css";
 import "../../../frontend/src/middle-column/message-stream/message-stream.css";
 
@@ -103,6 +108,342 @@ async function sustainedSequence() {
   return samples;
 }
 
+/** Reuse the Electron message-area fixture to check real disclosure layout and focus. */
+async function activityTraceRegression() {
+  const command = "stat -f '%Sm %N' -t '%Y-%m-%d' agent/model/openai.ts";
+  const longCommand = `sqlite3 -readonly 'sessions.sqlite' "SELECT ${"entry_order, ".repeat(120)}payload_json FROM entries;"`;
+  const output = "FULL TOOL OUTPUT\n".repeat(1_000);
+  const extraCalls = Array.from({ length: 14 }, (_, index) => ({
+    toolCallId: `extra-${index}`, name: "read", input: { path: `agent/context/dependency-${index}.ts` }, status: "completed" as const,
+  }));
+  const run: RunState = {
+    runId: "activity", projectId: null, status: "completed", finalTurnId: "answer", finalDurationMs: 2_000,
+    inputs: { user: { inputId: "user", task: "检查上下文与历史读取", at: 1_000, status: "applied" } },
+    pendingInputIds: [], timeline: [{ kind: "user", inputId: "user" }, { kind: "assistant", turnId: "files" }, { kind: "assistant", turnId: "history" }, { kind: "assistant", turnId: "answer" }],
+    outputFileOrder: [], outputFiles: {},
+    turns: {
+      files: {
+        turnId: "files", turnOrdinal: 1, anchorInputId: "user", status: "completed", assistantContent: "先检查上下文管理实现", reasoningContent: "PRIVATE REASONING",
+        toolOrder: ["files-call", "short-call", "command-call", "long-call", ...extraCalls.map((call) => call.toolCallId)],
+        tools: {
+          "files-call": { toolCallId: "files-call", name: "read", status: "completed", input: { path: "agent/context/config.ts", purpose: "旧的目的文案" }, result: { ok: true, output: "export const config = {};", returncode: 0, truncated: false } },
+          "short-call": { toolCallId: "short-call", name: "bash", status: "completed", input: { command: "pwd" } },
+          "command-call": { toolCallId: "command-call", name: "bash", status: "completed", input: { command } },
+          "long-call": { toolCallId: "long-call", name: "bash", status: "completed", input: { command: longCommand, cwd: "/workspace" }, result: { ok: true, output, returncode: 0, truncated: false } },
+          ...Object.fromEntries(extraCalls.map((call) => [call.toolCallId, call])),
+        },
+      },
+      history: {
+        turnId: "history", turnOrdinal: 2, anchorInputId: "user", status: "completed", assistantContent: "然后检查历史读取逻辑", reasoningContent: "PRIVATE REASONING", toolOrder: ["history-call"],
+        tools: { "history-call": { toolCallId: "history-call", name: "read", input: { path: "agent/tools/history-read.ts", purpose: "查看历史读取工具" }, status: "completed" } },
+      },
+      answer: { turnId: "answer", turnOrdinal: 3, status: "completed", assistantContent: "已完成分析", reasoningContent: "PRIVATE FINAL REASONING", toolOrder: [], tools: {} },
+    },
+  };
+  const render = (width: number) => flushSync(() => root.render(
+    <div style={{ width, padding: 16 }}>
+      <AssistantMessage run={run} anchorInputId="user" turnIds={["files", "history", "answer"]} answerTurnId="answer" showDuration />
+    </div>,
+  ));
+  const row = (id: string) => document.querySelector<HTMLElement>(`[data-tool-call-id="${id}"]`)!;
+  const label = (id: string) => row(id).querySelector<HTMLElement>(".tool-action")!;
+  const labelGeometry = (id: string) => {
+    const node = label(id);
+    const style = getComputedStyle(node);
+    return { text: node.textContent, width: node.clientWidth, contentWidth: node.scrollWidth, ellipsis: style.textOverflow, whiteSpace: style.whiteSpace, overflow: style.overflowX };
+  };
+  render(760);
+  await frames();
+  const outer = document.querySelector<HTMLButtonElement>(".run-work-toggle")!;
+  const detail = document.querySelector<HTMLElement>(".run-work-detail")!;
+  const groups = Array.from(document.querySelectorAll<HTMLButtonElement>(".turn-action-fold"));
+  groups[0].focus();
+  const initiallyClosed = detail.inert && detail.getBoundingClientRect().height < 1;
+  const closedFocusBlocked = document.activeElement !== groups[0];
+  outer.click();
+  await delay(220);
+  await frames();
+  groups[0].focus();
+  const openFocusAllowed = document.activeElement === groups[0];
+  groups[0].click();
+  groups[1].click();
+  await delay(220);
+  await frames();
+  const rows = Array.from(document.querySelectorAll<HTMLElement>(".tool-row"));
+  const sequence = Array.from(document.querySelectorAll<HTMLElement>(".work-intermediate-text, .turn-action-summary")).map((node) => node.textContent);
+  const text = document.getElementById("root")!.textContent ?? "";
+  const reasoningHidden = !text.includes("PRIVATE");
+  const commandVisible = text.includes(`Ran ${command}`);
+  const detailsInitiallyUnmounted = document.querySelectorAll(".tool-detail, .tool-input-pre, .tool-output-pre").length === 0;
+  const finalOutside = !document.querySelector(".final-answer")!.closest(".run-work");
+  const individualDisclosures = document.querySelectorAll(".tool-row .tool-fold").length;
+  const expandedHeight = detail.getBoundingClientRect().height;
+  const wideShort = labelGeometry("short-call");
+  const wideCommand = labelGeometry("command-call");
+  const clip = document.querySelector<HTMLElement>(".turn-action-clip")!;
+  const groupScroll = { maxHeight: getComputedStyle(clip).maxHeight, overflowY: getComputedStyle(clip).overflowY, height: clip.clientHeight, contentHeight: clip.scrollHeight, scrollTop: 0 };
+  clip.scrollTop = 80;
+  await frames();
+  groupScroll.scrollTop = clip.scrollTop;
+
+  row("files-call").querySelector<HTMLButtonElement>(".tool-fold")!.click();
+  await frames();
+  const firstRowExpanded = row("files-call").querySelector(".tool-input-pre")?.textContent === JSON.stringify(run.turns.files.tools["files-call"].input, null, 2)
+    && row("files-call").querySelector(".tool-output-pre")?.textContent === run.turns.files.tools["files-call"].result!.output
+    && !row("long-call").querySelector(".tool-detail");
+  row("long-call").querySelector<HTMLButtonElement>(".tool-fold")!.click();
+  await frames();
+  const independentExpansion = Boolean(row("files-call").querySelector(".tool-detail"))
+    && Boolean(row("long-call").querySelector(".tool-detail"))
+    && !row("command-call").querySelector(".tool-detail");
+  const fullCommandInput = row("long-call").querySelector(".tool-input-pre")?.textContent === JSON.stringify(run.turns.files.tools["long-call"].input, null, 2);
+  const fullCommandOutput = row("long-call").querySelector(".tool-output-pre")?.textContent === output;
+  const reasoningHiddenWithDetails = !document.getElementById("root")!.textContent?.includes("PRIVATE");
+  row("files-call").querySelector<HTMLButtonElement>(".tool-fold")!.click();
+  await frames();
+  const independentCollapse = !row("files-call").querySelector(".tool-detail") && Boolean(row("long-call").querySelector(".tool-detail"));
+  row("long-call").querySelector<HTMLButtonElement>(".tool-fold")!.click();
+  await frames();
+  const detailsUnmountedAgain = document.querySelectorAll(".tool-detail, .tool-input-pre, .tool-output-pre").length === 0;
+
+  render(300);
+  await frames();
+  const narrowRows = Array.from(document.querySelectorAll<HTMLElement>(".tool-row"));
+  const narrowShort = labelGeometry("short-call");
+  const narrowCommand = labelGeometry("command-call");
+  const narrowLong = labelGeometry("long-call");
+  const completeLabels = label("long-call").textContent === `Ran ${longCommand}` && label("files-call").textContent === "Read agent/context/config.ts";
+  const noHorizontalOverflow = narrowRows.every((row) => row.scrollWidth <= row.clientWidth + 1);
+  outer.click();
+  await delay(220);
+  await frames();
+  return {
+    initiallyClosed, closedFocusBlocked, openFocusAllowed, reasoningHidden, commandVisible, finalOutside, individualDisclosures, expandedHeight,
+    sequence, rows: rows.map((row) => row.querySelector(".tool-action")?.textContent), headers: groups.map((group) => group.textContent), noHorizontalOverflow,
+    detailsInitiallyUnmounted, firstRowExpanded, independentExpansion, independentCollapse, fullCommandInput, fullCommandOutput, reasoningHiddenWithDetails, detailsUnmountedAgain,
+    wideShort, wideCommand, narrowShort, narrowCommand, narrowLong, completeLabels, groupScroll,
+    collapsedAgain: detail.inert && detail.getBoundingClientRect().height < 1,
+    retainedOutput: run.turns.files.tools["long-call"].result!.output.length,
+  };
+}
+
+/** A tool-free answer uses the same real disclosure, inert region and focus boundary. */
+async function pureProgressRegression() {
+  const run: RunState = {
+    runId: "pure-progress", projectId: null, status: "completed", finalTurnId: "answer", finalDurationMs: 900,
+    inputs: { user: { inputId: "user", task: "分析问题并给出中文结论", at: 1_000, status: "applied" } },
+    pendingInputIds: [], timeline: [{ kind: "user", inputId: "user" }, { kind: "assistant", turnId: "answer" }],
+    outputFileOrder: [], outputFiles: {},
+    turns: { answer: {
+      turnId: "answer", turnOrdinal: 1, anchorInputId: "user", status: "completed", assistantContent: "最终中文结论", assistantAt: 2_000,
+      progressContent: "先比较[约束记录](https://example.com/constraints)，再整理中文结论。",
+      reasoningContent: "PRIVATE English raw reasoning <progress>PRIVATE MARKER</progress><answer>PRIVATE ANSWER</answer>",
+      toolOrder: [], tools: {},
+    } },
+  };
+  const key = ++mountId;
+  const render = (isWorking = false) => flushSync(() => root.render(
+    <div style={{ width: 760, padding: 16 }}>
+      <AssistantMessage key={key} run={run} anchorInputId="user" turnIds={["answer"]} answerTurnId="answer" showDuration isWorking={isWorking} />
+    </div>,
+  ));
+  render();
+  await frames();
+  const outer = document.querySelector<HTMLButtonElement>(".run-work-toggle")!;
+  const detail = document.querySelector<HTMLElement>(".run-work-detail")!;
+  const link = detail.querySelector<HTMLAnchorElement>(".work-progress-text a")!;
+  const initiallyClosed = detail.inert && detail.getBoundingClientRect().height < 1;
+  link.focus();
+  const closedFocusBlocked = document.activeElement !== link;
+  outer.focus();
+  const toggleFocusAllowed = document.activeElement === outer;
+  outer.click();
+  await delay(220);
+  await frames();
+  const openedByClick = outer.getAttribute("aria-expanded") === "true" && !detail.inert && detail.getBoundingClientRect().height > 20;
+  link.focus();
+  const openFocusAllowed = document.activeElement === link;
+  const progressInside = Boolean(link.closest(".run-work"));
+  const finalOutside = !document.querySelector(".final-answer")!.closest(".run-work");
+  const metadataOutside = !document.querySelector(".message-meta")!.closest(".run-work");
+  const noTools = document.querySelectorAll(".turn-action, .tool-row").length === 0;
+  const noRawEvidence = !document.getElementById("root")!.textContent?.includes("PRIVATE")
+    && !document.querySelector("progress, answer");
+  const workedLabel = outer.textContent;
+  outer.click();
+  await delay(220);
+  await frames();
+  const collapsedAgain = detail.inert && detail.getBoundingClientRect().height < 1;
+
+  run.turns.answer.progressContent = undefined;
+  render();
+  await frames();
+  outer.click();
+  await delay(220);
+  await frames();
+  const legacyNotice = document.querySelector(".work-legacy-notice")?.textContent;
+  const legacyClickable = outer.getAttribute("aria-expanded") === "true" && !detail.inert;
+  const legacyNoRawEvidence = !document.getElementById("root")!.textContent?.includes("PRIVATE");
+  outer.click();
+  await frames();
+
+  run.status = "running";
+  run.turns.answer.assistantContent = "";
+  render(true);
+  await frames();
+  const waitingAutoOpen = outer.getAttribute("aria-expanded") === "true" && !detail.inert;
+  outer.click();
+  await frames();
+  outer.click();
+  await delay(220);
+  await frames();
+  const waitingClickable = outer.getAttribute("aria-expanded") === "true" && !detail.inert;
+  const waitingStatus = detail.querySelector('[role="status"]')?.textContent;
+  const waitingHasNoProse = !detail.querySelector(".work-progress-text, .work-intermediate-text, .work-legacy-notice");
+  run.turns.answer.progressContent = "现在开始核对约束";
+  render(true);
+  await frames();
+  const streamedWhileOpen = outer.getAttribute("aria-expanded") === "true"
+    && detail.querySelector(".work-progress-text")?.textContent === "现在开始核对约束"
+    && !detail.querySelector('[role="status"]');
+  return {
+    initiallyClosed, closedFocusBlocked, toggleFocusAllowed, openedByClick, openFocusAllowed, progressInside, finalOutside, metadataOutside,
+    noTools, noRawEvidence, workedLabel, collapsedAgain, legacyNotice, legacyClickable, legacyNoRawEvidence,
+    waitingAutoOpen, waitingClickable, waitingStatus, waitingHasNoProse, streamedWhileOpen,
+  };
+}
+
+/** Drive the real reducer and message-block caller without remounting on phase changes. */
+async function activityLifecycleRegression() {
+  let state = initialAgentState;
+  let runId = "lifecycle";
+  const key = ++mountId;
+  const accept = (id: string) => {
+    runId = id;
+    state = agentReducer(state, { type: "runAccepted", runId, projectId: null, inputId: "user", task: "检查上下文和历史读取", taskAt: 1_000 });
+  };
+  const send = (event: AgentEvent) => { state = agentReducer(state, { type: "event", event }); };
+  const render = () => {
+    const block = buildMessageBlockRecords(state).find((item) => item.kind === "assistant" && item.runId === runId);
+    if (!block || block.kind !== "assistant") throw new Error(`Missing assistant block in ${runId}`);
+    flushSync(() => root.render(
+      <div key={key} style={{ width: 760, padding: 16 }}>
+        <AssistantMessage key={block.blockId} run={state.runs[runId]} anchorInputId={block.anchorInputId} turnIds={block.turnIds}
+          answerTurnId={block.answerTurnId} showDuration={block.showDuration} isWorking={block.isWorking} />
+      </div>,
+    ));
+  };
+  const capture = async () => {
+    render();
+    await frames();
+    const final = document.querySelector<HTMLElement>(".final-answer");
+    const run = state.runs[runId];
+    return {
+      status: run.status,
+      outerOpen: document.querySelector(".run-work-toggle")?.getAttribute("aria-expanded") === "true",
+      outerInert: document.querySelector<HTMLElement>(".run-work-detail")?.inert,
+      groupsOpen: Array.from(document.querySelectorAll(".turn-action-fold")).map((node) => node.getAttribute("aria-expanded") === "true"),
+      groupsInert: Array.from(document.querySelectorAll<HTMLElement>(".turn-action-detail")).map((node) => node.inert),
+      groupRows: Array.from(document.querySelectorAll(".turn-action")).map((node) => Array.from(node.querySelectorAll(".tool-row")).map((row) => row.getAttribute("data-tool-call-id"))),
+      runningToolIds: Object.values(run.turns).flatMap((turn) => turn.toolOrder.filter((id) => turn.tools[id]?.status === "running")),
+      flowTexts: Array.from(document.querySelectorAll(".work-intermediate-text")).map((node) => node.textContent),
+      finalText: final?.textContent ?? null,
+      finalOutside: Boolean(final && !final.closest(".run-work")),
+      reasoningHidden: !document.getElementById("root")!.textContent?.includes("PRIVATE"),
+    };
+  };
+  const steps: Record<string, Awaited<ReturnType<typeof capture>>> = {};
+  const outer = () => document.querySelector<HTMLButtonElement>(".run-work-toggle")!;
+  const group = (index: number) => document.querySelectorAll<HTMLButtonElement>(".turn-action-fold")[index];
+  const completeTool = (turnId: string, toolCallId: string, name: string) => send({ type: "toolCompleted", runId, turnId, toolCallId, name, result: { ok: true, output: "工具完成", returncode: 0, truncated: false } });
+  const beginTools = (turnId: string, turnOrdinal: number, content: string) => {
+    send({ type: "turnStarted", runId, turnId, turnOrdinal });
+    send({ type: "assistantDelta", runId, turnId, delta: content });
+    send({ type: "assistantCompleted", runId, turnId, content, completedAt: 2_000, stopReason: "tool_use", toolCalls: [
+      { id: `${turnId}-read`, name: "read", input: { path: "agent/context/config.ts" }, inputComplete: true },
+      { id: `${turnId}-command`, name: "bash", input: { command: "pwd" }, inputComplete: true },
+    ] });
+  };
+
+  accept(runId);
+  send({ type: "turnStarted", runId, turnId: "first", turnOrdinal: 1 });
+  steps.running = await capture();
+  send({ type: "reasoningDelta", runId, turnId: "first", delta: "PRIVATE English reasoning" });
+  send({ type: "assistantDelta", runId, turnId: "first", delta: "先检查上下文管理实现" });
+  steps.nativeContent = await capture();
+  send({ type: "assistantCompleted", runId, turnId: "first", content: "先检查上下文管理实现", completedAt: 2_000, stopReason: "tool_use", toolCalls: [
+    { id: "first-read", name: "read", input: { path: "agent/context/config.ts" }, inputComplete: true },
+    { id: "first-command", name: "bash", input: { command: "pwd" }, inputComplete: true },
+    { id: "pending-command", name: "bash", input: { command: "stat agent/model/openai.ts" }, inputComplete: true },
+  ] });
+  steps.batchOpened = await capture();
+  group(0).click();
+  await frames();
+  completeTool("first", "first-read", "read");
+  steps.manualGroupClosed = await capture();
+  group(0).click();
+  await frames();
+  completeTool("first", "first-command", "bash");
+  steps.pendingKeepsOpen = await capture();
+  outer().click();
+  await frames();
+  send({ type: "toolStarted", runId, turnId: "first", toolCallId: "pending-command", name: "bash", input: { command: "stat agent/model/openai.ts" } });
+  steps.manualOuterClosed = await capture();
+  outer().click();
+  await frames();
+  completeTool("first", "pending-command", "bash");
+  steps.allToolsDone = await capture();
+  send({ type: "turnCompleted", runId, turnId: "first" });
+  beginTools("second", 2, "然后检查历史读取逻辑");
+  steps.nextTurnOpened = await capture();
+  completeTool("second", "second-read", "read");
+  steps.secondPartiallyDone = await capture();
+  completeTool("second", "second-command", "bash");
+  steps.secondAllDone = await capture();
+  send({ type: "turnCompleted", runId, turnId: "second" });
+  send({ type: "turnStarted", runId, turnId: "text-only", turnOrdinal: 3 });
+  send({ type: "assistantCompleted", runId, turnId: "text-only", content: "接下来汇总核验结果", completedAt: 3_000, stopReason: "stop", toolCalls: [] });
+  send({ type: "turnCompleted", runId, turnId: "text-only" });
+  send({ type: "turnStarted", runId, turnId: "answer", turnOrdinal: 4 });
+  send({ type: "assistantDelta", runId, turnId: "answer", delta: "最终中文结论" });
+  steps.answerStreamingInFlow = await capture();
+  send({ type: "assistantCompleted", runId, turnId: "answer", content: "最终中文结论", completedAt: 4_000, stopReason: "stop", toolCalls: [] });
+  send({ type: "turnCompleted", runId, turnId: "answer" });
+  steps.answerWaitingForRunCompleted = await capture();
+  send({ type: "runCompleted", runId, status: "completed", turnCount: 4, finalTurnId: "answer", finalDurationMs: 3_000 });
+  steps.runCompleted = await capture();
+
+  outer().click();
+  await frames();
+  group(0).click();
+  await frames();
+  steps.doneManuallyReopened = await capture();
+  // Preserve the same React keys to expose stale manual overrides after a full phase cycle.
+  state = { ...state, status: "running", runs: { ...state.runs, [runId]: { ...state.runs[runId], status: "running" } } };
+  send({ type: "turnStarted", runId, turnId: "first", turnOrdinal: 1 });
+  send({ type: "toolStarted", runId, turnId: "first", toolCallId: "first-read", name: "read", input: { path: "agent/context/config.ts" } });
+  steps.sameGroupWorkingAgain = await capture();
+  completeTool("first", "first-read", "read");
+  steps.sameGroupDoneAgain = await capture();
+  send({ type: "turnCompleted", runId, turnId: "first" });
+  send({ type: "runCompleted", runId, status: "completed", turnCount: 4, finalTurnId: "answer", finalDurationMs: 3_000 });
+  steps.doneAgainReset = await capture();
+
+  accept("cancel-after-stop");
+  beginTools("cancel", 1, "正在检查，等待执行完成");
+  steps.beforeStop = await capture();
+  state = agentReducer(state, { type: "stopRequested" });
+  steps.stopRequested = await capture();
+  send({ type: "runCompleted", runId, status: "cancelled", turnCount: 1 });
+  steps.stopped = await capture();
+  accept("direct-cancel");
+  beginTools("cancel-direct", 1, "检查历史读取");
+  steps.beforeCancel = await capture();
+  send({ type: "runCompleted", runId, status: "cancelled", turnCount: 1 });
+  steps.cancelled = await capture();
+  return steps;
+}
+
 async function runElasticScrollRegression() {
   const bottom = await boundarySequence(40);
   await delay(Math.max(0, 500 - (performance.now() - bottom.lastInputAt)));
@@ -157,6 +498,9 @@ async function runElasticScrollRegression() {
   await frame();
   const touchEnded = sample(touchScroll);
 
+  const activityTrace = await activityTraceRegression();
+  const pureProgress = await pureProgressRegression();
+  const activityLifecycle = await activityLifecycleRegression();
   root.unmount();
   return {
     bottom: { baseline: bottom.baseline, samples: bottom.samples, settled, settledAfter },
@@ -168,6 +512,9 @@ async function runElasticScrollRegression() {
     shortened,
     nestedSamples,
     touch: { started: touchStarted, held: touchHeld, ended: touchEnded },
+    activityTrace,
+    pureProgress,
+    activityLifecycle,
   };
 }
 

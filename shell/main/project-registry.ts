@@ -79,6 +79,8 @@ export interface ActiveProjectContext {
   projectContext: ModelMessage[];
 }
 
+type PrepareProjectActivation = (context: ActiveProjectContext) => Promise<void>;
+
 export class ProjectRegistry {
   private activeProjectId: string | null = null;
 
@@ -88,7 +90,31 @@ export class ProjectRegistry {
     return this.activeProjectId;
   }
 
-  async selectPath(path: string): Promise<ActiveProjectContext> {
+  async list(): Promise<ProjectDescriptor[]> {
+    return (await this.repository.listProjects()).map((project) => this.toDescriptor(project));
+  }
+
+  async getDescriptor(projectId: string): Promise<ProjectDescriptor> {
+    if (typeof projectId !== "string" || !projectId.trim()) throw new Error("The project identity is invalid.");
+    const project = await this.repository.getProject(projectId);
+    if (!project) throw new Error("The selected project is not registered.");
+    return this.toDescriptor(project);
+  }
+
+  async getActiveDescriptor(): Promise<ProjectDescriptor> {
+    return this.activeProjectId ? this.getDescriptor(this.activeProjectId) : this.clear().descriptor;
+  }
+
+  async update(projectId: string, patch: Partial<Pick<Project, "displayName" | "pinned">>): Promise<ProjectDescriptor> {
+    return this.toDescriptor(await this.repository.updateProject(projectId, patch));
+  }
+
+  async delete(projectId: string): Promise<void> {
+    await this.repository.deleteProject(projectId);
+    if (this.activeProjectId === projectId) this.clear();
+  }
+
+  async selectPath(path: string, prepare?: PrepareProjectActivation): Promise<ActiveProjectContext> {
     const canonicalPath = await realpath(path);
     const info = await stat(canonicalPath);
     if (!info.isDirectory()) throw new Error("The selected path is not a directory.");
@@ -97,17 +123,34 @@ export class ProjectRegistry {
     if (!project) {
       project = await this.repository.createProject({ canonicalPath, displayName: basename(canonicalPath) || canonicalPath });
     }
-    await this.repository.touchProject(project.id);
+    return this.activateRecord(project, prepare);
+  }
+
+  async activate(projectId: string, prepare?: PrepareProjectActivation): Promise<ActiveProjectContext> {
+    if (typeof projectId !== "string" || !projectId.trim()) throw new Error("The project identity is invalid.");
+    const project = await this.repository.getProject(projectId);
+    if (!project) throw new Error("The selected project is not registered.");
+    const canonicalPath = await realpath(project.canonicalPath);
+    if (canonicalPath !== project.canonicalPath || !(await stat(canonicalPath)).isDirectory()) {
+      throw new Error("The selected project directory has changed. Add the directory again.");
+    }
+    return this.activateRecord(project, prepare);
+  }
+
+  private async activateRecord(project: Project, prepare?: PrepareProjectActivation): Promise<ActiveProjectContext> {
     const context = await this.ensureContext(project);
+    const active = this.toActiveContext(project, context);
+    await prepare?.(active);
+    await this.repository.touchProject(project.id);
     this.activeProjectId = project.id;
-    return this.toActiveContext(project, context);
+    return active;
   }
 
   clear(): ActiveProjectContext {
     this.activeProjectId = null;
     const cwd = process.cwd();
     return {
-      descriptor: { projectId: null, displayName: "Choose folder", canonicalPath: null },
+      descriptor: { projectId: null, displayName: "Choose folder", canonicalPath: null, pinned: false },
       cwd,
       contextVersion: null,
       projectContext: [{ role: "user", content: formatUnprojectedContext(cwd) }],
@@ -128,11 +171,15 @@ export class ProjectRegistry {
 
   private toActiveContext(project: Project, context: ProjectContextRecord): ActiveProjectContext {
     return {
-      descriptor: { projectId: project.id, displayName: project.displayName, canonicalPath: project.canonicalPath },
+      descriptor: this.toDescriptor(project),
       cwd: project.canonicalPath,
       contextVersion: context.treeHash,
       projectContext: [{ role: "user", content: formatProjectContext(project, context) }],
     };
+  }
+
+  private toDescriptor(project: Project): ProjectDescriptor {
+    return { projectId: project.id, displayName: project.displayName, canonicalPath: project.canonicalPath, pinned: project.pinned };
   }
 
   private async ensureContext(project: Project): Promise<ProjectContextRecord> {

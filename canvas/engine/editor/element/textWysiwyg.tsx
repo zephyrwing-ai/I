@@ -73,6 +73,7 @@ export const textWysiwyg = ({
   canvasContainer,
   app,
   autoSelect = true,
+  canEdit,
 }: {
   id: CanvasEditorElement["id"];
   /**
@@ -88,6 +89,8 @@ export const textWysiwyg = ({
   canvas: HTMLCanvasElement;
   canvasContainer: HTMLDivElement | null;
   app: App;
+  /** Runtime ownership for live text and container mutations. */
+  canEdit: () => boolean;
   autoSelect?: boolean;
 }) => {
   const textPropertiesUpdated = (
@@ -111,6 +114,7 @@ export const textWysiwyg = ({
   };
 
   const updateWysiwygStyle = () => {
+    if (!canEdit()) return;
     const appState = app.state;
     const updatedTextElement =
       Scene.getScene(element)?.getElement<CanvasEditorTextElement>(id);
@@ -347,6 +351,7 @@ export const textWysiwyg = ({
     };
 
     editable.oninput = () => {
+      if (!canEdit()) return;
       const normalized = normalizeText(editable.value);
       if (editable.value !== normalized) {
         const selectionStart = editable.selectionStart;
@@ -506,6 +511,7 @@ export const textWysiwyg = ({
     // it'd get stuck in an infinite loop of blur→onSubmit after we re-focus the
     // wysiwyg on update
     cleanup();
+    if (!canEdit()) return;
     const updateElement = Scene.getScene(element)?.getElement(
       element.id,
     ) as CanvasEditorTextElement;

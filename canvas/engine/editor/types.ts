@@ -37,7 +37,7 @@ import type { ContextMenuItems } from "./components/ContextMenu";
 import type { SnapLine } from "./snapping";
 import type { Merge, MaybePromise, ValueOf, MakeBrand } from "./utility-types";
 import type { CaptureUpdateActionType } from "./store";
-import type { CanvasEditElementRecord, CanvasEditImageFile, CanvasEditOperation, CanvasEditOutcome } from "../../commands/types";
+import type { CanvasEditElementRecord, CanvasEditExecutionOptions, CanvasEditImageFile, CanvasEditOperation, CanvasEditOutcome } from "../../commands/types";
 
 export type DataURL = string & { _brand: "DataURL" };
 
@@ -530,6 +530,7 @@ export type AppClassProperties = {
   canvasContainerValue: App["canvasContainerValue"];
 
   onPointerUpEmitter: App["onPointerUpEmitter"];
+  canApplyHumanEdit(ids: Iterable<string>, operation?: string): boolean;
 };
 
 export type PointerDownState = Readonly<{
@@ -595,7 +596,7 @@ export type PointerDownState = Readonly<{
 export type UnsubscribeCallback = () => void;
 
 export interface CanvasEditorImperativeAPI {
-  applyCanvasEdit: (operations: CanvasEditOperation[], sourceElements: CanvasEditElementRecord[], imageFiles?: CanvasEditImageFile[]) => CanvasEditOutcome;
+  applyCanvasEdit: (operations: CanvasEditOperation[], sourceElements: CanvasEditElementRecord[], imageFiles?: CanvasEditImageFile[], execution?: CanvasEditExecutionOptions) => Promise<CanvasEditOutcome>;
   updateScene: InstanceType<typeof App>["updateScene"];
   replaceScene: InstanceType<typeof App>["replaceScene"];
   resetScene: InstanceType<typeof App>["resetScene"];

@@ -35,6 +35,7 @@ function ensureTurn(run: RunState, entry: HistoryPageEntry): TurnState {
     anchorInputId: run.appliedInputId,
     status: entry.status === "failed" || entry.status === "interrupted" ? "failed" : "completed",
     assistantContent: "",
+    progressContent: "",
     reasoningContent: "",
     toolOrder: [],
     tools: {},
@@ -52,6 +53,7 @@ export function mergePersistedEntries(
   const runs: Record<string, RunState> = {};
   const runOrder: string[] = [];
   const lastDurationTurnByRun: Record<string, string> = {};
+  const lastAssistantEntryByRun: Record<string, HistoryPageEntry> = {};
   const sorted = [...entries].sort((left, right) => left.entryOrder - right.entryOrder);
 
   for (const entry of sorted) {
@@ -87,7 +89,10 @@ export function mergePersistedEntries(
     if (entry.status === "failed") run.status = "failed";
     else if (entry.status === "interrupted" && run.status !== "failed") run.status = "cancelled";
     if (entry.type === "assistant_message") {
+      lastAssistantEntryByRun[run.runId] = entry;
+      turn.status = entry.status === "failed" || entry.status === "interrupted" ? "failed" : "completed";
       turn.assistantContent = entry.payload.content;
+      turn.progressContent = entry.payload.progress ?? "";
       turn.assistantAt = entry.completedAt ?? undefined;
       turn.assistantDurationMs = entry.status === "completed" ? entry.durationMs ?? undefined : undefined;
       if (entry.status === "completed" && entry.durationMs !== null) lastDurationTurnByRun[run.runId] = turn.turnId;
@@ -118,6 +123,9 @@ export function mergePersistedEntries(
   for (const runId of runOrder) {
     const run = runs[runId];
     run.finalTurnId = lastDurationTurnByRun[runId];
+    const finalEntry = lastAssistantEntryByRun[runId];
+    // A completed final-duration entry supersedes interrupted retry attempts.
+    if (finalEntry?.status === "completed" && finalEntry.durationMs !== null) run.status = "completed";
     for (const turn of Object.values(run.turns)) {
       if (turn.turnId !== run.finalTurnId) turn.assistantDurationMs = undefined;
     }

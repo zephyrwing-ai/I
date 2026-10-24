@@ -1,74 +1,101 @@
----
-title: 模型请求
-description: 模型上下文、Provider 适配、流式消息和停止原因的统一契约。
----
+模型请求。
 
-模型请求模块位于 Agent Runtime 与 Provider SDK 之间，运行循环只消费统一事件，不读取 Provider 原始响应。当前仅实现 OpenAI 兼容的 Chat Completions 流式适配器；Anthropic 和 Google 原生适配属于后续扩展设计。
+- 位置：模型请求模块连接 Agent Runtime 与 Provider SDK，Runtime 消费统一事件，Adapter 解析 Provider 原始协议。
+- 协议：OpenAI 兼容 Chat Completions 由流式适配器处理，统一消息契约支持原生 Provider 扩展。
+- 上下文协作：[上下文管理](./context-management.mdx)定义摘要复用、原文组装、双阈值与压缩快照；Adapter 接收准备好的任务或摘要消息，统一完成协议转换。
 
-## 输入与输出契约
+输入契约。
 
-当前 `response` 接收 `ModelConfig`、`ModelMessage[]`、系统提示、工具定义和可选 `AbortSignal`。`ModelConfig` 的 Provider 配置由 Host 注入；OpenAI-compatible 配置可以提供 Main 侧的 `apiKeyProvider`，Adapter 在每次外发模型请求前读取凭据并交给 SDK 传输层。API Key 不进入 `ModelMessage`、system prompt、Runtime 消息快照或 AgentEvent。`runId`、`turnId` 由 Runtime 的回合上下文维护，用于关联对外事件，不直接传入适配器。
+- `response`：接收 `ModelConfig`、`ModelMessage[]`、系统提示、工具定义和可选 `AbortSignal`，输出预算由 `ModelConfig.maxOutputTokens` 提供。
+- 请求用途：任务请求携带已组装上下文与可用工具，摘要请求携带已有摘要、待覆盖原文、专用指令与空工具集合，两者共用 Adapter 的传输与解析实现。
+- 预算配置：`ModelConfig.context` 使用 `windowTokens`、`outputReserveTokens`、`safetyTokens`、`growthTokens`、`recentTokens` 和 `summaryTokens`；任务与摘要分别传递对应输出预算。
+- 模型能力：`ModelConfig.capabilities` 携带窗口、可选独立输入上限、可选最大输出与资料来源；ProviderStore 随模型保存，Runner 随运行配置传入 Runtime。
+- 工作窗口：上下文准备根据模型能力与显式配置计算工作窗口、安全输入上限和增长阈值，具体公式见[上下文管理](./context-management.mdx)；模型能力与显式窗口均为空时使用32768 tokens回退预算。
+- 输出约束：上下文模块将已解析的任务或摘要输出预算传给 Adapter，两者均受模型最大输出能力约束；模型最大输出表示能力上限，实际请求额度由上下文策略确定。
+- `ModelConfig`：Provider 配置由 Host 注入，OpenAI-compatible 连接可提供 Main 侧的 `apiKeyProvider`。
+- 凭据读取：Adapter 在每次外发模型请求前读取 API Key，并交给 SDK 传输层；模型消息、system prompt、Runtime 快照与 AgentEvent 使用公共运行数据。
+- 运行身份：Runtime 回合上下文维护 `runId`、`turnId` 和 `attempt`，并用其关联对外事件；Adapter 的输入契约聚焦模型配置、消息、工具和取消信号。
+- 消息内容：`ModelMessage.content` 使用字符串，承载该回合面向用户的过程说明或最终正文；Assistant Message 的可选 `progress?: string` 保留历史独立公开说明，`reasoning`、`toolCalls` 与 `media` 分别承载原始思考、工具调用和可选媒体。
+- 工具消息：`toolCallId`、`toolName` 和 `isError` 关联调用身份、工具名称与错误语义。
+- 工具调用：`ToolCall.id` 保存调用身份，`name` 保存名称，`input` 保存参数，`inputComplete` 标识参数完整性。
+- 聚合输出：`LlmResponse` 包含该回合公开正文 `content`、原始思考、工具调用、归一化停止原因、原始停止原因、可选 `usage` 和诊断字段；可选 `progress?: string` 兼容既有响应与历史消息。
+- 生命周期：`runId` 关联整次运行，`turnId` 关联逻辑模型回合，`attempt` 关联具体请求，`toolCallId` 贯穿调用与结果；循环退出条件由 Runtime 的响应分类、取消与错误语义定义。
 
-`ModelMessage` 使用字符串 `content`，可附带独立的 `reasoning`、`toolCalls` 和可选 `media`；画布视觉快照以本次运行内的 user message media 传入，工具图片结果仍使用 tool message media。适配器将其映射为 OpenAI-compatible 的文本加 `image_url`，不会把运行级画布上下文写入 Recorder。工具结果消息携带 `toolCallId`、`toolName` 和 `isError`。当前不是正文与工具调用交错的块式消息。`ToolCall` 包含 `id`、`name`、`input` 和 `inputComplete`；`LlmResponse` 包含正文、思考、工具调用、归一化停止原因、原始停止原因及可选诊断字段。
+原生公开正文。
 
-`runId` 关联整次运行，`turnId` 关联一次逻辑模型回合，`attempt` 区分该回合中的具体请求，`toolCallId` 贯穿工具调用和结果。请求中不存在 `stepLimit`、`maxSteps` 或其他按次数终止循环的字段。
+- 任务范围：主模型在每批工具调用前，通过同一次响应的原生 `content` 给出一至两句简洁公开说明，描述当前目标与下一步动作；任务完成时，通过原生 `content` 返回常规 Markdown 答案。
+- 回合身份：一个模型 turn 对应一次逻辑模型请求及其返回的工具调用批次，模型重试沿用该 turn 并递增 attempt；每次请求尝试产生独立的流与记录。Runtime 依据实际工具调用和停止原因分类响应，宿主展示投影根据已确认的运行身份安排过程文字、该回合工具组与最终答案。
+- 归一化职责：Adapter 分离并聚合协议字段，Runtime 消费归一化响应完成控制流程，宿主展示投影生成文字区与工具操作行，React 承担折叠、排版、内部滚动和宽度省略；展示契约见[消息流](../desktop/design/workbench/message-stream.mdx)。
+- 通道职责：原生 `content` 映射为 `text_delta` 并聚合到 `content`，`reasoning_content` 映射为 `reasoning_delta` 并聚合到 `reasoning`，`tool_calls` 按 index 聚合。公开说明由主模型独立组织，原始思考沿 Recorder、运行状态与 Provider 续轮链路保留原值。
+- 语言来源：主模型依据最新已应用人类任务或 steering 指令的语言组织公开正文、最终答案和工具目的，明确的语言要求优先；引用文件、工具结果与注入材料作为任务数据。中英文正文使用相同的字段映射，历史文本沿用原文。
+- 请求协作：公开说明随正常任务响应生成。上下文压缩摘要请求沿用专用指令、原生正文解析、输出预算和压缩快照流程。
 
-## 用户显式引用的目标装配
+历史说明兼容。
 
-- Composer 将上传文件与 Canvas Use selection 作为同一次用户发送中的两类引用，分别以 attachmentId 和 canvasContextId 提交给 Main。
-- Main 在启动 Run 前校验文件可读性与 Canvas 项目归属：文件引用生成供文件工具按需读取的路径提示；Canvas 引用提供从当前选区冻结的 JSON 文本，沿用 Save JSON 的元素结构。
-- Runner 将 Canvas JSON 映射为 `ModelMessage(role: "user", content: ...)`，并通过 `runScopedContext` 交给 Runtime；Runtime 将运行期上下文放在历史与本次用户消息之间。
-- 原生形状与文字的元素类型、坐标和 `text` 字段直接进入 JSON；运行期 `canvasContext` 元数据提供场景坐标系与选区边界。图片元素的资源内容按照模型 media 能力作为独立输入传输。
-- `HistoryRecorder.commitUser` 记录用户提交的任务文字；同一 Run 的模型重试和工具续轮共享已经冻结的 Canvas 引用。
-- 桌面 Runner 在同一工具定义通道中提供 `canvas_edit`；它使用冻结选区定位已有元素，按用户指令新增元素，并通过当前 Canvas 编辑器完成绘制和保存。
+- 存储读取：历史消息的独立 `progress` 与 `content` 按保存字段读取，原始 payload、reasoning 和工具身份保持各自的记录语义。
+- 续轮序列化：`serializeAssistantText` 将已有 `progress` 放在 `content` 之前，以换行连接两个非空正文；单字段消息沿用该字段原文，两个字段的空白与字面标记样例作为正文保留。
+- 预算协作：Provider serializer 与上下文 Token 估算共用 `serializeAssistantText`，输入预算按实际发送的普通正文计量；原始 reasoning 与工具调用继续计入各自字段的预算。
+- 事件兼容：统一契约保留既有 `progress_delta` 与可选 `progress` 字段，历史事件和草稿沿原字段恢复；OpenAI-compatible Adapter 通过原生 `text_delta` 交付新响应的公开文字。
 
-## Provider 归一化
+工具活动元数据。
 
-当前适配器负责以下归一化：
+- 同轮说明：工具回合通过同一次主模型响应的原生 `content` 给出简洁行动说明，并提供该 turn 的 `toolCalls`；纯分析和最终回合通过原生正文交付面向用户的回答。
+- 调用元数据：模型可见工具 schema 统一在 input 对象中增加必填 `purpose: string` 与可选 `targets: string[]`；主模型为每个调用填写简洁语义目的与文件、路径、查询或实体目标，`purpose` 沿用用户语言。
+- 字段职责：`content` 承载该回合的公开说明，`purpose` 与 `targets` 作为活动元数据保存在调用记录中；工具原有结构化操作参数定义实际操作。展示投影根据实际 `command`、`path`、查询与实体生成操作行，展开详情呈现已保存的完整参数与结果。
+- 生成入口：工具目的、目标与独立过程说明由同一次常规任务响应交付，生成与交付遵循所属 turn 的正常生命周期；过程说明、目的和目标随流式事件与完成事件进入活动记录。
+- 历史兼容：旧调用沿用原参数，Renderer 依据工具 kind 与实际目标生成固定英文操作标签；等待提示与失败提示依据该回合关联的已应用用户输入选择 zh/en。
+- 执行协作：Runtime 在现有 `ToolCall.input`、事件和历史消息中保留元数据，工具实现接收经公共边界剥离活动元数据后的操作参数，具体规则见[工具执行](./tools/execution.mdx)。
 
-- OpenAI-compatible 的 `tool_calls[].function.arguments` 必须解析并保留原始调用 ID；
-- 工具调用分片按 Provider 的 index 累积，最终转换为 `ToolCall[]`；参数解析失败仍保留调用，并设置 `inputComplete: false`；
-- Provider 的原始完成原因保留在 `rawStopReason`，控制层只消费归一化的 `stopReason`；`content_filter` 和未知原因不会被伪装成 `stop`；
-- 工具调用是否合法由工具执行模块判断，Adapter 不能静默丢弃解析失败的调用并伪装成“没有工具调用”。
+用户引用装配。
 
-`tool_use` 是归一化停止原因；Runtime 以 `LlmResponse.toolCalls` 是否非空作为自动续轮依据，不从正文猜测工具调用。
+- 引用提交：Composer 将上传文件和 Canvas Use selection 作为同次发送的两类引用，分别通过 `attachmentId` 和 `canvasContextId` 交给 Main。
+- Main 校验：启动 Run 前校验文件可读性和 Canvas 项目归属；文件引用形成供工具按需读取的路径提示，Canvas 引用提供当前选区冻结的 JSON，并沿用 Save JSON 元素结构。
+- Runtime 注入：Runner 将 Canvas JSON 映射为 user `ModelMessage`，通过 `runScopedContext` 交给 Runtime；上下文模块复用历史摘要并读取后续原文，将运行期材料放在对应历史与本 run 用户消息之间。
+- 元素内容：原生形状与文字的类型、坐标和 `text` 字段进入 JSON，`canvasContext` 元数据提供场景坐标系与选区边界。
+- 媒体内容：Canvas 视觉快照使用本 run 的 user message media，工具图片结果使用 tool message media；Adapter 将两者转换为文本加 `image_url`。
+- 生命周期：Recorder 保存用户任务文字，Canvas 引用由本 run 持有，同 run 的模型重试与工具续轮共享冻结内容。
+- 绘制工具：桌面 Runner 通过同一工具定义通道提供 `canvas_edit`，依据冻结选区定位已有元素，按用户要求新增元素，并由当前 Canvas 编辑器完成绘制和保存。
 
-Provider 返回的 `reasoning_content` 以及正文中识别出的 thinking 标记内容统一进入 reasoning 通道。每个连接通过 `reasoningField` 配置对应的 Provider 字段，Adapter 按连接能力回传已完成 Assistant Message 的 reasoning。Adapter 将 reasoning 与 content 保持独立，并依据结构化 `tool_calls` 生成工具调用。
+Provider 归一化。
 
-后续扩展覆盖 Anthropic 的 `tool_use` 和 Google 的 `functionCall`，统一映射到当前工具调用契约。文本与工具块的交错顺序由扩展后的消息类型承载，先补充块式 `ToolCallBlock`，再接入对应的 Provider 适配器。
+- 参数解析：Adapter 解析 OpenAI-compatible 的 `tool_calls[].function.arguments` 并保留原始调用 ID。
+- 分片聚合：工具调用按 Provider index 累积，流结束时转换为 `ToolCall[]`；参数解析失败的调用继续保留，并设置 `inputComplete: false`。
+- 停止原因：原始原因保存在 `rawStopReason`，控制层消费归一化 `stopReason`；`content_filter`、未知原因和正常 `stop` 各自保持独立语义。
+- 调用校验：Adapter 交付包含失败解析标记的完整调用集合，工具执行模块负责合法性判定。
+- 续轮依据：`tool_use` 表达归一化停止原因，Runtime 依据 `LlmResponse.toolCalls` 的实际内容决定工具续轮。
+- 思考分离：Provider `reasoning_content` 和正文中识别出的 thinking 标记内容进入原始 reasoning 通道；其余原生正文形成 `content`，结构化 `tool_calls` 形成工具调用。
+- 思考回传：每个连接通过 `reasoningField` 声明对应 Provider 字段，Adapter 按该配置回传已完成 Assistant Message 的 reasoning；DeepSeek 工具续轮同时携带原始 reasoning、公开正文、工具调用与结果。
+- 后续协议：Anthropic `tool_use` 和 Google `functionCall` 将映射到统一工具契约；文本与工具块交错顺序通过扩展的消息类型承载，先补充 `ToolCallBlock`，再接入原生 Adapter。
 
-## 流式请求
+流式请求。
 
-`ModelStreamEvent` 包含 `reasoning_delta`、`text_delta` 和 `completed`。适配器持续发送思考与正文增量，工具调用在流结束时随 `completed` 一次性提交。`completed` 只表示 Adapter 已完成 Provider 流的解析，不表示 Runtime 已确认 Agent 回合成功。纯工具调用响应可以发送 `completed`，其中正文和思考为空，`toolCalls` 携带完整调用。
+- 流事件：OpenAI-compatible Adapter 产出 `reasoning_delta`、`text_delta` 和 `completed`，统一 `ModelStreamEvent` 保留 `progress_delta` 兼容契约。
+- 增量交付：Adapter 持续发送原始思考和公开正文增量，工具调用随最终 `completed` 一次性交付；完成响应与对应增量累积结果一致。
+- 完成语义：Adapter `completed` 表达 Provider 流解析完成，Runtime 继续判定回合有效性和持久化结果。
+- 工具响应：原生 `content` 与 `completed.toolCalls` 构成公开说明和完整工具批次；纯工具响应允许空正文，Runtime 按实际调用与停止原因分类。
+- 终止原因：成功模型流以明确 `finish_reason` 结束；终态原因缺失时，Adapter 抛出可重试的 `model_protocol` 错误。
+- 用量：流式请求启用 `stream_options.include_usage`，连接可通过 `streamUsage: false` 适配网关；Adapter 先读取 usage 再处理 choice，空 choices 的尾块提供计量信息。
+- 用量契约：`ModelUsage` 的 `inputTokens`、`outputTokens`、`cachedInputTokens` 与 `totalTokens` 分别保存 Provider 提供的可用计数，缺失项保持未知；缓存命中属于输入子集。
+- 输出参数：原生 OpenAI 端点使用 `max_completion_tokens`，其他兼容端点默认使用 `max_tokens`；`maxOutputParameter` 显式指定对应参数。
+- 历史与事件：Runtime 负责增量持久化和宿主事件分发，Adapter 负责一次请求的协议转换、流解析与错误归一化。
+- 错误类型：配置、网络、Provider、模型协议与上下文超限错误归一化为 `ModelAdapterError`，附带 `retryable`；Runtime 映射为 `TurnOutcome` 并决定恢复，取消信号收敛为 `cancelled`。
+- 状态归属：Runtime 持有 Recorder 与调度控制，上下文模块准备摘要和原文，Adapter 返回一次性流或归一化错误，任务运行收敛为唯一终止事件；摘要正文保存到压缩快照。
+- 宿主边界：Provider chunk 由 Adapter 解析，Runtime 将归一化消息转为 AgentEvent；宿主设计定义跨进程传输和高频增量批处理。
 
-每个成功模型流必须以明确的 `finish_reason` 结束。Adapter 对流结束时缺少终止原因的情况抛出可重试的 `model_protocol` 错误，而不会合成 `stop`。模型增量的项目历史持久化与宿主事件分发由 Runtime 契约定义，Adapter 保持 Provider 协议归一化职责。
+长度截断。
 
-适配器将配置、网络、Provider 和模型协议错误归一化为 `ModelAdapterError`，并附带 `retryable`。Runtime 捕获后把它们映射为 `TurnOutcome`，由回合重试逻辑决定是否恢复；取消信号仍由 Runtime 结束为 `cancelled`。
+- 诊断字段：`stopReason: "length"` 表达模型输出长度截断，运行续轮继续遵循 Runtime 控制语义。
+- 调用完整性：发生长度截断时，Adapter 将工具调用的 `inputComplete` 设为 `false`，即使 JSON 可以解析也保留这一标记。
+- 截断处理：`length` 响应统一进入 `incomplete/length`，Assistant attempt 保存为 `interrupted`，原稳定上下文继续用于有限重试或失败收尾；完整有效的调用进入工具执行路径并形成 Tool Message。
+- 执行层防线：工具执行入口遇到 `inputComplete: false` 时返回 `ok: false` 的错误结果，并通过 `isError: true` 的工具消息提示模型重新生成完整调用；当前 `length` 路径先由 Runtime 的响应分类接管。
 
-任何方案都必须保证运行收敛为唯一终止事件。Adapter 不持有项目历史上下文，不直接写 Recorder，也不直接调用重试；它只返回一次性流或抛出归一化错误。
+错误与重试。
 
-Provider chunk 只由 Adapter 解析；Runtime 只接收归一化消息并发出 AgentEvent，不把 Provider SDK 的原始流对象泄漏给宿主。宿主如何跨进程传输和批处理高频增量，由对应宿主设计定义。
-
-## 长度截断
-
-`stopReason: "length"` 是诊断信息，不是 Step 上限：
-
-- 如果消息包含工具调用，适配器将 `inputComplete` 设为 false，即使 JSON 仍能解析也禁止执行；Runtime 生成 `ok: false` 的结果，并以 `isError: true` 的工具消息回填模型，让模型在下一轮重新发出完整调用。
-- Runtime 将 `length` 响应统一分类为 `incomplete/length`，不把半截 Assistant Message 或其中的工具调用加入上下文，并交给回合重试逻辑判断恢复或失败；因此截断的工具调用不会被执行，也不会先生成 Tool Message。
-
-## 错误与重试
-
-错误类型使用稳定的 `kind`、用户可读的 `message` 和可选的 `retryable`。Adapter 将配置、网络、Provider 和模型协议错误归一化后交给 Runtime；API Key、完整请求头和 Provider 原始敏感负载不得进入事件或日志是设计约束，统一脱敏尚待实现。
-
-当前模型回合重试由 `agent/loop.ts` 的 `retryModelTurn()` 负责。只有 Runtime 将响应分类为 reasoning-only、empty、length、缺少终止原因、无效工具调用或明确可重试的网络/Provider 错误时才调用它。它检查总 attempt 次数、发送 `turnRetrying`、等待退避时间，然后让主循环重新进入同一个 `response()` 入口；它不序列化 Provider 消息、不写 Recorder，也不修改 `Runtime.messages`。重试使用最后一个稳定上下文，失败 attempt 不会作为 Assistant Message 回填模型。
-
-## 当前边界与验证
-
-- 当前 OpenAI 兼容流正确聚合正文、独立 reasoning 和工具调用，保留调用 ID；后续新增 Provider 须验证相同调用归一化一致。
-- 成功模型流以一个带明确 `finish_reason` 的 `completed` 事件结束，纯工具调用响应直接提供完整 `toolCalls`。
-- 模型流终态缺失进入可重试的 `model_protocol` 错误。
-- 当前工具调用分片按 index 聚合；后续块式协议须额外验证交错顺序。
-- 无效工具参数不会被静默丢弃。
-- `content_filter`、未知原因、`length`、缺少终止原因和正常 `stop` 分别进入正确分支。
-- reasoning-only 响应不进入下一次模型上下文，有限重试后显示失败。
-- 任何模型请求日志、错误和 AgentEvent 均不包含 API Key。
+- 公共错误：稳定 `kind`、用户可读 `message` 与可选 `retryable` 表达错误语义，Adapter 完成归一化后交给 Runtime。
+- 敏感边界：API Key、完整请求头和原始敏感负载归属凭据与传输层；统一日志脱敏属于后续实现目标，事件与日志的设计载荷采用公共诊断数据。
+- 模型重试：`agent/loop.ts` 的 `retryModelTurn()` 处理 reasoning-only、empty、length、缺少终止原因、无效工具调用，以及明确可重试的网络或 Provider 错误。
+- 重试顺序：Runtime 先保存当前 attempt，再检查总次数、发出 `turnRetrying`、等待退避，主循环随后使用同一个 `response()` 入口。
+- 模块分工：Provider 消息序列化由 Adapter 完成，历史写入由 Recorder 完成，上下文模块返回稳定准备结果，Runtime 在同一逻辑回合的普通重试中复用该结果；失败 attempt 的 `progress`、正文与原始 reasoning 留在历史诊断记录中。
+- 超限恢复：`context_overflow` 进入一次有界强制压缩；Runtime 先提交原 attempt 的 failed 终态，再使用新的 attempt 身份准备上下文并重试，恢复期间的取消沿新 attempt 收尾。
+- 流聚合：OpenAI 兼容流分别聚合原生公开正文、原始 reasoning 与工具调用并保留 ID；失败参数继续携带 `inputComplete`，各种停止原因分别进入其对应分支，reasoning-only 经有限重试后可进入失败终态。
+- 扩展要求：后续 Provider 沿用相同调用身份与停止原因归一化，块式协议同时承载文本与调用的交错顺序。

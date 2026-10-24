@@ -42,7 +42,7 @@
       font-family: "Assistant";
       font-style: normal;
       font-weight: 600;
-      font-size: 0.75rem;
+      font-size: calc(0.75rem + var(--ui-font-offset, 0px));
       line-height: 100%;
       user-select: none;
       letter-spacing: 0.4px;

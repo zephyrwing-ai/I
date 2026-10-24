@@ -16,7 +16,8 @@
  */
 
 import OpenAI from "openai";
-import { ModelAdapterError, type ModelMessage, type ModelStopReason, type ModelStreamEvent, type ToolCall, type ToolDef } from "./types.js";
+import { serializeAssistantText } from "./assistant-text.js";
+import { ModelAdapterError, type ModelMessage, type ModelStopReason, type ModelStreamEvent, type ModelUsage, type ToolCall, type ToolDef } from "./types.js";
 
 function toOpenAITool(t: ToolDef): OpenAI.Chat.Completions.ChatCompletionTool {
   return {
@@ -36,6 +37,9 @@ export interface OpenAIConfig {
   model?: string;     // 默认 "deepseek-chat"
   /** DeepSeek 等 Provider 使用的 assistant 思考字段；未声明时不添加非标准字段。 */
   reasoningField?: "reasoning_content";
+  maxOutputTokens?: number;
+  maxOutputParameter?: "max_tokens" | "max_completion_tokens";
+  streamUsage?: boolean;
 }
 
 export function toOpenAIMessages(
@@ -60,7 +64,7 @@ export function toOpenAIMessages(
       if (message.role === "assistant") {
         const assistant: Record<string, unknown> = {
           role: "assistant",
-          content: message.content || null,
+          content: serializeAssistantText(message) || null,
         };
         if (reasoningField && message.reasoning) assistant[reasoningField] = message.reasoning;
         if (message.toolCalls?.length) {
@@ -154,7 +158,8 @@ export function stripStreamThinking(
 
 /**
  * 流式解析 DeepSeek/OpenAI 兼容响应：reasoning_content → reasoning_delta，
- * content → text_delta，工具调用分片在流结束后聚合为 completed。
+ * content 经夹带思考剥离 → text_delta，
+ * 工具调用分片在流结束后聚合为 completed。
  */
 export async function* streamOpenAI(
   messages: ModelMessage[],
@@ -163,6 +168,9 @@ export async function* streamOpenAI(
   system = "",
   signal?: AbortSignal,
 ): AsyncGenerator<ModelStreamEvent> {
+  if (config.maxOutputTokens !== undefined && (!Number.isSafeInteger(config.maxOutputTokens) || config.maxOutputTokens <= 0)) {
+    throw new ModelAdapterError("config", "The model output token limit must be a positive integer.");
+  }
   const apiKey = config.apiKeyProvider
     ? await config.apiKeyProvider()
     : config.apiKey ?? process.env.DEEPSEEK_API_KEY ?? process.env.OPENAI_API_KEY;
@@ -176,6 +184,8 @@ export async function* streamOpenAI(
     baseURL: config.baseURL ?? process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
     apiKey,
   });
+  const outputParameter = config.maxOutputParameter
+    ?? (new URL(client.baseURL).hostname === "api.openai.com" ? "max_completion_tokens" : "max_tokens");
 
   let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
   try {
@@ -184,6 +194,8 @@ export async function* streamOpenAI(
       messages: toOpenAIMessages(messages, system, config.reasoningField),
       tools: tools.map(toOpenAITool),
       stream: true,
+      ...(config.streamUsage === false ? {} : { stream_options: { include_usage: true } }),
+      ...(config.maxOutputTokens === undefined ? {} : { [outputParameter]: config.maxOutputTokens }),
     }, { signal });
   } catch (error) {
     throw normalizeOpenAIError(error, signal);
@@ -194,9 +206,13 @@ export async function* streamOpenAI(
   let held = "";
   const toolAcc = new Map<number, { id: string; name: string; arguments: string }>();
   let finishReason: string | null = null;
+  let usage: ModelUsage | undefined;
+  let streamError: ModelAdapterError | undefined;
 
   try {
     for await (const chunk of stream) {
+      const reportedUsage = normalizeOpenAIUsage(chunk.usage);
+      if (reportedUsage) usage = { ...usage, ...reportedUsage };
       const choice = chunk.choices[0];
       if (!choice) continue;
       if (choice.finish_reason !== null && choice.finish_reason !== undefined) finishReason = choice.finish_reason;
@@ -228,8 +244,21 @@ export async function* streamOpenAI(
       }
     }
   } catch (error) {
-    throw normalizeOpenAIError(error, signal);
+    streamError = normalizeOpenAIError(error, signal);
   }
+
+  // Flush withheld thinking/text before completion or a stream error so
+  // interrupted attempts persist the same body delivered by the Provider.
+  const tail = stripStreamThinking("", held, true);
+  if (tail.thinking) {
+    reasoning += tail.thinking;
+    yield { type: "reasoning_delta", delta: tail.thinking };
+  }
+  if (tail.text) {
+    content += tail.text;
+    yield { type: "text_delta", delta: tail.text };
+  }
+  if (streamError) throw streamError;
 
   if (finishReason === null) {
     throw new ModelAdapterError("model_protocol", "The model stream ended without a finish_reason.", true);
@@ -249,13 +278,25 @@ export async function* streamOpenAI(
       return { id: acc.id, name: acc.name, input: {}, inputComplete: false };
     });
 
-  // 流结束收尾：暂扣的思考块与标记碎片此后不再等待补齐
-  const tail = stripStreamThinking("", held, true);
-  if (tail.thinking) reasoning += tail.thinking;
-  if (tail.text) content += tail.text;
-
   const stopReason = normalizeStopReason(finishReason);
-  yield { type: "completed", content, reasoning: reasoning || undefined, toolCalls, stopReason, rawStopReason: finishReason ?? undefined };
+  yield { type: "completed", content, reasoning: reasoning || undefined, toolCalls, stopReason, rawStopReason: finishReason ?? undefined, ...(usage ? { usage } : {}) };
+}
+
+export function normalizeOpenAIUsage(value: unknown): ModelUsage | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const reported = value as Record<string, unknown>;
+  const usage: ModelUsage = {};
+  const count = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+  if (count(reported.prompt_tokens)) usage.inputTokens = reported.prompt_tokens;
+  if (count(reported.completion_tokens)) usage.outputTokens = reported.completion_tokens;
+  if (count(reported.total_tokens)) usage.totalTokens = reported.total_tokens;
+  const details = reported.prompt_tokens_details;
+  const cached = details && typeof details === "object" && !Array.isArray(details)
+    ? (details as Record<string, unknown>).cached_tokens
+    : undefined;
+  const cachedInput = cached ?? reported.prompt_cache_hit_tokens;
+  if (count(cachedInput) && (usage.inputTokens === undefined || cachedInput <= usage.inputTokens)) usage.cachedInputTokens = cachedInput;
+  return Object.keys(usage).length > 0 ? usage : undefined;
 }
 
 function normalizeStopReason(value: string): ModelStopReason {
@@ -269,11 +310,16 @@ function normalizeStopReason(value: string): ModelStopReason {
 function normalizeOpenAIError(error: unknown, signal?: AbortSignal): ModelAdapterError {
   if (signal?.aborted) return new ModelAdapterError("network", "The model request was cancelled.", false);
   if (error instanceof ModelAdapterError) return error;
-  const value = error as { status?: unknown; code?: unknown; message?: unknown } | null;
+  const value = error as { status?: unknown; code?: unknown; message?: unknown; error?: { code?: unknown } } | null;
   const status = typeof value?.status === "number" ? value.status : undefined;
-  const code = typeof value?.code === "string" ? value.code : "";
+  const code = typeof value?.code === "string" ? value.code : typeof value?.error?.code === "string" ? value.error.code : "";
+  const message = typeof value?.message === "string" ? value.message : String(error);
+  if (["context_length_exceeded", "context_window_exceeded", "maximum_context_length_exceeded"].includes(code)
+    || (status === 400 && /maximum context length|context (?:length|window).{0,60}(?:exceed|too (?:long|large))|(?:exceed|too (?:long|large)).{0,60}context (?:length|window)/i.test(message))) {
+    return new ModelAdapterError("context_overflow", message);
+  }
   const retryable = status === 408 || status === 409 || status === 429 || (status !== undefined && status >= 500)
     || ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"].includes(code);
   const kind = status === undefined && code ? "network" : "provider";
-  return new ModelAdapterError(kind, typeof value?.message === "string" ? value.message : String(error), retryable);
+  return new ModelAdapterError(kind, message, retryable);
 }

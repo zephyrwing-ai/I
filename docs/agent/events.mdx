@@ -1,88 +1,78 @@
----
-title: 运行事件
-description: Agent 向宿主报告运行、回合、模型消息和工具调用的结构化事件契约。
----
+运行事件。
 
-运行事件是 Agent Runtime 对宿主的唯一过程输出。Agent 不直接修改宿主状态，也不假设宿主使用 Electron、React、终端或其他界面技术。
+- 职责：Agent Runtime 通过结构化运行事件向宿主报告过程；宿主维护自身状态，并选择 Electron、React、终端或其他界面技术。
+- 输出边界：运行事件构成 Runtime 对宿主的过程输出契约。
 
-## 身份层级
+身份层级。
 
-事件使用 `runId → turnId → attempt → toolCallId` 四层稳定身份：
+- 层级：事件使用 `runId → turnId → attempt → toolCallId` 四层稳定身份。
+- `runId`：标识一次完整任务运行，隔离重试、取消和并发运行。
+- `turnId`：标识一次逻辑模型回合及其工具批次，关联多次 attempt 的公开过程说明、流式正文、完整消息和本回合调用。
+- `attempt`：标识同一逻辑 turn 内的一次模型尝试，关联增量草稿、重试状态和终态。
+- `toolCallId`：标识模型产生的一次工具调用，关联工具开始、增量结果、完成结果和回填消息。
+- `inputId`：标识一次运行中补充文本提交，横向关联 Main 持久化 ACK、Runtime 应用事件与最终用户 entry。
+- 归组：同一个 `runId` 可以包含多个 `inputId` 和多个 `turnId`。
+- 关联规则：宿主使用显式身份关联原始运行对象，数组位置、最后一条消息和显示顺序承担界面排列职责；异步到达的事件继续归入原身份。
 
-| 身份 | 生命周期 | 作用 |
-| --- | --- | --- |
-| `runId` | 一次完整任务运行 | 隔离重试、取消和并发运行 |
-| `turnId` | 一次逻辑模型回合及其工具批次 | 关联多次 attempt 的流式正文、完整消息和本回合工具调用 |
-| `attempt` | 同一逻辑 turn 内的一次模型尝试 | 关联增量草稿、重试状态和终态 |
-| `toolCallId` | 模型产生的一次工具调用 | 关联工具开始、增量结果、完成结果和回填消息 |
+事件协议。
 
-身份不能由数组位置、“最后一条消息”或显示顺序推导。事件允许异步到达，宿主仍应能够把结果归入原始运行对象。
+- 事件类型：Agent 提供运行开始、回合开始、Assistant 原生正文增量、原始思考增量、回合重试、Assistant 完成、工具开始、工具完成、回合完成和运行完成事件；旧公开过程说明增量保留兼容接收。
+- 公共字段：每类事件携带 `runId`；回合事件携带 `turnId`；重试事件携带当前与下一次 attempt；工具事件携带 `toolCallId`。
+- `runStarted`：报告运行开始，携带 `startedAt`。
+- `assistantDelta`：宿主交付 Adapter 原生 `content` 对应的正文增量，沿用当前 `runId`、`turnId` 与 attempt 关联；同一正文字段承载工具回合说明、中间回合文字与最终回答。
+- `assistantCompleted`：报告归一化 Assistant Message、停止原因和固定的 `completedAt`，时间单位为 Unix 毫秒；`content` 保存本 turn 的完整原生正文，原始 reasoning 与 toolCalls 保持独立字段，可选旧 `progress` 沿用兼容读取。
+- `toolCompleted`：报告结构化工具结果。
+- `runCompleted`：报告 `completed`、`cancelled` 或 `failed`，可附带结构化 `RunError` 与诊断信息；成功事件的 `finalTurnId` 确认最终回答身份，`finalDurationMs` 提供完整运行时长。
+- 回合计数：可选 `turnOrdinal` 与 `turnCount` 用于排序和诊断；退出判定由响应分类、取消与错误语义承担，事件字段围绕这些事实组织。
 
-运行中输入使用独立 `inputId`：它标识一次补充文本提交，横向关联 Main 的持久化 ACK、Runtime 的应用事件与最终用户 entry。同一个 `runId` 可以包含多个 `inputId` 和多个 `turnId`。
+事件与历史记录。
 
-## 事件协议
+- 分工：AgentEvent 报告过程，HistoryRecorder 保存项目与 General 历史；Host 分别注入事件接收器和绑定 `projectId: string | null` 的 Recorder，Runtime 在同一语义节点调用两者。
+- 增量身份：`assistantDelta` 与 `reasoningDelta` 沿用 `runId`、`turnId`、attempt 与冻结的 delta 字符串，分别表达原生正文和原始思考；旧 `progressDelta` 保留兼容字段映射。
+- 增量分发：Adapter 分离原生 content、reasoning 与 toolCalls，Runtime 按既有正文和思考 kind 调用 `recordAssistantDelta(kind, delta, context)` 并交付对应回调；Recorder 与宿主收到同一通道的冻结文本，新正文直接沿 `assistantDelta` 进入 `assistantContent`。
+- 完成对齐：`assistantCompleted.content` 与已提交消息的 `content` 保持一致，纯分析、比较、工具回合与最终回合共用同一正文链路；旧 `progress` 在事件、存储与历史读取中保留兼容语义。
+- 宿主消费：Runtime 交付模型与执行事实，宿主展示投影根据输入锚点、turn 与工具关联生成公开文字和工具组；实时事件与历史记录进入同一 AgentState，正文位置与任务边界见[历史投影](../desktop/design/workbench/history-projection.mdx)。
+- 状态职责：正文增量更新文本，`assistantCompleted` 确认完整模型消息的提交，工具事件确认本批调用与结果，`turnCompleted` 确认回合完成，`runCompleted` 交付运行终态及成功回答身份。Renderer 从这些事实派生默认展开值，并保存本地手动选择，交互契约见[消息流](../desktop/design/workbench/message-stream.mdx)。
+- 推理职责：原始 reasoning 按原文保存并按 Provider 契约参与 DeepSeek 工具续轮，公开说明使用原生 content，用户语言由任务提示约定。
+- 重试屏障：Runtime 将当前 attempt 保存为 `interrupted` / `failed` 后发出 `turnRetrying`，报告 `reason`、`attempt`、`nextAttempt`、`delayMs` 和 `maxAttempts`。
+- 助手屏障：完整 Assistant Message 成功提交并加入 `Runtime.messages` 后发出 `assistantCompleted`，事件与记录共享同一 `completedAt`。
+- 工具屏障：完整 Tool Message 与对应 invocation 的 `completed` 事务成功后发出 `toolCompleted`。
+- 终态屏障：`finishRun` 完成终态提交后发出 `runCompleted`。
+- 队列：Recorder 与事件接收器分别维护队列和状态，通过稳定 ID 与冻结事件值关联。
+- 提交接口：`commitUser`、`finishAssistantAttempt` 和 `commitToolResult` 分别提供用户、助手与工具结果提交屏障。
+- 契约参考：[项目历史存储](./memory.mdx)定义 Recorder 接口和写入规则，[历史存储装配](../desktop/design/workbench/session-storage.mdx)定义 Runner 注入与 IPC 转发。
+- 消息日期：用户消息采用 `createdAt`，完整助手消息采用 `completedAt`；Runtime 在输出有效性确定时固定完成时间，本地提交成功后宿主接收相同时间并展示日期。
+- 运行耗时：`runStarted.startedAt` 与 `runCompleted.finalDurationMs` 表达全 run 时长。
 
-Agent 发出以下事件：运行开始、回合开始、Assistant 正文增量、思考增量、回合重试、Assistant 完成、工具开始、工具完成、回合完成和运行完成。每类事件都携带 `runId`；回合事件还携带 `turnId`；重试事件携带当前与下一次 attempt；工具事件还携带 `toolCallId`。
+运行中输入事件。
 
-`assistantCompleted` 报告归一化 Assistant Message、停止原因和固定的 `completedAt`（Unix 毫秒）；`toolCompleted` 报告结构化工具结果；`runCompleted` 携带 `completed`、`cancelled` 或 `failed`，并可附带结构化 `RunError` 和诊断信息。`runStarted` 携带 `startedAt`，其他过程事件保持各自字段。
+- 接收 ACK：Main 向 `steer` 发送方返回 `runId`、`projectId`、`inputId`、`acceptOrder` 和 `acceptedAt`，表示输入已经持久化并绑定当前 run。
+- 协议分工：ACK 表达持久化接收，AgentEvent `inputsApplied` 表达输入进入实际模型上下文。
+- 应用屏障：Runtime 在安全边界完成同批输入的事务提交和内存上下文更新后发出 `inputsApplied`。
+- 应用字段：`inputsApplied` 携带 `runId`、按接收顺序排列的 `inputIds` 和 `startedAt`；该时间记录这一批用户消息注入下一次模型请求的时刻，后续 `turnStarted` 使用新的 `turnId`。
+- 因果顺序：当前回合 Assistant 与全部工具结果先完成提交并发出对应事件，随后发出 `inputsApplied`，再发出下一次 `turnStarted`。
+- 批次关联：每条 steer 保留独立 `inputId`，同一安全边界应用的多条输入按 FIFO 记录于 `inputsApplied.inputIds`；接收方用 `inputId` 归并 ACK、应用结果和历史 entry，用原始 `turnId` 关联助手与工具活动。
+- 终态归档：停止、失败和启动恢复通过 Recorder 为剩余已接收输入写入同 `inputId` 的 `interrupted` 用户 entries，并将队列状态更新为 `unapplied`，运行终态在归档完成后发出唯一 `runCompleted`。
+- 结束字段：`runCompleted.unappliedInputIds` 对应已归档用户 entries；成功事件同时携带 `finalTurnId` 与全 run 的 `finalDurationMs`。
+- 历史恢复：历史保留 `completed` 与 `interrupted` entries，启动恢复使用相同的 interrupted 归档和 `inputId` 关联。
+- 接收门控：Main 的串行门控决定临近完成时的入队归属；入口封闭后的 `steer` 请求收到明确拒绝。
+- 时长关联：`runCompleted.finalDurationMs` 从 `runStarted.startedAt` 计至运行终态，与最终 Assistant Message 的 `durationMs` 一致；`runCompleted.finalTurnId` 标识保存这份时长的回合。
 
-协议中不存在 `stepLimit`、`maxSteps` 或其他按次数终止字段。可选的 `turnOrdinal` 和 `turnCount` 只用于排序与诊断，Runtime 不能读取它们作为退出条件。
+顺序与终止。
 
-## 事件与项目历史记录
+- 回合开始：同一回合先发出 `turnStarted`，随后发出 Assistant 增量。
+- 完整输出：完整回答与完整工具调用发出 `assistantCompleted`；待恢复 attempt 在保存后进入 `turnRetrying`，沿用 `turnId` 并递增 attempt。
+- 工具批次：每个调用分别发出开始与完成事件，全部调用处理完成后发出 `turnCompleted`。
+- 运行终态：自然完成、模型失败、取消和运行异常均收敛到唯一的 `runCompleted`。
+- 当前调度：Runtime 按模型顺序串行执行工具。
+- 并发扩展：协议通过稳定 ID 支持未来乱序完成；两个工具即使按不同顺序完成，仍各自归入原 `toolCallId`，到达顺序用于过程展示。
+- 工具错误：普通工具错误通过 `toolCompleted` 报告并回填模型，Runtime 可继续下一回合；破坏 Runtime 自身的错误进入运行失败路径。
+- 取消行为：中止模型请求或工具执行后，Runtime 进入 `cancelled` 并完成终态提交。
 
-AgentEvent 负责报告运行过程，HistoryRecorder 负责保存项目或无项目历史。Host 分别向 Runtime 注入事件接收器和绑定 `projectId: string | null` 的 Recorder，Runtime 在同一个语义节点分别调用两者。
+错误与敏感信息。
 
-- `reasoningDelta` 和 `assistantDelta` 携带 `runId`、`turnId` 与冻结的 delta 字符串。
-- Runtime 把 delta 同步交给 Recorder 更新内存草稿，并把同一 delta 发为 AgentEvent。
-- `turnRetrying` 只在 Runtime 已经将当前 attempt 保存为 interrupted/failed 后发出；它报告 reason、attempt、nextAttempt、delayMs 和 maxAttempts。
-- `assistantCompleted` 在完整 Assistant Message 成功提交并加入 Runtime.messages 后发出，其 `completedAt` 与该条已提交记录的完成时间相同。
-- `toolCompleted` 在完整 Tool Message 与对应 invocation 的 completed 事务成功后发出。
-- `runCompleted` 在 `finishRun` 完成终态提交后发出。
-- Recorder 和事件接收器分别维护自己的队列与状态，二者通过稳定 ID 和冻结事件值关联。
-- HistoryRecorder 通过 `commitUser`、`finishAssistantAttempt` 和 `commitToolResult` 分别提供用户、助手与工具结果的提交屏障。
-
-HistoryRecorder 的接口与写入规则由[项目历史存储](./memory.mdx)定义。Runner 的注入和 IPC 转发由[历史存储装配](../desktop/design/workbench/session-storage.mdx)定义。
-
-消息日期使用各自的生命周期事实：用户消息采用 `createdAt`，完整助手消息采用 `completedAt`。Runtime 在输出有效性确定时生成完成时间，并将同一个值交给 Recorder 与事件接收器；本地提交成功后，宿主接收事件并展示日期。运行耗时采用 `runStarted.startedAt` 和 `runCompleted.finalDurationMs`。
-
-## 运行中输入事件契约
-
-`steer` IPC 的 ACK 由 Main 返回给发送方，携带 `runId`、`projectId`、`inputId`、`acceptOrder` 和 `acceptedAt`；它表示待处理输入已经持久化并绑定当前 run。ACK 是接收协议，AgentEvent `inputsApplied` 是实际模型上下文协议。
-
-Runtime 在安全边界完成同批输入的事务提交、内存上下文更新后发出 `inputsApplied`。事件携带 `runId`、按接收顺序排列的 `inputIds` 和 `startedAt`。`startedAt` 对应这一批用户消息实际注入下一次模型请求的时刻；后续 `turnStarted` 使用新的 `turnId`。同一模型回合的助手消息和工具结果先完成提交并发出对应事件，随后才出现 `inputsApplied`。
-
-每条 steer 提交拥有独立 `inputId`；同一安全边界应用的多条输入按 FIFO 顺序记录于 `inputsApplied.inputIds`。事件接收方依据 `inputId` 归并 ACK、应用结果与历史 entry，并依据原始 `turnId` 关联助手增量、完整消息和工具批次。
-
-Runner 在完成路径先通过 Recorder 为剩余已接收输入提交同 `inputId` 的 interrupted 用户 entries，并把队列状态更新为 `unapplied`，随后发出唯一 `runCompleted`。事件携带 `unappliedInputIds`；成功完成的事件携带 `finalTurnId` 和整个 run 的 `finalDurationMs`。历史记录保留 completed 与 interrupted entries；启动恢复执行相同的 interrupted entry 归档。完成边界和入队由 Main 的串行门控决定，封闭后收到的 `steer` 请求获得明确拒绝。
-
-Run 级时长以 `runStarted.startedAt` 为起点，以运行终态为终点。`runCompleted.finalDurationMs` 对应整个 `runId` 的工作时长，并与最终 Assistant Message 的持久化 `durationMs` 保持一致。`runCompleted.finalTurnId` 标识保存这份时长的最终 Assistant Message。
-
-## 顺序与终止
-
-同一回合中，Agent 先发出 `turnStarted`，再发出 Assistant 增量。只有完整回答或完整工具调用才发出 `assistantCompleted`；不完整 attempt 发出 `turnRetrying`，下一次 attempt 仍使用同一个 `turnId` 并递增 attempt。存在工具调用时，每个调用分别发出开始与完成事件，所有调用处理完后发出 `turnCompleted`。运行结束时只发出一次 `runCompleted`。
-
-当前 Runtime 串行执行工具。协议以稳定 ID 关联，为未来并发完成保留空间；引入并发后，完成顺序可以不同于模型中的排列顺序。稳定 ID 是关联事实，事件到达顺序只用于过程展示，不能替代关联关系。
-
-模型请求失败、取消信号、运行时异常和自然完成最终都必须收敛到唯一的 `runCompleted`。普通工具错误仍通过 `toolCompleted` 返回，并由 Runtime 回填模型；除非错误破坏 Runtime 本身，否则它不直接终止 run。
-
-## 错误与敏感信息
-
-`RunError` 当前包含稳定的错误类型、用户可读消息，以及可选的 `retryable`；`diagnosticId` 关联属于后续目标，当前类型未定义。错误类型区分配置、网络、Provider、模型协议、工具和 Runtime。
-
-事件不得包含 API Key、Authorization header 或 Provider 的完整敏感请求负载。后续诊断日志可以通过 `diagnosticId` 关联，但不能把敏感值复制回事件。
-
-## 验证
-
-- 任意结束路径只产生一个 `runCompleted`。
-- 同一个模型 delta 分别进入 Recorder 和 AgentEvent 接收器，并保持相同 `runId` 与 `turnId`。
-- `assistantCompleted` 在 Assistant Message 本地提交完成后产生。
-- `turnRetrying` 在 interrupted/failed attempt 本地提交完成后产生。
-- `toolCompleted` 在 Tool Message 本地提交完成后产生。
-- `runCompleted` 在 Recorder 完成终态刷新后产生。
-- 两个工具调用乱序完成时仍关联到各自的 `toolCallId`。
-- 工具错误完成后，Runtime 可以把同一结果回填模型并继续下一回合。
-- 两条补充文本先收到各自的持久化 ACK，在安全边界获得按序的 `inputsApplied.inputIds`。
-- `inputsApplied` 出现在当前 Assistant、全部 Tool Message 提交之后和下一次 `turnStarted` 之前。
-- 运行终态提交后，`runCompleted.unappliedInputIds` 与已写入的 interrupted 用户 entries 对应；历史恢复依据 `inputId` 关联相同记录。
-- 中止模型请求或工具执行后，运行最终进入 `cancelled`，不再产生新的模型请求。
-- 任何事件都不包含 API Key 或 Authorization header。
+- 当前字段：`RunError` 包含稳定错误类型、用户可读消息和可选 `retryable`。
+- 错误分类：配置、网络、Provider、模型协议、工具和 Runtime 分别使用对应类型。
+- 后续关联：`diagnosticId` 属于后续诊断设计，扩展错误类型后用于关联诊断日志。
+- 数据边界：事件承载运行所需的公共状态，API Key、Authorization header 和完整敏感请求负载归属凭据与传输层。
+- 诊断处理：后续日志通过 `diagnosticId` 关联已脱敏诊断，敏感值继续由凭据边界管理。

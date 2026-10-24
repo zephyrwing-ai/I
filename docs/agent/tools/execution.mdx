@@ -1,48 +1,55 @@
----
-title: 工具执行
-description: 模型工具调用如何分发到真实实现并将结果回填模型。
----
+工具执行。
 
-工具执行模块接收运行循环交付的模型工具调用，找到已注册的工具实现并返回结果。它不主动请求模型、不形成独立循环，也不判断整个任务是否完成。
+- 职责：接收运行循环交付的模型工具调用，查找已注册实现并返回结果；模型请求、运行循环与任务完成判断统一由 Runtime 调度。
+- 实现：分发逻辑位于 `agent/loop.ts`，注册表位于 `agent/tools/index.ts`，基础工具包含 Bash、Read、Write、Edit、`list_dir`、`find_files` 和 `search_content`。
 
-当前实现位于 `agent/loop.ts` 的分发逻辑与 `agent/tools/index.ts` 的注册表中，已注册 Bash、Read、Write、Edit 与三个查询工具（list_dir、find_files、search_content）。
+调用与结果。
 
-## 调用与结果
+- 调用字段：每次调用包含 `id`、`name`、`input` 和 `inputComplete`。
+- 结果字段：使用 `ok`、`output`、`returncode`、`truncated` 和可选 `error` 等字段。
+- 调用身份：外层工具消息与事件保存调用编号，同一回合各结果通过 `toolCallId` 对应原始请求；结果对象专注保存执行事实。
+- 模型投影：Runtime 将返回码与输出格式化为文本 Tool Message，并附带 `isError`。
+- 宿主投影：Runner 发送结构化公共字段，并单独登记文件产物；宿主以结构化状态关联调用和结果，活动视图按实际命令、路径或目标生成工具行，失败时附紧凑标记，单行展开呈现完整输入与结果。
+- 完整输出路径：进入模型 Tool Message，Renderer 接收公共字段；各投影共享同一份 ToolResult 事实来源。
 
-每次工具调用包含 `id`、`name`、`input` 和 `inputComplete`。执行结果使用 `ok`、`output`、`returncode`、`truncated` 和可选 `error` 等字段；调用编号由外层工具消息与事件保留，结果对象本身不重复存储编号。同一回合多个调用的结果由 `toolCallId` 对应原始请求。
+活动元数据与操作参数。
 
-工具结果只有一个事实来源，但按用途投影：Runtime 将返回码与输出格式化为文本工具消息，附带 `isError`；Runner 将结构化公共字段发给宿主，并单独登记文件产物。内部完整输出路径只进入模型工具消息，不随公共工具结果直接发往 Renderer。宿主不能重新解析命令或普通文本来猜测工具状态。
+- 模型输入：公共模型可见 schema 在工具 input 对象中增加 `purpose: string` 与 `targets: string[]`；`purpose` 表达用户语言的简洁操作目的，`targets` 表达相关文件、路径、查询或实体。
+- 记录输入：Runtime 保留完整 `ToolCall.input`，Assistant Message、工具登记、AgentEvent、历史恢复与 Provider 续轮沿用同一调用数据；`runId`、`turnId` 和 `toolCallId` 持续关联各阶段身份。元数据使用既有 JSON 字段和数据库结构保存。
+- 实现输入：Runtime 在工具实现的公共调用边界从 input 副本中剥离 `purpose`、`targets`，再将操作参数交给具体实现；execute、prepare 与 reconcile 共用这一处理。原调用 input 继续作为事件、历史与活动展示的数据来源。
+- 恢复一致性：首次执行、准备、checkpoint 核对与恢复重放都通过相同的参数边界，具体工具的校验、操作与恢复策略沿用既有结构化参数契约。
+- 目标权威：实际结构化操作参数决定执行语义与操作行内容，读取按 `path` 生成 `Read <path>`，shell 按 `command` 生成 `Ran <command>`，其他工具按类别与实际查询、实体或目标生成标签；旧 `purpose`、`targets` 保留兼容数据职责。
+- 旧调用兼容：历史 input 原样进入恢复链路，公共边界接受活动元数据省略的调用；Renderer 与实时状态共用工具 kind 及实际参数的投影规则，原生 `content` 与旧 `progress` 按所属 turn 进入文字区。
+- 视图职责：每个 turn 的原生 `content` 与一个工具组构成活动阅读流，工具组标题按实际类别汇总，如 `Read files, ran commands`。各操作行独立展开完整命令、input JSON、输出与错误，详情按展开状态惰性挂载，标题省略由 CSS 宽度溢出决定；原始 reasoning 保持数据与协议续轮职责，模型 Tool Message 继续提供执行结果，交互细节见[消息流](../../desktop/design/workbench/message-stream.mdx)。
 
-## 执行顺序
+执行顺序。
 
-Runtime 在工具执行前完成带 `toolCalls` 的 Assistant Message 本地提交。运行循环随后发出 `toolStarted`，校验 `inputComplete` 与工具注册情况，并调用对应执行实现。Bash 实现校验 command 为非空字符串后执行；未知工具和无效调用生成结构化错误结果。
+- 执行许可：Runtime 先提交携带 `toolCalls` 的 Assistant Message，再发出 `toolStarted`，校验 `inputComplete` 与注册情况，并调用对应实现。
+- 参数校验：Bash 校验 `command` 为非空字符串，未知工具与无效调用生成结构化错误结果。
+- 结果提交：工具返回 ToolResult 后，Runtime 构造携带 `toolCallId` 的完整 Tool Message，等待 HistoryRecorder 完成本地提交。
+- 提交后发布：Tool Message 提交成功后加入本次运行的内存上下文，并发出 `toolCompleted`。
+- 模型续轮：同批全部 Tool Message 完成本地提交后，Runtime 开始下一次模型请求。
+- 业务失败：形成 completed 状态的项目历史记录，失败语义保存在 Tool Message payload 的 `isError` 与错误内容中；模型据此修正调用、选择其他工具或向用户解释。
+- 持久化失败：进入 Runtime 失败路径，本次自动续轮结束，后续调用保留待执行或待请求状态。
+- 当前顺序：按模型给出的顺序执行，并按原始顺序写回结果，使文件修改与命令副作用保持可预测。
+- 后续并行：明确声明相互独立且具备只读、无冲突语义的工具可扩展为并行执行。
 
-工具返回 `ToolResult` 后，Runtime 构造携带 `toolCallId` 的完整 Tool Message，并等待 HistoryRecorder 完成本地提交。提交成功后，Runtime 把 Tool Message 加入本次运行的内存上下文并发出 `toolCompleted`。同一工具批次的结果全部完成该顺序后，Runtime 开始下一次模型请求。
+错误与取消。
 
-工具返回的业务失败仍然形成 completed 状态的项目历史记录，`isError` 与错误内容保存在 Tool Message payload 中。持久化失败形成 Runtime 失败，并结束本次自动续轮。
+- 错误结果：未知工具、无效参数、文件缺失、非零命令返回码与工具异常均形成可读 ToolResult，普通业务错误通过结果链路交给模型决策。
+- 取消信号：宿主取消运行时，工具和模型请求共享同一次 AbortSignal。
+- 当前 Bash 停止：执行器向直接 Bash 进程发送 SIGKILL，目录快照按现有扫描流程完成，后代进程状态由其实际执行情况决定。
+- 当前取消诊断：超时与取消通常表现为非零或 `-1` 返回码，运行层检查取消信号后以 cancelled 结束。
+- 后续取消：通过进程组停止命令后代，让文件扫描响应取消，提供独立超时与取消诊断，并完善文件写入前后的取消检查。
+- 终态：Runtime 以每次运行一个终止事件作为后续完善契约。
+- 截断响应：Assistant Message 因长度限制截断时，整个 Assistant attempt 保存为 `interrupted` 并进入模型回合重试；其中工具调用保留在该 attempt 中，工具计划登记与执行等待完整响应，Tool Message 随实际执行结果生成。
+- 循环协作：现有控制流与后续扩展边界见[运行循环](../runtime-loop.mdx)。
 
-当前工具默认按模型给出的顺序执行，以保持文件修改和命令副作用可预测。同一回合的结果也按原始调用顺序写回模型上下文。未来只有明确声明互不依赖且不会产生冲突的只读工具，才可以并行执行。
+持久化执行恢复。
 
-## 错误与取消
-
-未知工具、无效参数、文件不存在、命令返回非零状态或工具自身异常都会成为可读的错误结果。普通工具错误不会直接结束 run；结果回填模型后，由模型决定修正、换用其他工具或向用户解释。
-
-宿主取消运行时，工具与模型请求共享同一次取消信号。当前 Bash 执行器只对直接启动的 Bash 进程发送 SIGKILL，目录快照扫描没有接入取消信号；不能保证其所有后代进程都已退出。超时、取消目前也没有独立工具结果状态，通常表现为非零或 -1 返回码，运行层在检查取消信号后结束为 cancelled。
-
-待完善目标：停止整个命令进程组、让文件扫描及时响应取消，并给超时与取消提供可区分诊断。未来文件工具须在写入前后检查取消状态。Runtime 应保证每次运行只有一个终止事件。
-
-Assistant Message 因长度限制而截断时，Runtime 将整个 Assistant attempt 保存为 `interrupted` 并进入模型回合重试；其中的工具调用不会登记、不会执行，也不会先生成 Tool Message。运行循环的现有控制流及后续扩展边界见 [运行循环](../runtime-loop.mdx)。
-
-## 项目历史提交验证
-
-- 带 `toolCalls` 的 Assistant Message 完成本地提交后，工具执行器收到对应调用。
-- 每个 Tool Message 完成本地提交后，`toolCompleted` 进入事件接收器。
-- 同一工具批次的 Tool Message 全部完成本地提交后，Runtime 开始下一次模型请求。
-- 工具业务失败形成 completed 项目历史记录，Tool Message 的 `isError` 保存失败语义。
-- 项目历史提交失败形成 Runtime 失败，并保持后续调用处于待执行或待请求状态。
-
-## 持久化执行恢复
-
-`entries` 保存模型可见消息；`tool_invocations` 保存每个逻辑 ToolCall 的登记阶段、恢复策略快照、checkpoint 与结果入口。两类记录共同构成工具执行恢复事实，并通过 `project_id` 归入项目或无项目范围。
-
-恢复协调器根据 `planned → effect_pending → outcome_ready → completed` 阶段，决定重新调度、安全重放、状态核对、结果物化或停止。模型通过完成后的 Tool Message 获取执行结果；模型回合重试与工具级恢复分别由 Runtime 的对应控制路径处理。完整规则见[工具执行恢复](./recovery.mdx)。
+- 消息事实：`entries` 保存模型可见消息。
+- 控制事实：`tool_invocations` 保存每个逻辑 ToolCall 的登记阶段、恢复策略快照、checkpoint 与结果入口。
+- 范围：两类记录共同构成恢复事实，通过 `project_id` 归入项目或无项目范围。
+- 调度阶段：恢复协调器根据 `planned → effect_pending → outcome_ready → completed` 决定重新调度、安全重放、状态核对、结果物化或停止。
+- 边界分工：模型通过已提交 Tool Message 获取执行结果，Runtime 的对应控制路径分别编排模型回合重试与工具级恢复。
+- 详细契约：见[工具执行恢复](./recovery.mdx)。

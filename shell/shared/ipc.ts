@@ -1,4 +1,5 @@
-import type { ModelMessage } from "../../agent/model/types.js";
+import type { ModelCapabilities, ModelMessage } from "../../agent/model/types.js";
+export type { ModelCapabilities } from "../../agent/model/types.js";
 import type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types.js";
 export type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types.js";
 
@@ -9,6 +10,7 @@ export type ProviderModelState = "saved" | "new" | "unavailable";
 export interface DiscoveredModel {
   id: string;
   displayName: string;
+  capabilities?: ModelCapabilities;
 }
 
 export interface ModelOption {
@@ -20,6 +22,7 @@ export interface ModelOption {
   available: boolean;
   imported: boolean;
   state: ProviderModelState;
+  capabilities?: ModelCapabilities;
 }
 
 export interface ProviderProfileSummary {
@@ -154,6 +157,27 @@ export interface SteerRequest {
   task: string;
 }
 
+export const VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+
+export interface VoiceTranscriptionRequest {
+  requestId: string;
+  audio: ArrayBuffer;
+}
+
+export type VoiceTranscriptionError =
+  | "cancelled"
+  | "invalid_audio"
+  | "invalid_request"
+  | "model_missing"
+  | "engine_missing"
+  | "no_speech"
+  | "timeout"
+  | "transcription_failed";
+
+export type VoiceTranscriptionResult =
+  | { ok: true; text: string }
+  | { ok: false; error: VoiceTranscriptionError; message: string };
+
 export type SteerAck =
   | { ok: true; runId: string; projectId: string | null; inputId: string; acceptOrder: number; acceptedAt: number }
   | { ok: false; error: string };
@@ -162,7 +186,23 @@ export interface ProjectDescriptor {
   projectId: string | null;
   displayName: string;
   canonicalPath: string | null;
+  pinned?: boolean;
 }
+
+export interface ProjectActionRequest {
+  projectId: string;
+  action: "pin" | "unpin" | "reveal" | "rename" | "delete";
+  name?: string;
+}
+
+export interface ProjectActionResult {
+  status: "completed" | "cancelled";
+  projects?: ProjectDescriptor[];
+  activeProject: ProjectDescriptor;
+}
+
+export interface QuitPreparationRequest { requestId: string }
+export interface QuitPreparationResult { requestId: string; error?: string }
 
 export interface OutputFileDescriptor {
   runId: string;
@@ -185,7 +225,7 @@ export interface ToolResult {
 
 export type ToolCall = { id: string; name: string; input: Record<string, unknown>; inputComplete: boolean };
 export type RunError = {
-  kind: "config" | "network" | "provider" | "model_protocol" | "tool" | "runtime";
+  kind: "config" | "network" | "provider" | "model_protocol" | "context_overflow" | "tool" | "runtime";
   message: string;
   retryable?: boolean;
 };
@@ -267,8 +307,9 @@ export type AgentEvent =
   | { type: "runStarted"; runId: string; startedAt: string }
   | { type: "turnStarted"; runId: string; turnId: string; turnOrdinal: number; attempt?: number }
   | { type: "assistantDelta"; runId: string; turnId: string; delta: string; attempt?: number }
+  | { type: "progressDelta"; runId: string; turnId: string; delta: string; attempt?: number }
   | { type: "reasoningDelta"; runId: string; turnId: string; delta: string; attempt?: number }
-  | { type: "assistantCompleted"; runId: string; turnId: string; content: string; toolCalls: ToolCall[]; stopReason: string; completedAt: number }
+  | { type: "assistantCompleted"; runId: string; turnId: string; content: string; progress?: string; toolCalls: ToolCall[]; stopReason: string; completedAt: number }
   | { type: "toolStarted"; runId: string; turnId: string; toolCallId: string; name: string; input: Record<string, unknown> }
   | { type: "toolCompleted"; runId: string; turnId: string; toolCallId: string; name: string; result: ToolResult }
   | { type: "outputFileRegistered"; runId: string; file: OutputFileDescriptor }
@@ -278,11 +319,18 @@ export type AgentEvent =
   | { type: "runCompleted"; runId: string; status: RunStatus; error?: RunError; turnCount: number; unappliedInputIds?: string[]; finalTurnId?: string; finalDurationMs?: number };
 
 export interface AgentAPI {
+  onPrepareToQuit(cb: (request: QuitPreparationRequest) => void): () => void;
+  completeQuitPreparation(result: QuitPreparationResult): void;
   run(req: RunRequest): Promise<RunStartAck>;
   steer(req: SteerRequest): Promise<SteerAck>;
   stop(): void;
+  transcribeVoice(request: VoiceTranscriptionRequest): Promise<VoiceTranscriptionResult>;
+  cancelVoiceTranscription(requestId: string): void;
   loadHistoryPage(request: HistoryPageRequest): Promise<HistoryPageResult>;
   getActiveProject(): Promise<ProjectDescriptor>;
+  listProjects(): Promise<ProjectDescriptor[]>;
+  activateProject(projectId: string): Promise<ProjectDescriptor>;
+  performProjectAction(request: ProjectActionRequest): Promise<ProjectActionResult>;
   selectProject(): Promise<ProjectDescriptor | null>;
   clearProject(): Promise<ProjectDescriptor>;
   listProviderProfiles(): Promise<ProviderProfileSummary[]>;
@@ -304,12 +352,20 @@ export interface AgentAPI {
 }
 
 export const IPC = {
+  prepareToQuit: "app:prepare-to-quit",
+  quitPreparationReady: "app:quit-preparation-ready",
+  quitPreparationResult: "app:quit-preparation-result",
   run: "agent:run",
   steer: "agent:steer",
   stop: "agent:stop",
   event: "agent:event",
+  transcribeVoice: "voice:transcribe",
+  cancelVoiceTranscription: "voice:cancel-transcription",
   loadHistoryPage: "history:load-page",
   getActiveProject: "projects:active",
+  listProjects: "projects:list",
+  activateProject: "projects:activate",
+  performProjectAction: "projects:action",
   selectProject: "projects:select",
   clearProject: "projects:clear",
   listProviderProfiles: "providers:list",

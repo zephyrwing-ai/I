@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>配色对照 · 当前 vs 参考图</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 48px;
+    font-family: "SF Pro Text", -apple-system, "PingFang SC", sans-serif;
+    background: #eeeeec; color: #111;
+  }
+  h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  .sub { font-size: 12px; color: #666; margin: 0 0 24px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+  .col > h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    color: #555; margin: 0 0 8px;
+  }
+
+  /* ---------- 每个配色方案一套 token ---------- */
+  .current {
+    --bg: #f7f3ee; --surface: #fffcf8; --surface-hover: #fcf8f3;
+    --surface-secondary: #f1eee8; --bubble: #eee9df; --input: #fbf8f3;
+    --text: #2f2b26; --reading: #27231f; --secondary: #7a756c; --muted: #8b8880;
+    --border: #efeae1; --border-strong: #ddd6ca;
+    --accent: #5a5a5a; --accent-soft: #5a5a5a14;
+    --success: #2f8f5b; --danger: #d83b3b;
+    --shadow: 0 1px 2px #281f1814, 0 8px 24px #281f1826;
+  }
+  .proposed ::selection { background: #0d0d0c2e; }
+  .proposed {
+    --bg: #f9f9f7; --surface: #ffffff; --surface-hover: #f7f7f5;
+    --surface-secondary: #efefea; --bubble: #e8e8e3; --input: #ffffff;
+    --text: #0d0d0c; --reading: #1a1a18; --secondary: #5f5f5a; --muted: #6b6b66;
+    --border: #e9e9e4; --border-strong: #d8d8d2;
+    --accent: #6b4a8f; --accent-soft: #6b4a8f1f;
+    --success: #2f8a4e; --danger: #c0362c;
+    --shadow: 0 1px 2px #0a0a0812, 0 8px 24px #0a0a0821;
+  }
+
+  .app {
+    background: var(--bg); border: 1px solid var(--border-strong);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow);
+    color: var(--text); font-size: 13px;
+  }
+
+  /* 顶栏 */
+  .topbar {
+    height: 40px; display: flex; align-items: center; gap: 10px;
+    padding: 0 12px; background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .dot { width: 11px; height: 11px; border-radius: 3px; background: var(--text); opacity: .85; }
+  .topbar .title { font-size: 12.5px; font-weight: 500; }
+  .topbar .tail { margin-left: auto; font-size: 11px; color: var(--muted); }
+
+  .body { display: grid; grid-template-columns: 132px 1fr; min-height: 398px; }
+
+  /* 侧栏 */
+  .sidebar {
+    background: var(--bg); border-right: 1px solid var(--border);
+    padding: 10px 8px; display: flex; flex-direction: column; gap: 2px;
+  }
+  .side-label {
+    font-size: 10px; color: var(--muted); padding: 8px 6px 4px;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .side-item {
+    font-size: 11.5px; padding: 5px 7px; border-radius: 5px; color: var(--secondary);
+  }
+  .side-item.active { background: var(--surface-secondary); color: var(--text); font-weight: 500; }
+  .side-item .badge {
+    float: right; font-size: 9px; padding: 0 4px; border-radius: 7px;
+    background: var(--accent); color: #fff; line-height: 13px;
+  }
+
+  /* 内容区 */
+  .content { background: var(--bg); padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { font-size: 12.5px; line-height: 1.85; color: var(--reading); }
+  .meta { font-size: 10.5px; color: var(--muted); }
+  .activity {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--secondary);
+  }
+  .activity .ico { width: 12px; height: 12px; border-radius: 3px; background: var(--border-strong); }
+
+  .bubble {
+    align-self: flex-end; max-width: 78%;
+    background: var(--bubble); color: var(--text);
+    padding: 8px 11px; border-radius: 10px; font-size: 12px; line-height: 1.65;
+  }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; box-shadow: var(--shadow);
+  }
+  .card .row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
+  .card .row + .row { margin-top: 6px; }
+  .grow { flex: 1; }
+  .plus { color: var(--success); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  .minus { color: var(--danger); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  .path { font-family: "SF Mono", Menlo, monospace; font-size: 10.5px; color: var(--secondary); }
+
+  .btn {
+    font-size: 11px; padding: 4px 10px; border-radius: 6px;
+    border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+  }
+  .btn.primary { background: var(--text); border-color: transparent; color: #fff; }
+  .btn.blue { background: var(--accent-soft); border-color: transparent; color: var(--accent); font-weight: 500; }
+
+  /* 输入区 */
+  .composer {
+    margin-top: auto; background: var(--input); border: 1px solid var(--border);
+    border-radius: 9px; padding: 9px 11px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .composer .ph { font-size: 12px; color: var(--muted); }
+  .composer .foot { display: flex; align-items: center; gap: 7px; }
+  .send {
+    margin-left: auto; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--text); color: #fff; display: grid; place-items: center; font-size: 10px;
+  }
+  .chip {
+    font-size: 10px; padding: 2px 7px; border-radius: 5px;
+    background: var(--surface-secondary); color: var(--secondary);
+  }
+  .focus-ring {
+    margin-top: 4px; height: 26px; border-radius: 6px; border: 1px solid transparent;
+    box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 0 var(--accent);
+    display: flex; align-items: center; padding: 0 8px; font-size: 11px; color: var(--secondary);
+    background: var(--surface);
+  }
+
+  /* 色板 */
+  .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 10px; }
+  .sw { border-radius: 6px; overflow: hidden; border: 1px solid #00000014; }
+  .sw .chipc { height: 34px; }
+  .sw .lb {
+    font-size: 8.5px; padding: 3px 4px; background: #fff; color: #444;
+    font-family: "SF Mono", Menlo, monospace; line-height: 1.35; word-break: break-all;
+  }
+
+  .note { font-size: 11px; color: #666; margin-top: 10px; line-height: 1.7; }
+  .note b { color: #222; }
+</style>
+</head>
+<body>
+  <h1>配色对照：当前（暖纸） vs 参考图（中性工作室）</h1>
+  <p class="sub">数值取自参考截图的像素采样。左边是现在代码里的 <code>:root</code>，右边是提案。</p>
+
+  <div class="grid">
+
+    <!-- ================= 当前 ================= -->
+    <div class="col current">
+      <h2>当前 · 暖纸 #f7f3ee</h2>
+      <div class="app">
+        <div class="topbar">
+          <div class="dot"></div><span class="title">I</span>
+          <span class="tail">Day · 62%</span>
+        </div>
+        <div class="body">
+          <div class="sidebar">
+            <div class="side-label">Projects</div>
+            <div class="side-item active">TimeLine <span class="badge">3</span></div>
+            <div class="side-item">Voice</div>
+            <div class="side-item">Memory</div>
+            <div class="side-item">Canvas</div>
+            <div class="side-label">Recent</div>
+            <div class="side-item">Resume</div>
+          </div>
+          <div class="content">
+            <div class="activity"><span class="ico"></span>Edited files, ran a command</div>
+            <div class="msg">这次会补齐纯分析、无工具调用的场景，再验证展开箭头和历史恢复。</div>
+            <div class="bubble">把配色换成参考图那种中性白。</div>
+            <div class="card">
+              <div class="row"><span class="grow">agent/memory/types.ts</span><span class="plus">+1</span><span class="minus">-1</span></div>
+              <div class="row"><span class="path grow">shell/shared/ipc.ts</span><span class="plus">+2</span><span class="minus">-1</span></div>
+              <div class="row"><button class="btn">View changes</button><button class="btn primary">Undo</button></div>
+            </div>
+            <div class="composer">
+              <div class="ph">Work with I</div>
+              <div class="foot"><span class="chip">Full access</span><span class="send">↑</span></div>
+            </div>
+            <div class="focus-ring">focus ring（灰）</div>
+          </div>
+        </div>
+      </div>
+      <div class="swatches">
+        <div class="sw"><div class="chipc" style="background:#f7f3ee"></div><div class="lb">bg<br>#f7f3ee</div></div>
+        <div class="sw"><div class="chipc" style="background:#fffcf8"></div><div class="lb">surface<br>#fffcf8</div></div>
+        <div class="sw"><div class="chipc" style="background:#f1eee8"></div><div class="lb">secondary<br>#f1eee8</div></div>
+        <div class="sw"><div class="chipc" style="background:#2f2b26"></div><div class="lb">text<br>#2f2b26</div></div>
+        <div class="sw"><div class="chipc" style="background:#efeae1"></div><div class="lb">border<br>#efeae1</div></div>
+        <div class="sw"><div class="chipc" style="background:#5a5a5a"></div><div class="lb">accent<br>#5a5a5a</div></div>
+      </div>
+      <p class="note">暖偏移 9/255；文字是暖褐；阴影也是暖褐；<b>没有强调色</b>，选中/焦点/徽标全是灰。</p>
+    </div>
+
+    <!-- ================= 提案 ================= -->
+    <div class="col proposed">
+      <h2>提案 A · 中性 #f9f9f7（= 参考图）</h2>
+      <div class="app">
+        <div class="topbar">
+          <div class="dot"></div><span class="title">I</span>
+          <span class="tail">Day · 62%</span>
+        </div>
+        <div class="body">
+          <div class="sidebar">
+            <div class="side-label">Projects</div>
+            <div class="side-item active">TimeLine <span class="badge">3</span></div>
+            <div class="side-item">Voice</div>
+            <div class="side-item">Memory</div>
+            <div class="side-item">Canvas</div>
+            <div class="side-label">Recent</div>
+            <div class="side-item">Resume</div>
+          </div>
+          <div class="content">
+            <div class="activity"><span class="ico"></span>Edited files, ran a command</div>
+            <div class="msg">这次会补齐纯分析、无工具调用的场景，再验证展开箭头和历史恢复。</div>
+            <div class="bubble">把配色换成参考图那种中性白。</div>
+            <div class="card">
+              <div class="row"><span class="grow">agent/memory/types.ts</span><span class="plus">+1</span><span class="minus">-1</span></div>
+              <div class="row"><span class="path grow">shell/shared/ipc.ts</span><span class="plus">+2</span><span class="minus">-1</span></div>
+              <div class="row"><button class="btn">View changes</button><button class="btn primary">Undo</button><button class="btn blue">Upgrade</button></div>
+            </div>
+            <div class="composer">
+              <div class="ph">Work with I</div>
+              <div class="foot"><span class="chip">Full access</span><span class="send">↑</span></div>
+            </div>
+            <div class="focus-ring">focus ring（茄紫）</div>
+          </div>
+        </div>
+      </div>
+      <div class="swatches">
+        <div class="sw"><div class="chipc" style="background:#f9f9f7"></div><div class="lb">bg<br>#F9F9F7</div></div>
+        <div class="sw"><div class="chipc" style="background:#ffffff"></div><div class="lb">surface<br>#FFFFFF</div></div>
+        <div class="sw"><div class="chipc" style="background:#efefea"></div><div class="lb">secondary<br>#EFEFEA</div></div>
+        <div class="sw"><div class="chipc" style="background:#0d0d0c"></div><div class="lb">text<br>#0D0D0C</div></div>
+        <div class="sw"><div class="chipc" style="background:#e9e9e4"></div><div class="lb">border<br>#E9E9E4</div></div>
+        <div class="sw"><div class="chipc" style="background:#6b4a8f"></div><div class="lb">accent<br>#6B4A8F</div></div>
+      </div>
+      <p class="note">几乎中性（暖偏移仅 2/255）；文字近纯黑；<b>单一茄紫强调</b>；阴影转中性黑；用户气泡 <code>#E8E8E3</code> 比代码框 <code>#EFEFEA</code> 深一档，两者不再混同；文本选区改为 18% 墨色。</p>
+    </div>
+
+  </div>
+
+  <p class="note">
+    <b>怎么看这个文件：</b>在浏览器打开即可，纯静态、不依赖项目。<br>
+    <b>验收方法：</b>把整页截图转成灰度，如果右边的层级比左边更清楚，方向就对了；如果糊成一片，说明边框/面对比还不够。
+  </p>
+
+  <p class="note">
+    强调色候选（只改 <code>--accent</code> 一个值即可切换）：<b>茄紫</b> <code>#6B4A8F</code>（已采用，6.64:1）、<b>深紫</b> <code>#5D3F7D</code>（8.06:1，更沉）、<b>亮紫</b> <code>#7A56A0</code>（5.43:1，更跳）。<br>
+    蓝、红、绿、琥珀都没有选：前三个和参考图/语义色冲突，琥珀与 warning 撞色 —— 详见 <code>palette-proposal.md</code>。
+  </p>
+</body>
+</html>

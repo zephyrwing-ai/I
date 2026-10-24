@@ -20,7 +20,7 @@ const selectedModel: ModelOption = {
   state: "saved",
 };
 
-function renderComposer(running: boolean, stopping: boolean, activeRunId: string | null = running ? "active-run" : null): string {
+function renderComposer(running: boolean, stopping: boolean, activeRunId: string | null = running ? "active-run" : null, modelLoading = false): string {
   const originalError = console.error;
   console.error = (message?: unknown, ...rest: unknown[]): void => {
     if (typeof message === "string" && message.includes("useLayoutEffect does nothing on the server")) return;
@@ -31,8 +31,8 @@ function renderComposer(running: boolean, stopping: boolean, activeRunId: string
       running,
       stopping,
       activeRunId,
-      modelOptions: [selectedModel],
-      modelLoading: false,
+      modelOptions: modelLoading ? [] : [selectedModel],
+      modelLoading,
       onRun: async () => true,
       onSteer: async () => true,
       onStop: () => undefined,
@@ -48,6 +48,7 @@ test("idle Composer exposes task input and a disabled send action until text exi
   assert.match(html, /<button[^>]*disabled=""[^>]*aria-label="Send"/);
   assert.ok(html.includes("Choose model"), html);
   assert.doesNotMatch(html, /aria-label="Stop run"/);
+  assert.doesNotMatch(html, /composer-project|Choose folder|Clear project/);
 });
 
 test("Composer restores only models returned by the latest discovery", () => {
@@ -61,23 +62,57 @@ test("Composer restores only models returned by the latest discovery", () => {
   );
 });
 
-test("Composer accepts a valid cached picker layout and falls back to the legacy model id", () => {
+test("Composer restores model identity and name independently of legacy pixel widths", () => {
+  for (const width of [143, 0, -1, null, "143", undefined]) {
+    assert.deepEqual(
+      parseStoredModelPickerPreference(JSON.stringify({ modelOptionId: "model-option-a", displayName: "Model A", width }), null),
+      { modelOptionId: "model-option-a", displayName: "Model A" },
+    );
+  }
+});
+
+test("Composer falls back to the most recent legacy model id when its cached name is unusable", () => {
   assert.deepEqual(
-    parseStoredModelPickerPreference(JSON.stringify({ modelOptionId: "model-option-a", displayName: "Model A", width: 143 }), null),
-    { modelOptionId: "model-option-a", displayName: "Model A", width: 143 },
+    parseStoredModelPickerPreference(null, "model-option-a"),
+    { modelOptionId: "model-option-a", displayName: "" },
   );
   assert.deepEqual(
     parseStoredModelPickerPreference("{broken", "model-option-a"),
-    { modelOptionId: "model-option-a", displayName: "", width: null },
+    { modelOptionId: "model-option-a", displayName: "" },
   );
   assert.deepEqual(
-    parseStoredModelPickerPreference(JSON.stringify({ modelOptionId: "model-option-a", displayName: "Model A", width: 0 }), "model-option-b"),
-    { modelOptionId: "model-option-b", displayName: "", width: null },
+    parseStoredModelPickerPreference(JSON.stringify({ modelOptionId: "model-option-a", displayName: "" }), "model-option-b"),
+    { modelOptionId: "model-option-b", displayName: "" },
   );
   assert.deepEqual(
     parseStoredModelPickerPreference(JSON.stringify({ modelOptionId: "model-option-a", displayName: "Model A", width: 143 }), "model-option-b"),
-    { modelOptionId: "model-option-b", displayName: "", width: null },
+    { modelOptionId: "model-option-b", displayName: "" },
   );
+});
+
+test("Composer displays the restored name during startup without applying a stale pixel width or animation", () => {
+  const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => key === "workbench.modelPickerLayout.v1"
+        ? JSON.stringify({ modelOptionId: "model-option-a", displayName: "Model A", width: 143 })
+        : key === "workbench.modelOptionId" ? "model-option-a" : null,
+    },
+  });
+  try {
+    for (const modelLoading of [true, false]) {
+      const html = renderComposer(false, false, null, modelLoading);
+      assert.ok(html.includes("Model A"), html);
+      assert.ok(!html.includes("Loading model"), html);
+      const trigger = html.match(/<button[^>]*class="model-picker-trigger [^"]*"[^>]*>/)?.[0] ?? "";
+      assert.match(trigger, /style="transition:none"/);
+      assert.doesNotMatch(trigger, /width:|is-width-animated/);
+    }
+  } finally {
+    if (storageDescriptor) Object.defineProperty(globalThis, "localStorage", storageDescriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
 });
 
 test("running Composer keeps the text input editable and shows Stop in the single action button", () => {

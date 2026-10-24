@@ -1,8 +1,8 @@
 import { packager } from "@electron/packager";
 import { spawn, execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { access, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { constants, createReadStream } from "node:fs";
+import { access, cp, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -13,6 +13,8 @@ const cache = join(root, "node_modules/.cache/macos-app");
 const bundleId = "com.agentstudio.desktop";
 const require = createRequire(import.meta.url);
 const runFile = promisify(execFile);
+const voiceModelName = "ggml-large-v3-turbo-q5_0.bin";
+const voiceModelSha256 = "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2";
 
 async function configuration() {
   if (process.platform !== "darwin") throw new Error("macOS app commands require macOS.");
@@ -26,7 +28,16 @@ async function configuration() {
   const executable = join(electronDirectory, "dist", (await readFile(join(electronDirectory, "path.txt"), "utf8")).trim());
   const iconSource = join(root, "frontend/src/assets/app-icon.png");
   const iconHash = createHash("sha256").update(await readFile(iconSource)).digest("hex");
-  return { manifest, name, electronVersion: electron.version, executable, electronDirectory, iconSource, iconHash };
+  return {
+    manifest,
+    name,
+    electronVersion: electron.version,
+    executable,
+    electronDirectory,
+    iconSource,
+    iconHash,
+    microphoneDescription: "I uses the microphone to transcribe voice input into the Composer draft.",
+  };
 }
 
 async function exists(path) {
@@ -78,7 +89,19 @@ async function runtimeArchive(config) {
   }
 }
 
-async function nativeOptions(config) {
+async function verifyVoiceResources() {
+  const directory = join(root, "resources/whisper");
+  const engine = join(directory, "whisper-cli");
+  await access(engine, constants.R_OK | constants.X_OK);
+  await runFile("/usr/bin/lipo", [engine, "-verify_arch", process.arch === "x64" ? "x86_64" : process.arch]);
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(join(directory, voiceModelName))) hash.update(chunk);
+  if (hash.digest("hex") !== voiceModelSha256) {
+    throw new Error("The packaged speech model checksum is invalid. Restore resources/whisper from its documented source.");
+  }
+}
+
+async function nativeOptions(config, includeVoiceResources = true) {
   return {
     name: config.name,
     appBundleId: bundleId,
@@ -88,8 +111,15 @@ async function nativeOptions(config) {
     icon: await nativeIcon(config),
     electronZipDir: await runtimeArchive(config),
     asar: false,
+    extraResource: includeVoiceResources ? [join(root, "resources")] : [],
+    usageDescription: {
+      Microphone: config.microphoneDescription,
+    },
     // Ad-hoc signing makes generated local apps loadable after native metadata changes.
-    osxSign: { identity: "-", identityValidation: false, continueOnError: false },
+    osxSign: {
+      identity: "-", identityValidation: false, continueOnError: false,
+      ignore: ["/resources/whisper/.*\\.bin$"],
+    },
   };
 }
 
@@ -104,13 +134,14 @@ async function validDevelopmentApp(app) {
 export async function prepareDevelopmentApp(config) {
   config ??= await configuration();
   const fingerprint = createHash("sha256").update(JSON.stringify({
-    format: 3,
+    format: 4,
     electronVersion: config.electronVersion,
     arch: process.arch,
     productName: config.name,
     version: config.manifest.version,
     iconHash: config.iconHash,
     bundleId,
+    microphoneDescription: config.microphoneDescription,
   })).digest("hex");
   const directory = join(cache, "development", fingerprint);
   const app = join(directory, `${config.name}.app`);
@@ -129,7 +160,7 @@ export async function prepareDevelopmentApp(config) {
     }));
     await writeFile(join(source, "main.cjs"), "");
     const [output] = await packager({
-      ...await nativeOptions(config),
+      ...await nativeOptions(config, false),
       dir: source,
       out: join(temporary, "output"),
       prune: false,
@@ -153,6 +184,7 @@ export async function prepareDevelopmentApp(config) {
 
 async function packageApplication(config) {
   await access(join(root, config.manifest.main), constants.R_OK);
+  await verifyVoiceResources();
   const [output] = await packager({
     ...await nativeOptions(config),
     dir: root,
@@ -166,7 +198,30 @@ async function packageApplication(config) {
         && !/^\/(?:out|node_modules)(?:\/|$)/.test(path);
     },
   });
-  console.log(join(output, `${config.name}.app`));
+  const packagedApp = join(output, `${config.name}.app`);
+  console.log(packagedApp);
+  return packagedApp;
+}
+
+async function createDmg(config, appPath) {
+  const staging = await mkdtemp(join(root, "dist", "dmg-staging-"));
+  try {
+    await cp(appPath, join(staging, `${config.name}.app`), { recursive: true, dereference: true });
+    await symlink("/Applications", join(staging, "Applications"));
+    const output = join(root, "dist", `${config.name}-${config.manifest.version}-${process.arch}.dmg`);
+    await runFile("/usr/bin/hdiutil", [
+      "create",
+      "-volname", config.name,
+      "-srcfolder", staging,
+      "-ov",
+      "-format", "UDZO",
+      output,
+    ]);
+    console.log(output);
+    return output;
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
 }
 
 async function startElectronVite(config, mode, arguments_) {
@@ -213,11 +268,15 @@ async function startElectronVite(config, mode, arguments_) {
 
 async function main() {
   const [mode, ...arguments_] = process.argv.slice(2);
-  if (!["dev", "preview", "package"].includes(mode)) {
-    throw new Error("Usage: node scripts/macos-app.mjs <dev|preview|package> [electron-vite arguments]");
+  if (!["dev", "preview", "package", "dmg"].includes(mode)) {
+    throw new Error("Usage: node scripts/macos-app.mjs <dev|preview|package|dmg> [electron-vite arguments]");
   }
   const config = await configuration();
   if (mode === "package") await packageApplication(config);
+  else if (mode === "dmg") {
+    const appPath = await packageApplication(config);
+    await createDmg(config, appPath);
+  }
   else await startElectronVite(config, mode, arguments_);
 }
 

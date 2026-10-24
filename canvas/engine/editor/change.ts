@@ -811,6 +811,13 @@ export class ElementsChange implements Change<SceneElementsMap> {
     private readonly updated: Map<string, Delta<ElementPartial>>,
   ) {}
 
+  /** Element targets represented by this increment, before history is consumed. */
+  public *affectedElementIds(): IterableIterator<string> {
+    yield* this.added.keys();
+    yield* this.removed.keys();
+    yield* this.updated.keys();
+  }
+
   public static create(
     added: Map<string, Delta<ElementPartial>>,
     removed: Map<string, Delta<ElementPartial>>,

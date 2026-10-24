@@ -1,6 +1,11 @@
 node_modules/
 dist/
+out/
+.DS_Store
+*.log
 tools-edit-*/
 tools-query-*/
 tools-read-*/
 tools-write-*/
+resources/
+resources/whisper/ggml-*.bin

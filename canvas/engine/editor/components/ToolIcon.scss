@@ -73,7 +73,8 @@
   .ToolIcon_size_small .ToolIcon__icon {
     width: 2rem;
     height: 2rem;
-    font-size: 0.8em;
+    // Keep the inherited font offset additive after applying the relative scale.
+    font-size: calc(0.8em + var(--ui-font-offset, 0px) * 0.2);
   }
 
   .ToolIcon_type_button,
@@ -154,7 +155,7 @@
     position: absolute;
     bottom: 2px;
     right: 3px;
-    font-size: 0.625rem;
+    font-size: calc(0.625rem + var(--ui-font-offset, 0px));
     color: var(--keybinding-color);
     font-family: var(--ui-font);
     user-select: none;

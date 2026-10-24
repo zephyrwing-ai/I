@@ -1,40 +1,50 @@
----
-title: Query
-description: Agent 列出目录、查找文件和搜索文件内容的只读工具。
----
+Query。
 
-三个查询工具（`list_dir`、`find_files`、`search_content`）通过注册表执行。参数与结果适配位于 `agent/tools/query.ts`，ripgrep 子进程和流读取位于 `agent/tools/ripgrep.ts`。
+- 能力：通过注册表提供本地工作区只读查询，工具名称为 `list_dir`、`find_files` 和 `search_content`。
+- 实现：参数与结果适配位于 `agent/tools/query.ts`，ripgrep 子进程与流读取位于 `agent/tools/ripgrep.ts`。
+- 依赖：`find_files` 与 `search_content` 使用 production 依赖 `@vscode/ripgrep` 精确版本 `1.18.0` 的 `rgPath`，执行随依赖安装的当前平台 binary。
+- 进程：每次查询使用 `spawn(binary, args)` 参数数组、`shell: false` 与 `--no-config`。
 
-Query 提供本地工作区的结构化只读查询能力。`find_files` 和 `search_content` 使用 production 依赖 `@vscode/ripgrep` 精确版本 `1.18.0` 的 `rgPath` 导出，执行随依赖安装的当前平台 binary。每次查询使用 `spawn(binary, args)` 参数数组、`shell: false` 和 `--no-config`。
+列出目录。
 
-## 列出目录
+- 参数：`list_dir` 接收可选 `path` 与 `limit`，默认路径为当前 run 工作目录，默认数量200，上限1000。
+- 读取：使用 Node 目录读取，结果按名称稳定排序并区分文件与目录。
+- 状态：空目录与路径错误分别返回明确结果。
 
-`list_dir` 接收可选 `path` 和 `limit`，默认查询当前 run 的工作目录。默认数量为200，上限为1000。结果按名称稳定排序，并区分文件和目录；空目录与路径错误分别返回明确结果。该工具使用 Node 目录读取。
+查找文件。
 
-## 查找文件
+- 参数：`find_files` 接收 `pattern` 与可选 `path`。
+- 枚举：ripgrep 通过 `--files --null` 增量枚举全部候选路径，扫描覆盖第20,001个及其后的文件。
+- 匹配：对相对于搜索目录的路径执行忽略大小写的字面 substring 匹配。
+- 结果：遍历完成后返回全部匹配路径，使用 `/` 分隔符并按路径排序；换行或控制字符使用 JSON 字符串转义显示。
 
-`find_files` 接收 `pattern` 和可选 `path`。ripgrep 通过 `--files --null` 增量枚举文件，工具对相对于搜索目录的路径执行忽略大小写的字面 substring 匹配。返回全部匹配路径，使用 `/` 分隔符并按路径排序。含换行或控制字符的路径采用 JSON 字符串转义显示。
+搜索内容。
 
-扫描覆盖 ripgrep 遍历产生的全部候选路径，包括第20,001个及其后的文件。查询在遍历完成后交付完整匹配结果。
+- 参数：`search_content` 接收字面关键词 `text`、可选 `path`、`types`、`caseSensitive` 和 `contextLines`。
+- 匹配：ripgrep 使用 `--fixed-strings --json`，默认忽略大小写；`caseSensitive: true` 采用大小写敏感匹配。
+- 字面语义：关键词作为独立参数传入，`--` 前缀与正则元字符保持字面含义。
+- 行边界：搜索以单行为匹配单位，含换行的关键词返回完整空结果。
+- 类型过滤：`types` 按文件最后一个扩展名过滤，大小写归一化，同时接受带点与省略点的扩展名；省略时采用 ripgrep 文本搜索规则，空数组返回完整空结果。
+- 上下文参数：`contextLines` 默认0，接受非负安全整数，使用 ripgrep 原生 context 事件返回指定数量相邻行；无效值返回 `invalid_arguments`。
+- 行格式：匹配行与上下文行使用 `path:line: content`，保留完整行内容和 Unicode 字符。
+- 结果合并：返回全部匹配行，同一行多次命中合为一条结果，邻近匹配的重叠上下文合并显示。
 
-## 搜索内容
+遍历与忽略规则。
 
-`search_content` 接收字面关键词 `text`、可选 `path`、`types`、`caseSensitive` 和 `contextLines`。ripgrep 使用 `--fixed-strings --json` 搜索，默认忽略大小写；`caseSensitive: true` 使用大小写敏感匹配。关键词作为独立参数传入，`--` 前缀和正则元字符保持字面含义。搜索以单行为匹配单位，含换行的关键词返回完整的空结果。
+- 隐藏文件：两种搜索启用 `--hidden --no-require-git`，普通隐藏文件参与搜索，当前目录与父目录的 `.gitignore` 和 ripgrep 忽略规则参与遍历。
+- 固定排除：`SNAPSHOT_IGNORED_DIRECTORIES` 包含 `.git`、`.hg`、`.svn`、`.cache`、`.next`、`.superpowers`、`.turbo`、`.venv`、`build`、`coverage`、`dist`、`node_modules`、`out` 和 `venv`。
+- 过滤组合：目录排除 glob 与扩展过滤共同生效，同名普通文件按文件规则处理。
+- 符号链接：沿用 ripgrep 默认的跳过行为。
 
-`types` 按文件最后一个扩展名过滤，大小写归一化，并接受带点与省略点的扩展名。省略 `types` 时采用 ripgrep 的文本搜索规则；空数组返回完整空结果。`contextLines` 默认0，接受调用者指定的非负安全整数，使用 ripgrep 原生 context 事件返回指定数量的相邻行。参数校验将无效的 `contextLines` 返回为 `invalid_arguments`。
+输出与完成状态。
 
-每个匹配行和上下文行使用 `path:line: content` 格式，并保留完整行内容与 Unicode 字符。查询返回全部匹配行，同一行的多个关键词呈现为一条匹配结果，邻近匹配的重叠上下文合并显示。
-
-## 遍历与忽略规则
-
-两种搜索启用 `--hidden --no-require-git`，普通隐藏文件参与搜索，当前目录及父目录的 `.gitignore` 和 ripgrep 忽略规则参与遍历。固定目录集合来自 `SNAPSHOT_IGNORED_DIRECTORIES`，包含 `.git`、`.hg`、`.svn`、`.cache`、`.next`、`.superpowers`、`.turbo`、`.venv`、`build`、`coverage`、`dist`、`node_modules`、`out` 和 `venv`。目录排除 glob 与扩展过滤共同生效；同名普通文件按文件规则处理。符号链接采用 ripgrep 默认的跳过行为。
-
-## 输出与完成状态
-
-stdout 按 NUL 路径帧或 JSON 行帧增量消费。帧缓冲按收到的 chunk 保留片段，在完整帧处一次组装并解码 UTF-8；完整帧位于单个片段时直接使用该片段。跨 chunk 的路径、内容和中文字符保持连续，帧容量随实际数据增长。stderr 按 chunk 完整收集，在进程关闭时统一解码。结果输出、stderr 与错误文本均保留完整内容，容量随实际数据增长。
-
-工具持续消费全部匹配，在遍历完成后返回完整状态。进程生命周期的停止原因对应用户取消、协议错误或执行错误。
-
-取消信号终止 child，并返回 `ok: false`、`error: cancelled` 和 `truncated: true`。停止首先发送 SIGTERM，250ms后仍运行的 child 接收 SIGKILL。执行器等待进程关闭并清理监听器与计时器。
-
-ripgrep exit 0表示正常完成，exit 1表示正常空结果，两者均映射为成功工具结果。exit 2、其他异常退出、启动失败、流错误和协议错误返回失败和完整诊断；已接纳结果作为部分结果保留。结果状态通过既有 `ToolResult → Tool Message → 下一模型回合` 链路传播，查询活动继续使用现有工具名称。
+- stdout：按 NUL 路径帧或 JSON 行帧增量消费；帧缓冲按收到的 chunk 保留片段，在完整帧处一次组装并解码 UTF-8，完整帧位于单个片段时直接使用该片段。
+- 跨块数据：跨 chunk 的路径、内容与中文字符保持连续，帧容量随实际数据增长。
+- stderr：按 chunk 完整收集，在进程关闭时统一解码。
+- 输出容量：结果输出、stderr 与错误文本保留完整内容，容量随实际数据增长；工具消费全部匹配并在遍历结束后返回完整状态。
+- 停止原因：进程生命周期记录用户取消、协议错误或执行错误。
+- 取消结果：取消信号终止 child，返回 `ok: false`、`error: cancelled` 与 `truncated: true`。
+- 取消时序：先发送 SIGTERM，250ms后仍运行的 child 接收 SIGKILL；执行器等待进程关闭并清理监听器与计时器。
+- 成功状态：ripgrep exit 0表示正常完成，exit 1表示正常空结果，两者均映射为成功工具结果。
+- 失败状态：exit 2、其他异常退出、启动失败、流错误与协议错误返回失败和完整诊断，已接纳结果作为部分结果保留。
+- 结果传播：通过 `ToolResult → Tool Message → 下一模型回合` 链路传播，查询活动沿用现有工具名称。

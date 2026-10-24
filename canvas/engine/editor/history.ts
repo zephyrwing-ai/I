@@ -5,6 +5,12 @@ import type { Snapshot } from "./store";
 import type { AppState } from "./types";
 
 type HistoryStack = HistoryEntry[];
+type HistoryEditGuard = (elementIds: Iterable<string>) => boolean;
+
+interface HistoryApplyOptions {
+  /** Active gestures retain their current interaction and selection state. */
+  preserveAppState?: boolean;
+}
 
 export class HistoryChangedEvent {
   constructor(
@@ -64,13 +70,16 @@ export class History {
     elements: SceneElementsMap,
     appState: AppState,
     snapshot: Readonly<Snapshot>,
+    canApply?: HistoryEditGuard,
+    options: HistoryApplyOptions = {},
   ) {
     return this.perform(
       elements,
       appState,
       snapshot,
-      () => History.pop(this.undoStack),
+      () => History.pop(this.undoStack, canApply),
       (entry: HistoryEntry) => History.push(this.redoStack, entry, elements),
+      options,
     );
   }
 
@@ -78,13 +87,16 @@ export class History {
     elements: SceneElementsMap,
     appState: AppState,
     snapshot: Readonly<Snapshot>,
+    canApply?: HistoryEditGuard,
+    options: HistoryApplyOptions = {},
   ) {
     return this.perform(
       elements,
       appState,
       snapshot,
-      () => History.pop(this.redoStack),
+      () => History.pop(this.redoStack, canApply),
       (entry: HistoryEntry) => History.push(this.undoStack, entry, elements),
+      options,
     );
   }
 
@@ -94,6 +106,7 @@ export class History {
     snapshot: Readonly<Snapshot>,
     pop: () => HistoryEntry | null,
     push: (entry: HistoryEntry) => void,
+    options: HistoryApplyOptions,
   ): [SceneElementsMap, AppState] | void {
     try {
       let historyEntry = pop();
@@ -110,7 +123,7 @@ export class History {
       while (historyEntry) {
         try {
           [nextElements, nextAppState, containsVisibleChange] =
-            historyEntry.applyTo(nextElements, nextAppState, snapshot);
+            historyEntry.applyTo(nextElements, nextAppState, snapshot, options);
         } finally {
           // make sure to always push / pop, even if the increment is corrupted
           push(historyEntry);
@@ -133,8 +146,15 @@ export class History {
     }
   }
 
-  private static pop(stack: HistoryStack): HistoryEntry | null {
-    if (!stack.length) {
+  private static pop(
+    stack: HistoryStack,
+    canApply?: HistoryEditGuard,
+  ): HistoryEntry | null {
+    const nextEntry = stack.at(-1);
+    if (
+      !nextEntry ||
+      (canApply && !canApply(nextEntry.elementsChange.affectedElementIds()))
+    ) {
       return null;
     }
 
@@ -181,9 +201,14 @@ export class HistoryEntry {
     elements: SceneElementsMap,
     appState: AppState,
     snapshot: Readonly<Snapshot>,
+    options: HistoryApplyOptions = {},
   ): [SceneElementsMap, AppState, boolean] {
     const [nextElements, elementsContainVisibleChange] =
       this.elementsChange.applyTo(elements, snapshot.elements);
+
+    if (options.preserveAppState) {
+      return [nextElements, appState, elementsContainVisibleChange];
+    }
 
     const [nextAppState, appStateContainsVisibleChange] =
       this.appStateChange.applyTo(appState, nextElements);

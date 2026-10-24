@@ -18,7 +18,7 @@
       font-family: "Assistant";
       font-style: normal;
       font-weight: 700;
-      font-size: 1.313rem;
+      font-size: calc(1.313rem + var(--ui-font-offset, 0px));
       line-height: 130%;
       padding: 0;
       margin: 0;
@@ -137,7 +137,7 @@
 
           font-family: "Assistant";
           font-weight: 600;
-          font-size: 1rem;
+          font-size: calc(1rem + var(--ui-font-offset, 0px));
           line-height: 150%;
 
           & svg {

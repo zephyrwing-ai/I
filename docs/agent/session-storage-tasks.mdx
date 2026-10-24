@@ -1,48 +1,40 @@
----
-title: 项目历史存储实现清单
-description: 项目范围历史、目录上下文缓存和 HistoryRecorder 的实现状态。
----
+项目历史存储实现清单。
 
-## 数据存储
+- 范围：记录项目历史、目录缓存、Runtime 提交和桌面装配的跨模块实现状态，具体契约由各模块设计文档维护。
 
-- [x] 创建 `projects` 表，保存 `projectId`、规范化路径、显示名称和最近激活时间。
-- [x] 创建 `project_context` 表，保存有界目录树、hash、扫描策略和 dirty 状态。
-- [x] 将 `entries` 改为 nullable `project_id` 范围和全局 `entry_order`。
-- [x] 将 `tool_invocations` 改为 nullable `project_id` 范围，并使用 `run_id + tool_call_id` 关联工具调用。
-- [x] 增加旧 sessions 数据迁移，将既有历史归入无项目范围；覆盖 v1 无工具表、v2 无 cwd、后续已有工具账本和项目范围 v8。
-- [x] schema v9 增加 `run_cancellations`，持久保存用户主动停止的事实。
+数据存储。
 
-## HistoryRecorder 与 Runtime
+- 项目：`projects` 已保存 `projectId`、规范化路径、显示名称和最近激活时间。
+- 上下文：`project_context` 已保存有界目录树、hash、扫描策略和 dirty 状态。
+- 消息：`entries` 使用可空 `project_id` 绑定项目或 General，并通过全局 `entry_order` 排序。
+- 工具：`tool_invocations` 使用可空 `project_id` 与 `run_id + tool_call_id` 关联调用。
+- 迁移：旧 sessions 数据归入 General，覆盖 v1 工具账本创建、v2 工作目录迁移、后续工具账本和项目范围 v8。
+- 取消：schema v9 引入 `run_cancellations`，持久保存用户主动停止事实。
 
-- [x] 将持久化契约命名为 `HistoryRecorder`。
-- [x] 保持用户消息、助手草稿、完整助手消息、工具结果和恢复账本的提交屏障。
-- [x] 完整工具调用型 Assistant Message 与整批 planned invocation 在单事务中登记，任一冲突整批回滚。
-- [x] 主动取消后为未执行与未知结果调用结算 Tool Message，下一 run 不隐式重放；保留已有确定 outcome。
-- [x] Canvas 等不允许跨 run 调度的 planned 调用直接结算 interrupted，保持 attemptCount 为零。
-- [x] 以 `projectId: string | null` 绑定 Recorder 历史范围。
-- [x] 将项目上下文作为 transient Runtime context 注入模型请求。
+HistoryRecorder 与 Runtime。
 
-## Main 与 IPC
+- 契约：持久化接口统一为 `HistoryRecorder`，以 `projectId` 的真实 ID 或 `null` 绑定历史范围。
+- 提交：用户消息、助手草稿、完整助手消息、工具结果和执行账本均沿用本地提交屏障。
+- 工具计划：完整工具调用型 Assistant Message 与整批 planned invocation 在单事务登记，任一冲突使整批回滚。
+- 取消：等待执行的调用结算 cancelled，结果待核对的调用结算 interrupted，已确定的 outcome 继续复用；后续运行依据取消事实恢复结算结果。
+- Canvas：跨 run 调度能力为关闭状态的 planned 调用直接结算 interrupted，attemptCount 保持零。
+- 上下文：项目目录地图以 transient Runtime context 注入模型请求。
 
-- [x] Main 管理项目目录规范化、项目创建、项目恢复和无项目范围。
-- [x] Preload 暴露 `getActiveProject`、`selectProject`、`clearProject` 和 `loadHistoryPage`。
-- [x] Main 按项目范围创建和缓存 HistoryRecorder。
-- [x] 项目切换在运行空闲时更新历史、Canvas 和目录上下文范围。
+Main 与 IPC。
 
-## Renderer 与 Composer
+- 项目管理：Main 负责目录规范化、项目创建、项目恢复与 General 范围。
+- 桥接：Preload 提供 `getActiveProject`、`selectProject`、`clearProject` 和 `loadHistoryPage`。
+- Recorder：Main 按项目范围创建并缓存 HistoryRecorder。
+- 切换：运行空闲时更新历史、Canvas 和目录上下文范围。
 
-- [x] Composer 顶部提供项目选择行。
-- [x] 空状态显示 `Choose folder`，项目状态显示目录名称。
-- [x] 项目选择行使用圆润的 `folder-closed` 图标。
-- [x] 项目切换后重新加载对应历史投影。
-- [x] 项目选择和清除在运行期间保持禁用。
+Renderer 与 Composer。
 
-## 验证
+- 项目入口：Composer 顶部显示项目选择行，空状态为 `Choose folder`，项目状态为目录名称。
+- 图标：项目入口采用圆润的 `folder-closed` 图标。
+- 历史：项目切换后重新加载对应范围的历史投影。
+- 运行期间：项目选择与清除入口保持禁用，当前运行沿用启动配置。
 
-- [x] `npm run typecheck:node`。
-- [x] `npm run typecheck:web`。
-- [x] Agent Runtime、工具事务、历史迁移与 Main Stop 的 39 项聚焦回归；新增测试的 strict TypeScript 检查。
-- [ ] `npm test` 全量检查通过。
-- [ ] `npm run build`。
-- [ ] 文档相对链接检查。
-- [ ] `git diff --check`。
+工程交付记录。
+
+- 既有记录：`npm run typecheck:node`、`npm run typecheck:web`、39项 Agent Runtime、工具事务、历史迁移与 Main Stop 聚焦回归，以及新增测试的 strict TypeScript 检查已有完成记录。
+- 后续交付：`npm test` 全量检查、`npm run build`、文档相对链接检查与 `git diff --check` 按各次工程变更记录实际结果。

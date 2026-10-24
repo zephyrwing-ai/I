@@ -50,7 +50,7 @@ test("message timestamp migration preserves identities and dates across v8 and v
       assert.ok(columns.includes("completed_at"));
       assert.ok(!columns.includes("updated_at"));
       assert.equal(repository.database.prepare("PRAGMA user_version").get()?.user_version, SCHEMA_VERSION);
-      assert.ok(repository.database.prepare("PRAGMA table_info(tool_invocations)").all().some((column) => column.name === "updated_at"));
+      assert.ok(!repository.database.prepare("PRAGMA table_info(tool_invocations)").all().some((column) => column.name === "updated_at"));
       repository.close();
       const reopened = new SqliteHistoryRepository(path);
       assert.deepEqual(reopened.database.prepare("SELECT * FROM entries ORDER BY entry_order").all(), rows);

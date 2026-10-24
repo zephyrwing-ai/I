@@ -2,11 +2,11 @@
  * Electron 主进程入口 — 创建窗口、注册 IPC、装配 AgentRunner。
  */
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell, webContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, session, shell, webContents } from "electron";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import appIconPath from "../../frontend/src/assets/app-icon.png?asset";
 import applicationMetadata from "../../package.json";
 import {
@@ -26,10 +26,15 @@ import {
   type ProviderProfileSummary,
   type RefreshProviderModelsResult,
   type ProjectDescriptor,
+  type ProjectActionRequest,
+  type ProjectActionResult,
+  type QuitPreparationResult,
   type RunRequest,
   type RunStartAck,
   type SteerRequest,
   type SteerAck,
+  type VoiceTranscriptionRequest,
+  type VoiceTranscriptionResult,
   type SaveProviderResult,
   type HistoryPageRequest,
   type HistoryPageResult,
@@ -40,11 +45,14 @@ import { ProviderStore } from "./provider-store.js";
 import { discoverProviderModels, discoveryErrorResult } from "./provider-model-discovery.js";
 import { AgentRunner } from "./runner.js";
 import { HistoryService } from "./session-history.js";
-import { ProjectRegistry } from "./project-registry.js";
+import { ProjectRegistry, type ActiveProjectContext } from "./project-registry.js";
 import { CanvasContextRegistry } from "../../canvas/context/CanvasContextRegistry.js";
 import { CanvasDocumentStore } from "../../canvas/persistence/CanvasDocumentStore.js";
 import { CanvasEditBridge, CanvasEditBridgeError } from "./canvas-edit-bridge.js";
 import { CanvasCliExecutor } from "./canvas-cli-executor.js";
+import { VoiceTranscriptionService, voiceResourcePaths } from "./voice-transcription.js";
+import { ApplicationLifecycle, installApplicationLifecycle, registerWindowResources } from "./application-lifecycle.js";
+import { QuitPreparation } from "./quit-preparation.js";
 import {
   createHistoryRecorder,
   SqliteHistoryRepository,
@@ -63,6 +71,40 @@ mkdirSync(userDataDirectory, { recursive: true });
 app.setPath("userData", userDataDirectory);
 app.setPath("sessionData", userDataDirectory);
 
+const voicePermissionOwners = new Set<number>();
+let voicePermissionsRegistered = false;
+
+function registerVoicePermissions(): void {
+  if (voicePermissionsRegistered) return;
+  voicePermissionsRegistered = true;
+  const rendererUrl = new URL(process.env.ELECTRON_RENDERER_URL
+    ?? pathToFileURL(join(mainProcessDirectory, "../renderer/index.html")).href);
+  const isRendererUrl = (value: string): boolean => {
+    try {
+      const candidate = new URL(value);
+      return candidate.origin === rendererUrl.origin
+        && candidate.protocol === rendererUrl.protocol
+        && candidate.pathname === rendererUrl.pathname;
+    } catch {
+      return false;
+    }
+  };
+  const isRenderer = (candidate: Electron.WebContents | null): boolean => (
+    candidate !== null && voicePermissionOwners.has(candidate.id)
+    && isRendererUrl(candidate.getURL())
+  );
+  session.defaultSession.setPermissionCheckHandler((owner, permission, _origin, details) => (
+    permission === "media" && isRenderer(owner) && details.isMainFrame
+    && details.mediaType === "audio" && isRendererUrl(details.requestingUrl ?? "")
+  ));
+  session.defaultSession.setPermissionRequestHandler((owner, permission, callback, details) => {
+    const mediaTypes = (details as { mediaTypes?: string[] }).mediaTypes;
+    callback(permission === "media" && isRenderer(owner) && details.isMainFrame
+      && isRendererUrl(details.requestingUrl)
+      && mediaTypes?.length === 1 && mediaTypes[0] === "audio");
+  });
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1180,
@@ -80,6 +122,8 @@ function createWindow(): BrowserWindow {
       sandbox: true,
     },
   });
+
+  registerVoicePermissions();
 
   // 渲染进程里的外链一律走系统浏览器，不打开新 Electron 窗口。
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -112,11 +156,44 @@ function registerIpc(
   projects: ProjectRegistry,
   historyService: HistoryService,
   getHistoryRecorder: (projectId: HistoryScope) => Promise<HistoryRecorder>,
+  releaseHistoryRecorder: (projectId: HistoryScope) => Promise<void>,
+  voiceTranscription: VoiceTranscriptionService,
+  lifecycle: ApplicationLifecycle,
+  quitPreparation: QuitPreparation,
 ): void {
+  const handle: typeof ipcMain.handle = (channel, listener) => {
+    ipcMain.handle(channel, (event, ...args) => lifecycle.admit(
+      () => listener(event, ...args),
+      channel === IPC.saveCanvasDocument && quitPreparation.isWaiting(event.sender.id),
+    ));
+  };
+  ipcMain.on(IPC.quitPreparationReady, (event, ready: unknown) => {
+    if (BrowserWindow.fromWebContents(event.sender)) quitPreparation.setReady(event.sender.id, ready === true);
+  });
+  ipcMain.on(IPC.quitPreparationResult, (event, result: QuitPreparationResult) => {
+    quitPreparation.complete(event.sender.id, result);
+  });
   const discoveryControllers = new Map<string, AbortController>();
   const activatedCanvasProjects = new Set<string | null>([projects.activeScope]);
+  let projectScopeOperations: Promise<void> = Promise.resolve();
+  const inProjectScope = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = projectScopeOperations.then(operation);
+    projectScopeOperations = result.then(() => undefined, () => undefined);
+    return result;
+  };
+  const requireIdleProjectScope = (): void => {
+    if (runner.isActive) throw new Error("Choose a project after the current run finishes.");
+  };
+  const prepareProject = async (active: ActiveProjectContext): Promise<void> => {
+    await getHistoryRecorder(active.descriptor.projectId);
+  };
+  const finishProjectActivation = (active: ActiveProjectContext): ProjectDescriptor => {
+    activatedCanvasProjects.add(active.descriptor.projectId);
+    canvasContexts.clearAll();
+    return active.descriptor;
+  };
 
-  ipcMain.handle(IPC.run, async (event, req: RunRequest): Promise<RunStartAck> => {
+  handle(IPC.run, (event, req: RunRequest): Promise<RunStartAck> => inProjectScope(async () => {
     try {
       const task = req.task.trim();
       const active = await projects.getActiveContext();
@@ -160,9 +237,9 @@ function registerIpc(
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
-  });
+  }));
 
-  ipcMain.handle(IPC.steer, async (event, request: SteerRequest): Promise<SteerAck> => {
+  handle(IPC.steer, async (event, request: SteerRequest): Promise<SteerAck> => {
     try {
       if (!request || typeof request !== "object"
         || typeof request.runId !== "string"
@@ -189,40 +266,102 @@ function registerIpc(
     runner.stop(event.sender.id);
   });
 
-  ipcMain.handle(IPC.loadHistoryPage, async (_event, request: HistoryPageRequest): Promise<HistoryPageResult> => {
+  handle(IPC.transcribeVoice, async (event, request: VoiceTranscriptionRequest): Promise<VoiceTranscriptionResult> => {
+    return voiceTranscription.transcribe(request, event.sender.id);
+  });
+
+  ipcMain.on(IPC.cancelVoiceTranscription, (event, requestId: string) => {
+    if (typeof requestId === "string") voiceTranscription.cancel(requestId, event.sender.id);
+  });
+
+  handle(IPC.loadHistoryPage, async (_event, request: HistoryPageRequest): Promise<HistoryPageResult> => {
     return historyService.loadPage(request);
   });
 
-  ipcMain.handle(IPC.getActiveProject, async (): Promise<ProjectDescriptor> => {
-    return (await projects.getActiveContext()).descriptor;
-  });
+  handle(IPC.getActiveProject, (): Promise<ProjectDescriptor> => inProjectScope(async () => (
+    (await projects.getActiveContext()).descriptor
+  )));
 
-  ipcMain.handle(IPC.selectProject, async (event): Promise<ProjectDescriptor | null> => {
-    if (runner.isActive) throw new Error("Choose a project after the current run finishes.");
+  handle(IPC.listProjects, (): Promise<ProjectDescriptor[]> => projects.list());
+
+  handle(IPC.activateProject, (_event, projectId: string): Promise<ProjectDescriptor> => inProjectScope(async () => {
+    requireIdleProjectScope();
+    return finishProjectActivation(await projects.activate(projectId, prepareProject));
+  }));
+
+  handle(IPC.performProjectAction, (event, request: ProjectActionRequest): Promise<ProjectActionResult> => inProjectScope(async () => {
+    if (!request || typeof request.projectId !== "string" || !["pin", "unpin", "reveal", "rename", "delete"].includes(request.action)) {
+      throw new Error("The project action is invalid.");
+    }
+    if (request.action !== "reveal") requireIdleProjectScope();
+    const project = await projects.getDescriptor(request.projectId);
+    let status: ProjectActionResult["status"] = "completed";
+    switch (request.action) {
+      case "pin":
+      case "unpin":
+        await projects.update(request.projectId, { pinned: request.action === "pin" });
+        break;
+      case "rename":
+        if (typeof request.name !== "string") throw new Error("Enter a project display name.");
+        await projects.update(request.projectId, { displayName: request.name });
+        break;
+      case "reveal":
+        shell.showItemInFolder(project.canonicalPath!);
+        break;
+      case "delete": {
+        const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+        const options = {
+          type: "warning" as const,
+          buttons: ["Cancel", "Delete session"],
+          defaultId: 0,
+          cancelId: 0,
+          message: `Delete “${project.displayName}”?`,
+          detail: "The project registration and its chat history will be deleted. Your project folder and files will remain on disk.",
+        };
+        const confirmation = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+        if (confirmation.response !== 1) {
+          status = "cancelled";
+          break;
+        }
+        const deletingActiveProject = projects.activeScope === request.projectId;
+        if (deletingActiveProject) await getHistoryRecorder(null);
+        await releaseHistoryRecorder(request.projectId);
+        await projects.delete(request.projectId);
+        activatedCanvasProjects.delete(request.projectId);
+        if (deletingActiveProject) {
+          activatedCanvasProjects.add(null);
+          canvasContexts.clearAll();
+        }
+        break;
+      }
+    }
+    const changed = status === "completed" && request.action !== "reveal";
+    return { status, ...(changed ? { projects: await projects.list() } : {}), activeProject: await projects.getActiveDescriptor() };
+  }));
+
+  handle(IPC.selectProject, async (event): Promise<ProjectDescriptor | null> => {
+    requireIdleProjectScope();
     const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
-    if (!win) return null;
+    if (!win) throw new Error("The project folder picker has no available application window.");
     const result = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
     if (result.canceled || result.filePaths.length === 0) return null;
-    const active = await projects.selectPath(result.filePaths[0]!);
-    activatedCanvasProjects.add(active.descriptor.projectId);
-    canvasContexts.clearAll();
-    await getHistoryRecorder(active.descriptor.projectId);
-    return active.descriptor;
+    return inProjectScope(async () => {
+      requireIdleProjectScope();
+      return finishProjectActivation(await projects.selectPath(result.filePaths[0]!, prepareProject));
+    });
   });
 
-  ipcMain.handle(IPC.clearProject, async (): Promise<ProjectDescriptor> => {
-    if (runner.isActive) throw new Error("Clear the project after the current run finishes.");
-    const active = projects.clear();
-    canvasContexts.clearAll();
+  handle(IPC.clearProject, (): Promise<ProjectDescriptor> => inProjectScope(async () => {
+    requireIdleProjectScope();
     await getHistoryRecorder(null);
-    return active.descriptor;
-  });
+    return finishProjectActivation(projects.clear());
+  }));
 
-  ipcMain.handle(IPC.listProviderProfiles, async (): Promise<ProviderProfileSummary[]> => {
+  handle(IPC.listProviderProfiles, async (): Promise<ProviderProfileSummary[]> => {
     return providers.list();
   });
 
-  ipcMain.handle(IPC.discoverProviderModels, async (event, input: ProviderModelDiscoveryInput): Promise<ProviderModelDiscoveryResult> => {
+  handle(IPC.discoverProviderModels, async (event, input: ProviderModelDiscoveryInput): Promise<ProviderModelDiscoveryResult> => {
     if (!input || typeof input.requestId !== "string" || !input.requestId) {
       return { ok: false, error: "invalid_response", message: "The model discovery request is missing a valid identity." };
     }
@@ -249,7 +388,7 @@ function registerIpc(
     discoveryControllers.get(`${event.sender.id}:${requestId}`)?.abort();
   });
 
-  ipcMain.handle(IPC.refreshProviderModels, async (_event, providerProfileId: string): Promise<RefreshProviderModelsResult> => {
+  handle(IPC.refreshProviderModels, async (_event, providerProfileId: string): Promise<RefreshProviderModelsResult> => {
     if (runner.isActive) return { ok: false, error: "unsupported", message: "Providers cannot be refreshed while a run is active." };
     if (typeof providerProfileId !== "string" || !providerProfileId) {
       return { ok: false, error: "invalid_response", message: "The provider identity is missing." };
@@ -263,7 +402,7 @@ function registerIpc(
     }
   });
 
-  ipcMain.handle(IPC.saveProvider, async (_event, input: ProviderProfileInput): Promise<SaveProviderResult> => {
+  handle(IPC.saveProvider, async (_event, input: ProviderProfileInput): Promise<SaveProviderResult> => {
     if (runner.isActive) return { ok: false, error: "Providers cannot be changed while a run is active." };
     try {
       return { ok: true, profile: await providers.save(input) };
@@ -272,7 +411,7 @@ function registerIpc(
     }
   });
 
-  ipcMain.handle(IPC.deleteProvider, async (_event, providerProfileId: string): Promise<DeleteProviderResult> => {
+  handle(IPC.deleteProvider, async (_event, providerProfileId: string): Promise<DeleteProviderResult> => {
     if (runner.isActive) return { ok: false, error: "Providers cannot be deleted while a run is active." };
     try {
       await providers.delete(providerProfileId);
@@ -282,26 +421,26 @@ function registerIpc(
     }
   });
 
-  ipcMain.handle(IPC.selectAttachments, async (event): Promise<InputAttachmentDescriptor[]> => {
+  handle(IPC.selectAttachments, async (event): Promise<InputAttachmentDescriptor[]> => {
     const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
     if (!win) return [];
     const result = await dialog.showOpenDialog(win, { properties: ["openFile", "multiSelections"] });
     return result.canceled ? [] : inputAttachments.register(result.filePaths);
   });
 
-  ipcMain.handle(IPC.loadCanvasDocument, async (_event, projectId: string | null): Promise<CanvasDocumentResult> => {
+  handle(IPC.loadCanvasDocument, async (_event, projectId: string | null): Promise<CanvasDocumentResult> => {
     if (projectId !== projects.activeScope) throw new Error("The selected project changed. Open the canvas again.");
     return canvasDocuments.load(projectId);
   });
 
-  ipcMain.handle(IPC.saveCanvasDocument, async (_event, request: CanvasSaveRequest): Promise<CanvasSaveResult> => {
+  handle(IPC.saveCanvasDocument, async (_event, request: CanvasSaveRequest): Promise<CanvasSaveResult> => {
     if (!request || !activatedCanvasProjects.has(request.projectId)) {
       throw new Error("The canvas project identity is invalid.");
     }
     return canvasDocuments.save(request.projectId, request.document, request.expectedVersion);
   });
 
-  ipcMain.handle(IPC.prepareCanvasContext, async (_event, input: CanvasContextInput) => {
+  handle(IPC.prepareCanvasContext, async (_event, input: CanvasContextInput) => {
     if (!input || input.projectId !== projects.activeScope) {
       throw new Error("The selected project changed. Select the canvas content again.");
     }
@@ -312,14 +451,14 @@ function registerIpc(
     canvasEditBridge.handleResult(event.sender.id, result);
   });
 
-  ipcMain.handle(IPC.previewOutputFile, async (_event, runId: string, fileId: string): Promise<OutputFilePreviewResult> => {
+  handle(IPC.previewOutputFile, async (_event, runId: string, fileId: string): Promise<OutputFilePreviewResult> => {
     if (typeof runId !== "string" || typeof fileId !== "string" || !runId || !fileId) {
       return { ok: false, error: "invalid_request", message: "The output file identity is missing." };
     }
     return outputFiles.preview(runId, fileId);
   });
 
-  ipcMain.handle(IPC.openOutputFile, async (_event, runId: string, fileId: string): Promise<OpenOutputFileResult> => {
+  handle(IPC.openOutputFile, async (_event, runId: string, fileId: string): Promise<OpenOutputFileResult> => {
     if (typeof runId !== "string" || typeof fileId !== "string" || !runId || !fileId) {
       return { ok: false, error: "The output file identity is missing." };
     }
@@ -371,8 +510,12 @@ app.whenReady().then(async () => {
     recorders.set(key, recorder);
     return recorder;
   };
+  const releaseHistoryRecorder = async (projectId: HistoryScope): Promise<void> => {
+    const key = recorderKey(projectId);
+    await recorders.get(key)?.close();
+    recorders.delete(key);
+  };
   await getHistoryRecorder(null);
-  let closing = false;
 
   const providers = new ProviderStore(
     join(app.getPath("userData"), "provider-profiles.json"),
@@ -420,36 +563,53 @@ app.whenReady().then(async () => {
     enableCreateWithoutSelection: true,
     execute: (ownerWebContentsId, request, signal) => canvasCli.execute(ownerWebContentsId, request, signal),
   });
-  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, canvasDocuments, canvasEditBridge, projects, historyService, getHistoryRecorder);
-  createWindow();
-
-  app.on("before-quit", (event) => {
-    if (closing) return;
-    event.preventDefault();
-    closing = true;
-    runner.stop();
-    canvasCli.dispose();
-    canvasEditBridge.dispose();
-    void (async () => {
-      try {
-        await runner.waitForIdle();
-        await canvasDocuments.waitForIdle();
-        await Promise.all([...recorders.values()].map((recorder) => recorder.close()));
-      } finally {
-        historyRepository.close();
-        app.quit();
-      }
-    })();
+  const voiceTranscription = new VoiceTranscriptionService(voiceResourcePaths({
+    isPackaged: app.isPackaged,
+    defaultApp: process.defaultApp,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+  }));
+  const quitPreparation = new QuitPreparation();
+  const lifecycle = new ApplicationLifecycle({
+    prepare: async () => {
+      runner.stop();
+      for (const window of BrowserWindow.getAllWindows()) voiceTranscription.cancelOwner(window.webContents.id);
+      // Admitted project changes settle before the renderer flushes its current scope.
+      await lifecycle.waitForRequests();
+      runner.stop();
+      await runner.waitForIdle();
+      await quitPreparation.flush(BrowserWindow.getAllWindows().map((window) => ({
+        id: window.webContents.id,
+        send: (requestId: string) => window.webContents.send(IPC.prepareToQuit, { requestId }),
+      })));
+    },
+    drain: async () => {
+      canvasCli.dispose();
+      canvasEditBridge.dispose();
+      await voiceTranscription.dispose();
+      await canvasDocuments.waitForIdle();
+      await Promise.all([...recorders.values()].map((recorder) => recorder.close()));
+    },
+    close: () => historyRepository.close(),
+    exit: (code) => app.exit(code),
+    onError: (error) => {
+      if (lifecycle.phase === "running") {
+        dialog.showErrorBox("Changes could not be saved", error instanceof Error ? error.message : String(error));
+      } else console.error("Application shutdown failed", error);
+    },
   });
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  const openWindow = (): void => {
+    const window = createWindow();
+    registerWindowResources(window, { voicePermissionOwners, quitPreparation, voiceTranscription });
+  };
+  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, canvasDocuments, canvasEditBridge, projects, historyService, getHistoryRecorder, releaseHistoryRecorder, voiceTranscription, lifecycle, quitPreparation);
+  installApplicationLifecycle(app, process, lifecycle, {
+    hasOpenWindows: () => BrowserWindow.getAllWindows().length > 0,
+    create: openWindow,
+    platform: process.platform,
   });
+  openWindow();
 }).catch((error: unknown) => {
   dialog.showErrorBox("History storage initialization failed", error instanceof Error ? error.message : String(error));
   app.quit();
-});
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
 });

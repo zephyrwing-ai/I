@@ -81,7 +81,7 @@
       transition: visibility 0s linear 0s, opacity 0.5s;
 
       font-family: var(--ui-font);
-      font-size: 0.75rem;
+      font-size: calc(0.75rem + var(--ui-font-offset, 0px));
       font-weight: 500;
       line-height: 1;
 

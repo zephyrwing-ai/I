@@ -3,23 +3,37 @@
  * 内部根据 provider 动态加载对应实现（不用的 SDK 不需要装）。
  */
 
-import type { ToolDef, LlmResponse, ModelMessage, ModelStreamEvent } from "./types.js";
+import type { ToolDef, LlmResponse, ModelMessage, ModelStreamEvent, ModelCapabilities } from "./types.js";
 
-export type { ToolDef, LlmResponse, ModelMessage, ModelStreamEvent, ToolCall, ModelStopReason, ModelErrorKind } from "./types.js";
+export type { ToolDef, LlmResponse, ModelMessage, ModelStreamEvent, ToolCall, ModelStopReason, ModelErrorKind, ModelUsage, ModelCapabilities } from "./types.js";
 export { ModelAdapterError } from "./types.js";
 
 /** 只保留 OpenAI 兼容协议（DeepSeek 等均走此协议）。 */
 export type Provider = "openai";
 
+export interface ModelContextConfig {
+  windowTokens: number;
+  outputReserveTokens: number;
+  safetyTokens: number;
+  growthTokens: number;
+  recentTokens: number;
+  summaryTokens: number;
+}
+
 export interface ModelConfig {
   provider: Provider;
   model: string;
+  capabilities?: ModelCapabilities;
+  context?: ModelContextConfig;
+  maxOutputTokens?: number;
   /** OpenAI 兼容接口的额外配置 (baseURL、凭据和 Provider 思考字段)。 */
   openai?: {
     baseURL?: string;
     apiKey?: string;
     apiKeyProvider?: () => Promise<string>;
     reasoningField?: "reasoning_content";
+    maxOutputParameter?: "max_tokens" | "max_completion_tokens";
+    streamUsage?: boolean;
   };
 }
 
@@ -38,7 +52,7 @@ export async function* response(
   switch (config.provider) {
     case "openai": {
       const { streamOpenAI } = await import("./openai.js");
-      yield* streamOpenAI(messages, tools, { model: config.model, ...config.openai }, system, signal);
+      yield* streamOpenAI(messages, tools, { ...config.openai, model: config.model, maxOutputTokens: config.maxOutputTokens }, system, signal);
       return;
     }
   }

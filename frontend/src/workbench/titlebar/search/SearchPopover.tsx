@@ -1,0 +1,117 @@
+import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
+import { useI18n } from "../../../shared/i18n";
+import { Icon } from "../../../shared/ui/Icon";
+import type { SearchResult } from "./search";
+
+interface SearchPopoverProps {
+  query: string;
+  onQueryChange: (query: string) => void;
+  results: SearchResult[];
+  activeBlockId: string | null;
+  loadingHistory: boolean;
+  hydrated: boolean;
+  hasMoreHistory: boolean;
+  error: string | null;
+  panelRef: RefObject<HTMLDivElement>;
+  onSelect: (result: SearchResult) => void;
+  onRetry: () => void;
+}
+
+function HighlightedSnippet({ result }: { result: SearchResult }) {
+  const { start, end } = result.snippetMatchRange;
+  return (
+    <>
+      {result.snippet.slice(0, start)}
+      <mark>{result.snippet.slice(start, end)}</mark>
+      {result.snippet.slice(end)}
+    </>
+  );
+}
+
+export function SearchPopover({
+  query,
+  onQueryChange,
+  results,
+  activeBlockId,
+  loadingHistory,
+  hydrated,
+  hasMoreHistory,
+  error,
+  panelRef,
+  onSelect,
+  onRetry,
+}: SearchPopoverProps) {
+  const t = useI18n();
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => inputRef.current?.focus(), []);
+
+  const onInputKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (!results.length) return;
+    const currentIndex = results.findIndex((result) => result.blockId === activeBlockId);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      onSelect(results[(currentIndex + 1 + results.length) % results.length]!);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      onSelect(results[(currentIndex - 1 + results.length) % results.length]!);
+    } else if (event.key === "Enter" && currentIndex >= 0) {
+      event.preventDefault();
+      onSelect(results[currentIndex]!);
+    }
+  };
+
+  const queryActive = query.trim().length > 0;
+  const activeIndex = results.findIndex((result) => result.blockId === activeBlockId);
+  const activeOptionId = activeIndex >= 0 ? `search-result-${activeIndex}` : undefined;
+
+  return (
+    <div className="search-layer">
+      <div className="search-backdrop" aria-hidden="true" />
+      <div id="search-popover" ref={panelRef} className="search-popover" role="dialog" aria-label={t("Search all content")}>
+        <span className="search-glyph"><Icon name="search" width="18" height="18" strokeWidth={2} /></span>
+        <input
+          ref={inputRef}
+          type="search"
+          role="searchbox"
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          onKeyDown={onInputKeyDown}
+          placeholder={t("Search...")}
+          aria-label={t("Search content")}
+          aria-controls="search-results"
+          aria-activedescendant={activeOptionId}
+        />
+        {queryActive && (
+          <div className="search-results" id="search-results" role="listbox" aria-label={t("Search results")}>
+            {!hydrated && <div className="search-status">{t("Loading messages…")}</div>}
+            {hydrated && results.map((result, index) => (
+              <button
+                key={result.blockId}
+                id={`search-result-${index}`}
+              type="button"
+              role="option"
+              aria-selected={result.blockId === activeBlockId}
+              className="search-result"
+              onClick={() => onSelect(result)}
+              >
+                <span className="search-result-marker" aria-hidden="true" />
+                <span className="search-result-text"><HighlightedSnippet result={result} /></span>
+              </button>
+            ))}
+            {hydrated && results.length === 0 && !loadingHistory && !hasMoreHistory && !error && (
+              <div className="search-status">{t("No matching messages found")}</div>
+            )}
+            {hydrated && loadingHistory && <div className="search-status">{t("Searching earlier messages…")}</div>}
+            {hydrated && hasMoreHistory && !loadingHistory && !results.length && <div className="search-status">{t("Preparing more messages…")}</div>}
+            {error && (
+              <div className="search-status search-status-error" role="alert">
+                <span>{error}</span>
+                <button type="button" onClick={onRetry}>{t("Retry")}</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

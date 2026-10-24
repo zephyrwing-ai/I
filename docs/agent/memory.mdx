@@ -1,12 +1,11 @@
----
-title: 项目历史存储
-description: Agent 按项目和无项目范围保存本地历史、工具恢复账本与项目上下文缓存。
----
+项目历史存储。
 
-## 范围身份
+- 职责：保存项目与 General 历史、消息时间、运行中输入、工具恢复账本、项目目录缓存和上下文压缩快照。
+
+范围身份。
 
 - `projectId`：真实项目的稳定身份；项目由规范化目录路径唯一确定。
-- `projectId = NULL`：持久化的无项目历史范围，界面显示为 `General`。
+- `projectId = NULL`：持久化的无项目历史范围，内部范围说明使用 `General` 名称，页面入口由桌面项目导航定义。
 - `runId`：主任务与运行中补充输入共享的一次完整 Agent 运行。
 - `turnId`：一次模型请求以及随后产生的工具批次。
 - `attempt`：同一逻辑 turn 内的一次模型请求尝试。
@@ -15,119 +14,114 @@ description: Agent 按项目和无项目范围保存本地历史、工具恢复�
 - `entryOrder`：数据库范围内递增的历史顺序游标。
 - `inputId`：一次运行中补充输入的稳定身份；待处理记录和最终用户 entry 沿用同一个 ID。
 
-## 数据模型
+数据模型。
 
-```text
-projects 1 ──────── 1 project_context
-   │
-   └─────────────── N entries
-   │
-   └─────────────── N tool_invocations
-   │
-   └─────────────── N run_cancellations
-   │
-   └─────────────── N 待处理输入记录（project_id 可空）
-```
+- 关联：每个项目对应一份 `project_context`，并关联多条 `entries`、`tool_invocations`、`run_cancellations`、待处理输入与压缩快照记录；这些记录通过可空的 `project_id` 绑定历史范围。
+项目目录记录。
 
-`projects` 保存真实项目目录。
+- 存储：`projects` 保存真实项目目录。
+- `id`：SQLite 类型 `TEXT`，主键；生成的 `projectId`。
+- `canonical_path`：SQLite 类型 `TEXT`，非空、唯一；规范化绝对目录路径。
+- `display_name`：SQLite 类型 `TEXT`，非空；项目显示名称，初始值为目录名称，名称编辑更新该字段。
+- `created_at`：SQLite 类型 `INTEGER`，非空；项目创建时间。
+- `last_opened_at`：SQLite 类型 `INTEGER`，非空；最近激活时间。
+- `pinned`：SQLite 类型 `INTEGER`，非空，默认值为0，取值为0或1；表达项目的持久化置顶状态。
+- 列表顺序：Repository 按 `pinned DESC, created_at ASC, id ASC` 返回项目；最近激活时间作为独立元数据保存。
+- 元数据更新：Repository 按稳定项目 ID 更新显示名称与置顶状态，显示名称去除首尾空白后使用1至200个字符，项目规范路径、历史归属和创建时间保持原值。
+- 项目删除：Repository 在单个事务中清理项目关联的 entries、工具恢复账本、待处理输入、取消记录、目录缓存与压缩快照，再删除项目记录；其他项目与 `project_id IS NULL` 的历史保持原值。
+消息记录。
 
-| 字段 | SQLite 类型 | 约束 | 语义 |
-| --- | --- | --- | --- |
-| id | TEXT | 主键 | 生成的 `projectId` |
-| canonical_path | TEXT | 非空、唯一 | 规范化绝对目录路径 |
-| display_name | TEXT | 非空 | 项目目录名称 |
-| created_at | INTEGER | 非空 | 项目创建时间 |
-| last_opened_at | INTEGER | 非空 | 最近激活时间 |
+- 存储：`entries` 保存模型可见的 completed 消息，以及供历史展示的 interrupted 用户输入。
+- `id`：SQLite 类型 `TEXT`，主键；`entryId`。
+- `project_id`：SQLite 类型 `TEXT`，可空外键；项目历史或无项目历史范围。
+- `entry_order`：SQLite 类型 `INTEGER`，非空、唯一；全局历史顺序。
+- `type`：SQLite 类型 `TEXT`，非空；`user_message`、`assistant_message`、`tool_result`。
+- `status`：SQLite 类型 `TEXT`，非空；`streaming`、`completed`、`interrupted`、`failed`。
+- `run_id`：SQLite 类型 `TEXT`，非空；关联一次 Agent 运行。
+- `turn_id`：SQLite 类型 `TEXT`，可空；关联一次模型请求。
+- `tool_call_id`：SQLite 类型 `TEXT`，可空；工具调用和工具结果的关联身份。
+- `revision`：SQLite 类型 `INTEGER`，非空；记录内容的递增版本。
+- `payload_version`：SQLite 类型 `INTEGER`，非空；payload 结构版本。
+- `payload_json`：SQLite 类型 `TEXT`，非空；完整 ModelMessage。
+- `created_at`：SQLite 类型 `INTEGER`，非空；固定的记录创建时间，用户消息使用该时间展示日期。
+- `completed_at`：SQLite 类型 `INTEGER`，可空；完整 Assistant Message 的固定输出完成时间，单位为 Unix 毫秒。
+- `duration_ms`：SQLite 类型 `INTEGER`，可空；成功完成的 run 从 `runStarted` 到 `runCompleted` 的持久化总时长（毫秒），保存在最终 Assistant Message。
+- `project_id IS NULL` 的记录构成无项目历史；`project_id = ?` 的记录构成对应项目历史。两个范围共享全局 `entry_order`，历史读取先按范围过滤，再按 `entry_order` 排序。
 
-`entries` 保存模型可见的 completed 消息，以及供历史展示的 interrupted 用户输入。
+助手消息通道。
 
-| 字段 | SQLite 类型 | 约束 | 语义 |
-| --- | --- | --- | --- |
-| id | TEXT | 主键 | `entryId` |
-| project_id | TEXT | 可空外键 | 项目历史或无项目历史范围 |
-| entry_order | INTEGER | 非空、唯一 | 全局历史顺序 |
-| type | TEXT | 非空 | `user_message`、`assistant_message`、`tool_result` |
-| status | TEXT | 非空 | `streaming`、`completed`、`interrupted`、`failed` |
-| run_id | TEXT | 非空 | 关联一次 Agent 运行 |
-| turn_id | TEXT | 可空 | 关联一次模型请求 |
-| tool_call_id | TEXT | 可空 | 工具调用和工具结果的关联身份 |
-| revision | INTEGER | 非空 | 记录内容的递增版本 |
-| payload_version | INTEGER | 非空 | payload 结构版本 |
-| payload_json | TEXT | 非空 | 完整 ModelMessage |
-| created_at | INTEGER | 非空 | 固定的记录创建时间，用户消息使用该时间展示日期 |
-| completed_at | INTEGER | 可空 | 完整 Assistant Message 的固定输出完成时间，单位为 Unix 毫秒 |
-| duration_ms | INTEGER | 可空 | 成功完成的 run 从 `runStarted` 到 `runCompleted` 的持久化总时长（毫秒），保存在最终 Assistant Message |
+- 原生正文：Assistant `ModelMessage.content` 保存本 turn 的用户可见原生正文，工具回合与中间回合的正文承担公开过程说明，最终回答由运行完成事实确认；`reasoning` 保存原始思考，`toolCalls` 保存结构化调用及实际操作参数。
+- JSON 承载：`payload_json` 保存完整消息并兼容可选旧 `progress`，沿用 `payload_version = 1` 和既有消息表；`progress` 字段类型校验接受字符串或字段省略，新响应直接保存原生字段。
+- 历史兼容：旧 payload 的 `content`、`progress`、原始 reasoning 与调用字段按原文恢复；实时与历史汇入相同 AgentState，由展示投影按最终回合身份分配正文位置，旧 `progress` 保留活动文字区兼容职责。
+- 快照与续轮：completed 消息快照保留原生正文、原始 reasoning、工具调用及可选旧 `progress`；Provider serializer 按[模型请求](./model-request.mdx)的原生协议构造续轮消息，DeepSeek 工具续轮按协议回传原始 reasoning。输入计量覆盖实际序列化文本与协议开销，压缩快照沿用既有摘要与来源版本规则。
+- 展示边界：正文经 `assistantDelta → assistantContent` 实时交付，活跃组最终身份来自 `runCompleted.finalTurnId`，历史通过最终 Assistant entry 的 `turnId` 与 `durationMs` 恢复；已应用 steer 启动下一组后，前组已提交的无工具回答按输入锚点与回合事实继续呈现。原始 reasoning 保持存储、诊断与协议回放职责，折叠状态由 Renderer 根据既有生命周期事实与本地交互派生。
 
-`project_id IS NULL` 的记录构成无项目历史；`project_id = ?` 的记录构成对应项目历史。两个范围共享全局 `entry_order`，历史读取先按范围过滤，再按 `entry_order` 排序。
-
-## 消息时间
+消息时间。
 
 - 初始用户消息的 `createdAt` 由 Main 在创建输入身份时生成，运行 ACK、Runtime 提交上下文和用户 entry 共享同一时间值。
 - 运行中补充输入的 `createdAt` 沿用持久化接收记录的 `acceptedAt`，应用与终态归档均保留这个时间。
 - Runtime 在完整模型输出聚合和有效性分类完成时生成 `completedAt`，Assistant Message 的终态提交与 `assistantCompleted` 共享同一时间值。提交重试复用已经确定的时间和消息身份。
 - 流式草稿、interrupted 和 failed attempt 的 `completedAt` 保持为空；状态恢复沿用原始 `createdAt`。已完成消息的 `completedAt` 在后续版本更新与时长提交中保持固定。
 - `revision` 表达记录版本，`entryOrder` 表达历史顺序，`durationMs` 表达整个 run 的耗时。
-- 消息 schema 版本为10。迁移保留原始 `created_at`、payload、身份、顺序和时长，已有 `completed_at` 沿用原值；旧版已完成助手记录使用保存的 `updated_at` 回填完成时间，其余消息保留空完成时间。迁移后的消息表使用 `created_at`、`completed_at` 和 `duration_ms` 表达时间事实。
-- 工具恢复账本的 `createdAt` 和 `updatedAt` 继续表达工具执行控制记录的时间边界。
+- 消息时间迁移保留原始 `created_at`、payload、身份、顺序和时长，已有 `completed_at` 沿用原值；旧版已完成助手记录使用保存的 `updated_at` 回填完成时间，其余消息保留空完成时间。消息表使用 `created_at`、`completed_at` 和 `duration_ms` 表达时间事实。
+- 工具恢复账本使用 `createdAt` 表达调用登记时间，使用 `phase`、`outcomeStatus`、`attemptCount` 与 checkpoint 表达执行控制事实。v11 在升级事务中移除工具表的 `updated_at`，保留调用身份、项目归属、阶段、结果和恢复证据。
 
-## 运行中输入持久化
+运行中输入持久化。
 
-Main 在应用数据库的 `pending_run_inputs` 表保存已接收的补充文本。`entries` 保存已进入模型上下文的 completed 消息，并保存运行终态时归档的 interrupted 用户输入。待处理记录与对应用户 entry 共用 `inputId`，作为接收记录、应用结果和历史 entry 的关联身份。
+- Main 在应用数据库的 `pending_run_inputs` 表保存已接收的补充文本。`entries` 保存已进入模型上下文的 completed 消息，并保存运行终态时归档的 interrupted 用户输入。待处理记录与对应用户 entry 共用 `inputId`，作为接收记录、应用结果和历史 entry 的关联身份。
+- `input_id`：SQLite 类型 `TEXT`，唯一；一次 steer 提交的幂等 ID，应用后成为用户 `entryId`。
+- `run_id`：SQLite 类型 `TEXT`，非空；已绑定的活动运行。
+- `project_id`：SQLite 类型 `TEXT`，可空；运行捕获的项目历史范围；`NULL` 对应通用历史范围。
+- `accept_order`：SQLite 类型 `INTEGER`，自增主键；同一数据库中的接收顺序。
+- `content`：SQLite 类型 `TEXT`，非空；用户补充文本的冻结快照。
+- `state`：SQLite 类型 `TEXT`，非空；`accepted`、`applied` 或 `unapplied`。
+- `accepted_at`：SQLite 类型 `INTEGER`，非空；Main 完成队列写入的时间。
+- `applied_at`：SQLite 类型 `INTEGER`，可空；用户 entry 提交并进入 Runtime 上下文的时间。
+- `terminal_reason`：SQLite 类型 `TEXT`，可空；停止、失败或进程恢复后的未应用原因。
+- Main 使用 `inputId` 唯一约束处理重复 IPC 提交，同一个 ID 返回同一条待处理记录。项目范围允许 `NULL`，项目目录表继续只保存真实目录。持久化层按 `runId、state、acceptOrder` 提供顺序读取。
+- Runtime 到达安全边界后，通过 Recorder 在同一 SQLite 事务中按 `acceptOrder` 读取 `accepted` 项、写入对应的 completed `user_message` entry，并把队列项改为 `applied`。事务成功后，Runtime 按相同顺序追加内存 `messages` 并发出应用事件。事务重试以 `inputId` 和 entry 主键保证幂等；`commitUser` 提交初始任务，`applyRunInputs` 提交同一 run 的多条补充消息。
+- Main 在停止、失败和启动恢复时，通过 Recorder 在同一事务中为剩余 `accepted` 项写入同 `inputId` 的 interrupted `user_message` entry，并把队列项改为 `unapplied`。`runCompleted.unappliedInputIds` 与这些 entries 使用同一身份；HistoryService 按 `entryOrder` 分页 entries，completed 与 interrupted 用户 entry 各自以 `inputId` 去重。`snapshot()` 只向模型提供 completed 消息。
+- `runStarted` 为一个 `runId` 建立唯一计时起点，`inputsApplied` 保留补充输入的应用时间。运行完成时，Recorder 为最终 Assistant Message 保存从起点到 `runCompleted` 的 `duration_ms`；`runCompleted.finalTurnId` 标识最终回合，`finalDurationMs` 与持久化总时长一致。既有历史记录保留写入时的时长值及其历史语义；新记录统一保存全 run 总时长。
 
-| 字段 | SQLite 类型 | 约束 | 语义 |
-| --- | --- | --- | --- |
-| input_id | TEXT | 唯一 | 一次 steer 提交的幂等 ID，应用后成为用户 `entryId` |
-| run_id | TEXT | 非空 | 已绑定的活动运行 |
-| project_id | TEXT | 可空 | 运行捕获的项目历史范围；`NULL` 对应通用历史范围 |
-| accept_order | INTEGER | 自增主键 | 同一数据库中的接收顺序 |
-| content | TEXT | 非空 | 用户补充文本的冻结快照 |
-| state | TEXT | 非空 | `accepted`、`applied` 或 `unapplied` |
-| accepted_at | INTEGER | 非空 | Main 完成队列写入的时间 |
-| applied_at | INTEGER | 可空 | 用户 entry 提交并进入 Runtime 上下文的时间 |
-| terminal_reason | TEXT | 可空 | 停止、失败或进程恢复后的未应用原因 |
+项目上下文缓存。
 
-Main 使用 `inputId` 唯一约束处理重复 IPC 提交，同一个 ID 返回同一条待处理记录。项目范围允许 `NULL`，项目目录表继续只保存真实目录。持久化层按 `runId、state、acceptOrder` 提供顺序读取。
+- `project_context` 保存一个项目的优先排序、有界目录导航地图。快照包含扫描深度、每目录条目上限、总节点预算、目录省略数量和读取失败标记。模型收到可读的工作目录说明和有限路径地图，并通过文件工具按需读取项目内容。
+- `project_id`：SQLite 类型 `TEXT`，主键、外键；对应项目。
+- `tree_json`：SQLite 类型 `TEXT`，非空；有界路径地图及其省略元数据。
+- `tree_hash`：SQLite 类型 `TEXT`，非空；目录结构摘要。
+- `captured_at`：SQLite 类型 `INTEGER`，非空；扫描时间。
+- `scan_policy_version`：SQLite 类型 `TEXT`，非空；扫描策略版本。
+- `complete`：SQLite 类型 `INTEGER`，非空；有界快照是否成功生成。
+- `dirty`：SQLite 类型 `INTEGER`，非空；下一次运行的更新标记。
+- Main 在项目首次激活、缓存缺失、策略版本变化或缓存 dirty 时生成目录地图。生成过程过滤隐藏目录及常见构建/缓存目录，优先展示项目入口文件和源码目录，并按深度、目录数量、总节点数和提示字符数控制地图规模。工具创建或更新项目文件后，Main 将对应缓存标记为 dirty。下一次模型请求使用最新缓存。
+- 目录地图作为临时模型上下文进入请求。地图标识当前工作目录并说明自身的范围；文件内容继续由 `list_dir`、`find_files`、`search_content` 和 `read` 工具按需提供。目录地图作为运行期材料使用，`entries` 保存用户与模型的对话事实。
 
-Runtime 到达安全边界后，通过 Recorder 在同一 SQLite 事务中按 `acceptOrder` 读取 `accepted` 项、写入对应的 completed `user_message` entry，并把队列项改为 `applied`。事务成功后，Runtime 按相同顺序追加内存 `messages` 并发出应用事件。事务重试以 `inputId` 和 entry 主键保证幂等；`commitUser` 提交初始任务，`applyRunInputs` 提交同一 run 的多条补充消息。
+上下文压缩快照。
 
-Main 在停止、失败和启动恢复时，通过 Recorder 在同一事务中为剩余 `accepted` 项写入同 `inputId` 的 interrupted `user_message` entry，并把队列项改为 `unapplied`。`runCompleted.unappliedInputIds` 与这些 entries 使用同一身份；HistoryService 按 `entryOrder` 分页 entries，completed 与 interrupted 用户 entry 各自以 `inputId` 去重。`snapshot()` 只向模型提供 completed 消息。
+- 数据访问：Repository 统一读写 SQLite，按项目或 General 范围读取最新适用压缩快照与摘要覆盖范围之后的 completed 原文。
+- `summary`：保存已覆盖历史的结构化摘要。
+- `coveredThroughOrder`：保存摘要覆盖的最后一条历史顺序，后续已提交消息继续按原文读取。
+- `baselineThroughOrder`：保存压缩后完整输入基线包含的最新已提交顺序，近期保留原文可同时属于基线范围。
+- `baselineTokens`：保存固定指令、工具定义、摘要、近期原文和本轮材料组成的完整输入计量，为增长阈值提供稳定起点。
+- 身份与版本：快照关联历史范围、来源版本、策略版本、生成模型和用量，提交时核对所读取来源。
+- 来源摘要：`sourceVersion` 保存已提交来源的 `entryCount` 与 `revisionHash`，对记录身份、顺序和版本计算 SHA-256；快照 `version` 在每个历史范围内递增，格式通过 `formatVersion` 标识。
+- 原子保存：快照作为独立记录原子提交，完整 entries、工具 outcome 与恢复账本持续保留原始事实。
+- 读取复用：新 run 与重启恢复加载同一份已提交摘要，再读取 `coveredThroughOrder` 之后的原文，按本次固定输入重新计量基线；新消息按原顺序继续追加。
+- 提交边界：快照提交成功后，Runtime 采用新的上下文；可重试存储错误沿用既有事务边界并复用同一摘要与身份。
+- 策略协作：双阈值、独立摘要请求和容量计算由[上下文管理](./context-management.mdx)定义。
 
-`runStarted` 为一个 `runId` 建立唯一计时起点，`inputsApplied` 保留补充输入的应用时间。运行完成时，Recorder 为最终 Assistant Message 保存从起点到 `runCompleted` 的 `duration_ms`；`runCompleted.finalTurnId` 标识最终回合，`finalDurationMs` 与持久化总时长一致。既有历史记录保留写入时的时长值及其历史语义；新记录统一保存全 run 总时长。
+HistoryRecorder。
 
-## 项目上下文缓存
-
-`project_context` 保存一个项目的优先排序、有界目录导航地图。快照包含扫描深度、每目录条目上限、总节点预算、目录省略数量和无法读取标记。模型收到可读的工作目录说明和有限路径地图，并通过文件工具按需读取项目内容。
-
-| 字段 | SQLite 类型 | 约束 | 语义 |
-| --- | --- | --- | --- |
-| project_id | TEXT | 主键、外键 | 对应项目 |
-| tree_json | TEXT | 非空 | 有界路径地图及其省略元数据 |
-| tree_hash | TEXT | 非空 | 目录结构摘要 |
-| captured_at | INTEGER | 非空 | 扫描时间 |
-| scan_policy_version | TEXT | 非空 | 扫描策略版本 |
-| complete | INTEGER | 非空 | 有界快照是否成功生成 |
-| dirty | INTEGER | 非空 | 下一次运行的更新标记 |
-
-Main 在项目首次激活、缓存缺失、策略版本变化或缓存 dirty 时生成目录地图。生成过程过滤隐藏目录及常见构建/缓存目录，优先展示项目入口文件和源码目录，并按深度、目录数量、总节点数和提示字符数控制地图规模。工具创建或更新项目文件后，Main 将对应缓存标记为 dirty。下一次模型请求使用最新缓存。
-
-目录地图作为临时模型上下文进入请求。地图标识当前工作目录并说明自身的范围；文件内容继续由 `list_dir`、`find_files`、`search_content` 和 `read` 工具按需提供。目录地图不会写入 `entries`。
-
-## HistoryRecorder
-
-`HistoryRecorder` 维护一个不可变的历史范围：
-
-```ts
-type HistoryScope = string | null;
-```
-
+- `HistoryRecorder` 维护一个绑定后保持固定的历史范围：
+- 范围类型：`HistoryScope` 使用 `string` 或 `null` 表达真实项目与 General。
 - `projectId` 为真实 ID 时，Recorder 读写对应项目历史。
 - `projectId` 为 `null` 时，Recorder 读写无项目历史。
 - `snapshot()` 返回范围内已完成的 ModelMessage 快照。
 - `commitUser()` 先提交初始用户消息，再允许 Runtime 开始模型请求；运行中输入按上述事务批量提交。
-- 初始任务已经由 Main 接收、但在历史恢复期间或 deferred Runtime 启动前被停止时，`archiveUnappliedUser()` 按同一初始 entryId 保存 interrupted 用户 entry，供历史显示未应用文本；该条目不进入模型 snapshot。
-- `recordAssistantDelta()` 维护流式助手草稿。
+- 初始任务已经由 Main 接收、但在历史恢复期间或 deferred Runtime 启动前被停止时，`archiveUnappliedUser()` 按同一初始 entryId 保存 interrupted 用户 entry，供历史显示未应用文本；模型 snapshot 继续使用 completed 条目。
+- 草稿增量：`recordAssistantDelta(kind, delta, context)` 按正文和原始思考 kind 维护同一 attempt 的流式助手草稿，分别累积到 `payload.content` 和 `payload.reasoning`；兼容 `progress` kind 使用独立字段，各字段共用合并刷新与串行写入队列。
 - `finishAssistantAttempt(context, status, message, plans)` 统一提交助手 attempt 的最终状态。普通回答与失败、中断 attempt 使用空计划，工具调用型回答携带完整计划。Repository 在同一 SQLite 事务中提交 Assistant 终态与整批 `planned` invocation；草稿 revision 在前序队列操作完成后读取，终态准备也在队列内完成。
-- 同一次终态提交沿用冻结的内容、调用计划、entry 身份与完成时间。事务成功后，Recorder 更新消息快照与去重索引；可重试失败保留原提交身份。
+- 终态提交：同一次提交沿用冻结的原生正文、原始思考、可选兼容 `progress`、调用计划、entry 身份与完成时间。事务成功后，Recorder 更新消息快照与去重索引；可重试失败保留原提交身份。interrupted 与 failed attempt 保存已接收的各字段文本，模型快照由 completed 消息组成。
 - `commitToolResult()` 在同一 SQLite 事务中写入模型可见 Tool Message，并把对应 invocation 推进为 `completed`。事务核对项目、run、turn、调用身份、预留结果身份和已保存的 ToolResult。
 - Repository 的 `registerToolBatch()` 验证同批范围、调用身份、参数和原始 ordinal 顺序，再一次性登记；单调用登记沿用同一实现。
 - `beginToolAttempt(id, checkpoint)` 在同一事务中保存本次尝试的 checkpoint、推进 `effect_pending` 并递增 `attemptCount`。`saveToolOutcome()` 保存确定结果并推进 `outcome_ready`；`settleUnstartedToolInvocation()` 为准备失败、取消或跳过保存 `failed`、`cancelled` 或 `interrupted` outcome，保持 `attemptCount = 0`。
@@ -135,73 +129,41 @@ type HistoryScope = string | null;
 - `isToolInvocationBlocked()` 根据持久化前序 interrupted 结果判断同批后序调用的许可；`beginToolAttempt()` 在意图事务中再次核对这项许可。`getToolInvocationCall()` 对照参数指纹与源 Assistant，提供已验证的恢复输入。
 - `finishRun()` 刷新当前运行的活动草稿。
 - `close()` 刷新写入队列并关闭 Recorder。
+- Recorder 的流式草稿、去重索引和已提交消息快照保存在进程内存中，Repository 将消息与工具执行事实持久化到同一个 SQLite 数据库。Recorder 重建时从该历史范围的持久化 entries 初始化缓存。
+- 工具结果缓存使用 `(runId, toolCallId)` 的稳定组合键，并核对预留 `entryId` 与消息内容。工具结果的去重判断和数据库写入进入同一串行队列；数据库提交成功后，Recorder 更新工具索引与 completed 消息快照。写入失败保留重提能力，相同调用以原结果身份再次提交。
+- Recorder 继续承担 Runtime 和 SQLite 之间的提交屏障。Runtime 只有在本地提交成功后才推进模型内存上下文。
+- 草稿写入错误按 attempt 关联，只有同一草稿成功写入或对应的整批 Assistant/tool 事务成功，才清除其错误。后台刷新失败被写队列捕获；终态提交和关闭仍报告仍处于失败状态的草稿错误。消息一致性比较以持久化 JSON 为准，省略字段与值为 `undefined` 的字段保持相同语义。工具账本读取等待前序写入完成，已提交账本的读取与取消结算保持独立处理。
+- Repository 的 `RepositoryError.retryable` 默认是 `false`。SQLite 事务仅在 `BUSY`、`LOCKED` 且事务处于开始前或回滚成功状态时返回可重试错误，并保留底层错误原因；约束冲突、磁盘故障和回滚结果待核对时保持 `retryable = false`。Recorder 保留失败提交所需的身份和 revision，重试次数与退避由 [Runtime](./runtime-loop.mdx) 管理。
 
-Recorder 的流式草稿、去重索引和已提交消息快照保存在进程内存中，Repository 将消息与工具执行事实持久化到同一个 SQLite 数据库。Recorder 重建时从该历史范围的持久化 entries 初始化缓存。
+工具恢复账本。
 
-工具结果缓存使用 `(runId, toolCallId)` 的稳定组合键，并核对预留 `entryId` 与消息内容。工具结果的去重判断和数据库写入进入同一串行队列；数据库提交成功后，Recorder 更新工具索引与 completed 消息快照。写入失败保留重提能力，相同调用以原结果身份再次提交。
+- `tool_invocations` 使用 `project_id / run_id / turn_id / tool_call_id` 关联项目范围、运行、模型回合和工具调用。`run_id + tool_call_id` 组成一次工具调用的稳定识别组合。
+- 工具阶段保持：
+- 常规阶段：`planned → effect_pending → outcome_ready → completed`。
+- 取消或跳过：`planned → outcome_ready → completed`，`attemptCount = 0`。
+- 工具恢复账本与 `entries` 分别保存执行事实和模型消息。Tool Message 与 invocation 的 `completed` 共享一个提交事务；`completed` 始终关联真实保存且内容一致的结果消息。结果物化失败时，已保存的 `outcome_ready` 为下一次提交提供原 ToolResult。
 
-Recorder 继续承担 Runtime 和 SQLite 之间的提交屏障。Runtime 只有在本地提交成功后才推进模型内存上下文。
+JSON 与类型边界。
 
-草稿写入错误按 attempt 关联，只有同一草稿成功写入或对应的整批 Assistant/tool 事务成功，才清除其错误。后台刷新失败被写队列捕获；终态提交和关闭仍报告尚未恢复的草稿错误。消息一致性比较以持久化 JSON 为准，省略字段与值为 `undefined` 的字段保持相同语义。工具账本读取等待前序写入完成，但独立草稿的失败不会阻止读取已提交账本并进行取消结算。
+- `agent/json.ts` 为 Recorder、Repository 和工具参数指纹提供统一的 JSON 规范化语义。规范化先执行标准 JSON 序列化，再按确定性字符串全序排列对象键并生成稳定文本；对象中的 `undefined` 字段沿用省略语义，数组中的 `undefined` 沿用 `null` 语义，数组顺序与显式 `null` 保持各自含义。纯身份模块 `tools/identity.ts` 生成工具参数指纹，历史账本使用保存的规范化文本完成兼容核对。
+- 记录校验：Repository 通过 `readModelMessage()` 验证消息角色、原生正文、工具调用、原始思考与媒体字段，兼容可选 `progress` 的字符串或字段省略形态，并核对 entry 的 `payload_version = 1`。`readToolResult()` 验证输出、返回码、截断标记、错误、媒体和文件产物，`readToolCheckpoint()` 验证恢复证据的版本、类型和数据对象；工具恢复器解释工具私有 checkpoint。
+- Runtime 与 Repository 共用 `toolResultMessage()` 构造模型消息，Repository 将结果消息与持久化 outcome 对照。Renderer 接收既有公共结果投影，执行控制字段归属后端账本。
+- `typecheck:tests` 使用 `tsconfig.tests.json` 对 Agent 与 Shell 测试执行 strict 类型检查，并进入默认 `typecheck` 门禁。测试替身使用真实 Recorder 契约，执行接口变更同步接受编译验证。
+- `run_cancellations` 保存用户主动停止的事实：`run_id` 为主键，`project_id` 绑定原运行范围，`cancelled_at` 保存提交时间。Main 在触发 AbortSignal 前提交这条记录；该入口直接执行 SQLite 短事务，让取消事实优先于助手草稿队列完成提交。`beginToolAttempt()` 在同一事务中检查取消事实，工具开始或重放以 run 处于可执行状态为前提。
+- Runtime 结束取消运行时，为该 run 每条开放调用补齐 Tool Message：`planned` 直接结算为 `cancelled`；未知结果的 `effect_pending` 保存 `interrupted`，保留 checkpoint 和 attemptCount，供用户核对现场；已确定的 `outcome_ready` 复用原结果。若取消提交后进程异常退出，下一次启动仍依据持久取消事实走相同结算路径。恢复期间用户再次停止时，当前恢复队列所属旧 run 同样保存取消事实。
 
-Repository 的 `RepositoryError.retryable` 默认是 `false`。SQLite 事务仅在 `BUSY`、`LOCKED` 且事务未开始或回滚成功时返回可重试错误，并保留底层错误原因；约束冲突、磁盘故障和回滚不确定均不可重试。Recorder 保留失败提交所需的身份和 revision，重试次数与退避由 [Runtime](./runtime-loop.mdx) 管理。
+模型上下文顺序。
 
-## 工具恢复账本
+- 项目读取：上下文模块通过 Repository 加载项目压缩快照及其后 completed 原文，复用 `summary` 并保留 `entryOrder` 顺序。
+- General 读取：使用 `projectId = NULL` 的压缩快照和后续原文，采用同一组装与双阈值规则。
+- 材料组装：临时 `project_context`、Canvas 内容与附件说明沿用运行捕获的引用，在对应历史和本 run 用户消息之间加入，每条已提交输入身份贡献一次内容。
+- 缓存：项目目录地图复用已有扫描结果并保持有界片段，Provider prompt cache 可复用稳定前缀。
+- 续轮：已提交助手消息和 Tool Message 按顺序进入原文，同一安全边界提交的补充输入随后按 `acceptOrder` 进入原文，Runtime 在下次请求前调用上下文准备。
+- 配置归属：运行沿用捕获的 `projectId`、`cwd`、模型、工具与运行期材料；补充输入为文本，附件与 Canvas 选区沿用初始请求。
+- 原文与摘要：历史记录持续保存完整消息，任务请求使用已有摘要与其后原文，达到增长阈值或总量安全上限后生成新的压缩快照。
+- General 材料：真实项目提供项目目录地图，General 使用范围历史、默认工作目录与任务材料。
 
-`tool_invocations` 使用 `project_id / run_id / turn_id / tool_call_id` 关联项目范围、运行、模型回合和工具调用。`run_id + tool_call_id` 组成一次工具调用的稳定识别组合。
+数据库存储。
 
-工具阶段保持：
-
-```text
-planned → effect_pending → outcome_ready → completed
-planned → outcome_ready → completed（取消或跳过，attemptCount = 0）
-```
-
-工具恢复账本与 `entries` 分别保存执行事实和模型消息。Tool Message 与 invocation 的 `completed` 共享一个提交事务；`completed` 始终关联真实保存且内容一致的结果消息。结果物化失败时，已保存的 `outcome_ready` 为下一次提交提供原 ToolResult。
-
-## JSON 与类型边界
-
-`agent/json.ts` 为 Recorder、Repository 和工具参数指纹提供统一的 JSON 规范化语义。规范化先执行标准 JSON 序列化，再按确定性字符串全序排列对象键并生成稳定文本；对象中的 `undefined` 字段沿用省略语义，数组中的 `undefined` 沿用 `null` 语义，数组顺序与显式 `null` 保持各自含义。纯身份模块 `tools/identity.ts` 生成工具参数指纹，历史账本使用保存的规范化文本完成兼容核对。
-
-Repository 通过 `readModelMessage()` 验证消息角色、正文、工具调用、推理与媒体字段；读取 entry 时核对 `payload_version = 1`。`readToolResult()` 验证输出、返回码、截断标记、错误、媒体和文件产物，`readToolCheckpoint()` 验证恢复证据的版本、类型和数据对象。工具恢复器进一步解释工具私有 checkpoint。
-
-Runtime 与 Repository 共用 `toolResultMessage()` 构造模型消息，Repository 将结果消息与持久化 outcome 对照。Renderer 接收既有公共结果投影，执行控制字段归属后端账本。
-
-`typecheck:tests` 使用 `tsconfig.tests.json` 对 Agent 与 Shell 测试执行 strict 类型检查，并进入默认 `typecheck` 门禁。测试替身使用真实 Recorder 契约，执行接口变更同步接受编译验证。
-
-`run_cancellations` 保存用户主动停止的事实：`run_id` 为主键，`project_id` 绑定原运行范围，`cancelled_at` 保存提交时间。Main 在触发 AbortSignal 前提交这条记录；该入口直接执行 SQLite 短事务，避免取消排在助手草稿写队列之后。`beginToolAttempt()` 在同一事务中检查取消事实，已取消的 run 无法开始或重放工具。
-
-Runtime 结束取消运行时，为该 run 每条开放调用补齐 Tool Message：`planned` 直接结算为 `cancelled`；未知结果的 `effect_pending` 保存 `interrupted`，保留 checkpoint 和 attemptCount，供用户核对现场；已确定的 `outcome_ready` 复用原结果。若取消提交后进程异常退出，下一次启动仍依据持久取消事实走相同结算路径。恢复期间用户再次停止时，当前恢复队列所属旧 run 同样保存取消事实。
-
-## 模型上下文顺序
-
-一次项目范围的模型请求使用以下顺序：
-
-```text
-HistoryRecorder.snapshot()
-→ transient project_context
-→ transient canvas context
-→ current user message
-→ provider request
-```
-
-项目上下文每次模型请求都以相同的有界片段构造。目录扫描通过缓存避免重复磁盘遍历；Provider prompt cache 可以优化相同前缀的重复计算。
-
-无项目请求使用以下顺序：
-
-```text
-HistoryRecorder(null).snapshot()
-→ transient canvas context
-→ current user message
-→ provider request
-```
-
-运行中的下一次模型请求沿用本次运行捕获的 `projectId`、`cwd`、模型、工具集合与运行期上下文；已提交的助手消息和工具结果先进入 `messages`，同一安全边界提交的补充用户消息随后按 `acceptOrder` 进入 `messages`，Provider 接收这一完整顺序。补充输入载荷为文本消息；附件与画布选区继续属于初始运行请求。
-
-无项目范围不产生项目目录上下文。
-
-## 数据库存储
-
-SQLite 保存在 Electron `app.getPath("userData")` 下的 `agent-sessions.sqlite`。数据库使用 WAL、外键约束、FULL synchronous 和有界 busy timeout。应用目录保持用户项目原样，项目目录树和项目元数据存储在应用数据库中。
-
-当前 schema 为 v10，消息表采用固定 `created_at`、可空 `completed_at` 和运行 `duration_ms`。已有项目范围数据库保留项目、历史、工具账本、待处理输入和取消事实。早期 sessions 数据库直接迁移到无项目范围：v1 创建初始工具账本，v2 等已有账本的版本保留工具阶段与恢复证据；遗留空 `cwd` 在恢复时结算为需新请求的 `interrupted`。历史重建、时间字段转换、旧表替换和版本推进在同一事务中完成，迁移错误通过事务回滚保留原始记录。
+- SQLite 保存在 Electron `app.getPath("userData")` 下的 `agent-sessions.sqlite`。数据库使用 WAL、外键约束、FULL synchronous 和有界 busy timeout。应用目录保持用户项目原样，项目目录树和项目元数据存储在应用数据库中。
+- schema v13 在 `projects` 增加 `pinned`，既有项目以0作为初始值，并保留 `context_snapshots`、项目与 General 的快照版本唯一索引和 streaming 记录索引；消息表采用固定 `created_at`、可空 `completed_at` 和运行 `duration_ms`。项目范围数据库保留项目、历史、工具账本、待处理输入和取消事实。早期 sessions 数据库直接迁移到无项目范围：v1 创建初始工具账本，v2 等已有账本的版本保留工具阶段与恢复证据；遗留空 `cwd` 在恢复时结算为需新请求的 `interrupted`。历史重建、时间字段转换、旧表替换和版本推进在同一事务中完成，迁移错误通过事务回滚保留原始记录。

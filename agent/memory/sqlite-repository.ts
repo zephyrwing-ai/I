@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { initializeSchema } from "./schema.js";
 import { canonicalJson as canonical, jsonEqual } from "../json.js";
-import { readModelMessage, type ToolCall } from "../model/types.js";
+import { readModelMessage, type ModelUsage, type ToolCall } from "../model/types.js";
 import { toolInputHash, toolInputHashFromJson } from "../tools/identity.js";
 import { readToolCheckpoint, readToolResult, toolOutcomeStatus, toolResultMessage } from "../tools/result.js";
 import {
@@ -12,6 +12,8 @@ import {
   type AppendEntryInput,
   type AssistantCommitInput,
   type AssistantCommitResult,
+  type ContextSnapshot,
+  type ContextSourceVersion,
   type CreateProjectInput,
   type CreateToolInvocationInput,
   type EntryPatch,
@@ -24,6 +26,7 @@ import {
   type Project,
   type ProjectContextInput,
   type ProjectContextRecord,
+  type SaveContextSnapshotInput,
   type ToolInvocationPlan,
   type ToolInvocationPhase,
   type ToolInvocationRecord,
@@ -97,6 +100,7 @@ function rowToProject(row: Row): Project {
     displayName: String(row.display_name),
     createdAt: Number(row.created_at),
     lastOpenedAt: Number(row.last_opened_at),
+    pinned: row.pinned === 1,
   };
 }
 
@@ -109,6 +113,37 @@ function rowToProjectContext(row: Row): ProjectContextRecord {
     scanPolicyVersion: String(row.scan_policy_version),
     complete: Number(row.complete) === 1,
     dirty: Number(row.dirty) === 1,
+  };
+}
+
+function validTokenCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function validContextUsage(value: unknown): value is ModelUsage {
+  return isJsonObject(value)
+    && ["inputTokens", "outputTokens", "cachedInputTokens", "totalTokens"].every((field) => value[field] === undefined || validTokenCount(value[field]));
+}
+
+function rowToContextSnapshot(row: Row): ContextSnapshot {
+  const usage = parseJson(row.usage_json, "context snapshot usage");
+  if (Number(row.format_version) !== 1 || (usage !== null && !validContextUsage(usage))) {
+    throw new RepositoryError("Stored context snapshot format or usage is invalid.", "storage");
+  }
+  return {
+    id: String(row.id),
+    projectId: row.project_id === null ? null : String(row.project_id),
+    version: Number(row.version),
+    formatVersion: 1,
+    summary: String(row.summary),
+    coveredThroughOrder: Number(row.covered_through_order),
+    baselineThroughOrder: Number(row.baseline_through_order),
+    sourceVersion: { entryCount: Number(row.source_entry_count), revisionHash: String(row.source_revision_hash) },
+    policyVersion: String(row.policy_version),
+    modelId: String(row.model_id),
+    baselineTokens: Number(row.baseline_tokens),
+    ...(usage ? { usage } : {}),
+    createdAt: Number(row.created_at),
   };
 }
 
@@ -168,7 +203,6 @@ function rowToToolInvocation(row: Row): ToolInvocationRecord {
     checkpoint: parseJson(row.checkpoint_json, "tool checkpoint"),
     resultEntryId: row.result_entry_id === null || row.result_entry_id === undefined ? null : String(row.result_entry_id),
     createdAt: Number(row.created_at),
-    updatedAt: Number(row.updated_at),
   };
 }
 
@@ -184,12 +218,12 @@ export class SqliteHistoryRepository implements HistoryRepository {
     const id = input.id ?? randomUUID();
     const createdAt = input.createdAt ?? now();
     const lastOpenedAt = input.lastOpenedAt ?? createdAt;
-    const project: Project = { id, canonicalPath: input.canonicalPath, displayName: input.displayName, createdAt, lastOpenedAt };
+    const project: Project = { id, canonicalPath: input.canonicalPath, displayName: input.displayName, createdAt, lastOpenedAt, pinned: input.pinned ?? false };
     try {
       this.database.prepare(`
-        INSERT INTO projects (id, canonical_path, display_name, created_at, last_opened_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(project.id, project.canonicalPath, project.displayName, project.createdAt, project.lastOpenedAt);
+        INSERT INTO projects (id, canonical_path, display_name, created_at, last_opened_at, pinned)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(project.id, project.canonicalPath, project.displayName, project.createdAt, project.lastOpenedAt, project.pinned ? 1 : 0);
     } catch (error) {
       throw new RepositoryError(`Failed to create project: ${error instanceof Error ? error.message : String(error)}`, "conflict");
     }
@@ -207,7 +241,7 @@ export class SqliteHistoryRepository implements HistoryRepository {
   }
 
   async listProjects(): Promise<Project[]> {
-    const rows = this.database.prepare("SELECT * FROM projects ORDER BY last_opened_at DESC, display_name ASC, id ASC").all() as Row[];
+    const rows = this.database.prepare("SELECT * FROM projects ORDER BY pinned DESC, created_at ASC, id ASC").all() as Row[];
     return rows.map(rowToProject);
   }
 
@@ -215,6 +249,34 @@ export class SqliteHistoryRepository implements HistoryRepository {
     const result = this.database.prepare("UPDATE projects SET last_opened_at = ? WHERE id = ?").run(lastOpenedAt, projectId);
     if (Number(result.changes) !== 1) throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
     return (await this.getProject(projectId))!;
+  }
+
+  async updateProject(projectId: string, patch: Partial<Pick<Project, "displayName" | "pinned">>): Promise<Project> {
+    if (patch.displayName !== undefined && (typeof patch.displayName !== "string" || !patch.displayName.trim() || patch.displayName.trim().length > 200)) {
+      throw new RepositoryError("Project display name must contain 1 to 200 characters.", "invalid");
+    }
+    if (patch.pinned !== undefined && typeof patch.pinned !== "boolean") {
+      throw new RepositoryError("Project pin state must be a boolean.", "invalid");
+    }
+    const result = this.database.prepare(`
+      UPDATE projects SET display_name = COALESCE(?, display_name), pinned = COALESCE(?, pinned)
+      WHERE id = ?
+    `).run(patch.displayName?.trim() ?? null, patch.pinned === undefined ? null : patch.pinned ? 1 : 0, projectId);
+    if (Number(result.changes) !== 1) throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
+    return (await this.getProject(projectId))!;
+  }
+
+  async deleteProject(projectId: string): Promise<void> {
+    this.transaction(() => {
+      if (!this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)) {
+        throw new RepositoryError(`Project not found: ${projectId}`, "not_found");
+      }
+      // Remove scoped facts before their SET NULL foreign keys can expose them as ordinary history.
+      for (const table of ["tool_invocations", "pending_run_inputs", "run_cancellations", "context_snapshots", "entries", "project_context"]) {
+        this.database.prepare(`DELETE FROM ${table} WHERE project_id = ?`).run(projectId);
+      }
+      this.database.prepare("DELETE FROM projects WHERE id = ?").run(projectId);
+    });
   }
 
   async getProjectContext(projectId: string): Promise<ProjectContextRecord | null> {
@@ -242,6 +304,134 @@ export class SqliteHistoryRepository implements HistoryRepository {
 
   async markProjectContextDirty(projectId: string): Promise<void> {
     this.database.prepare("UPDATE project_context SET dirty = 1 WHERE project_id = ?").run(projectId);
+  }
+
+  async getContextSourceVersion(projectId: HistoryScope, throughOrder: number): Promise<ContextSourceVersion> {
+    if (!validTokenCount(throughOrder)) throw new RepositoryError("Context source order must be a non-negative safe integer.", "invalid");
+    return this.contextSourceVersion(projectId, throughOrder);
+  }
+
+  async getLatestContextSnapshot(projectId: HistoryScope): Promise<ContextSnapshot | null> {
+    return this.transaction(() => {
+      const snapshot = this.latestContextSnapshot(projectId);
+      return snapshot && this.contextSnapshotIsCurrent(snapshot) ? snapshot : null;
+    }, "read");
+  }
+
+  async saveContextSnapshot(input: SaveContextSnapshotInput): Promise<ContextSnapshot> {
+    const id = input.id ?? randomUUID();
+    const createdAt = input.createdAt ?? now();
+    if (typeof id !== "string" || !id || typeof input.summary !== "string" || !input.summary.trim()
+      || typeof input.policyVersion !== "string" || !input.policyVersion.trim()
+      || typeof input.modelId !== "string" || !input.modelId.trim()
+      || (input.projectId !== null && (typeof input.projectId !== "string" || !input.projectId))
+      || !validTokenCount(createdAt) || !validTokenCount(input.baselineTokens)
+      || !validTokenCount(input.coveredThroughOrder) || input.coveredThroughOrder === 0
+      || !validTokenCount(input.baselineThroughOrder) || input.baselineThroughOrder < input.coveredThroughOrder
+      || (input.expectedVersion !== null && (!validTokenCount(input.expectedVersion) || input.expectedVersion === 0))
+      || !input.sourceVersion || !validTokenCount(input.sourceVersion.entryCount) || input.sourceVersion.entryCount === 0
+      || !/^[a-f0-9]{64}$/.test(input.sourceVersion.revisionHash)
+      || (input.usage !== undefined && !validContextUsage(input.usage))) {
+      throw new RepositoryError("Context snapshot metadata, source version and non-empty summary are required.", "invalid");
+    }
+    return this.transaction(() => {
+      if (input.projectId !== null && !this.database.prepare("SELECT 1 FROM projects WHERE id = ?").get(input.projectId)) {
+        throw new RepositoryError(`Project not found: ${input.projectId}`, "not_found");
+      }
+      const duplicate = this.database.prepare("SELECT * FROM context_snapshots WHERE id = ?").get(id) as Row | undefined;
+      if (duplicate) {
+        const existing = rowToContextSnapshot(duplicate);
+        const { expectedVersion: _expectedVersion, id: _id, createdAt: _createdAt, ...content } = input;
+        if (!jsonEqual({ ...content, id, createdAt: input.createdAt ?? existing.createdAt, version: existing.version, formatVersion: 1 }, existing)) {
+          throw new RepositoryError(`Context snapshot identity conflict: ${id}`, "conflict");
+        }
+        if (!this.contextSnapshotIsCurrent(existing)) throw new RepositoryError("Context snapshot sources have changed.", "conflict");
+        return existing;
+      }
+      const previous = this.latestContextSnapshot(input.projectId);
+      const currentVersion = previous && this.contextSnapshotIsCurrent(previous) ? previous.version : null;
+      if (currentVersion !== input.expectedVersion) throw new RepositoryError("Context snapshot version conflict.", "conflict");
+      const sourceVersion = this.contextSourceVersion(input.projectId, input.baselineThroughOrder);
+      if (!jsonEqual(sourceVersion, input.sourceVersion)) throw new RepositoryError("Context snapshot sources have changed.", "conflict");
+      const validatedThroughOrder = currentVersion !== null && previous && input.coveredThroughOrder >= previous.coveredThroughOrder
+        ? previous.coveredThroughOrder : 0;
+      this.validateContextBoundaries(input.projectId, input.coveredThroughOrder, input.baselineThroughOrder, validatedThroughOrder);
+      const version = (previous?.version ?? 0) + 1;
+      this.database.prepare(`
+        INSERT INTO context_snapshots
+          (id, project_id, version, format_version, summary, covered_through_order, baseline_through_order,
+           source_entry_count, source_revision_hash, policy_version, model_id, baseline_tokens, usage_json, created_at)
+        VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, input.projectId, version, input.summary, input.coveredThroughOrder, input.baselineThroughOrder,
+        sourceVersion.entryCount, sourceVersion.revisionHash, input.policyVersion, input.modelId, input.baselineTokens,
+        input.usage === undefined ? null : serializeJson(input.usage, "context snapshot usage"), createdAt);
+      return rowToContextSnapshot(this.database.prepare("SELECT * FROM context_snapshots WHERE id = ?").get(id) as Row);
+    });
+  }
+
+  private latestContextSnapshot(projectId: HistoryScope): ContextSnapshot | null {
+    const row = this.database.prepare("SELECT * FROM context_snapshots WHERE project_id IS ? ORDER BY version DESC LIMIT 1").get(projectId) as Row | undefined;
+    return row ? rowToContextSnapshot(row) : null;
+  }
+
+  private contextSourceVersion(projectId: HistoryScope, throughOrder: number): ContextSourceVersion {
+    const rows = this.database.prepare(`
+      SELECT id, entry_order, revision, payload_version FROM entries
+      WHERE project_id IS ? AND status = 'completed' AND entry_order <= ? ORDER BY entry_order ASC
+    `).iterate(projectId, throughOrder);
+    const hash = createHash("sha256");
+    let entryCount = 0;
+    for (const row of rows) {
+      hash.update(JSON.stringify([row.id, row.entry_order, row.revision, row.payload_version]) + "\n");
+      entryCount += 1;
+    }
+    return { entryCount, revisionHash: hash.digest("hex") };
+  }
+
+  private contextSnapshotIsCurrent(snapshot: ContextSnapshot): boolean {
+    return jsonEqual(snapshot.sourceVersion, this.contextSourceVersion(snapshot.projectId, snapshot.baselineThroughOrder));
+  }
+
+  private validateContextBoundaries(projectId: HistoryScope, coveredOrder: number, baselineOrder: number, afterOrder: number): void {
+    for (const order of new Set([coveredOrder, baselineOrder])) {
+      if (!this.database.prepare("SELECT 1 FROM entries WHERE project_id IS ? AND entry_order = ? AND status = 'completed'").get(projectId, order)) {
+        throw new RepositoryError("Context snapshot boundary must name a completed entry in its scope.", "conflict");
+      }
+    }
+    const rows = this.database.prepare(`
+      SELECT run_id, type, tool_call_id, entry_order, json_extract(payload_json, '$.toolCalls') AS tool_calls
+      FROM entries WHERE project_id IS ? AND status = 'completed' AND entry_order > ? AND entry_order <= ?
+        AND (type = 'tool_result' OR (type = 'assistant_message' AND json_array_length(payload_json, '$.toolCalls') > 0))
+      ORDER BY entry_order ASC
+    `).iterate(projectId, afterOrder, baselineOrder);
+    const pending = new Set<string>();
+    const seen = new Set<string>();
+    let coveredChecked = false;
+    for (const row of rows) {
+      if (!coveredChecked && Number(row.entry_order) > coveredOrder) {
+        if (pending.size > 0) throw new RepositoryError("Context snapshot boundary must preserve complete tool exchanges.", "conflict");
+        coveredChecked = true;
+      }
+      const calls = parseJson(row.tool_calls, "context source tool calls");
+      if (calls !== null) {
+        if (row.type !== "assistant_message" || !Array.isArray(calls)) {
+          throw new RepositoryError("Context source tool calls must belong to an assistant message.", "conflict");
+        }
+        for (const call of calls) {
+          if (!isJsonObject(call) || typeof call.id !== "string" || !call.id) {
+            throw new RepositoryError("Context source tool call identity is invalid.", "conflict");
+          }
+          const key = JSON.stringify([row.run_id, call.id]);
+          if (seen.has(key)) throw new RepositoryError("Context source tool call identities must be unique within a run.", "conflict");
+          seen.add(key);
+          pending.add(key);
+        }
+      }
+      if (row.type === "tool_result" && !pending.delete(JSON.stringify([row.run_id, row.tool_call_id]))) {
+        throw new RepositoryError("Context source tool result requires its preceding assistant call.", "conflict");
+      }
+    }
+    if (pending.size > 0) throw new RepositoryError("Context snapshot boundary must preserve complete tool exchanges.", "conflict");
   }
 
   async appendEntry(projectId: HistoryScope, entry: AppendEntryInput): Promise<HistoryEntry> {
@@ -328,6 +518,11 @@ export class SqliteHistoryRepository implements HistoryRepository {
       ORDER BY entry_order ASC
       LIMIT ?
     `).all(projectId, cursor, limit) as Row[];
+    return rows.map(rowToEntry);
+  }
+
+  async listStreamingEntries(projectId: HistoryScope): Promise<HistoryEntry[]> {
+    const rows = this.database.prepare("SELECT * FROM entries WHERE project_id IS ? AND status = 'streaming' ORDER BY entry_order ASC").all(projectId) as Row[];
     return rows.map(rowToEntry);
   }
 
@@ -568,7 +763,6 @@ export class SqliteHistoryRepository implements HistoryRepository {
     const id = input.id ?? randomUUID();
     const resultEntryId = input.resultEntryId ?? randomUUID();
     const timestamp = input.createdAt ?? now();
-    const updatedAt = input.updatedAt ?? timestamp;
     const checkpointJson = input.checkpoint === undefined ? null : serializeJson(input.checkpoint, "checkpoint");
     const previous = this.database.prepare("SELECT * FROM tool_invocations WHERE run_id = ? AND tool_call_id = ?").get(input.runId, input.toolCallId) as Row | undefined;
     if (previous) {
@@ -588,13 +782,13 @@ export class SqliteHistoryRepository implements HistoryRepository {
           (id, project_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
            tool_name, tool_version, input_json, input_hash, phase, outcome_status,
            outcome_json, recovery_mode_snapshot, attempt_count, checkpoint_json,
-           result_entry_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, ?, 0, ?, ?, ?, ?)
+           result_entry_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', NULL, NULL, ?, 0, ?, ?, ?)
       `).run(
         id, input.projectId, input.runId, input.turnId, input.cwd, input.assistantEntryId,
         input.toolCallId, input.ordinal, input.toolName, input.toolVersion,
         input.inputJson, input.inputHash, input.recoveryModeSnapshot,
-        checkpointJson, resultEntryId, timestamp, updatedAt,
+        checkpointJson, resultEntryId, timestamp,
       );
     } catch (error) {
       throw sqliteRepositoryError(error, "Failed to register tool invocation: ");
@@ -666,8 +860,8 @@ export class SqliteHistoryRepository implements HistoryRepository {
       if (existing.phase === "planned" && this.hasPriorInterruptedInvocation(existing)) {
         throw new ToolAttemptBlockedError("prior_interrupted", `A prior tool invocation was interrupted: ${invocationId}`);
       }
-      this.database.prepare("UPDATE tool_invocations SET phase = 'effect_pending', attempt_count = attempt_count + 1, checkpoint_json = ?, updated_at = ? WHERE id = ? AND phase = ?")
-        .run(checkpointJson, now(), invocationId, existing.phase);
+      this.database.prepare("UPDATE tool_invocations SET phase = 'effect_pending', attempt_count = attempt_count + 1, checkpoint_json = ? WHERE id = ? AND phase = ?")
+        .run(checkpointJson, invocationId, existing.phase);
       return this.getToolInvocationById(invocationId)!;
     });
   }
@@ -700,9 +894,9 @@ export class SqliteHistoryRepository implements HistoryRepository {
       this.database.prepare(`
         UPDATE tool_invocations
         SET phase = 'outcome_ready', outcome_status = ?, outcome_json = ?,
-            checkpoint_json = COALESCE(?, checkpoint_json), updated_at = ?
+            checkpoint_json = COALESCE(?, checkpoint_json)
         WHERE id = ? AND phase = ?
-      `).run(outcome.status, outcomeJson, checkpointJson, outcome.updatedAt ?? now(), invocationId, expectedPhase);
+      `).run(outcome.status, outcomeJson, checkpointJson, invocationId, expectedPhase);
       return this.getToolInvocationById(invocationId)!;
     });
   }
@@ -728,7 +922,7 @@ export class SqliteHistoryRepository implements HistoryRepository {
       if (!jsonEqual(expectedMessage, entry.payload)) throw new RepositoryError(`Tool message differs from its persisted outcome: ${invocationId}`, "conflict");
       const committed = this.appendEntryInTransaction(projectId, entry);
       if (existing.phase !== "completed") {
-        this.database.prepare("UPDATE tool_invocations SET phase = 'completed', result_entry_id = ?, updated_at = ? WHERE id = ? AND phase = 'outcome_ready'").run(committed.id, now(), invocationId);
+        this.database.prepare("UPDATE tool_invocations SET phase = 'completed', result_entry_id = ? WHERE id = ? AND phase = 'outcome_ready'").run(committed.id, invocationId);
       }
       return committed;
     });
@@ -750,10 +944,10 @@ export class SqliteHistoryRepository implements HistoryRepository {
     this.database.close();
   }
 
-  private transaction<T>(operation: () => T): T {
+  private transaction<T>(operation: () => T, mode: "read" | "write" = "write"): T {
     let began = false;
     try {
-      this.database.exec("BEGIN IMMEDIATE");
+      this.database.exec(mode === "read" ? "BEGIN" : "BEGIN IMMEDIATE");
       began = true;
       const result = operation();
       this.database.exec("COMMIT");

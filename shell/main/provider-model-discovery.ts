@@ -1,3 +1,5 @@
+import { lookupModelCapabilities } from "../../agent/model/catalog.js";
+import type { ModelCapabilities } from "../../agent/model/types.js";
 import type {
   DiscoveredModel,
   Provider,
@@ -110,7 +112,7 @@ export async function discoverProviderModels(
     for (const probe of probes) {
       if (controller.signal.aborted) break;
       try {
-        models.push(...(await fetchModelPage(probe, connection.apiKey, options.fetchImpl ?? fetch, controller.signal)));
+        models.push(...(await fetchModelPage(probe, connection.baseURL, connection.apiKey, options.fetchImpl ?? fetch, controller.signal)));
         break;
       } catch (error) {
         if (error instanceof ProviderDiscoveryError && error.kind === "authentication") throw error;
@@ -156,20 +158,70 @@ export function normalizeDiscoveredModels(models: unknown[]): DiscoveredModel[] 
   const unique = new Map<string, DiscoveredModel>();
   for (const value of models) {
     if (!value || typeof value !== "object") continue;
-    const candidate = value as { id?: unknown; displayName?: unknown };
+    const candidate = value as { id?: unknown; displayName?: unknown; capabilities?: unknown };
     const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
-    if (!id || unique.has(id)) continue;
+    if (!id) continue;
     const displayName = typeof candidate.displayName === "string" && candidate.displayName.trim()
       ? candidate.displayName.trim()
       : id;
-    unique.set(id, { id, displayName });
+    const capabilities = normalizeModelCapabilities(candidate.capabilities);
+    const previous = unique.get(id);
+    if (previous) {
+      if (capabilities && (!previous.capabilities || (previous.capabilities.source === "catalog" && capabilities.source === "provider"))) {
+        previous.capabilities = capabilities;
+      } else if (capabilities && previous.capabilities?.contextWindowTokens === capabilities.contextWindowTokens) {
+        previous.capabilities = { ...capabilities, ...previous.capabilities };
+      }
+      continue;
+    }
+    unique.set(id, { id, displayName, ...(capabilities ? { capabilities } : {}) });
   }
   return [...unique.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+export function normalizeModelCapabilities(value: unknown): ModelCapabilities | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  const contextWindowTokens = positiveInteger(candidate.contextWindowTokens);
+  if (contextWindowTokens === undefined || typeof candidate.source !== "string" || !["provider", "catalog", "manual"].includes(candidate.source)) return undefined;
+  const maxInputTokens = positiveInteger(candidate.maxInputTokens);
+  const maxOutputTokens = positiveInteger(candidate.maxOutputTokens);
+  return {
+    contextWindowTokens, source: candidate.source as ModelCapabilities["source"],
+    ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+  };
+}
+
+export function resolveModelCapabilities(
+  baseURL: string,
+  modelId: string,
+  received?: ModelCapabilities,
+  previous?: ModelCapabilities,
+): ModelCapabilities | undefined {
+  const incoming = normalizeModelCapabilities(received);
+  const saved = normalizeModelCapabilities(previous);
+  const catalog = lookupModelCapabilities(baseURL, modelId);
+  const manual = incoming?.source === "manual" ? incoming : saved?.source === "manual" ? saved : undefined;
+  const primary = manual ?? (incoming?.source === "provider" ? incoming : undefined) ?? catalog ?? incoming ?? saved;
+  if (!primary) return undefined;
+  const maxInputTokens = manual?.maxInputTokens ?? incoming?.maxInputTokens ?? catalog?.maxInputTokens ?? saved?.maxInputTokens;
+  const maxOutputTokens = manual?.maxOutputTokens ?? incoming?.maxOutputTokens ?? catalog?.maxOutputTokens ?? saved?.maxOutputTokens;
+  return {
+    contextWindowTokens: primary.contextWindowTokens, source: primary.source,
+    ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+  };
 }
 
 /** 按探测方言发起一次 GET 并处理该方言的分页循环。 */
 async function fetchModelPage(
   probe: ModelEndpointProbe,
+  baseURL: string,
   apiKey: string,
   fetchImpl: typeof fetch,
   signal: AbortSignal,
@@ -189,7 +241,7 @@ async function fetchModelPage(
     const failureKind = responseFailureKind(response);
     if (failureKind !== "ok") throw new ProviderDiscoveryError(failureKind, failureMessage(failureKind, response.status));
     const payload = await readJson(response);
-    models.push(...parseModelPage(payload));
+    models.push(...parseModelPage(payload, baseURL));
     const next = nextPageUrl(payload, url, origin);
     if (next === null) break;
     url = next;
@@ -219,7 +271,7 @@ function failureMessage(kind: ResponseFailure, status: number): string {
 }
 
 /** 解析 OpenAI 兼容方言的模型列表；结构不对抛 invalid_response。 */
-function parseModelPage(payload: unknown): DiscoveredModel[] {
+function parseModelPage(payload: unknown, baseURL: string): DiscoveredModel[] {
   if (!payload || typeof payload !== "object") {
     throw new ProviderDiscoveryError("invalid_response", "The model list response format is invalid.");
   }
@@ -230,13 +282,46 @@ function parseModelPage(payload: unknown): DiscoveredModel[] {
   const models: DiscoveredModel[] = [];
   for (const item of list) {
     if (!item || typeof item !== "object") continue;
-    const record = item as { id?: unknown; name?: unknown; display_name?: unknown };
+    const record = item as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    const capabilities = parseModelCapabilities(record, baseURL, id);
     models.push({
-      id: typeof record.id === "string" ? record.id : "",
+      id,
       displayName: firstString(record.display_name, record.name, record.id),
+      ...(capabilities ? { capabilities } : {}),
     });
   }
   return models;
+}
+
+function parseModelCapabilities(record: Record<string, unknown>, baseURL: string, id: string): ModelCapabilities | undefined {
+  const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
+  const canonical = object(record.capabilities);
+  const limits = object(record.limits);
+  const context = object(record.context);
+  const topProvider = object(record.top_provider);
+  const first = (...values: unknown[]): number | undefined => values.map(positiveInteger).find((value) => value !== undefined);
+  const window = first(canonical.contextWindowTokens, record.context_window, record.context_length, record.max_context_length,
+    limits.context_window, limits.context_length, limits.max_context_length, limits.context,
+    context.context_window, context.context_length, context.max_context_length, context.window,
+    topProvider.context_window, topProvider.context_length, topProvider.max_context_length);
+  const maxInputTokens = first(canonical.maxInputTokens, record.max_input_tokens, record.max_prompt_tokens,
+    limits.max_input_tokens, limits.max_prompt_tokens, limits.input,
+    context.max_input_tokens, context.max_prompt_tokens, context.input,
+    topProvider.max_input_tokens, topProvider.max_prompt_tokens);
+  const maxOutputTokens = first(canonical.maxOutputTokens, record.max_output_tokens, record.max_completion_tokens,
+    limits.max_output_tokens, limits.max_completion_tokens, limits.output,
+    context.max_output_tokens, context.max_completion_tokens, context.output,
+    topProvider.max_output_tokens, topProvider.max_completion_tokens);
+  const catalog = lookupModelCapabilities(baseURL, id);
+  const contextWindowTokens = window ?? catalog?.contextWindowTokens;
+  if (contextWindowTokens === undefined) return undefined;
+  return resolveModelCapabilities(baseURL, id, {
+    contextWindowTokens, source: window !== undefined ? "provider" : "catalog",
+    ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+  });
 }
 
 /** 返回下一页 URL；无更多页时返回 null；分页游标异常抛 invalid_response。 */

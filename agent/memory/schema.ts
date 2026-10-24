@@ -1,6 +1,31 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 13;
+
+function createContextSnapshotSchema(database: DatabaseSync): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS context_snapshots (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL CHECK (version > 0),
+      format_version INTEGER NOT NULL CHECK (format_version = 1),
+      summary TEXT NOT NULL CHECK (length(trim(summary)) > 0),
+      covered_through_order INTEGER NOT NULL CHECK (covered_through_order > 0),
+      baseline_through_order INTEGER NOT NULL CHECK (baseline_through_order >= covered_through_order),
+      source_entry_count INTEGER NOT NULL CHECK (source_entry_count > 0),
+      source_revision_hash TEXT NOT NULL,
+      policy_version TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      baseline_tokens INTEGER NOT NULL CHECK (baseline_tokens >= 0),
+      usage_json TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS context_snapshots_scope_version_idx
+      ON context_snapshots (project_id, version DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS context_snapshots_general_version_idx
+      ON context_snapshots (version) WHERE project_id IS NULL;
+  `);
+}
 
 function hasTable(database: DatabaseSync, name: string): boolean {
   const row = database.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) as { present?: number } | undefined;
@@ -10,6 +35,18 @@ function hasTable(database: DatabaseSync, name: string): boolean {
 function hasColumn(database: DatabaseSync, table: string, column: string): boolean {
   const rows = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
   return rows.some((row) => row.name === column);
+}
+
+function migrateProjectNavigation(database: DatabaseSync): void {
+  if (!hasColumn(database, "projects", "pinned")) {
+    database.exec("ALTER TABLE projects ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1))");
+  }
+}
+
+function migrateToolInvocationTimes(database: DatabaseSync): void {
+  if (hasColumn(database, "tool_invocations", "updated_at")) {
+    database.exec("ALTER TABLE tool_invocations DROP COLUMN updated_at");
+  }
 }
 
 function migrateMessageTimes(database: DatabaseSync, preserveLegacyDuration: boolean): void {
@@ -59,7 +96,8 @@ function createProjectSchema(database: DatabaseSync): void {
       canonical_path TEXT NOT NULL UNIQUE,
       display_name TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      last_opened_at INTEGER NOT NULL
+      last_opened_at INTEGER NOT NULL,
+      pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1))
     );
 
     CREATE TABLE IF NOT EXISTS project_context (
@@ -93,6 +131,8 @@ function createProjectSchema(database: DatabaseSync): void {
       ON entries (project_id, entry_order ASC);
     CREATE INDEX IF NOT EXISTS entries_tool_call_idx
       ON entries (project_id, tool_call_id);
+    CREATE INDEX IF NOT EXISTS entries_streaming_scope_idx
+      ON entries (project_id, entry_order) WHERE status = 'streaming';
 
     CREATE TABLE IF NOT EXISTS pending_run_inputs (
       accept_order INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,7 +177,6 @@ function createProjectSchema(database: DatabaseSync): void {
       checkpoint_json TEXT,
       result_entry_id TEXT,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
       UNIQUE (run_id, tool_call_id)
     );
 
@@ -230,17 +269,16 @@ function migrateLegacySessionSchema(database: DatabaseSync): void {
         checkpoint_json TEXT,
         result_entry_id TEXT,
         created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
         UNIQUE (run_id, tool_call_id)
       );
 
       ${legacyToolInvocations ? `INSERT INTO tool_invocations_project_new
         (id, project_id, run_id, turn_id, cwd, assistant_entry_id, tool_call_id, ordinal,
          tool_name, tool_version, input_json, input_hash, phase, outcome_status, outcome_json,
-         recovery_mode_snapshot, attempt_count, checkpoint_json, result_entry_id, created_at, updated_at)
+         recovery_mode_snapshot, attempt_count, checkpoint_json, result_entry_id, created_at)
       SELECT id, NULL, run_id, turn_id, ${legacyCwd}, assistant_entry_id, tool_call_id, ordinal,
         tool_name, tool_version, input_json, input_hash, phase, outcome_status, outcome_json,
-        recovery_mode_snapshot, attempt_count, checkpoint_json, result_entry_id, created_at, updated_at
+        recovery_mode_snapshot, attempt_count, checkpoint_json, result_entry_id, created_at
       FROM tool_invocations;
 
       DROP TABLE tool_invocations;` : ""}
@@ -274,7 +312,9 @@ function migrateLegacySessionSchema(database: DatabaseSync): void {
         ON pending_run_inputs (state, accept_order);
     `);
     createProjectSchema(database);
+    migrateProjectNavigation(database);
     migrateMessageTimes(database, true);
+    createContextSnapshotSchema(database);
     database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     database.exec("COMMIT");
   } catch (error) {
@@ -307,7 +347,10 @@ export function initializeSchema(database: DatabaseSync): void {
   if (version < SCHEMA_VERSION) {
     database.exec("BEGIN IMMEDIATE");
     try {
+      migrateProjectNavigation(database);
       migrateMessageTimes(database, version < 9);
+      migrateToolInvocationTimes(database);
+      createContextSnapshotSchema(database);
       database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       database.exec("COMMIT");
     } catch (error) {

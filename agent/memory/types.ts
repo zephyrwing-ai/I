@@ -1,4 +1,4 @@
-import type { ModelMessage, ToolCall } from "../model/types.js";
+import type { ModelMessage, ModelUsage, ToolCall } from "../model/types.js";
 
 export type { ModelMessage, ToolCall } from "../model/types.js";
 
@@ -6,7 +6,7 @@ export type HistoryScope = string | null;
 export type EntryType = "user_message" | "assistant_message" | "tool_result";
 export type EntryStatus = "streaming" | "completed" | "interrupted" | "failed";
 export type RecordedRunStatus = "completed" | "cancelled" | "failed";
-export type AssistantDeltaKind = "text" | "reasoning";
+export type AssistantDeltaKind = "text" | "progress" | "reasoning";
 export type ToolInvocationPhase = "planned" | "effect_pending" | "outcome_ready" | "completed";
 export type ToolOutcomeStatus = "succeeded" | "failed" | "cancelled" | "interrupted";
 export type ToolRecoveryMode = "safe" | "reconcile" | "never";
@@ -17,6 +17,7 @@ export interface Project {
   displayName: string;
   createdAt: number;
   lastOpenedAt: number;
+  pinned: boolean;
 }
 
 export interface CreateProjectInput {
@@ -25,6 +26,7 @@ export interface CreateProjectInput {
   displayName: string;
   createdAt?: number;
   lastOpenedAt?: number;
+  pinned?: boolean;
 }
 
 export interface ProjectContextRecord {
@@ -44,6 +46,34 @@ export interface ProjectContextInput {
   scanPolicyVersion: string;
   complete: boolean;
   dirty?: boolean;
+}
+
+export interface ContextSourceVersion {
+  entryCount: number;
+  revisionHash: string;
+}
+
+export interface ContextSnapshot {
+  id: string;
+  projectId: HistoryScope;
+  version: number;
+  formatVersion: 1;
+  summary: string;
+  coveredThroughOrder: number;
+  baselineThroughOrder: number;
+  sourceVersion: ContextSourceVersion;
+  policyVersion: string;
+  modelId: string;
+  baselineTokens: number;
+  usage?: ModelUsage;
+  createdAt: number;
+}
+
+export interface SaveContextSnapshotInput extends Omit<ContextSnapshot, "id" | "version" | "formatVersion" | "createdAt"> {
+  id?: string;
+  createdAt?: number;
+  /** Null expects no usable checkpoint, including a checkpoint with revised sources. */
+  expectedVersion: number | null;
 }
 
 export interface HistoryEntry {
@@ -145,7 +175,6 @@ export interface RegisterToolInvocationInput {
   resultEntryId?: string;
   checkpoint?: unknown;
   createdAt?: number;
-  updatedAt?: number;
 }
 
 export interface CreateToolInvocationInput extends RegisterToolInvocationInput {
@@ -174,14 +203,12 @@ export interface ToolInvocationRecord {
   checkpoint: unknown | null;
   resultEntryId: string | null;
   createdAt: number;
-  updatedAt: number;
 }
 
 export interface ToolOutcomeInput {
   status: ToolOutcomeStatus;
   outcome: unknown;
   checkpoint?: unknown;
-  updatedAt?: number;
 }
 
 export type ToolInvocationPlan = Omit<RegisterToolInvocationInput, "assistantEntryId">;
@@ -203,13 +230,19 @@ export interface HistoryRepository {
   getProjectByPath(canonicalPath: string): Promise<Project | null>;
   listProjects(): Promise<Project[]>;
   touchProject(projectId: string, lastOpenedAt?: number): Promise<Project>;
+  updateProject(projectId: string, patch: Partial<Pick<Project, "displayName" | "pinned">>): Promise<Project>;
+  deleteProject(projectId: string): Promise<void>;
   getProjectContext(projectId: string): Promise<ProjectContextRecord | null>;
   saveProjectContext(projectId: string, input: ProjectContextInput): Promise<ProjectContextRecord>;
   markProjectContextDirty(projectId: string): Promise<void>;
+  getContextSourceVersion(projectId: HistoryScope, throughOrder: number): Promise<ContextSourceVersion>;
+  getLatestContextSnapshot(projectId: HistoryScope): Promise<ContextSnapshot | null>;
+  saveContextSnapshot(input: SaveContextSnapshotInput): Promise<ContextSnapshot>;
   appendEntry(projectId: HistoryScope, entry: AppendEntryInput): Promise<HistoryEntry>;
   updateEntry(entryId: string, expectedRevision: number, patch: EntryPatch): Promise<HistoryEntry>;
   getEntry(entryId: string): Promise<HistoryEntry | null>;
   listEntries(projectId: HistoryScope, cursor?: number, limit?: number): Promise<HistoryEntry[]>;
+  listStreamingEntries(projectId: HistoryScope): Promise<HistoryEntry[]>;
   listLatestEntries(projectId: HistoryScope, limit: number): Promise<HistoryEntry[]>;
   listEntriesBefore(projectId: HistoryScope, beforeOrder: number, limit: number): Promise<HistoryEntry[]>;
   getToolOutcomesForEntries(projectId: HistoryScope, entryIds: string[]): Promise<Map<string, unknown>>;
@@ -254,6 +287,7 @@ export class ToolAttemptBlockedError extends RepositoryError {
 
 export interface HistoryRecorder {
   readonly projectId: HistoryScope;
+  readonly repository: HistoryRepository;
   snapshot(): ModelMessage[];
   getAssistantEntryId?(turnId: string): Promise<string | null>;
   commitUser(message: ModelMessage, context: MessageCommitContext): Promise<void>;

@@ -1,118 +1,82 @@
 历史投影。
 
-历史投影把 Main 返回的当前项目或无项目历史页转换为统一的 `AgentState`。Renderer 使用 `projectId` 识别当前历史范围，使用 `entryId` 去重，使用 `entryOrder` 维护稳定顺序。
+- 职责：历史投影把 Main 返回的当前项目或无项目历史页转换为统一的 `AgentState`。Renderer 使用 `projectId` 识别当前历史范围，使用 `entryId` 去重，使用 `entryOrder` 维护稳定顺序。
 
-## 页面数据
+页面数据。
 
-```ts
-interface HistoryPageRequest {
-  cursor: string | null;
-  limit: number;
-}
+- 请求 `HistoryPageRequest`：`cursor: string | null` 表达历史游标，`limit: number` 表达页大小。
+- 条目 `HistoryPageEntry`：`entryId: string`、`entryOrder: number`、`projectId: string | null` 提供身份、顺序和项目范围；`type` 为 `user_message | assistant_message | tool_result`，`status` 为 `streaming | completed | interrupted | failed`。
+- 运行关联：条目使用 `runId: string`、`turnId: string | null`、`toolCallId: string | null` 关联运行、回合与工具调用，`revision: number` 表达记录版本。
+- 消息内容：条目的 `payload: ModelMessage` 保存模型消息，`toolResult?: ToolResult` 保存可选的公共工具结果投影。
+- 时间字段：条目携带 `createdAt: number`、`completedAt: number | null` 和 `durationMs: number | null`，分别表达创建时间、完整输出完成时间和持久化运行时长。
+- 响应 `HistoryPageResult`：`projectId: string | null` 绑定范围，`entries: HistoryPageEntry[]` 提供页面；`nextCursor: string | null`、`hasMore: boolean` 和 `snapshotOrder: number` 提供翻页边界、后续页状态和读取顺序。
+- 读取顺序：Main 以当前 `projectId` 或 `NULL` 范围过滤 entries，再按 `entry_order DESC` 读取尾页，并在交付 Renderer 前恢复为 `entryOrder ASC`。`snapshotOrder` 表示当前范围读取到的最大顺序。
 
-interface HistoryPageEntry {
-  entryId: string;
-  entryOrder: number;
-  projectId: string | null;
-  type: "user_message" | "assistant_message" | "tool_result";
-  status: "streaming" | "completed" | "interrupted" | "failed";
-  runId: string;
-  turnId: string | null;
-  toolCallId: string | null;
-  revision: number;
-  payload: ModelMessage;
-  createdAt: number;
-  completedAt: number | null;
-  durationMs: number | null;
-  toolResult?: ToolResult;
-}
+助手过程与正文投影。
 
-interface HistoryPageResult {
-  projectId: string | null;
-  entries: HistoryPageEntry[];
-  nextCursor: string | null;
-  hasMore: boolean;
-  snapshotOrder: number;
-}
-```
+- 最终身份：运行完成事件的 `finalTurnId` 与历史最终 Assistant entry 的 `durationMs` 提供最终回答身份；身份待确认的公开正文保持在活动详情中，保留原文与所属 turn。
+- 中断边界：已应用 steer 锚点与各 turn 捕获的输入锚点共同确认前后任务归属；steer 应用后、后续 turn 创建前进入取消终态时，前组已提交的完整回答按所属任务恢复，实时与历史采用相同规则。
+- 通道恢复：Assistant entry 的原生 `payload.content` 恢复为 `TurnState.assistantContent`，原始 reasoning 恢复到既有思考字段，旧 `payload.progress?: string` 兼容恢复为 `progressContent`。各字段保留原文及所属 turn，新响应通过原生正文表达公开内容。
+- 正文归属：实时 `runCompleted.finalTurnId` 确认最终回答，历史通过携带运行 `durationMs` 的最终 assistant entry 恢复同一身份。活跃组的工具回合、中间回合及最终身份确认前的流式正文进入活动详情；最终身份确认后，对应 turn 的正文进入折叠外。
+- 任务边界：下一已应用 steer 组启动后，前组沿用最后一个已提交、工具集合为空的有效回答作为折叠外正文；历史按 completed 用户 entry 与 turn 锚点重建相同任务边界。前组回答沿用原 blockId 与搜索身份，活跃组正文继续等待最终回合确认，状态依据复用既有输入和回合事实。
+- 兼容形态：历史读取沿用既有 JSON payload 与可选字段校验，旧 `progress` 按保存值参与回合文字区，字段省略时使用原生 `content` 与工具事实。原始 reasoning 保留持久化、诊断与 DeepSeek 工具续轮回放职责。
+- 尝试恢复：同一 turn 的助手 entries 按 `entryOrder` 恢复，最新 attempt 的过程、正文、原始思考与状态替换该 turn 的投影；最后一条助手记录完成且携带运行总时长时，run 以成功终态呈现，较早的中断尝试继续保存在原始历史中。
+- 展示共用：历史恢复与实时 Reducer 汇入同一 AgentState，活动展示投影按 turn 生成文字区、一个工具组与操作行；相邻空工具回合呈现上下相接的文字。React 负责折叠与排版；已完成无工具回答的活动文字区为空、原始 reasoning 已保存时，可展开查看[消息流](./message-stream.mdx)定义的推理保存提示，公开正文在折叠外呈现，原始 reasoning 保持数据职责。
+- 模块职责：`messageBlocks.ts` 确定活动组、稳定 blockId、回答身份与计时归属；`assistantActivity.ts` 生成所属 turn 的公开文字、兼容过程字段及工具组运行状态；`toolActivity.ts` 根据实际参数生成工具标签与类别标题。React 使用同一投影实现折叠、详情与布局，两层职责共同服务实时和历史数据。
+- 折叠依据：既有 `run.status`、`isWorking`、`finalTurnId`、`turn.status` 与 `tool.status` 提供默认展开依据，Renderer 本地手动覆盖在当前工作或结算阶段内生效，阶段变化重置默认值。已结算历史采用收起默认值，实时与历史共用[消息流](./message-stream.mdx)定义的交互规则。
 
-Main 以当前 `projectId` 或 `NULL` 范围过滤 entries，再按 `entry_order DESC` 读取尾页，并在交付 Renderer 前恢复为 `entryOrder ASC`。`snapshotOrder` 表示当前范围读取到的最大顺序。
+工具结果投影。
 
-## 工具结果投影
+- 结果关联：Main 对当前页的 `tool_result` entry 批量关联 `tool_invocations.outcome_json`。关联使用预留的 `resultEntryId`，并同时核对项目、run、turn 与 toolCall 身份；每页使用一次关联查询取得已有结构化结果。
+- 公共字段：实时事件与历史页共用公共 ToolResult 转换，提供 `ok`、原始 `output`、`returncode`、`truncated` 和 `error`。`HistoryPageEntry.toolResult` 承载该投影，Renderer 优先使用它恢复工具展示。模型消息继续通过 `payload` 保存并参与模型上下文；历史展示与实时展示共享相同的结果字段。
+- 结果校验：Main 在读取边界校验 outcome 的字段类型，结构损坏形成历史存储错误。工具的 checkpoint、内部完整输出文件位置和产物登记信息归属 Main。既有文本历史条目通过消息内容恢复工具结果状态。
+- 活动字段：Assistant payload 的 `toolCalls[].input` 保留实际操作参数及旧 `purpose`、`targets`；实时与历史共用工具投影，读取按 `path` 生成 `Read <path>`，命令按 `command` 生成 `Ran <command>`，工具组标题按实际类别汇总，如 `Read files, ran commands`。完整参数与结果保留在 ToolState，单行详情展开时惰性挂载；标题的单行省略由 CSS 可用宽度决定，布局与折叠契约见[消息流](./message-stream.mdx)。
 
-Main 对当前页的 `tool_result` entry 批量关联 `tool_invocations.outcome_json`。关联使用预留的 `resultEntryId`，并同时核对项目、run、turn 与 toolCall 身份；每页使用一次关联查询取得已有结构化结果。
+运行中输入投影。
 
-实时事件与历史页共用公共 ToolResult 转换，提供 `ok`、原始 `output`、`returncode`、`truncated` 和 `error`。`HistoryPageEntry.toolResult` 承载该投影，Renderer 优先使用它恢复工具展示。模型消息继续通过 `payload` 保存并参与模型上下文；历史展示与实时展示共享相同的结果字段。
+- 输入归档：HistoryService 按现有 `entryOrder` 游标分页 `entries`。安全边界应用的补充输入形成 completed 用户 entry；停止、失败和启动恢复归档的补充输入形成 interrupted 用户 entry。两类 entry 都以 `inputId` 为稳定 `entryId`，`entry.status` 提供其持久化状态。
+- 身份合并：Renderer 以 `projectId`、历史请求代次和 `inputId` 合并持久化 ACK、后续 `inputsApplied` 事件以及历史 entries。Main 为初始输入生成 `inputId`，通过运行 ACK 交给 Renderer，并把同一个 ID 传入 Recorder 作为初始用户 entry ID；实时投影、历史恢复和搜索因此共用稳定身份。运行中的补充输入沿用其持久化 `inputId`；连续输入的顺序采用 Main 的 `acceptOrder`，历史顺序采用 `entryOrder`。
+- 应用状态：安全边界提交 completed 用户 entry 时，实时投影以相同 `inputId` 更新对应状态。`inputsApplied` 记录本批用户消息进入模型上下文的时刻；后续 `turnStarted` 使用新的 `turnId`。reasoning、Assistant Message、工具调用与 Tool Message 使用各自的 `turnId` 和 `toolCallId` 关联。历史恢复依照 `entryOrder` 重建用户消息、Assistant 与 Tool entries 的先后关系。
+- 时间线：Renderer 使用一条显式消息时间线承载每个 run 的事件投影顺序：
+- 时间线类型：`MessageTimelineItem` 使用 `{ kind: "user"; inputId: string }` 或 `{ kind: "assistant"; turnId: string }`，分别引用用户输入与助手回合。
+- 事件更新：ACK 以 `inputId` 追加用户项；`turnStarted` 以 `turnId` 追加模型请求事实；`inputsApplied` 保持用户项身份并记录补充消息的上下文提交。Assistant 增量和 Tool 事件更新已有 turn 与 tool 状态。历史投影以 `entryOrder` 重建持久化序列。用户输入边界到助手活动组、消息块身份及展开内容的映射由[消息流视图规范](./message-stream.mdx)统一定义。
+- 输入锚点：`RunState.appliedInputId` 记录实际模型上下文的最新输入边界。初始输入 ACK 建立该边界，`inputsApplied` 将其更新为本批最后一条输入，每个新 turn 捕获固定的 `anchorInputId`。历史投影按 `entryOrder` 从 completed 用户 entry 恢复已应用边界，并为后续首次出现的 turn 建立相同锚点；interrupted 用户 entry 以独立消息呈现其归档状态。
+- 未应用输入：`runCompleted.unappliedInputIds` 与 interrupted entries 通过相同 `inputId` 对应；历史重载从 entries 恢复输入状态与文本。搜索索引以 MessageBlock 稳定 ID 关联命中。视图状态和定位交互由[消息流视图规范](./message-stream.mdx)说明。
+- 运行计时：Runtime 以 `runStarted.startedAt` 建立一个 `runId` 的计时起点；成功完成时，最终模型回复的 `durationMs` 保存从该起点至运行终态的总时长。实时事件通过 `runCompleted.finalTurnId` 与 `finalDurationMs` 标识最终回合和相同总时长；历史投影通过最终 assistant entry 的 `turnId` 与 `durationMs` 恢复相同数据。`projectId = null` 的输入记录进入通用历史范围，并使用相同身份与顺序规则。总时长的活动组归属由[消息流视图规范](./message-stream.mdx)统一定义。
 
-Main 在读取边界校验 outcome 的字段类型，结构损坏形成历史存储错误。工具的 checkpoint、内部完整输出文件位置和产物登记信息归属 Main。既有文本历史条目继续使用消息内容展示。
+Hydrate 流程。
 
-## 运行中输入投影
+- 投影链路：Main 捕获 active project scope，经 `loadHistoryPage(cursor, limit)` 返回 `HistoryPageResult`，Renderer 依次执行 `mergeHistoryEntries` 和 `mergePersistedEntries`，交给 `AgentState / MessageStream`。
+- 范围加载：目标项目确定后，Renderer 先将历史投影切换到目标 `projectId` 并进入加载状态；目标页面返回后，Reducer 将该范围的 `HistoryPageEntry` 投影为新的 `AgentState`。旧项目的 `entriesById` 保持在 SQLite 中，当前页面只显示新范围。
 
-HistoryService 按现有 `entryOrder` 游标分页 `entries`。安全边界应用的补充输入形成 completed 用户 entry；停止、失败和启动恢复归档的补充输入形成 interrupted 用户 entry。两类 entry 都以 `inputId` 为稳定 `entryId`，`entry.status` 提供其持久化状态。
+项目范围切换与滚动状态。
 
-Renderer 以 `projectId`、历史请求代次和 `inputId` 合并持久化 ACK、后续 `inputsApplied` 事件以及历史 entries。Main 为初始输入生成 `inputId`，通过运行 ACK 交给 Renderer，并把同一个 ID 传入 Recorder 作为初始用户 entry ID；实时投影、历史恢复和搜索因此共用稳定身份。运行中的补充输入沿用其持久化 `inputId`；连续输入的顺序采用 Main 的 `acceptOrder`，历史顺序采用 `entryOrder`。
-
-安全边界提交 completed 用户 entry 时，实时投影以相同 `inputId` 更新对应状态。`inputsApplied` 记录本批用户消息进入模型上下文的时刻；后续 `turnStarted` 使用新的 `turnId`。reasoning、Assistant Message、工具调用与 Tool Message 使用各自的 `turnId` 和 `toolCallId` 关联。历史恢复依照 `entryOrder` 重建用户消息、Assistant 与 Tool entries 的先后关系。
-
-Renderer 使用一条显式消息时间线承载每个 run 的事件投影顺序：
-
-```ts
-type MessageTimelineItem =
-  | { kind: "user"; inputId: string }
-  | { kind: "assistant"; turnId: string };
-```
-
-ACK 以 `inputId` 追加用户项；`turnStarted` 以 `turnId` 追加模型请求事实；`inputsApplied` 保持用户项身份并记录补充消息的上下文提交。Assistant 增量和 Tool 事件更新已有 turn 与 tool 状态。历史投影以 `entryOrder` 重建持久化序列。用户输入边界到助手活动组、消息块身份及展开内容的映射由[消息流视图规范](./message-stream.mdx)统一定义。
-
-`RunState.appliedInputId` 记录实际模型上下文的最新输入边界。初始输入 ACK 建立该边界，`inputsApplied` 将其更新为本批最后一条输入，每个新 turn 捕获固定的 `anchorInputId`。历史投影按 `entryOrder` 从 completed 用户 entry 恢复已应用边界，并为后续首次出现的 turn 建立相同锚点；interrupted 用户 entry 以独立消息呈现其归档状态。
-
-`runCompleted.unappliedInputIds` 与 interrupted entries 通过相同 `inputId` 对应；历史重载从 entries 恢复输入状态与文本。搜索索引以 MessageBlock 稳定 ID 关联命中。视图状态和定位交互由[消息流视图规范](./message-stream.mdx)说明。
-
-Runtime 以 `runStarted.startedAt` 建立一个 `runId` 的计时起点；成功完成时，最终模型回复的 `durationMs` 保存从该起点至运行终态的总时长。实时事件通过 `runCompleted.finalTurnId` 与 `finalDurationMs` 标识最终回合和相同总时长；历史投影通过最终 assistant entry 的 `turnId` 与 `durationMs` 恢复相同数据。`projectId = null` 的输入记录进入通用历史范围，并使用相同身份与顺序规则。总时长的活动组归属由[消息流视图规范](./message-stream.mdx)统一定义。
-
-## Hydrate 流程
-
-```text
-Main active project scope
-  → loadHistoryPage(cursor, limit)
-  → HistoryPageResult
-  → mergeHistoryEntries
-  → mergePersistedEntries
-  → AgentState / MessageStream
-```
-
-目标项目确定后，Renderer 先将历史投影切换到目标 `projectId` 并进入加载状态；目标页面返回后，Reducer 将该范围的 `HistoryPageEntry` 投影为新的 `AgentState`。旧项目的 `entriesById` 保持在 SQLite 中，当前页面只显示新范围。
-
-## 项目范围切换与滚动状态
-
-`projectId` 同时标识历史投影和 MessageStream 的虚拟窗口作用域，`null` 表示无项目历史。Renderer 在开始切换时立即将当前页面标记为目标范围加载中，并清空旧范围的 `runs`、`runOrder` 与当前历史页投影；Composer 展示的目标项目和消息流范围保持一致。
-
-每次历史读取在 Renderer 内绑定目标 `projectId` 与请求代次。Main 在请求开始时捕获对应历史范围；异步结果返回后，Reducer 仅接收仍匹配当前作用域及最新代次的页面。该门控覆盖首次 hydrate、项目切换后的 reload、旧页分页与搜索读取，保证切换前发起的迟到结果不会污染当前项目。
-
-MessageStream 接收当前 `projectId` 和 hydrate 就绪状态，并据此管理虚拟窗口：
-
+- 切换范围：`projectId` 同时标识历史投影和 MessageStream 的虚拟窗口作用域，`null` 表示无项目历史。左侧普通入口、项目条目选择和添加项目共用[项目导航](./project-navigation.mdx)的切换流程。Renderer 在开始切换时立即将当前页面标记为目标范围加载中，并清空旧范围的 `runs`、`runOrder` 与当前历史页投影；左侧活动项目标识、Composer 接收的 `projectId` 和消息流范围保持一致。
+- 响应门控：每次历史读取在 Renderer 内绑定目标 `projectId` 与请求代次。Main 在请求开始时捕获对应历史范围；异步结果返回后，Reducer 仅接收仍匹配当前作用域及最新代次的页面。该门控覆盖首次 hydrate、项目切换后的 reload、旧页分页与搜索读取，使当前项目始终采用匹配范围与代次的结果。
+- 布局协作：MessageStream 接收当前 `projectId` 和 hydrate 就绪状态，并据此管理虚拟窗口：
 - `projectId` 或历史替换代次改变时，虚拟窗口清理旧作用域的高度测量、前一布局、分页在途标记、视口快照和底部跟随状态；同一项目重新 hydrate 也建立新的首屏布局。
 - 新范围的消息使用估算高度建立布局；首轮 DOM 提交和 ResizeObserver 测量将累计高度逐步修正为真实值。
 - hydrate 完成后，有消息的范围将首屏直接定位到最新消息；空范围显示空状态并将滚动位置置零。
-- 真实高度后续变化时，底部跟随状态依据最新虚拟总高度更新 `scrollTop`；该过程使用瞬时定位，不呈现从顶部移动到中间的过渡帧。
+- 真实高度后续变化时，底部跟随状态依据最新虚拟总高度更新 `scrollTop`；该过程使用瞬时定位，首屏直接呈现目标阅读位置。
 - 同一范围内加载更早页面时，虚拟窗口保留首个可见 `blockId` 与视口偏移；实时追加按是否停留在底部决定跟随，搜索定位按目标 `blockId` 居中。
 - 搜索活动目标随着作用域切换清除，搜索控制器只从当前范围的 MessageBlock 序列构造结果。
+- 职责协作：作用域切换策略和虚拟高度重建细节以[消息流](./message-stream.mdx)为准。历史投影负责提供可靠的范围身份、请求代次和 hydrate 状态；MessageStream 负责把它们落实为布局重建和滚动策略。
 
-作用域切换策略和虚拟高度重建细节以[消息流](./message-stream.mdx)为准。历史投影负责提供可靠的范围身份、请求代次和 hydrate 状态；MessageStream 负责把它们落实为布局重建和滚动策略。
+实时事件。
 
-## 实时事件
+- 事件恢复：Hydrate 完成后，Renderer 将排队的 AgentEvent 交给 Reducer。`runId → turnId → toolCallId` 继续作为模型与工具事件身份链，`inputId` 负责补充用户输入归并，`entryOrder` 负责已应用历史排序。迟到的旧 run 事件保持被过滤，项目切换在运行空闲状态完成。
+- 正文转发：Adapter 将原生 `content` 交付既有正文链路，Runner 转为 IPC `assistantDelta`，Reducer 按 run、turn 与 attempt 累积 `assistantContent`；原始思考沿独立事件更新思考字段，旧 `progressDelta` 沿用兼容字段。
+- 完成对齐：`assistantCompleted.content` 与历史 `payload.content` 对齐同一正文字段；可选旧 `progress` 对齐兼容过程字段，两条链路共用 hydrate、revision 和事件合并规则。活跃组最终正文位置由 `runCompleted.finalTurnId` 或历史最终身份确定，已应用 steer 后的前组沿用任务回答边界；正文增量只更新所属 turn 的文本。
 
-Hydrate 完成后，Renderer 将排队的 AgentEvent 交给 Reducer。`runId → turnId → toolCallId` 继续作为模型与工具事件身份链，`inputId` 负责补充用户输入归并，`entryOrder` 负责已应用历史排序。迟到的旧 run 事件保持被过滤，项目切换在运行空闲状态完成。
-
-## 消息日期投影
+消息日期投影。
 
 - 初始用户消息从运行 ACK 的 `createdAt` 建立日期；运行中补充输入从 ACK 的 `acceptedAt` 建立日期，两者均与用户 entry 的 `createdAt` 相同。
 - 历史用户消息从 `entry.createdAt` 恢复日期，用户输入身份与时间在实时接收、应用、归档和历史恢复中保持一致。
 - 实时 `assistantCompleted.completedAt` 写入 `TurnState.assistantAt`；历史 `assistant_message.completedAt` 恢复同一字段。该字段表达完整模型输出的完成时间。
-- `completedAt` 为空的助手草稿继续展示已有正文和活动内容；日期在完整输出提交后呈现。复制入口随可复制正文呈现。
+- 草稿呈现：助手草稿与最终身份待确认的完整正文位于活动详情；回答身份确认后，折叠外正文使用已保存的 `completedAt` 呈现日期，并提供复制入口。
 - 日期与复制行使用[消息流](./message-stream.mdx)的常显样式，日期格式采用本机时区下的英文短星期、短月份、日期和12小时制时间。
 
-## 搜索和分页
+搜索和分页。
 
 - 首页读取当前范围的最新记录。
 - `nextCursor` 指向更早的 `entryOrder` 边界。
@@ -120,11 +84,14 @@ Hydrate 完成后，Renderer 将排队的 AgentEvent 交给 Reducer。`runId →
 - 虚拟消息流消费投影后的 `runOrder` 和 `RunState`。
 - 项目上下文缓存通过 Main/Runtime 进入模型请求，历史投影只处理 entries。
 
-## 代码入口
+代码入口。
 
 - `shell/main/session-history.ts`：当前范围的 Main 历史分页服务。
 - `shell/shared/ipc.ts`：`history:load-page`、`HistoryPageRequest` 和 `HistoryPageResult`。
 - `shell/preload/index.ts`：`loadHistoryPage()`。
 - `frontend/src/store/sessionHistory.ts`：当前历史范围、游标和页面合并。
 - `frontend/src/store/sessionProjection.ts`：历史记录到 `RunState`、`TurnState` 和 `ToolState` 的转换。
+- `frontend/src/store/messageBlocks.ts`：实时与历史共用的消息块、输入锚点与回答身份构造。
+- `frontend/src/store/assistantActivity.ts`：按 turn 生成文字、工具组与执行状态的展示投影。
+- `frontend/src/store/toolActivity.ts`：实际工具参数到操作行与组标题的投影。
 - `frontend/src/hooks/useSessionHistory.ts`：首次加载、项目切换后的 reload、分页和搜索读取。

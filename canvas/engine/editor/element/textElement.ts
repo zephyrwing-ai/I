@@ -35,6 +35,7 @@ export const redrawTextBoundingBox = (
   container: CanvasEditorElement | null,
   elementsMap: ElementsMap,
   informMutation = true,
+  options?: { updateContainerCache?: boolean },
 ) => {
   let maxWidth = undefined;
   const boundTextUpdates = {
@@ -84,7 +85,7 @@ export const redrawTextBoundingBox = (
         container.type,
       );
       mutateElement(container, { height: nextHeight }, informMutation);
-      updateOriginalContainerCache(container.id, nextHeight);
+      if (options?.updateContainerCache !== false) updateOriginalContainerCache(container.id, nextHeight);
     }
     if (metrics.width > maxContainerWidth) {
       const nextWidth = computeContainerDimensionForBoundText(

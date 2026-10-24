@@ -6,7 +6,6 @@ import type {
 import { syncMovedIndices } from "./fractionalIndex";
 import { getElementsInGroup } from "./groups";
 import { getSelectedElements } from "./scene";
-import Scene from "./scene/Scene";
 import type { AppState } from "./types";
 import { arrayToMap, findIndex, findLastIndex } from "./utils";
 
@@ -80,9 +79,7 @@ const getTargetIndexAccountingForBinding = (
   direction: "left" | "right",
 ) => {
   if ("containerId" in nextElement && nextElement.containerId) {
-    const containerElement = Scene.getScene(nextElement)!.getElement(
-      nextElement.containerId,
-    );
+    const containerElement = elements.find(element => element.id === nextElement.containerId);
     if (containerElement) {
       return direction === "left"
         ? Math.min(
@@ -99,8 +96,7 @@ const getTargetIndexAccountingForBinding = (
       (binding) => binding.type !== "arrow",
     )?.id;
     if (boundElementId) {
-      const boundTextElement =
-        Scene.getScene(nextElement)!.getElement(boundElementId);
+      const boundTextElement = elements.find(element => element.id === boundElementId);
       if (boundTextElement) {
         return direction === "left"
           ? Math.min(

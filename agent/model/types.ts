@@ -1,5 +1,12 @@
 /** Provider 与 Runtime 之间共享的结构化模型契约。 */
 
+export interface ModelCapabilities {
+  contextWindowTokens: number;
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  source: "provider" | "catalog" | "manual";
+}
+
 /** 工具参数属性描述 — 支持嵌套 object 与 array（items），与 OpenAI schema 对应。 */
 export interface ToolParamSpec {
   type: string;
@@ -30,7 +37,7 @@ export interface ToolCall {
 
 export type ModelStopReason = "stop" | "tool_use" | "length" | "content_filter" | "unknown" | "error" | "aborted";
 
-export type ModelErrorKind = "config" | "network" | "provider" | "model_protocol";
+export type ModelErrorKind = "config" | "network" | "provider" | "model_protocol" | "context_overflow";
 
 /** Adapter 归一化后的模型请求错误；Runtime 决定是否恢复。 */
 export class ModelAdapterError extends Error {
@@ -47,6 +54,8 @@ export class ModelAdapterError extends Error {
 export interface ModelMessage {
   role: "user" | "assistant" | "tool";
   content: string;
+  /** 兼容既有消息中的独立公开说明；原生响应使用 content。 */
+  progress?: string;
   /** 思考内容（模型推理过程）；由具体 Provider Adapter 决定是否以及如何回传。 */
   reasoning?: string;
   toolCalls?: ToolCall[];
@@ -62,7 +71,7 @@ export function readModelMessage(value: unknown): ModelMessage | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const message = value as Record<string, unknown>;
   if (!["user", "assistant", "tool"].includes(message.role as string) || typeof message.content !== "string") return undefined;
-  for (const field of ["reasoning", "toolCallId", "toolName"]) {
+  for (const field of ["progress", "reasoning", "toolCallId", "toolName"]) {
     if (message[field] !== undefined && typeof message[field] !== "string") return undefined;
   }
   if (message.isError !== undefined && typeof message.isError !== "boolean") return undefined;
@@ -82,14 +91,26 @@ export function readModelMessage(value: unknown): ModelMessage | undefined {
   return value as ModelMessage;
 }
 
+/** Provider-reported counts; estimates belong to the context projection. */
+export interface ModelUsage {
+  /** Provider input count includes cached tokens. Missing counts remain unknown. */
+  inputTokens?: number;
+  /** Provider output count includes reasoning tokens. */
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  totalTokens?: number;
+}
+
 /** 统一的模型返回，Runtime 不读取 Provider 原始响应格式。 */
 export interface LlmResponse {
   content: string;
+  progress?: string;
   reasoning?: string;
   toolCalls: ToolCall[];
   stopReason: ModelStopReason;
   rawStopReason?: string;
-  error?: { kind: "config" | "network" | "provider" | "model_protocol" | "runtime"; message: string; retryable?: boolean };
+  usage?: ModelUsage;
+  error?: { kind: ModelErrorKind | "runtime"; message: string; retryable?: boolean };
 }
 
 /**
@@ -99,5 +120,6 @@ export interface LlmResponse {
  */
 export type ModelStreamEvent =
   | { type: "reasoning_delta"; delta: string }
+  | { type: "progress_delta"; delta: string }
   | { type: "text_delta"; delta: string }
-  | { type: "completed"; content: string; reasoning?: string; toolCalls: ToolCall[]; stopReason: ModelStopReason; rawStopReason?: string };
+  | { type: "completed"; content: string; progress?: string; reasoning?: string; toolCalls: ToolCall[]; stopReason: ModelStopReason; rawStopReason?: string; usage?: ModelUsage };

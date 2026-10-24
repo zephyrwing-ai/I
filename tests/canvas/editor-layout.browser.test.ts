@@ -67,7 +67,7 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
     delete env.ELECTRON_RUN_AS_NODE;
     const { stdout } = await execute(electron, [join(fixture, "electron.cjs"), join(temporary, "page/index.html"), join(temporary, "profile")], {
       env,
-      timeout: 40_000,
+      timeout: 60_000,
       maxBuffer: 2 * 1024 * 1024,
     });
     const line = stdout.split("\n").find((value) => value.startsWith("CANVAS_LAYOUT_RESULTS="));
@@ -96,6 +96,15 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
       textFonts: Array<{ fontFamily: number; restoredFamily: number; pngType: string; paintedPixels: number; pngText: string; pngFamily: number; svgText: string; svgFontFamily: string; embeddedFamilies: string[]; embeddedFontData: boolean }>;
       languageFallback: Array<{ requested: string; current: string; documentLanguage: string; direction: string; label: string }>;
       capabilities: { toolAfterFrameShortcut: string; toolAfterUnsupportedAPI: string; libraryAPI: boolean; generationAPI: boolean; legacy: Array<{ type: string; visible: boolean; activeDOM: boolean }> };
+      editProtection: {
+        independentGesture: { ok: boolean; sameStroke: boolean; initialPoints: number; continuedPoints: number; afterHumanUndo: { aX: number; strokePresent: boolean }; afterAgentUndo: { aX: number; strokePresent: boolean } };
+        independentUndo: { beforeUndoX: number; afterUndoX: number; waitedBeforeUndo: boolean; ok: boolean; aPositionAfterUndo: number[]; selectionBeforeUndo: string[]; selectionAfterUndo: string[]; afterAgentCommit: { aPosition: number[]; aLocked: boolean; bX: number }; afterLockUndo: { aPosition: number[]; aLocked: boolean; bX: number }; afterGestureUndo: { aPosition: number[]; aLocked: boolean; bX: number } };
+        pendingDrag: { waitedForDrag: boolean; deleteRejected: boolean; cutRejected: boolean; ok: boolean; error: string; userPosition: number[]; finalPosition: number[] };
+        composition: { waitedForComposition: boolean; sameInput: boolean; ok: boolean; error: string; text: string };
+        replacement: { waitedBeforeReplacement: boolean; ok: boolean; error: string; ids: string[] };
+        binding: { waitedForEndpoint: boolean; ok: boolean; endpoint: string; affectedEndpoint: boolean };
+        boundReorder: { ok: boolean; error?: string; neighbourPreserved: boolean; ids: string[] };
+      };
       handSelection: {
         coldStart: NavigationState;
         sceneReplacement: NavigationState;
@@ -110,11 +119,12 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
         afterDeferredPan: NavigationState;
         explicitSelectionMoved: NavigationState & { position: number[] };
         explicitSelectionAfterRelease: NavigationState;
+        pastes: Array<NavigationState & { kind: string; releasedBeforeInsert: boolean; toolAfterInsertion: string }>;
         releaseDuringDrag: NavigationState;
         releaseAfterDrag: NavigationState & { position: number[] };
         originalToolOverridden: NavigationState;
         secondCommandStillHeld: NavigationState;
-        originalToolRestored: NavigationState;
+        rectangleAfterRelease: NavigationState;
         spacePan: NavigationState & { unchanged: boolean };
         commandOutsideCanvas: NavigationState;
         commandOutsidePointerUp: NavigationState;
@@ -201,6 +211,60 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
       assert.equal(change.elementCount, 2);
       assert.equal(change.resourceOwnKey, true, "resource IDs remain own keys across editor and storage");
     });
+    await t.test("Agent 修改 A 时 B 的实时自由绘制继续，并形成独立撤销步骤", () => {
+      const state = result.editProtection.independentGesture;
+      assert.equal(state.ok, true, JSON.stringify(state));
+      assert.equal(state.sameStroke, true, "unrelated active gesture retains its live object instance");
+      assert.ok(state.continuedPoints > state.initialPoints, "the same gesture accepts subsequent path points");
+      assert.deepEqual(state.afterHumanUndo, { aX: 180, strokePresent: false });
+      assert.deepEqual(state.afterAgentUndo, { aX: 120, strokePresent: false });
+    });
+    await t.test("目标拖动先完成，等待期间删除与剪切受控，基线变化返回冲突", () => {
+      const state = result.editProtection.pendingDrag;
+      assert.equal(state.waitedForDrag, true, JSON.stringify(state));
+      assert.equal(state.deleteRejected, true);
+      assert.equal(state.cutRejected, true);
+      assert.equal(state.ok, false);
+      assert.equal(state.error, "conflict");
+      assert.deepEqual(state.userPosition, [145, 135]);
+      assert.deepEqual(state.finalPosition, state.userPosition);
+    });
+    await t.test("Agent 等待 A 时 B 的独立撤销步骤继续执行", () => {
+      const state = result.editProtection.independentUndo;
+      assert.equal(state.beforeUndoX, 470);
+      assert.equal(state.afterUndoX, 450, JSON.stringify(state));
+      assert.equal(state.waitedBeforeUndo, true);
+      assert.equal(state.ok, true);
+      assert.deepEqual(state.aPositionAfterUndo, [130, 130]);
+      assert.deepEqual(state.selectionAfterUndo, state.selectionBeforeUndo, "history preserves the in-progress gesture selection");
+      assert.deepEqual(state.afterAgentCommit, { aPosition: [150, 150], aLocked: true, bX: 450 });
+      assert.deepEqual(state.afterLockUndo, { aPosition: [150, 150], aLocked: false, bX: 450 });
+      assert.deepEqual(state.afterGestureUndo, { aPosition: [120, 120], aLocked: false, bX: 450 }, "A's full gesture, including before B's undo, remains one step");
+    });
+    await t.test("新增绑定箭头保护已有端点，端点交接后更新绑定元数据", () => {
+      assert.deepEqual(result.editProtection.binding, { waitedForEndpoint: true, ok: true, endpoint: "protection-A", affectedEndpoint: true });
+    });
+    await t.test("隔离场景按传入绑定关系重排图层，并保留独立邻居实例", () => {
+      const state = result.editProtection.boundReorder;
+      assert.equal(state.ok, true, JSON.stringify(state));
+      assert.equal(state.neighbourPreserved, true);
+      assert.deepEqual(state.ids, ["reorder-neighbour", "reorder-container", "reorder-label"]);
+    });
+    await t.test("输入法组合等待目标交接，取消 Agent 请求后保留人工文字会话", () => {
+      const state = result.editProtection.composition;
+      assert.equal(state.waitedForComposition, true, JSON.stringify(state));
+      assert.equal(state.sameInput, true);
+      assert.equal(state.ok, false);
+      assert.match(state.error, /cancel|abort/i);
+      assert.equal(state.text, "用户正在输入 😀");
+    });
+    await t.test("场景替换使旧等待请求失效，旧指针收尾保持新场景", () => {
+      const state = result.editProtection.replacement;
+      assert.equal(state.waitedBeforeReplacement, true, JSON.stringify(state));
+      assert.equal(state.ok, false);
+      assert.equal(state.error, "project_changed");
+      assert.deepEqual(state.ids, ["replacement-scene"]);
+    });
     await t.test("CanvasSurface 冷启动提交、焦点、保存冲突和重载沿同一持久化链路", () => {
       const state = result.persistence;
       assert.deepEqual(state.coldStart, { ok: true, savedElements: 2, requests: 1, canRelease: true });
@@ -271,10 +335,19 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
       assert.equal(state.shortcuts.toolAfterUndo, "hand");
       assert.deepEqual(state.explicitSelectionMoved.position, [220, 170], "Command keeps ordinary drag semantics after choosing the selection tool explicitly");
       for (const sample of [state.explicitSelectionMoved, state.explicitSelectionAfterRelease]) {
-        assert.equal(sample.tool, "selection");
-        assert.deepEqual(sample.checkedTools, ["selection"]);
         assert.deepEqual(sample.selectedIds, ["navigation-rectangle"]);
         assert.deepEqual(sample.scroll, [0, 0]);
+      }
+      assert.equal(state.explicitSelectionMoved.tool, "selection");
+      assert.equal(state.explicitSelectionAfterRelease.tool, "selection");
+      assert.deepEqual(state.explicitSelectionAfterRelease.checkedTools, ["selection"]);
+      assert.equal(state.pastes.length, 4);
+      for (const sample of state.pastes) {
+        assert.equal(sample.toolAfterInsertion, sample.releasedBeforeInsert ? "hand" : "selection", JSON.stringify(sample));
+        assert.equal(sample.tool, "hand", JSON.stringify(sample));
+        assert.deepEqual(sample.checkedTools, ["hand"]);
+        assert.equal(sample.cursor, "grab");
+        assert.equal(sample.selectedIds.length, 1, "pasted content remains selected after Command release");
       }
     });
     await t.test("手势内按下或释放 Command 保持当前手势，pointerup 后应用待切换", () => {
@@ -288,14 +361,14 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
       assert.deepEqual(state.releaseAfterDrag.position, [210, 160]);
       assert.deepEqual(state.releaseAfterDrag.selectedIds, ["navigation-rectangle"]);
     });
-    await t.test("Command 恢复原工具并识别仍按住的另一侧 Command，Space 保持平移", () => {
+    await t.test("Command 松开恢复原工具并识别另一侧 Command，Space 保持平移", () => {
       const state = result.handSelection;
       for (const sample of [state.originalToolOverridden, state.secondCommandStillHeld]) {
         assert.equal(sample.tool, "selection");
         assert.deepEqual(sample.checkedTools, ["selection"]);
       }
-      assert.equal(state.originalToolRestored.tool, "rectangle");
-      assert.deepEqual(state.originalToolRestored.checkedTools, ["rectangle"]);
+      assert.equal(state.rectangleAfterRelease.tool, "rectangle");
+      assert.deepEqual(state.rectangleAfterRelease.checkedTools, ["rectangle"]);
       assert.equal(state.spacePan.tool, "rectangle");
       assert.equal(state.spacePan.cursor, "crosshair");
       assert.equal(state.spacePan.unchanged, true);

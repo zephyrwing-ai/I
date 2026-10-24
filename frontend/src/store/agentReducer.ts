@@ -26,12 +26,17 @@ export interface TurnState {
   /** 已启动回合捕获的输入锚点；后续补充输入继续使用各自的新回合。 */
   anchorInputId?: string;
   status: TurnStatus;
+  /** 当前模型尝试，供流式增量与重试边界对齐。 */
+  modelAttempt?: number;
+  /** Provider 原生公开正文；展示投影根据最终回答身份决定所在位置。 */
   assistantContent: string;
+  /** 兼容历史记录和已有事件中的独立过程正文。 */
+  progressContent?: string;
   /** 完整模型输出的固定完成时间；实时事件与历史 entry 共享该值。 */
   assistantAt?: number;
   /** 最终助手消息持久化的 run 总耗时，单位毫秒。 */
   assistantDurationMs?: number;
-  /** 思考内容（reasoningDelta 增量累加）；展示在该助手消息内。 */
+  /** 原始思考增量；与用户可见的过程正文分别保存。 */
   reasoningContent: string;
   finalContent?: string;
   stopReason?: string;
@@ -147,6 +152,7 @@ function ensureTurn(run: RunState, turnId: string, turnOrdinal = 0): RunState {
         anchorInputId: run.appliedInputId,
         status: "running",
         assistantContent: "",
+        progressContent: "",
         reasoningContent: "",
         toolOrder: [],
         tools: {},
@@ -196,6 +202,21 @@ function updateTurn(run: RunState, turnId: string, update: (turn: TurnState) => 
   const turn = run.turns[turnId];
   if (!turn) return run;
   return { ...run, turns: { ...run.turns, [turnId]: update(turn) } };
+}
+
+function beginTurnAttempt(turn: TurnState, attempt: number): TurnState {
+  if (attempt <= (turn.modelAttempt ?? 1)) return turn;
+  return {
+    ...turn,
+    modelAttempt: attempt,
+    status: "running",
+    assistantContent: "",
+    progressContent: "",
+    reasoningContent: "",
+    finalContent: undefined,
+    assistantAt: undefined,
+    stopReason: undefined,
+  };
 }
 
 export function agentReducer(state: AgentState, action: AgentAction): AgentState {
@@ -379,34 +400,34 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
       if (event.type === "turnStarted") {
         return withCurrentRun(state, (run) => {
           const next = ensureTurn(run, event.turnId, event.turnOrdinal);
-          return updateTurn(next, event.turnId, (turn) => ({ ...turn, turnOrdinal: event.turnOrdinal, status: "running" }));
+          return updateTurn(next, event.turnId, (turn) => {
+            const attempt = event.attempt ?? turn.modelAttempt ?? 1;
+            if (attempt < (turn.modelAttempt ?? 1)) return turn;
+            return { ...beginTurnAttempt(turn, attempt), modelAttempt: attempt, turnOrdinal: event.turnOrdinal, status: "running" };
+          });
         });
       }
 
-      if (event.type === "assistantDelta") {
+      if (event.type === "assistantDelta" || event.type === "progressDelta" || event.type === "reasoningDelta") {
+        const field = event.type === "assistantDelta" ? "assistantContent"
+          : event.type === "progressDelta" ? "progressContent" : "reasoningContent";
         return withCurrentRun(state, (run) => {
           const next = ensureTurn(run, event.turnId);
-          return updateTurn(next, event.turnId, (turn) => ({
-            ...turn,
-            assistantContent: turn.assistantContent + event.delta,
-          }));
-        });
-      }
-
-      if (event.type === "reasoningDelta") {
-        return withCurrentRun(state, (run) => {
-          const next = ensureTurn(run, event.turnId);
-          return updateTurn(next, event.turnId, (turn) => ({
-            ...turn,
-            reasoningContent: turn.reasoningContent + event.delta,
-          }));
+          return updateTurn(next, event.turnId, (turn) => {
+            const attempt = event.attempt ?? turn.modelAttempt ?? 1;
+            if (attempt < (turn.modelAttempt ?? 1)) return turn;
+            const current = beginTurnAttempt(turn, attempt);
+            if (current.finalContent !== undefined) return turn;
+            return { ...current, modelAttempt: attempt, [field]: (current[field] ?? "") + event.delta };
+          });
         });
       }
 
       if (event.type === "turnRetrying") {
         return withCurrentRun(state, (run) => {
           const next = ensureTurn(run, event.turnId);
-          return updateTurn(next, event.turnId, (turn) => ({ ...turn, status: "retrying" }));
+          return updateTurn(next, event.turnId, (turn) => event.attempt < (turn.modelAttempt ?? 1)
+            ? turn : { ...turn, status: "retrying" });
         });
       }
 
@@ -424,6 +445,7 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
             return {
               ...turn,
               assistantContent: event.content,
+              progressContent: event.progress ?? turn.progressContent ?? "",
               assistantAt: event.completedAt,
               finalContent: event.content,
               stopReason: event.stopReason,

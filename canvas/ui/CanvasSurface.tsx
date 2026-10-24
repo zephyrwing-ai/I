@@ -106,6 +106,8 @@ const CanvasEditor = lazy(async () => {
 });
 
 interface CanvasSurfaceProps {
+  theme?: "light" | "dark";
+  language?: "en" | "zh-CN";
   projectId: string | null;
   pendingEdit?: CanvasEditRequest | null;
   onEditResult?: (result: CanvasEditResult) => void;
@@ -132,7 +134,7 @@ type SelectionPositionSnapshot = {
 
 const SELECTION_ACTION_HANDLE_GAP = 10;
 
-export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>(function CanvasSurface({ projectId, pendingEdit = null, onEditResult, onContextPrepared, onCanReleaseChange }, ref) {
+export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>(function CanvasSurface({ theme, language, projectId, pendingEdit = null, onEditResult, onContextPrepared, onCanReleaseChange }, ref) {
   const [document, setDocument] = useState<CanvasDocument | null>(null);
   const [api, setApi] = useState<CanvasEditorImperativeAPI | null>(null);
   const [selectionActionPosition, setSelectionActionPosition] =
@@ -200,7 +202,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
       if (cancelled) return;
       const softwareBackground =
         window.getComputedStyle(window.document.documentElement).getPropertyValue("--bg").trim() ||
-        "#f7f3ee";
+        "#f8f8f8";
       const nextAppState = { ...result.document.appState, viewBackgroundColor: softwareBackground };
       sceneProjectIdRef.current = projectId;
       pendingVersionRef.current = { projectId, version: result.version };
@@ -272,6 +274,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     let settled = false;
     let appliedOutcome: CanvasEditOutcome | null = null;
     let stage: "apply" | "scene" | "save" = "apply";
+    const editAbort = new AbortController();
     const changeObserved = new Promise<void>((resolve) => {
       unsubscribe = editorAPI.onChange(() => resolve());
     });
@@ -288,10 +291,11 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
 
     const apply = async (): Promise<void> => {
       try {
-        const outcome = editorAPI.applyCanvasEdit(
+        const outcome = await editorAPI.applyCanvasEdit(
           pendingEdit.operations,
           pendingEdit.sourceElements,
           pendingEdit.imageFiles,
+          { requestId: pendingEdit.requestId, deadlineAt: pendingEdit.deadlineAt, signal: editAbort.signal },
         );
         appliedOutcome = outcome;
         if (!outcome.ok) {
@@ -329,6 +333,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     void apply();
     return () => {
       if (!settled && activeEditRequestRef.current === pendingEdit.requestId) {
+        editAbort.abort();
         cancelPendingWait();
       }
       unsubscribe();
@@ -340,7 +345,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     if (!document) return null;
     const softwareBackground =
       window.getComputedStyle(window.document.documentElement).getPropertyValue("--bg").trim() ||
-      "#f7f3ee";
+      "#f8f8f8";
     return {
       elements: document.elements as unknown as readonly CanvasEditorElement[],
       appState: {
@@ -623,6 +628,8 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
           }}>
             <Suspense fallback={<div className="canvas-panel-state">Loading drawing tools…</div>}>
               <CanvasEditor
+                theme={theme}
+                langCode={language === "en" ? "en-US" : language}
                 initialData={initialData}
                 canvasAPI={receiveAPI}
                 onChange={handleChange}

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import type { ModelCapabilities } from "../../../agent/model/types.js";
 import { ProviderStore, type SecretCodec } from "../../../shell/main/provider-store.js";
 
 const codec: SecretCodec = {
@@ -340,4 +341,147 @@ test("ProviderStore removes legacy unavailable models when loading the catalog",
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+async function withCapabilityStore(run: (store: ProviderStore, file: string) => Promise<void>): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), "provider-capabilities-"));
+  const file = join(directory, "providers.json");
+  try {
+    await run(new ProviderStore(file, codec), file);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+test("ProviderStore retains provider capabilities through save, refresh, resolve and restart", async () => {
+  await withCapabilityStore(async (store, file) => {
+    const capabilities: ModelCapabilities = { contextWindowTokens: 96000, maxInputTokens: 88000, maxOutputTokens: 8000, source: "provider" };
+    const profile = await store.save({
+      name: "Capabilities", baseURL: "https://models.example.com/v1", apiKey: "secret",
+      models: [{ id: "model-a", displayName: "Model A", capabilities }],
+    });
+    assert.deepEqual(profile.models[0].capabilities, capabilities);
+    const id = profile.models[0].modelOptionId;
+    const original = await store.resolve(id);
+    assert.deepEqual(original.capabilities, capabilities);
+    const saved = await store.save({
+      providerProfileId: profile.providerProfileId, name: profile.name, baseURL: "https://models.example.com/v2",
+      models: [{ id: "model-a", displayName: "Renamed" }],
+    });
+    assert.deepEqual(saved.models[0].capabilities, capabilities);
+    const updated: ModelCapabilities = { contextWindowTokens: 128000, maxInputTokens: 120000, maxOutputTokens: 12000, source: "provider" };
+    const refreshed = await store.applyRefresh(profile.providerProfileId, [{ id: "model-a", displayName: "Remote", capabilities: updated }]);
+    assert.deepEqual(refreshed.models[0].capabilities, updated);
+    assert.deepEqual(original.capabilities, capabilities);
+    refreshed.models[0].capabilities!.contextWindowTokens = 1;
+    assert.deepEqual((await store.list())[0].models[0].capabilities, updated);
+    assert.deepEqual((await new ProviderStore(file, codec).resolve(id)).capabilities, updated);
+    const document = JSON.parse(await readFile(file, "utf8"));
+    assert.equal(document.version, 4);
+    assert.deepEqual(document.profiles[0].models[0].capabilities, updated);
+    assert.equal(JSON.stringify(document).includes("secret"), false);
+  });
+});
+
+test("manual capabilities survive same-origin refreshes and explicit new-origin capabilities replace them", async () => {
+  await withCapabilityStore(async (store) => {
+    const manual: ModelCapabilities = { contextWindowTokens: 64000, maxOutputTokens: 4096, source: "manual" };
+    const profile = await store.save({
+      name: "Manual", baseURL: "https://api.openai.com/v1", apiKey: "original",
+      models: [{ id: "gpt-4.1", displayName: "GPT", capabilities: manual }],
+    });
+    const remote: ModelCapabilities = { contextWindowTokens: 128000, maxInputTokens: 60000, maxOutputTokens: 8192, source: "provider" };
+    const refreshed = await store.applyRefresh(profile.providerProfileId, [{ id: "gpt-4.1", displayName: "GPT", capabilities: remote }]);
+    assert.deepEqual(refreshed.models[0].capabilities, { ...manual, maxInputTokens: 60000 });
+    const saved = await store.save({
+      providerProfileId: profile.providerProfileId, name: profile.name, baseURL: "https://API.OPENAI.COM:443/v2",
+      models: [{ id: "gpt-4.1", displayName: "GPT" }],
+    });
+    assert.deepEqual(saved.models[0].capabilities, { ...manual, maxInputTokens: 60000 });
+    const changed = await store.save({
+      providerProfileId: profile.providerProfileId, name: profile.name, baseURL: "https://other.example.com/v1", apiKey: "replacement",
+      models: [{ id: "gpt-4.1", displayName: "GPT" }],
+    });
+    assert.equal(changed.models[0].capabilities, undefined);
+    const explicit = await store.save({
+      providerProfileId: profile.providerProfileId, name: profile.name, baseURL: "https://new.example.com/v1", apiKey: "new-key",
+      models: [{ id: "gpt-4.1", displayName: "GPT", capabilities: remote }],
+    });
+    assert.deepEqual(explicit.models[0].capabilities, remote);
+  });
+});
+
+test("catalog fallback follows current provider metadata and precedes stale saved limits", async () => {
+  await withCapabilityStore(async (store) => {
+    const provider: ModelCapabilities = { contextWindowTokens: 500000, maxOutputTokens: 16000, source: "provider" };
+    const profile = await store.save({
+      name: "Catalog", baseURL: "https://api.openai.com/v1", apiKey: "key",
+      models: [{ id: "gpt-4.1", displayName: "GPT", capabilities: provider }],
+    });
+    assert.deepEqual(profile.models[0].capabilities, provider);
+    const refreshed = await store.applyRefresh(profile.providerProfileId, [{ id: "gpt-4.1", displayName: "GPT" }]);
+    assert.deepEqual(refreshed.models[0].capabilities, { contextWindowTokens: 1047576, maxOutputTokens: 32768, source: "catalog" });
+    assert.deepEqual((await store.resolve(profile.models[0].modelOptionId)).capabilities, refreshed.models[0].capabilities);
+  });
+});
+
+test("legacy version-three profiles resolve catalog capabilities lazily while unknown models remain usable", async () => {
+  await withCapabilityStore(async (_store, file) => {
+    const profiles = [
+      { providerProfileId: "known", provider: "openai", name: "Known", baseURL: "https://api.openai.com/v1", encryptedApiKey: codec.encrypt("known-key"),
+        models: [{ modelOptionId: "known-model", modelId: "gpt-4.1", displayName: "GPT", available: true, imported: true, state: "saved" }] },
+      { providerProfileId: "unknown", provider: "openai", name: "Unknown", baseURL: "https://custom.example.com/v1", encryptedApiKey: codec.encrypt("unknown-key"),
+        models: [{ modelOptionId: "unknown-model", modelId: "custom-model", displayName: "Custom", available: true, imported: true, state: "saved" }] },
+    ];
+    const original = JSON.stringify({ version: 3, profiles });
+    await writeFile(file, original);
+    const store = new ProviderStore(file, codec);
+    const known = await store.resolve("known-model");
+    const unknown = await store.resolve("unknown-model");
+    assert.deepEqual(known.capabilities, { contextWindowTokens: 1047576, maxOutputTokens: 32768, source: "catalog" });
+    assert.equal(unknown.capabilities, undefined);
+    assert.equal(await unknown.getApiKey(), "unknown-key");
+    assert.deepEqual((await store.list())[0].models[0].capabilities, known.capabilities);
+    assert.equal(await readFile(file, "utf8"), original);
+  });
+});
+
+test("malformed explicit capabilities reject saving without replacing the profile or token limits", async () => {
+  await withCapabilityStore(async (store, file) => {
+    const valid: ModelCapabilities = { contextWindowTokens: 64000, source: "manual" };
+    const profile = await store.save({
+      name: "Validate", baseURL: "https://custom.example.com/v1", apiKey: "key",
+      models: [{ id: "custom", displayName: "Custom", capabilities: valid }],
+    });
+    const before = await readFile(file, "utf8");
+    const invalid = [null, {}, { contextWindowTokens: 0, source: "manual" }, { contextWindowTokens: "64000", source: "manual" },
+      { contextWindowTokens: 64000, source: "unknown" }, { contextWindowTokens: 64000, source: "manual", maxInputTokens: -1 },
+      { contextWindowTokens: 64000, source: "manual", maxOutputTokens: 0.5 }, { contextWindowTokens: 64000, source: "manual", maxOutputTokens: Number.MAX_SAFE_INTEGER + 1 }];
+    for (const capabilities of invalid) {
+      await assert.rejects(store.save({
+        providerProfileId: profile.providerProfileId, name: profile.name, baseURL: profile.baseURL,
+        models: [{ id: "custom", displayName: "Custom", capabilities: capabilities as ModelCapabilities }],
+      }), /capabilities.*positive safe integer/i);
+      assert.equal(await readFile(file, "utf8"), before);
+    }
+    assert.deepEqual((await store.resolve(profile.models[0].modelOptionId)).capabilities, valid);
+  });
+});
+
+test("loading a profile sanitizes old malformed capabilities without dropping the model or credentials", async () => {
+  await withCapabilityStore(async (_store, file) => {
+    await writeFile(file, JSON.stringify({ version: 4, profiles: [{
+      providerProfileId: "sanitize", provider: "openai", name: "Sanitize", baseURL: "https://custom.example.com/v1", encryptedApiKey: codec.encrypt("key"),
+      models: [
+        { modelOptionId: "bad-window", modelId: "bad-window", displayName: "Bad", available: true, imported: true, state: "saved", capabilities: { contextWindowTokens: -1, source: "manual" } },
+        { modelOptionId: "bad-output", modelId: "bad-output", displayName: "Output", available: true, imported: true, state: "saved", capabilities: { contextWindowTokens: 64000, maxOutputTokens: -1, source: "provider" } },
+      ],
+    }] }));
+    const store = new ProviderStore(file, codec);
+    const models = (await store.list())[0].models;
+    assert.equal(models.length, 2);
+    assert.equal(models[0].capabilities, undefined);
+    assert.deepEqual(models[1].capabilities, { contextWindowTokens: 64000, source: "provider" });
+    assert.equal(await (await store.resolve("bad-window")).getApiKey(), "key");
+  });
 });

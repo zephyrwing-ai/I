@@ -42,6 +42,13 @@ export interface CanvasEditChanges {
   crop?: { x: number; y: number; width: number; height: number; naturalWidth: number; naturalHeight: number };
 }
 
+/** Local editor execution lifetime; signals stay inside the Renderer. */
+export interface CanvasEditExecutionOptions {
+  requestId: string;
+  deadlineAt: number;
+  signal?: AbortSignal;
+}
+
 export type CanvasEditOperation =
   | { action: "create"; element: CanvasEditCreateElement }
   | { action: "update"; id: string; changes: CanvasEditChanges }

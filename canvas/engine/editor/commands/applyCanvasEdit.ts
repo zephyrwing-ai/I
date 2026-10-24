@@ -21,6 +21,7 @@ import type { BinaryFileData, BinaryFiles, AppState } from "../types";
 import type { CanvasEditorArrowElement, CanvasEditorBindableElement, CanvasEditorElement, CanvasEditorTextElement, FileId, NonDeletedSceneElementsMap } from "../element/types";
 import { pointFrom, type LocalPoint, type Radians } from "@agent-studio/canvas-math";
 import { newElementWith } from "../element/mutateElement";
+import { canvasEditValuesEqual as deepEqual, reconcileCanvasEditElements } from "./reconcileCanvasEdit";
 
 const MAX_OPERATIONS = 32;
 const MAX_ELEMENTS = 20_000;
@@ -83,7 +84,6 @@ export function applyCanvasEdit(input: CanvasEditApplyInput): CanvasEditApplyOut
   // Clone once so all domain helpers operate on an isolated working scene.
   // No live element mutates until the complete command batch has succeeded.
   let next = cloneJSON([...elements]) as CanvasEditorElement[];
-  const beforeById = new Map(next.map((element) => [element.id, cloneJSON(element)]));
   const createdIds: string[] = [];
   const appStatePatch: Partial<AppState> = {};
   const filesToAdd: BinaryFileData[] = [];
@@ -208,10 +208,9 @@ export function applyCanvasEdit(input: CanvasEditApplyInput): CanvasEditApplyOut
     return { ok: false, error: error instanceof Error ? error.message : "invalid_operation" };
   }
 
-  const appliedElements = next.filter((element) => {
-    const before = beforeById.get(element.id);
-    return !before || before.versionNonce !== element.versionNonce || before.index !== element.index || before.isDeleted !== element.isDeleted;
-  });
+  const reconciled = reconcileCanvasEditElements(elements, next);
+  next = reconciled.elements;
+  const appliedElements = next.filter((element) => reconciled.changedIds.has(element.id));
   const hasChanges = appliedElements.length > 0;
   if (!hasChanges) return { ok: true, changed: false, appliedElements: [], createdIds: [] };
 
@@ -225,19 +224,13 @@ export function applyCanvasEdit(input: CanvasEditApplyInput): CanvasEditApplyOut
 
   // Bound dependants changed by the editor are included in the result so the
   // next tool call can use their latest versions as its base.
-  const resultById = new Map(appliedElements.map((element) => [element.id, element]));
-  for (const element of next) {
-    const before = beforeById.get(element.id);
-    if (before && before.versionNonce !== element.versionNonce) resultById.set(element.id, element);
-  }
-
   return {
     ok: true,
     changed: true,
     elements: next,
     appState: appStatePatch,
     ...(filesToAdd.length ? { filesToAdd } : {}),
-    appliedElements: [...resultById.values()].map((element) => cloneJSON(element)),
+    appliedElements: appliedElements.map((element) => cloneJSON(element)),
     createdIds,
   };
 }
@@ -332,7 +325,7 @@ function updateElement(
     };
     nextElement = changed(current, textChanges);
     const nextMap = arrayToMap(elements.map((element) => element.id === current.id ? nextElement : element));
-    redrawTextBoundingBox(nextElement as CanvasEditorTextElement, container, nextMap, false);
+    redrawTextBoundingBox(nextElement as CanvasEditorTextElement, container, nextMap, false, { updateContainerCache: false });
   } else if ("points" in changes && changes.points) {
     if (!(current.type === "line" || current.type === "arrow" || current.type === "freedraw")) {
       throw new Error("points can only update a line, arrow, or freehand stroke.");
@@ -494,19 +487,6 @@ function changed<T extends CanvasEditorElement>(element: T, changes: Partial<T>)
     return element;
   }
   return newElementWith(element, changes as never, true);
-}
-
-function deepEqual(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
-  if (Array.isArray(left) !== Array.isArray(right)) return false;
-  if (Array.isArray(left) && Array.isArray(right)) {
-    return left.length === right.length && left.every((value, index) => deepEqual(value, right[index]));
-  }
-  const leftRecord = left as Record<string, unknown>;
-  const rightRecord = right as Record<string, unknown>;
-  const keys = Object.keys(leftRecord);
-  return keys.length === Object.keys(rightRecord).length && keys.every((key) => deepEqual(leftRecord[key], rightRecord[key]));
 }
 
 function isCoordinate(value: unknown): value is number {

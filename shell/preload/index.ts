@@ -26,27 +26,61 @@ import {
   type ProviderProfileSummary,
   type RefreshProviderModelsResult,
   type ProjectDescriptor,
+  type ProjectActionRequest,
+  type ProjectActionResult,
+  type QuitPreparationRequest,
+  type QuitPreparationResult,
   type RunRequest,
   type RunStartAck,
   type SteerRequest,
   type SteerAck,
+  type VoiceTranscriptionRequest,
+  type VoiceTranscriptionResult,
   type SaveProviderResult,
   type HistoryPageRequest,
   type HistoryPageResult,
 } from "../shared/ipc.js";
 
 const api: AgentAPI = {
+  onPrepareToQuit: (cb: (request: QuitPreparationRequest) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, request: QuitPreparationRequest): void => cb(request);
+    ipcRenderer.on(IPC.prepareToQuit, listener);
+    ipcRenderer.send(IPC.quitPreparationReady, true);
+    return () => {
+      ipcRenderer.removeListener(IPC.prepareToQuit, listener);
+      ipcRenderer.send(IPC.quitPreparationReady, false);
+    };
+  },
+
+  completeQuitPreparation: (result: QuitPreparationResult): void => {
+    ipcRenderer.send(IPC.quitPreparationResult, result);
+  },
+
   run: (req: RunRequest): Promise<RunStartAck> => ipcRenderer.invoke(IPC.run, req),
 
   steer: (req: SteerRequest): Promise<SteerAck> => ipcRenderer.invoke(IPC.steer, req),
 
   stop: (): void => ipcRenderer.send(IPC.stop),
 
+  transcribeVoice: (request: VoiceTranscriptionRequest): Promise<VoiceTranscriptionResult> => (
+    ipcRenderer.invoke(IPC.transcribeVoice, request)
+  ),
+
+  cancelVoiceTranscription: (requestId: string): void => {
+    ipcRenderer.send(IPC.cancelVoiceTranscription, requestId);
+  },
+
   loadHistoryPage: (request: HistoryPageRequest): Promise<HistoryPageResult> => (
     ipcRenderer.invoke(IPC.loadHistoryPage, request)
   ),
 
   getActiveProject: (): Promise<ProjectDescriptor> => ipcRenderer.invoke(IPC.getActiveProject),
+
+  listProjects: (): Promise<ProjectDescriptor[]> => ipcRenderer.invoke(IPC.listProjects),
+
+  activateProject: (projectId: string): Promise<ProjectDescriptor> => ipcRenderer.invoke(IPC.activateProject, projectId),
+
+  performProjectAction: (request: ProjectActionRequest): Promise<ProjectActionResult> => ipcRenderer.invoke(IPC.performProjectAction, request),
 
   selectProject: (): Promise<ProjectDescriptor | null> => ipcRenderer.invoke(IPC.selectProject),
 

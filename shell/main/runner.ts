@@ -1,21 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { run, type AgentEvents } from "../../agent/loop.js";
 import type { HistoryRecorder, HistoryScope } from "../../agent/memory/types.js";
-import type { ModelConfig } from "../../agent/model/index.js";
+import type { ModelCapabilities, ModelConfig, ModelContextConfig } from "../../agent/model/index.js";
+import { loadContextPolicy } from "../../agent/context/config.js";
+import { resolveContextPolicy } from "../../agent/context/policy.js";
 import type { ModelMessage } from "../../agent/model/types.js";
 import type { PendingRunInput } from "../../agent/memory/types.js";
 import type { ResolvedCanvasContext } from "../../canvas/context/CanvasContextRegistry.js";
 import type { ResolvedAttachment } from "./input-attachments.js";
 import { createLocalBashOps } from "../../agent/environment.js";
-import { createToolRegistry } from "../../agent/tools/index.js";
+import { createHistoryReadTool, createToolRegistry } from "../../agent/tools/index.js";
 import { createCanvasEditTool, type CanvasEditExecutor } from "../../agent/tools/canvas-edit.js";
 import type { FileArtifact } from "../../agent/types.js";
 import type { AgentEvent, OutputFileDescriptor, Provider, SteerRequest } from "../shared/ipc.js";
 import { toPublicToolResult } from "../shared/tool-result.js";
 import { RunInputInbox } from "./run-input-inbox.js";
+import { CANVAS_CODING_AGENT_PROMPT, DEFAULT_CODING_AGENT_PROMPT } from "../../agent/prompts.js";
 
-const SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then provide a concise final answer.";
-const CANVAS_SYSTEM_PROMPT = `${SYSTEM_PROMPT}\nLive Canvas edits use canvas_edit. Submit element operations to the current editor, which owns the live scene and project persistence. Existing targets come from Use selection or successful Canvas edits in this run. A persistence_conflict result pauses Canvas saving; ask the user to resolve it using the Canvas controls. File tools serve project files and user-requested exports.`;
 const MAX_CANVAS_EDIT_BASE_ELEMENTS = 1_000;
 
 export interface RunnerHandle {
@@ -36,6 +37,8 @@ export interface ResolvedRunRequest {
   provider: Provider;
   modelId: string;
   baseURL?: string;
+  context?: ModelContextConfig;
+  capabilities?: ModelCapabilities;
   getApiKey: () => Promise<string>;
   /** Main assigns this before consuming any run-scoped references. */
   runId?: string;
@@ -85,8 +88,10 @@ export class AgentRunner {
     if (req.projectId === undefined) {
       throw new Error("The run request is missing a project scope.");
     }
+    const context = req.context ? resolveContextPolicy(req.context, req.capabilities) : loadContextPolicy(process.env, req.capabilities);
     const recorder = req.historyRecorder;
     const tools = new Map(this.baseTools);
+    tools.set("history_read", createHistoryReadTool(recorder.repository, req.projectId));
     if (this.canvasEdit && req.ownerWebContentsId !== undefined &&
         ((req.canvasContexts?.length ?? 0) > 0 || this.canvasEdit.enableCreateWithoutSelection)) {
       const sourceElements = selectedCanvasElements(req.canvasContexts ?? [], req.projectId);
@@ -120,8 +125,9 @@ export class AgentRunner {
       onRunStart: (ctx) => emitOnce({ type: "runStarted", ...ctx }),
       onTurnStart: (ctx) => emitOnce({ type: "turnStarted", ...ctx }),
       onReasoningDelta: (delta, ctx) => emitOnce({ type: "reasoningDelta", ...ctx, delta }),
+      onProgressDelta: (delta, ctx) => emitOnce({ type: "progressDelta", ...ctx, delta }),
       onAssistantDelta: (delta, ctx) => emitOnce({ type: "assistantDelta", ...ctx, delta }),
-      onAssistantCompleted: (response, ctx) => emitOnce({ type: "assistantCompleted", ...ctx, content: response.content, toolCalls: response.toolCalls, stopReason: response.stopReason }),
+      onAssistantCompleted: (response, ctx) => emitOnce({ type: "assistantCompleted", ...ctx, content: response.content, ...(response.progress !== undefined ? { progress: response.progress } : {}), toolCalls: response.toolCalls, stopReason: response.stopReason }),
       onToolStart: (call, ctx) => emitOnce({ type: "toolStarted", runId: ctx.runId, turnId: ctx.turnId, toolCallId: call.id, name: call.name, input: call.input }),
       onToolCompleted: (call, result, ctx) => {
         emitOnce({
@@ -148,6 +154,8 @@ export class AgentRunner {
     const modelConfig: ModelConfig = {
       provider: "openai",
       model: req.modelId,
+      capabilities: req.capabilities,
+      context,
       openai: {
         baseURL: req.baseURL,
         apiKeyProvider: req.getApiKey,
@@ -161,7 +169,7 @@ export class AgentRunner {
     setImmediate(() => {
       void run(req.task, modelConfig, {
         runId,
-        systemPrompt: tools.has("canvas_edit") ? CANVAS_SYSTEM_PROMPT : SYSTEM_PROMPT,
+        systemPrompt: tools.has("canvas_edit") ? CANVAS_CODING_AGENT_PROMPT : DEFAULT_CODING_AGENT_PROMPT,
         cwd: req.cwd,
         tools,
         signal: this.controller.signal,

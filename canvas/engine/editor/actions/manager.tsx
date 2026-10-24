@@ -9,6 +9,7 @@ import type {
 import type { OrderedCanvasEditorElement } from "../element/types";
 import type { AppClassProperties, AppState } from "../types";
 import { isPromiseLike } from "../utils";
+import { getActionHumanEditTargets } from "./editProtection";
 
 export class ActionManager {
   actions = {} as Record<ActionName, Action>;
@@ -84,7 +85,7 @@ export class ActionManager {
 
     event.preventDefault();
     event.stopPropagation();
-    this.updater(data[0].perform(elements, appState, value, this.app));
+    this.performAction(action, elements, appState, value);
     return true;
   }
 
@@ -95,6 +96,19 @@ export class ActionManager {
     const elements = this.getElementsIncludingDeleted();
     const appState = this.getAppState();
 
+    this.performAction(action, elements, appState, value);
+  }
+
+  private performAction(
+    action: Action,
+    elements: readonly OrderedCanvasEditorElement[],
+    appState: Readonly<AppState>,
+    value: Parameters<Action["perform"]>[2],
+  ) {
+    const targets = getActionHumanEditTargets(action.name, elements, appState);
+    if (targets !== null && !this.app.canApplyHumanEdit(targets, action.name)) {
+      return;
+    }
     this.updater(action.perform(elements, appState, value, this.app));
   }
 
@@ -115,14 +129,7 @@ export class ActionManager {
       const PanelComponent = action.PanelComponent!;
       PanelComponent.displayName = "PanelComponent";
       const updateData = (formState?: any) => {
-        this.updater(
-          action.perform(
-            this.getElementsIncludingDeleted(),
-            this.getAppState(),
-            formState,
-            this.app,
-          ),
-        );
+        this.executeAction(action, formState);
       };
 
       return (

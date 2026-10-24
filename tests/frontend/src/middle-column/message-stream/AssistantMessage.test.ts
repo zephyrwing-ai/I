@@ -3,6 +3,9 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RunState, TurnState } from "../../../../../frontend/src/store/agentReducer.js";
+import { agentReducer, initialAgentState } from "../../../../../frontend/src/store/agentReducer.js";
+import { mergePersistedEntries } from "../../../../../frontend/src/store/sessionProjection.js";
+import type { HistoryPageEntry } from "../../../../../shell/shared/ipc.js";
 import {
   AssistantMessage,
   formatElapsed,
@@ -48,7 +51,7 @@ test("elapsed time follows the workbench display boundaries", () => {
   assert.equal(formatElapsed(3_723_000), "1h2m3s");
 });
 
-test("a running assistant turn keeps reasoning collapsed and renders the streaming answer", () => {
+test("a running assistant turn retains its work indicator and renders only user-facing text", () => {
   const state = run([
     turn({
       assistantContent: "正在生成，答案",
@@ -62,13 +65,14 @@ test("a running assistant turn keeps reasoning collapsed and renders the streami
     isWorking: true,
   }));
 
-  assert.match(html, /aria-expanded="false"/);
   assert.match(html, />Working for</);
   assert.doesNotMatch(html, />Thinking</);
-  assert.ok(html.indexOf("run-work-detail") < html.indexOf("内部过程"), html);
-  assert.ok(html.includes('class="model-text final-answer markdown"'), html);
+  assert.doesNotMatch(html, /内部过程|think-block|work-progress-text/);
+  assert.match(html, /class="run-work-toggle" aria-expanded="true"/);
+  assert.doesNotMatch(html, /work-status|final-answer/);
+  assert.ok(html.includes('class="work-intermediate-text markdown"'), html);
   assert.ok(html.includes("正在生成, 答案"), html);
-  assert.match(html, /aria-label="Copy answer"/);
+  assert.doesNotMatch(html, /aria-label="Copy answer"/);
   assert.doesNotMatch(html, /class="message-time"/);
 });
 
@@ -153,7 +157,7 @@ test("assistant text and tool actions stay together in the same assistant block"
         "tool-1": {
           toolCallId: "tool-1",
           name: "bash",
-          input: { command: "ls" },
+          input: { command: "ls", purpose: "查看工作目录", targets: ["当前项目"] },
           status: "running",
         },
       },
@@ -163,10 +167,12 @@ test("assistant text and tool actions stay together in the same assistant block"
 
   assert.ok(html.includes("先检查目录"), html);
   assert.ok(html.includes("Ran ls"), html);
+  assert.match(html, /tool-fold/);
+  assert.doesNotMatch(html, /查看工作目录|当前项目|tool-detail/);
   assert.match(html, />Working for</);
 });
 
-test("long tool output renders a bounded preview and an expansion control", () => {
+test("collapsed tool rows show actual commands and defer mounting input and output", () => {
   const output = `${"a".repeat(600)}${"b".repeat(1_500)}`;
   const state = run([
     turn({
@@ -176,7 +182,7 @@ test("long tool output renders a bounded preview and an expansion control", () =
         "tool-1": {
           toolCallId: "tool-1",
           name: "bash",
-          input: { command: "generate" },
+          input: { command: "generate --private-argument", purpose: "生成报告", targets: ["report.md"] },
           status: "completed",
           result: { ok: true, output, returncode: 0, truncated: false },
         },
@@ -185,7 +191,136 @@ test("long tool output renders a bounded preview and an expansion control", () =
   ]);
   const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: ["turn-1"] }));
 
-  assert.ok(html.includes(`${"a".repeat(600)}\n… Collapsed (2100 characters total)`), html);
-  assert.ok(html.includes("Expand full output"), html);
-  assert.ok(!html.includes("b".repeat(100)), "collapsed preview should not render the hidden tail");
+  assert.match(html, /Ran generate --private-argument/);
+  assert.match(html, /class="tool-fold" aria-expanded="false"/);
+  assert.doesNotMatch(html, /生成报告|report\.md|tool-input-pre|tool-output-pre/);
+  assert.ok(!html.includes("a".repeat(100)) && !html.includes("b".repeat(100)));
+  assert.equal(state.turns["turn-1"].tools["tool-1"].result?.output, output, "presentation preserves execution evidence");
+});
+
+test("process prose alternates with its tool batch and the final answer stays outside the fold", () => {
+  const state = run([
+    turn({ turnId: "analysis-turn", progressContent: "先梳理问题与约束", reasoningContent: "PRIVATE ANALYSIS" }),
+    turn({
+      turnId: "read-turn", progressContent: "接着检查实现", assistantContent: "先查看上下文实现", reasoningContent: "PRIVATE FIRST THOUGHT", toolOrder: ["read-call"],
+      tools: { "read-call": { toolCallId: "read-call", name: "read", input: { path: "agent/context/config.ts", purpose: "读取上下文管理实现" }, status: "completed" } },
+    }),
+    turn({
+      turnId: "search-turn", turnOrdinal: 2, assistantContent: "然后核对历史读取逻辑", reasoningContent: "PRIVATE SECOND THOUGHT", toolOrder: ["search-call"],
+      tools: { "search-call": { toolCallId: "search-call", name: "search_content", input: { text: "history_read", path: "agent", purpose: "查找历史读取入口" }, status: "completed" } },
+    }),
+    turn({ turnId: "answer-turn", turnOrdinal: 3, progressContent: "依据检查结果整理结论", assistantContent: "这是最终分析", status: "completed" }),
+  ]);
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: ["analysis-turn", "read-turn", "search-turn", "answer-turn"], answerTurnId: "answer-turn" }));
+  const positions = ["先梳理问题与约束", "接着检查实现", "先查看上下文实现", "Read agent/context/config.ts", "然后核对历史读取逻辑", "history_read", "依据检查结果整理结论", "这是最终分析"].map((text) => html.indexOf(text));
+  assert.ok(positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1])), html);
+  assert.equal(html.match(/class="turn-action"/g)?.length, 2);
+  assert.match(html, /Read files/);
+  assert.match(html, /Searched files/);
+  assert.ok(html.indexOf('class="model-text final-answer markdown"') > html.lastIndexOf('class="turn-action"'));
+  assert.doesNotMatch(html, /PRIVATE|think-text/);
+  assert.equal(state.turns["read-turn"].reasoningContent, "PRIVATE FIRST THOUGHT");
+});
+
+test("a pure answer discloses independent progress and keeps raw reasoning out of markup", () => {
+  const state = run([turn({
+    status: "completed", progressContent: "先比较约束，再整理结论", assistantContent: "最终中文答案",
+    reasoningContent: "PRIVATE English reasoning <progress>raw marker</progress><answer>raw answer</answer>",
+  })]);
+  state.status = "completed";
+  state.finalTurnId = "turn-1";
+  state.finalDurationMs = 900;
+  const html = renderToStaticMarkup(createElement(AssistantMessage, {
+    run: state, turnIds: ["turn-1"], answerTurnId: "turn-1", showDuration: true,
+  }));
+  assert.match(html, /class="run-work-toggle" aria-expanded="false"/);
+  assert.match(html, /Worked for 0.9s/);
+  assert.match(html, /class="work-progress-text markdown"><p>先比较约束, 再整理结论/);
+  assert.match(html, /<\/section><div class="model-text final-answer markdown"><p>最终中文答案/);
+  assert.doesNotMatch(html, /PRIVATE|English reasoning|raw marker|raw answer|&lt;progress|<progress|<answer|turn-action|work-legacy-notice/);
+  assert.equal(html.match(/aria-label="Copy answer"/g)?.length, 1);
+});
+
+test("legacy final answers disclose a truthful notice in their associated applied input language", () => {
+  for (const [task, notice] of [
+    ["分析问题", "原始推理已保存，公开正文见下方回答。"],
+    ["Analyze the problem", "Raw reasoning is saved; the public response appears below."],
+  ]) {
+    const state = run([turn({ status: "completed", assistantContent: "Saved answer", reasoningContent: "PRIVATE ENGLISH REASONING" })]);
+    state.status = "completed";
+    state.inputs.associated = { inputId: "associated", task, at: 2_000, status: "applied" };
+    state.inputs.pending = { inputId: "pending", task: task === "分析问题" ? "English pending" : "中文待应用", at: 3_000, status: "accepted" };
+    state.appliedInputId = "associated";
+    state.pendingInputIds = ["pending"];
+    const render = () => renderToStaticMarkup(createElement(AssistantMessage, {
+      run: state, anchorInputId: "associated", turnIds: ["turn-1"], answerTurnId: "turn-1",
+    }));
+    const html = render();
+    assert.match(html, /class="run-work-toggle" aria-expanded="false"/);
+    assert.ok(html.includes(notice), html);
+    assert.doesNotMatch(html, /PRIVATE ENGLISH REASONING|work-progress-text/);
+    state.turns["turn-1"].progressContent = "Recorded process";
+    assert.doesNotMatch(render(), /work-legacy-notice/);
+    state.turns["turn-1"].progressContent = "";
+    state.turns["turn-1"].reasoningContent = "";
+    assert.doesNotMatch(render(), /run-work-toggle|work-legacy-notice/);
+  }
+});
+
+test("an active empty group has an expandable waiting status in the applied input language", () => {
+  const state = run([]);
+  state.inputs["run-1:task"].task = "Analyze the problem";
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: [], isWorking: true }));
+  assert.match(html, /class="run-work-toggle" aria-expanded="true"/);
+  assert.match(html, /class="work-status" role="status">Waiting for a process explanation\./);
+  assert.doesNotMatch(html, /work-progress-text|work-intermediate-text|work-legacy-notice/);
+});
+
+test("tool failures remain visible with an expandable action and lazily mounted error details", () => {
+  const state = run([turn({ toolOrder: ["call"], tools: {
+    call: { toolCallId: "call", name: "read", input: { path: "missing.ts" }, status: "completed", result: { ok: false, output: "PRIVATE ERROR", error: "read_failed", returncode: -1, truncated: false } },
+  } })]);
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: ["turn-1"] }));
+  assert.match(html, /missing\.ts/);
+  assert.match(html, /执行失败/);
+  assert.match(html, /tool-row is-failed/);
+  assert.match(html, /tool-fold/);
+  assert.doesNotMatch(html, /PRIVATE ERROR|tool-detail/);
+});
+
+test("live tool metadata and restored history render the identical chronological activity", () => {
+  const runId = "parity-run";
+  const call = { id: "read-call", name: "read", input: { path: "config.ts", purpose: "读取上下文配置", targets: ["incorrect.ts"] }, inputComplete: true };
+  const result = { ok: true, output: "PRIVATE TOOL OUTPUT", returncode: 0, truncated: false };
+  let live = agentReducer(initialAgentState, { type: "runAccepted", runId, projectId: null, inputId: "user", task: "检查上下文配置", taskAt: 100 });
+  live = agentReducer(live, { type: "event", event: { type: "turnStarted", runId, turnId: "tool-turn", turnOrdinal: 1 } });
+  live = agentReducer(live, { type: "event", event: { type: "reasoningDelta", runId, turnId: "tool-turn", delta: "PRIVATE REASONING" } });
+  live = agentReducer(live, { type: "event", event: { type: "progressDelta", runId, turnId: "tool-turn", delta: "开始检查" } });
+  live = agentReducer(live, { type: "event", event: { type: "assistantCompleted", runId, turnId: "tool-turn", progress: "先确认配置来源", content: "先查看项目配置", toolCalls: [call], stopReason: "tool_use", completedAt: 200 } });
+  live = agentReducer(live, { type: "event", event: { type: "toolCompleted", runId, turnId: "tool-turn", toolCallId: call.id, name: call.name, result } });
+  live = agentReducer(live, { type: "event", event: { type: "turnStarted", runId, turnId: "answer-turn", turnOrdinal: 2 } });
+  live = agentReducer(live, { type: "event", event: { type: "assistantCompleted", runId, turnId: "answer-turn", progress: "据此整理配置分析", content: "这是配置分析结果", toolCalls: [], stopReason: "stop", completedAt: 1_000 } });
+  live = agentReducer(live, { type: "event", event: { type: "runCompleted", runId, status: "completed", turnCount: 2, finalTurnId: "answer-turn", finalDurationMs: 900 } });
+  const stored = (partial: Partial<HistoryPageEntry>): HistoryPageEntry => ({
+    entryId: "", entryOrder: 0, projectId: null, type: "assistant_message", status: "completed", runId, turnId: null, toolCallId: null,
+    revision: 0, createdAt: 100, completedAt: null, durationMs: null, payload: { role: "assistant", content: "" }, ...partial,
+  });
+  const restored = mergePersistedEntries({ runs: {}, runOrder: [] }, [
+    stored({ entryId: "user", entryOrder: 1, type: "user_message", payload: { role: "user", content: "检查上下文配置" } }),
+    stored({ entryId: "tool-assistant", entryOrder: 2, turnId: "tool-turn", completedAt: 200, payload: { role: "assistant", progress: "先确认配置来源", content: "先查看项目配置", reasoning: "PRIVATE REASONING", toolCalls: [call] } }),
+    stored({ entryId: "result", entryOrder: 3, type: "tool_result", turnId: "tool-turn", toolCallId: call.id, payload: { role: "tool", content: result.output, toolName: "read", toolCallId: call.id }, toolResult: result }),
+    stored({ entryId: "answer", entryOrder: 4, turnId: "answer-turn", completedAt: 1_000, durationMs: 900, payload: { role: "assistant", progress: "据此整理配置分析", content: "这是配置分析结果" } }),
+  ]);
+  const render = (state: RunState) => renderToStaticMarkup(createElement(AssistantMessage, {
+    run: state, anchorInputId: "user", turnIds: ["tool-turn", "answer-turn"], answerTurnId: "answer-turn", showDuration: true,
+  }));
+  const liveHtml = render(live.runs[runId]);
+  assert.equal(liveHtml, render(restored.runs[runId]));
+  assert.match(liveHtml, /先查看项目配置/);
+  assert.match(liveHtml, /Read config\.ts/);
+  assert.match(liveHtml, /config\.ts/);
+  assert.match(liveHtml, /先确认配置来源/);
+  assert.match(liveHtml, /据此整理配置分析/);
+  assert.doesNotMatch(liveHtml, /PRIVATE|incorrect\.ts/);
+  assert.deepEqual(restored.runs[runId].turns["tool-turn"].tools[call.id].input, call.input);
 });

@@ -1,202 +1,167 @@
----
-title: 运行循环
-description: Agent 的继续、自然完成、取消和失败判定。
----
+运行循环。
 
-运行循环只负责“请求模型 → 分类响应 → 提交状态 → 完成、执行工具、重试或失败”。`response()` 是唯一的模型请求入口。
+- 职责：运行循环调度“准备上下文 → 请求模型 → 分类响应 → 提交状态 → 完成、执行工具、重试或失败”，任务与独立摘要请求共用 Adapter 的 `response()` 入口。
 
-## 当前实现
+当前实现。
 
-当前 `agent/loop.ts` 使用单层循环，工具按模型给出的顺序串行执行，模型回合以 attempt 计数进行有限重试。运行中输入通过 Host 的持久化队列和回合安全边界进入下一次模型请求；`terminate`、`shouldStopAfterTurn` 和 follow-up 属于独立的后续扩展。
+- 当前 `agent/loop.ts` 使用单层循环，工具按模型给出的顺序串行执行，模型回合以 attempt 计数进行有限重试。运行中输入通过 Host 的持久化队列和回合安全边界进入下一次模型请求；`terminate`、`shouldStopAfterTurn` 和 follow-up 属于独立的后续扩展。
+- `answer`：Recorder 提交 completed Assistant Message，Runtime 检查待处理输入；已接收的补充进入下一次模型请求，队列清空时运行 completed。
+- `tool_calls`：Recorder 在单事务中提交 completed Assistant Message 与整批 planned invocation，提交成功后执行工具并回填结果，再请求模型。
+- `incomplete/reasoning_only`、`empty_response`、`length`：Recorder 提交 interrupted attempt，保持稳定的上下文准备结果，调用 `retryModelTurn()`。
+- `incomplete/missing_finish_reason`、`invalid_tool_calls`：保存 interrupted attempt，有限重试或失败。
+- 可重试的网络、Provider 或模型协议错误：保存 failed/interrupted attempt，调用 `retryModelTurn()`。
+- 内容过滤、未知停止原因或 `retryable = false` 的错误：保存 failed attempt，运行 failed。
+- 取消信号或模型 `aborted`：持久保存 run 取消事实，结算已登记工具与 interrupted attempt，运行转为 cancelled 并结束模型续轮。
+- 普通工具失败作为 `ModelMessage(role: "tool", isError: true)` 回填，允许模型在下一轮恢复。工具执行以 Runtime 确认响应完整、调用已注册及参数有效为前提；长度截断先进入 incomplete 模型恢复，注册表外的完整调用形成错误工具结果，工具级重试沿用独立的执行恢复边界。持久化 ToolCall 的安全重放、状态核对和批次恢复遵守[工具执行恢复](./tools/recovery.mdx)。
 
-| Runtime Outcome | 当前结果 |
-| --- | --- |
-| `answer` | Recorder 提交 completed Assistant Message，Runtime 检查待处理输入；已接收的补充进入下一次模型请求，队列清空时运行 completed |
-| `tool_calls` | Recorder 在单事务中提交 completed Assistant Message 与整批 planned invocation，提交成功后执行工具并回填结果，再请求模型 |
-| `incomplete/reasoning_only`、`empty_response`、`length` | Recorder 提交 interrupted attempt，不修改 `messages`，调用 `retryModelTurn()` |
-| `incomplete/missing_finish_reason`、`invalid_tool_calls` | 保存 interrupted attempt，有限重试或失败 |
-| 可重试的网络、Provider 或模型协议错误 | 保存 failed/interrupted attempt，调用 `retryModelTurn()` |
-| 内容过滤、未知停止原因或不可重试错误 | 保存 failed attempt，运行 failed |
-| 取消信号或模型 `aborted` | 持久保存 run 取消事实，结算已登记工具与 interrupted attempt，运行 cancelled，不发起下一轮 |
+项目历史存储接入。
 
-普通工具失败作为 `ModelMessage(role: "tool", isError: true)` 回填，允许模型在下一轮恢复。被截断或未注册的调用不执行，改为错误工具结果；工具级重试不属于本次模型回合重试。持久化 ToolCall 的安全重放、状态核对和批次恢复遵守[工具执行恢复](./tools/recovery.mdx)。
+- Runtime 使用 Host 注入的 `HistoryRecorder` 维护本次运行对应的项目或无项目历史范围。Runtime 是用户消息、完整助手消息和工具结果提交顺序的唯一控制者；Host 负责创建 Recorder 并提供运行事件接收器。
+- 文件工具注册属于 Runtime Host 的固定能力集合，与 `projectId` 历史范围相互独立。Host 为每次运行单独绑定 `cwd`：项目运行使用规范化项目目录，无项目运行使用 `process.cwd()`；General 上下文说明当前工作目录，项目目录地图绑定真实项目。工具调用、恢复账本和历史提交分别使用同一次运行捕获的 `cwd` 与 `projectId`。
 
-## 项目历史存储接入
+上下文准备。
 
-Runtime 使用 Host 注入的 `HistoryRecorder` 维护本次运行对应的项目或无项目历史范围。Runtime 是用户消息、完整助手消息和工具结果提交顺序的唯一控制者；Host 负责创建 Recorder 并提供运行事件接收器。
-
-文件工具注册属于 Runtime Host 的固定能力集合，与 `projectId` 历史范围相互独立。Host 为每次运行单独绑定 `cwd`：项目运行使用规范化项目目录，无项目运行使用 `process.cwd()`；无项目上下文只说明当前工作目录，不附加项目目录地图。工具调用、恢复账本和历史提交分别使用同一次运行捕获的 `cwd` 与 `projectId`。
+- 模型配置：Main 解析所选模型的连接和能力，Runner 将能力与解析后的上下文预算交给 Runtime；该 run 使用捕获的模型身份、能力与配置，能力解析读取模型管理层已有资料。
+- 入口：Runtime 在 `collectTurn()` 前调用上下文模块；初始请求等待历史恢复与用户消息提交，工具续轮等待整批结果提交与边界输入应用。
+- 预算顺序：上下文准备先由纯函数复核模型窗口、输出预留、安全输入上限与增长阈值，再组装本次候选输入、计量实际占用并判断整理条件；压缩成功后重新组装和计量，再交给 Adapter。
+- 读取：上下文模块经 Repository 读取该范围压缩快照及其 `coveredThroughOrder` 之后的 completed 原文，复用已有摘要并按顺序追加新消息。
+- 压缩调度：完整输入相对压缩后基线的增长量达到 `growthTokens`，或总量达到安全输入上限时，共用同一次独立摘要流程；最近完整工具交互保留原文。
+- 提交：Repository 原子保存摘要覆盖位置与完整输入基线，Runtime 在压缩快照提交成功后使用组装结果继续任务请求。
+- 重试：普通模型 attempt 复用同一稳定上下文，摘要生成与快照提交沿用各自请求和事务边界；取消共享本 run 的 AbortSignal 与持久化取消事实。
+- 服务端超限：原 attempt 保存为 failed，Runtime 设置一次强制压缩请求，在下一 attempt 身份下准备上下文并继续请求；再次超限沿运行错误收尾。
+- 契约：计量配置、摘要生成与重启复用规则见[上下文管理](./context-management.mdx)。
 
 用户消息提交顺序。
 
-1. Host 创建 `runId`，捕获 `projectId: string | null`，并把绑定该范围的 Recorder 注入 Runtime。
-2. Runtime 创建一次用户 `ModelMessage`。
-3. Runtime 等待 `commitUser` 完成本地提交。
-4. Runtime 发出 `runStarted` 和 `turnStarted`，随后调用 Provider。
+- Host 创建 `runId`，捕获 `projectId: string | null`，并把绑定该范围的 Recorder 注入 Runtime。
+- Runtime 创建一次用户 `ModelMessage`。
+- Runtime 等待 `commitUser` 完成本地提交。
+- 请求启动：Runtime 提交起始用户输入后发出 `runStarted`，确定回合身份后发出 `turnStarted`，完成上下文准备后调用 Provider。
 
 流式助手消息顺序。
 
-1. `collectTurn` 消费 Adapter 的 `reasoning_delta` 和 `text_delta`。
-2. Runtime 把每个增量同步交给 `recordAssistantDelta`，Recorder 更新内存草稿并调度合并写入。
-3. Runtime 把相同的增量作为 AgentEvent 发给宿主，模型流、Recorder 和事件接收器分别维护自己的状态。
-4. Adapter 的 `completed` 事件提供聚合后的正文、思考、工具调用和停止原因；它只表示流解析完成。
-5. Runtime 将结果分类为 `TurnOutcome`。
-6. Runtime 在分类后统一调用 `finishAssistantAttempt`：普通完整答案携带空计划；完整工具调用携带稳定的整批计划，通过一个事务提交 Assistant Message 和全部 `planned` invocation。不完整结果保存为 `interrupted`，确定失败保存为 `failed`。
-7. 只有 Recorder 提交成功的完整 Assistant Message 才加入本次运行的内存上下文，并发出 `assistantCompleted`。
+- 原生消费：`collectTurn` 接收 Adapter 的 `text_delta` 与 `reasoning_delta`，分别聚合本 turn 的公开正文和原始推理；兼容 `progress_delta` 沿独立字段读取。
+- 草稿提交：Runtime 把每个增量同步交给 `recordAssistantDelta`，Recorder 更新内存草稿并调度合并写入。
+- 事件交付：Runtime 把相同的增量交给 AgentEvent 接收器，模型流、Recorder 与宿主分别维护所属状态，事件沿用相同 run、turn 与 attempt 身份。
+- 解析完成：Adapter 的 `completed` 提供聚合正文、原始推理、完整工具集合与停止原因，表达本次 Provider 流解析完成。
+- 响应分类：Runtime 根据正文、实际工具集合与停止原因将响应分类为 `TurnOutcome`。
+- 终态提交：`finishAssistantAttempt` 对普通完整答案使用空计划，对完整工具调用使用稳定的整批计划，在同一事务中提交 Assistant Message 与全部 `planned` invocation；`incomplete` 保存为 `interrupted`，确定失败保存为 `failed`。
+- 提交后交付：完整 Assistant Message 提交成功后进入可读取历史，Runtime 发出 `assistantCompleted`；上下文模块在下一次请求前读取并组装已提交消息。
+
+回合事实与宿主消费。
+
+- 文字归属：原生 `content` 保存同一逻辑 turn 的公开文字，工具调用回合的文字表达过程说明，完整答案回合的文字表达面向用户的回答；原始 reasoning 沿独立字段保存并按 Provider 契约回传。
+- 批次归属：完整 `toolCalls` 构成该 turn 的一个执行批次，Runtime 按原调用顺序交付工具开始与结果事件；全部 Tool Message 提交完成后发出 `turnCompleted`，下一次模型请求使用新的 `turnId`。
+- 最终身份：完整答案提交后，Runtime 完成待处理输入的边界检查；队列封闭且运行成功完成时，最终 Assistant entry 保存运行 `durationMs`，`runCompleted` 交付 `finalTurnId` 与 `finalDurationMs`。已应用的补充输入通过新的 turn 继续同一个 run。
+- 展示协作：宿主消费正文、回合与工具事实，使用已确认的输入边界和最终身份生成展示投影；Renderer 控制外层活动组、工具批次和单条详情的展开，职责与阶段规则见[消息流](../desktop/design/workbench/message-stream.mdx)。
 
 工具结果提交顺序。
 
-1. 带工具调用的 Assistant Message 与整批 invocation 原子提交，全部保留 `resultEntryId` 和原始 ordinal；任一调用登记失败时整批回滚。
-2. Runtime 按 ordinal 发出 `toolStarted`；每个工具在本次 attempt 边界调用 `prepare()`。准备结果绑定确定的执行内容与 checkpoint，随后 `beginToolAttempt` 在一个事务中检查取消事实、保存 checkpoint、推进 `effect_pending` 并递增 attemptCount。事务完成后执行准备结果的 `execute()`。
-3. Runtime 根据 `ToolResult` 保存 `outcome_ready`，再通过共用的 `toolResultMessage()` 构造完整 Tool Message。准备阶段返回已知失败时，调用以零次真实尝试直接结算结果。
-4. Runtime 等待 `commitToolResult` 在同一事务中提交 Tool Message 与该 invocation 的 `completed`。正常执行和重启恢复共用同一结果物化函数。
-5. Runtime 把已经提交的 Tool Message 加入内存上下文，并发出 `toolCompleted`。
-6. 同一工具批次完成全部结果提交后，Runtime 发出 `turnCompleted` 并开始下一次模型请求。
+- 带工具调用的 Assistant Message 与整批 invocation 原子提交，全部保留 `resultEntryId` 和原始 ordinal；任一调用登记失败时整批回滚。
+- Runtime 按 ordinal 发出 `toolStarted`；每个工具在本次 attempt 边界调用 `prepare()`。准备结果绑定确定的执行内容与 checkpoint，随后 `beginToolAttempt` 在一个事务中检查取消事实、保存 checkpoint、推进 `effect_pending` 并递增 attemptCount。事务完成后执行准备结果的 `execute()`。
+- Runtime 根据 `ToolResult` 保存 `outcome_ready`，再通过共用的 `toolResultMessage()` 构造完整 Tool Message。准备阶段返回已知失败时，调用以零次真实尝试直接结算结果。
+- Runtime 等待 `commitToolResult` 在同一事务中提交 Tool Message 与该 invocation 的 `completed`。正常执行和重启恢复共用同一结果物化函数。
+- Runtime 在 Tool Message 提交成功后发出 `toolCompleted`，上下文模块在整批工具完成后的请求边界读取结果。
+- 同一工具批次完成全部结果提交后，Runtime 发出 `turnCompleted` 并开始下一次模型请求。
 
 终态提交顺序。
 
 - 模型成功流包含一个带明确 `finish_reason` 的 `completed` 事件。Adapter 对缺少终止原因的流抛出可重试的 `model_protocol` 错误。
-- `answer` 和 `tool_calls` 经过 Runtime 分类后，Recorder 才创建 completed Assistant Message；`messages.push` 位于成功提交之后。
-- 只有 reasoning、长度截断或无效工具调用不会写入模型上下文；它们作为 interrupted attempt 保存后交给回合重试逻辑。
-- 取消先持久化用户停止事实，将未执行调用结算为 `cancelled`、结果不确定调用结算为 `interrupted`；所有已登记调用补齐 Tool Message。已获得确定结果的调用复用原 outcome。随后调用 `finishRun` 刷新活动草稿，Runtime 发出唯一的 `runCompleted`。
-- 失败调用 `finishRun` 刷新活动草稿；没有主动取消事实的开放 invocation 按工具恢复策略处理。
+- `answer` 和 `tool_calls` 经过 Runtime 分类后，Recorder 创建 completed Assistant Message；上下文模块随后读取已提交消息。
+- reasoning-only、长度截断或无效工具调用作为 interrupted attempt 保存后交给回合重试逻辑，模型上下文继续使用已提交的完整消息。
+- 取消先持久化用户停止事实，将等待执行的调用结算为 `cancelled`、结果待核对的调用结算为 `interrupted`；所有已登记调用补齐 Tool Message。已获得确定结果的调用复用原 outcome。随后调用 `finishRun` 刷新活动草稿，Runtime 发出唯一的 `runCompleted`。
+- 失败调用 `finishRun` 刷新活动草稿；仍处于可执行状态的开放 invocation 按工具恢复策略处理。
 - 用户消息提交失败时，Runtime 直接收敛为 `failed`，Provider 保持待调用状态。
 - 完整 Assistant Message 的本地提交遇到可重试存储错误时，Runtime 保留响应并有限重试同一次提交；永久错误或次数耗尽才收敛为 `failed`，工具保持待执行状态。
 - Tool Message 提交使用同一结果、消息身份与有限本地重试。可重试次数耗尽或永久错误使 run 收敛为 `failed`；已保存的 outcome 供后续恢复继续物化。
+- HistoryRecorder 的数据结构、草稿刷新和本地事务以[项目历史存储](./memory.mdx)为准。AgentEvent 的身份和订阅契约以[运行事件](./events.mdx)为准。
 
-HistoryRecorder 的数据结构、草稿刷新和本地事务以[项目历史存储](./memory.mdx)为准。AgentEvent 的身份和订阅契约以[运行事件](./events.mdx)为准。
+模型回合重试。
 
-## 模型回合重试
+- `retryModelTurn()` 位于 Runtime Loop，负责检查 attempt 次数、发送 `turnRetrying`、等待退避时间，并把控制权交回主循环。Provider 消息序列化由 Adapter 负责，attempt 提交由 Recorder 负责；重试函数把控制权交回主循环，下一次迭代仍调用同一个 `response()`。
+- 重试顺序固定为：
+- `collectTurn` 消费流并聚合响应。
+- Runtime 分类 `TurnOutcome`。
 
-`retryModelTurn()` 位于 Runtime Loop，负责检查 attempt 次数、发送 `turnRetrying`、等待退避时间，并把控制权交回主循环。它不直接序列化 Provider 消息、不写 Recorder，也不创建第二个模型入口；主循环的下一次迭代仍然调用同一个 `response()`。
+Recorder 结束当前 attempt。
 
-重试顺序固定为：
+- 只有 `incomplete` 或可重试错误才调用 `retryModelTurn()`。
+- 重试允许时，Runtime 使用最后一份稳定的上下文准备结果重新调用 `response()`。
+- `incomplete` attempt 的 reasoning 和正文保存在 Recorder 的 interrupted 草稿中，后续模型请求读取 completed 记录。正常 answer 和完整 tool-call 在 Recorder 提交成功后进入后续可读取历史。
 
-1. `collectTurn` 消费流并聚合响应。
-2. Runtime 分类 `TurnOutcome`。
-3. Recorder 结束当前 attempt。
-4. 只有 `incomplete` 或可重试错误才调用 `retryModelTurn()`。
-5. 重试允许时，Runtime 使用最后一个稳定的 `messages` 上下文重新调用 `response()`。
+完整响应的本地提交重试。
 
-不完整 attempt 的 reasoning 和正文保存在 Recorder 的 interrupted 草稿中，并维持在已提交模型上下文之外。正常 answer 和完整 tool-call 在 Recorder 提交成功后加入 `messages`。
+- 模型回合重试与本地提交重试分别处理模型响应失败和已收到完整响应后的存储失败。Runtime 使用 `commitRetry` 控制后者：总计最多 3 次提交，默认两次退避分别为 250ms、500ms，等待上限为 1000ms。提交重试沿用原模型 attempt 和已收到的响应，运行事件继续关联同一逻辑回合。
+- 普通答案复用同一 Assistant Message 和 entry 身份；工具调用响应在进入重试前固定参数、逻辑调用与 `resultEntryId`，每次提交复用同一整批计划。checkpoint 在对应工具的每次真实尝试开始前生成。Recorder 提交成功之后，Runtime 发送 `assistantCompleted` 并进入工具执行，下一次模型请求从已提交历史组装上下文；Assistant 终态与整批登记始终共享事务结果。
+- 工具结果的本地提交采用相同 `commitRetry` 预算，重试范围仅包含 outcome 保存及 Tool Message 物化。已经获得的结果在 Stop 后继续完成持久化；后续工具按取消事实结算。工具的物理执行位于保存重试范围之外，`outcome_ready` 恢复直接复用原结果。
+- Repository 根据 SQLite 主错误码将 `BUSY`、`LOCKED` 标记为可重试，并要求事务处于开始前或已确认回滚状态。约束冲突、参数错误、磁盘已满、IO 错误、损坏和待核对的回滚结果保持 `retryable = false`。次数耗尽后才执行 run 失败收尾；临时提交失败继续关联原响应与存储重试。
+- 重试期间沿用当前 run 与已经显示的流式输出，前端仍可通过 Stop 终止退避等待，回复和工具活动保持稳定身份。Stop 后停止后续提交重试，按已有取消协议收尾；取消事实或草稿本身保存失败时，终态报告存储失败。本地 SQLite 的同步操作执行到返回后响应 Stop；本地持久化由数据库完成，模型网络连接由适配器独立管理。
 
-## 完整响应的本地提交重试
+运行中输入实现契约。
 
-模型回合重试与本地提交重试分别处理模型响应失败和已收到完整响应后的存储失败。Runtime 使用 `commitRetry` 控制后者：总计最多 3 次提交，默认两次退避分别为 250ms、500ms，等待上限为 1000ms。提交重试不增加模型 attempt、不发送 `turnRetrying`，也不再请求 Provider。
+- 每次补充文本拥有独立 `inputId`；`runId` 归组本次主任务及其所有补充输入，`turnId` 归组单次模型回合。项目、模型、附件和画布选区在当前运行中沿用启动时捕获的配置；补充载荷为文本消息，`projectId: null` 对应同一通用历史范围。
 
-普通答案复用同一 Assistant Message 和 entry 身份；工具调用响应在进入重试前固定参数、逻辑调用与 `resultEntryId`，每次提交复用同一整批计划。checkpoint 在对应工具的每次真实尝试开始前生成。Recorder 提交成功之后，Runtime 才追加模型上下文、发送 `assistantCompleted` 并进入工具执行；Assistant 终态与整批登记始终共享事务结果。
+发送与接收。
 
-工具结果的本地提交采用相同 `commitRetry` 预算，重试范围仅包含 outcome 保存及 Tool Message 物化。已经获得的结果在 Stop 后继续完成持久化；后续工具按取消事实结算。工具的物理执行位于保存重试范围之外，`outcome_ready` 恢复直接复用原结果。
+- Host 在当前模型请求或工具批次运行期间提交 `activeRunId`、`projectId` 和冻结文本快照，并为请求生成 `inputId`。
+- Main 通过 Runner 核对活动 `runId`、捕获的 `projectId` 和输入接收状态，在应用数据库中持久化待处理输入。相同 `inputId` 的重试返回同一次接收结果；多条独立输入按接收顺序形成 FIFO 队列。
+- Main 在持久化成功后返回 ACK。ACK 表示输入已经绑定当前 run 并进入持久化待处理队列；模型读取时间由后续 `inputsApplied` 事件确认。
 
-Repository 根据 SQLite 主错误码将 `BUSY`、`LOCKED` 标记为可重试，并要求事务未开始或已确认回滚。约束冲突、参数错误、磁盘已满、IO 错误、损坏和不确定的回滚结果保持不可重试。次数耗尽后才执行 run 失败收尾；暂时的提交失败不逐次创建 failed 模型 attempt。
+安全边界与模型上下文。
 
-重试期间沿用当前 run 与已经显示的流式输出，前端仍可通过 Stop 终止退避等待；不会创建重复回复或工具活动。Stop 后停止后续提交重试，按已有取消协议收尾；取消事实或草稿本身仍无法保存时，终态报告存储失败。本地 SQLite 的同步操作不能由 AbortSignal 中途打断，Stop 在操作返回后生效；本地持久化不依赖模型网络连接。
+- Runtime 完成当前模型请求，分类并提交完整 Assistant Message；带工具调用的回合按序执行本批全部工具，并提交每个 Tool Message。
+- 工具批次全部提交后，Runtime 发出 `turnCompleted` 并检查待处理输入。`answer` 分支在候选 `finish("completed")` 前发出 `turnCompleted`，并执行同一检查。
+- Runtime 通过 Recorder 在一个事务中按 FIFO 提交本次读取的 completed 用户 entry，并将对应待处理输入改为已应用。每条 entry 沿用自己的 `inputId`。事务完成后，Runtime 按 `assistant → tool results → user inputs` 的顺序更新内存 `messages`，发出 `inputsApplied(inputIds, startedAt)`，再开始下一次模型请求。
+- 同一边界读取到的多条输入依次进入下一次模型请求；该请求使用新的 `turnId` 并读取已提交的新上下文。已经开始的模型请求继续使用其启动时的上下文；本边界读取批次之后到达的输入进入后续安全边界。
+- 当前回合走模型重试路径时，Runtime 保持最后一份稳定上下文并继续该回合的 attempt；待处理输入在完整回合的安全边界进入上下文。
 
-## 运行中输入实现契约
+完成、停止与恢复。
 
-每次补充文本拥有独立 `inputId`；`runId` 归组本次主任务及其所有补充输入，`turnId` 归组单次模型回合。项目、模型、附件和画布选区在当前运行中沿用启动时捕获的配置；补充载荷为文本消息，`projectId: null` 对应同一通用历史范围。
+- Runner 以每个 run 的串行接收门控协调 `steer` 入队与完成判定。完成边界先处理门控内已接收的输入；队列清空时封闭当前 run 的接收入口并提交终态。封闭后到达的请求收到明确拒绝，发送方继续持有未接收的文本快照。这个门控为临近完成的输入提供确定的归属。
+- 取消、模型失败、提交失败和启动恢复通过 Recorder 在同一事务中为剩余已接收输入写入同 `inputId` 的 interrupted 用户 entry，并将队列项转为 `unapplied`。Run 的唯一终态事件在队列归属与 Recorder 终态提交后发出，携带 `unappliedInputIds` 和可选最终时长。每条输入各自获得接收与应用结果，应用批次遵循 FIFO。
+- Main 收到 Stop 后关闭输入接收门控，立即向 `run_cancellations` 提交 run 身份，再中止共享的 AbortSignal。持久化失败仍中止运行，并由 Runtime 终态报告存储失败。取消事实成功但工具结算未完成时，重启恢复只补齐取消/中断结果；恢复中的旧 run 遇到新的 Stop 同样记录取消，后续运行依据取消事实复用结算结果。
+- 初始任务已收到 Main ACK，但在历史恢复或 deferred Runtime 启动期间被停止时，Runtime 按原初始 entryId 保存 interrupted 用户 entry，并将该 ID 合并到 `runCompleted.unappliedInputIds`。Renderer 立即显示 Not applied 和重发入口；历史重载保持同一身份，后续模型上下文继续使用 completed 输入，该文本由重发入口作为新输入提交。
 
-### 发送与接收
+Run 级时长与最终回复。
 
-1. Host 在当前模型请求或工具批次运行期间提交 `activeRunId`、`projectId` 和冻结文本快照，并为请求生成 `inputId`。
-2. Main 通过 Runner 核对活动 `runId`、捕获的 `projectId` 和输入接收状态，在应用数据库中持久化待处理输入。相同 `inputId` 的重试返回同一次接收结果；多条独立输入按接收顺序形成 FIFO 队列。
-3. Main 在持久化成功后返回 ACK。ACK 表示输入已经绑定当前 run 并进入持久化待处理队列；模型读取时间由后续 `inputsApplied` 事件确认。
+- 同一个 `runId` 包含初始用户消息、零个或多个 steer 输入，以及按 Runtime 顺序完成的多个 `turnId`。`inputsApplied` 在用户消息提交到历史后报告其 `inputIds` 与 `startedAt`；后续 `turnStarted` 标识准备并读取该上下文的模型回合。工具调用后的继续请求保持同一个 `runId`，并使用新的 `turnId`。
+- `runStarted.startedAt` 是整个 run 的唯一计时起点。Runtime 在成功回复提交并完成 run 终态时计算全 run 总时长，将其写入最终 Assistant Message 的 `durationMs`，并由 `runCompleted` 携带 `finalTurnId` 与相同的 `finalDurationMs`。`inputsApplied.startedAt` 记录输入应用时刻，承担输入归属与事件排序职责。
+- 消息日期与运行耗时分别表达生命周期事实。初始用户提交沿用 Main 提供的 `createdAt`；补充用户 entry 沿用接收时间。完整模型输出聚合和分类完成时，Runtime 固定该次输出的 `completedAt`，提交重试沿用同一完成时间。普通回答和工具调用型 Assistant Message 都在本地提交成功后，通过 `assistantCompleted` 交付这个时间；完整运行的总时长继续由最终回复的 `durationMs` 承担。
 
-### 安全边界与模型上下文
+后续扩展设计。
 
-1. Runtime 完成当前模型请求，分类并提交完整 Assistant Message；带工具调用的回合按序执行本批全部工具，并提交每个 Tool Message。
-2. 工具批次全部提交后，Runtime 发出 `turnCompleted` 并检查待处理输入。`answer` 分支在候选 `finish("completed")` 前发出 `turnCompleted`，并执行同一检查。
-3. Runtime 通过 Recorder 在一个事务中按 FIFO 提交本次读取的 completed 用户 entry，并将对应待处理输入改为已应用。每条 entry 沿用自己的 `inputId`。事务完成后，Runtime 按 `assistant → tool results → user inputs` 的顺序更新内存 `messages`，发出 `inputsApplied(inputIds, startedAt)`，再开始下一次模型请求。
-4. 同一边界读取到的多条输入依次进入下一次模型请求；该请求使用新的 `turnId` 并读取已提交的新上下文。已经开始的模型请求继续使用其启动时的上下文；本边界读取批次之后到达的输入进入后续安全边界。
-5. 当前回合走模型重试路径时，Runtime 保持最后一份稳定上下文并继续该回合的 attempt；待处理输入在完整回合的安全边界进入上下文。
+- 以下描述 `terminate`、宿主回合终止钩子和 follow-up 的独立扩展语义。运行中输入按照上面的安全边界契约实施；这些扩展进入实现时沿用同一个接收门控与终态归属规则。
 
-### 完成、停止与恢复
+`terminate` 的作用域。
 
-Runner 以每个 run 的串行接收门控协调 `steer` 入队与完成判定。完成边界先处理门控内已接收的输入；队列清空时封闭当前 run 的接收入口并提交终态。封闭后到达的请求收到明确拒绝，发送方继续持有未接收的文本快照。这个门控为临近完成的输入提供确定的归属。
-
-取消、模型失败、提交失败和启动恢复通过 Recorder 在同一事务中为剩余已接收输入写入同 `inputId` 的 interrupted 用户 entry，并将队列项转为 `unapplied`。Run 的唯一终态事件在队列归属与 Recorder 终态提交后发出，携带 `unappliedInputIds` 和可选最终时长。每条输入各自获得接收与应用结果，应用批次遵循 FIFO。
-
-Main 收到 Stop 后关闭输入接收门控，立即向 `run_cancellations` 提交 run 身份，再中止共享的 AbortSignal。持久化失败仍中止运行，并由 Runtime 终态报告存储失败。取消事实成功但工具结算未完成时，重启恢复只补齐取消/中断结果；恢复中的旧 run 遇到新的 Stop 同样记录取消，后续运行不会自动重放它们。
-
-初始任务已收到 Main ACK，但在历史恢复或 deferred Runtime 启动期间被停止时，Runtime 按原初始 entryId 保存 interrupted 用户 entry，并将该 ID 合并到 `runCompleted.unappliedInputIds`。Renderer 立即显示 Not applied 和重发入口；历史重载保持同一身份，该文本不进入下一 run 的模型上下文。
-
-### Run 级时长与最终回复
-
-同一个 `runId` 包含初始用户消息、零个或多个 steer 输入，以及按 Runtime 顺序完成的多个 `turnId`。`inputsApplied` 在用户消息写入运行上下文后报告其 `inputIds` 与 `startedAt`；后续 `turnStarted` 标识读取该上下文的模型回合。工具调用后的继续请求保持同一个 `runId`，并使用新的 `turnId`。
-
-`runStarted.startedAt` 是整个 run 的唯一计时起点。Runtime 在成功回复提交并完成 run 终态时计算全 run 总时长，将其写入最终 Assistant Message 的 `durationMs`，并由 `runCompleted` 携带 `finalTurnId` 与相同的 `finalDurationMs`。`inputsApplied.startedAt` 记录输入应用时刻，承担输入归属与事件排序职责。
-
-消息日期与运行耗时分别表达生命周期事实。初始用户提交沿用 Main 提供的 `createdAt`；补充用户 entry 沿用接收时间。完整模型输出聚合和分类完成时，Runtime 固定该次输出的 `completedAt`，提交重试沿用同一完成时间。普通回答和工具调用型 Assistant Message 都在本地提交成功后，通过 `assistantCompleted` 交付这个时间；完整运行的总时长继续由最终回复的 `durationMs` 承担。
-
-## 后续扩展设计（尚未实现）
-
-以下描述 `terminate`、宿主回合终止钩子和 follow-up 的独立扩展语义。运行中输入按照上面的安全边界契约实施；这些扩展进入实现时沿用同一个接收门控与终态归属规则。
-
-## `terminate` 的作用域
-
-`terminate` 是每个工具执行结果上的可选控制元数据，不是 Agent 回合字段，也不是模型请求结果字段。Runtime 先为本回合的每个工具调用得到工具结果，再把这些结果聚合为一个工具批次状态：只有批次中存在调用且每个调用都明确要求终止时，批次才被视为终止。
-
-因此：
-
-- 单个工具调用带 `terminate: true`，表示这个工具批次不再自动请求下一轮 LLM；
+- `terminate` 属于每个工具执行结果的可选控制元数据，由 Runtime 聚合为批次控制状态。Runtime 先为本回合的每个工具调用得到工具结果，再把这些结果聚合为一个工具批次状态：只有批次中存在调用且每个调用都明确要求终止时，批次才被视为终止。
+- 因此：
+- 单个工具调用带 `terminate: true`，表示这个工具批次结束自动模型续轮；
 - 多个工具调用时，必须每个调用都带 `terminate: true`，批次才关闭自动续轮；
 - 一个调用为 `true`、另一个为 `false` 或未提供时，批次继续请求 LLM；
-- `terminate` 不写入发送给模型的 `ToolResultMessage`，工具结果内容仍然保留并通过运行事件提供给宿主。
+- `terminate` 由 Runtime 作为控制元数据消费；`ToolResultMessage` 携带工具结果内容，运行事件将结果提供给宿主。
+- 它表达当前工具批次的模型接管需求，工具执行成功由结果状态表达。天气查询成功后通常继续交给 LLM 组织最终回答。
+- `terminate` 关闭自动工具续轮；安全边界仍按运行中输入队列处理已接收的补充文本。未来的 follow-up 能在 Agent 自然结束后发起独立延续；`shouldStopAfterTurn` 负责在回合边界执行宿主的停止策略。
 
-它表达的是“当前工具批次是否还需要模型接管”，不是“这个工具是否执行成功”。天气查询即使成功返回天气，也通常不设置 `terminate`，因为还需要 LLM 根据结果组织最终回答。
+可选的回合终止钩子。
 
-`terminate` 关闭自动工具续轮；安全边界仍按运行中输入队列处理已接收的补充文本。未来的 follow-up 能在 Agent 自然结束后发起独立延续；`shouldStopAfterTurn` 负责在回合边界执行宿主的停止策略。
+- 默认规则由模型输出决定，但 Host 可以注册 `shouldStopAfterTurn`：
+- `shouldStopAfterTurn` 接收当前 Assistant Message、该回合的所有工具结果、更新后的上下文和本次运行新增消息，并返回“继续”或“停止”的决定。
+- 它在当前 Assistant Message、该回合全部工具结果和 `turnCompleted` 事件完成后调用，并且先于运行中输入队列检查；返回 `true` 时按终态流程把已接收输入标记为“未应用”，随后发出唯一的 `runCompleted`。这个钩子适合上下文压缩失败、外部资源预算耗尽、宿主策略要求在当前回合收尾等明确条件。
+- 钩子提供回合边界的优雅停止。用户点击停止或系统需要立刻终止模型 / 命令时，仍须调用同一个 `AbortSignal`。钩子通过布尔返回值表达正常终止决定。
+- 未来加入宿主回合终止钩子时，回合顺序依次为 Assistant 提交、工具批次提交、`turnCompleted`、宿主策略检查、已接收输入应用、自动工具续轮或终态提交。follow-up 在当前 run 终态之后按独立协议启动。`turnId` 与 `turnOrdinal` 承担事件关联和诊断职责。
 
-## 可选的回合终止钩子
+运行状态机。
 
-默认规则由模型输出决定，但 Host 可以注册 `shouldStopAfterTurn`：
+- Agent 的运行状态在模型请求与工具执行之间切换，并最终收敛为 `completed`、`cancelled` 或 `failed`。宿主为每个 run 创建一个 `AbortController`，同一个 signal 同时传给模型请求和工具执行；Agent 观察到中止后结束模型续轮，并发出唯一的 `runCompleted(status: "cancelled")`。
 
-`shouldStopAfterTurn` 接收当前 Assistant Message、该回合的所有工具结果、更新后的上下文和本次运行新增消息，并返回“继续”或“停止”的决定。
+运行治理目标（后续设计）。
 
-它在当前 Assistant Message、该回合全部工具结果和 `turnCompleted` 事件完成后调用，并且先于运行中输入队列检查；返回 `true` 时按终态流程把已接收输入标记为“未应用”，随后发出唯一的 `runCompleted`。这个钩子适合上下文压缩失败、外部资源预算耗尽、宿主策略要求在当前回合收尾等明确条件。
-
-钩子是“回合边界的优雅停止”，不是立即取消。用户点击停止或系统需要立刻终止模型 / 命令时，仍须调用同一个 `AbortSignal`。钩子本身应返回布尔值，不应通过抛出异常承担正常终止语义。
-
-未来加入宿主回合终止钩子时，回合顺序依次为 Assistant 提交、工具批次提交、`turnCompleted`、宿主策略检查、已接收输入应用、自动工具续轮或终态提交。follow-up 在当前 run 终态之后按独立协议启动。`turnId` 与 `turnOrdinal` 承担事件关联和诊断职责。
-
-## 运行状态机
-
-Agent 的运行状态在模型请求与工具执行之间切换，并最终收敛为 `completed`、`cancelled` 或 `failed`。宿主为每个 run 创建一个 `AbortController`，同一个 signal 同时传给模型请求和工具执行；Agent 观察到中止后不再发起下一轮，并发出唯一的 `runCompleted(status: "cancelled")`。
-
-## 运行治理目标（尚未完整实现）
-
-取消 Step 上限不等于取消运行治理：
-
+- 上下文准备：Runtime 在安全边界应用已提交输入，再调用[上下文管理](./context-management.mdx)读取已有摘要、组装原文并按双阈值触发压缩。
+- 推进规则：运行由模型输出和工具批次状态决定续轮，宿主治理负责取消、预算和诊断。
 - 用户始终可以停止运行；
 - 模型调用与工具调用保留耗时、token、费用和错误诊断；
-- 上下文接近模型窗口时由上下文管理策略压缩或产生明确错误，不能静默截断工具协议；
-- 重复工具调用可以记录告警和观测指标，但不能未经产品策略授权就按固定次数终止；
+- 上下文接近模型窗口时由上下文管理策略压缩或产生明确错误，并保持工具协议完整；
+- 重复工具调用记录告警和观测指标，终止条件由明确的产品策略决定；
 - 权限拒绝、沙箱失败和系统资源错误通过 Tool Result 或 Run Error 明确表达。
-
-当前已有共享取消信号、Bash 固定超时和结果截断；token / 费用统计、上下文压缩、重复调用告警尚未实现。上述目标不代替模型基于工具调用做出的任务完成判断。
-
-## 验证矩阵
-
-| 场景 | 预期 |
-| --- | --- |
-| 首轮只返回正文 | 一次模型请求后 `completed` |
-| 首轮返回工具调用，第二轮返回正文 | 执行工具、回填结果、第二轮后 `completed` |
-| 工具返回非零状态 | 作为错误结果回填，模型仍获得下一轮 |
-| 只有 reasoning | 保存 interrupted attempt，发送 `turnRetrying`，有限重试或失败 |
-| 流结束时缺少 finish_reason | `model_protocol`，有限重试或失败 |
-| 模型请求失败 | 可重试错误有限重试，不执行消息中残留的工具调用 |
-| 用户停止模型或命令 | `stopping → cancelled`，不发起下一轮 |
-| 连续多轮工具调用 | 持续运行，不因 turn 数达到固定值而结束 |
-| 用户消息提交失败 | `failed`，Provider 保持待调用状态 |
-| 模型流结束时缺少 `finish_reason` | `model_protocol`，进入有限重试 |
-| 完整 Assistant Message 提交遇到临时锁冲突 | 复用同一响应有限重试本地提交，不重新请求模型；成功后执行工具 |
-| Assistant Message 提交永久失败或重试耗尽 | `failed`，工具保持待执行状态 |
-| Stop 发生在本地提交退避期间 | 结束等待、不再次提交 completed 响应，按取消协议收尾 |
-| Tool Message 提交失败 | `failed`，下一次模型请求保持待调用状态 |
-| 纯工具调用响应 | 直接提交 completed Assistant Message，再进入工具执行 |
-| 取消发生在助手流式输出期间 | Recorder 刷新草稿并提交 interrupted，随后发出 `runCompleted` |
-| 流式输出期间连续发送两条文本 | Main 按各自 `inputId` 持久化并 ACK；Runtime 在安全边界按 FIFO 一次提交并发出 `inputsApplied` |
-| 工具批次期间发送文本 | 工具结果全部提交后应用用户 entry；下一次模型请求按 Assistant、Tool、User 顺序接收上下文 |
-| `answer` 准备结束时发送文本 | 接收门控确认归属；已接收输入进入下一轮，封闭后的请求保留为新 run 草稿 |
-| 停止或失败时仍有已接收输入 | Recorder 写入同 `inputId` 的 interrupted 用户 entry，`runCompleted.unappliedInputIds` 返回未应用输入身份 |
-| 补充输入后完成运行 | 最终 Assistant Message 与 `runCompleted` 保存从 `runStarted` 到运行终态的同一 `durationMs` |
+- 治理协作：共享取消信号、Bash 超时与结果截断、上下文容量和诊断分别遵循各自模块契约，任务完成依据模型输出和工具调用状态判断。

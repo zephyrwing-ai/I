@@ -45,6 +45,7 @@ test("MessageStream gives the final model message its own stable block", () => {
   const runs = {
     "run-1": {
       ...run("run-1", "用户任务"),
+      finalTurnId: "turn-1",
       timeline: [{ kind: "user" as const, inputId: "run-1:task" }, { kind: "assistant" as const, turnId: "turn-1" }],
       turns: {
         "turn-1": {
@@ -182,6 +183,8 @@ test("an active turn keeps one Working for block as reasoning and tools arrive",
   assert.match(emptyHtml, /data-block-count="2"/);
   assert.match(emptyHtml, /data-message-block-id="run-empty:work:run-empty:task"/);
   assert.match(emptyHtml, />Working for</);
+  assert.match(emptyHtml, /class="run-work-toggle" aria-expanded="true"/);
+  assert.match(emptyHtml, /正在等待过程说明/);
 
   current.turns["turn-1"].reasoningContent = "先看目录";
   const activeHtml = render();
@@ -189,9 +192,47 @@ test("an active turn keeps one Working for block as reasoning and tools arrive",
   assert.match(activeHtml, /data-message-block-id="run-empty:work:run-empty:task"/);
   assert.match(activeHtml, />Working for</);
   assert.doesNotMatch(activeHtml, />Thinking</);
-  assert.match(activeHtml, /先看目录/);
+  assert.doesNotMatch(activeHtml, /先看目录/);
+
+  current.turns["turn-1"].progressContent = "先确认目录边界";
+  const progressHtml = render();
+  assert.match(progressHtml, /work-progress-text/);
+  assert.match(progressHtml, /先确认目录边界/);
+  assert.doesNotMatch(progressHtml, /正在等待过程说明|先看目录/);
 
   current.turns["turn-1"].toolOrder = ["call-1"];
   current.turns["turn-1"].tools["call-1"] = { toolCallId: "call-1", name: "bash", input: { command: "pwd" }, status: "running" };
   assert.equal(render().match(/data-message-block-id="run-empty:work:run-empty:task"/g)?.length, 1);
+});
+
+test("a historical reasoning-only turn leaves no empty activity block", () => {
+  const current = run("run-reasoning", "查看项目");
+  current.status = "cancelled";
+  current.timeline.push({ kind: "assistant", turnId: "old-turn" });
+  current.turns["old-turn"] = {
+    turnId: "old-turn", turnOrdinal: 1, status: "failed", assistantContent: "", reasoningContent: "PRIVATE HISTORICAL THOUGHT", toolOrder: [], tools: {},
+  };
+  const html = renderToStaticMarkup(createElement(MessageStream, { order: [current.runId], runs: { [current.runId]: current } }));
+  assert.match(html, /data-block-count="1"/);
+  assert.doesNotMatch(html, /PRIVATE|run-work|block-assistant/);
+  assert.equal(current.turns["old-turn"].reasoningContent, "PRIVATE HISTORICAL THOUGHT");
+});
+
+test("a completed pure answer has one progress fold with the answer and metadata outside it", () => {
+  const current = run("run-pure", "分析问题");
+  current.timeline.push({ kind: "assistant", turnId: "answer" });
+  current.finalTurnId = "answer";
+  current.finalDurationMs = 2_000;
+  current.turns.answer = {
+    turnId: "answer", turnOrdinal: 1, status: "completed", assistantContent: "中文结论", progressContent: "先核对约束再形成结论",
+    reasoningContent: "PRIVATE English reasoning", toolOrder: [], tools: {}, assistantAt: 3_000,
+  };
+  const html = renderToStaticMarkup(createElement(MessageStream, { order: [current.runId], runs: { [current.runId]: current } }));
+  assert.match(html, /data-block-count="2"/);
+  assert.equal(html.match(/class="run-work-toggle"/g)?.length, 1);
+  assert.match(html, /Worked for 2\.0s/);
+  assert.match(html, /work-progress-text markdown"><p>先核对约束再形成结论/);
+  assert.match(html, /<\/section><div class="model-text final-answer markdown"><p>中文结论/);
+  assert.match(html, /aria-label="Copy answer"/);
+  assert.doesNotMatch(html, /PRIVATE|turn-action|work-legacy-notice/);
 });

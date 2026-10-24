@@ -32,7 +32,7 @@
         margin-bottom: 0.5rem;
 
         @include isMobile {
-          font-size: 1.25rem;
+          font-size: calc(1.25rem + var(--ui-font-offset, 0px));
         }
       }
 
@@ -40,7 +40,7 @@
         margin: 0;
 
         @include isMobile {
-          font-size: 0.875rem;
+          font-size: calc(0.875rem + var(--ui-font-offset, 0px));
         }
       }
 
@@ -79,7 +79,7 @@
       margin-top: 1.5rem;
 
       @include isMobile {
-        font-size: 0.875rem;
+        font-size: calc(0.875rem + var(--ui-font-offset, 0px));
         margin-top: 1rem;
       }
     }

@@ -1,56 +1,59 @@
----
-title: Agent 总览
-description: Agent 内核的模块边界、依赖方向与跨模块运行主链路。
----
+Agent 总览。
 
-本目录描述 Agent 内核如何保存项目历史、请求模型、判断是否继续、执行已注册工具，以及向宿主发出运行事件。桌面窗口、Electron IPC、Renderer 状态、设置、搜索和界面偏好归入 `docs/desktop/design/`。
+- 范围：Agent 内核负责保存项目历史、请求模型、判断续轮、执行已注册工具，以及向宿主发出运行事件。
+- 桌面协作：窗口、Electron IPC、Renderer 状态、设置、搜索和界面偏好由 `docs/desktop/design/` 定义。
+- 当前协议：模型层实现 OpenAI 兼容协议。
+- 当前工具：注册表提供 Bash、Read、Write、Edit、List Dir、Find Files 和 Search Content。
+- 持久化装配：Main 装配 `agent/memory` 提供的 HistoryRecorder 与 SQLite Repository；[项目历史存储](./memory.mdx)定义本地契约，[项目历史存储实现清单](./session-storage-tasks.mdx)记录跨模块落地状态。
+- 流程参考：[项目历史存储流程](./session-storage-flow.mdx)描述用户输入到 SQLite 的完整链路。
 
-## 当前实现边界
+模块划分。
 
-当前模型层实现 OpenAI 兼容协议，工具注册表已经注册 Bash、Read、Write、Edit、List Dir、Find Files 和 Search Content。Main 装配由 `agent/memory` 提供的 HistoryRecorder 与 SQLite Repository；[项目历史存储](./memory.mdx)定义本地持久化契约，[项目历史存储实现清单](./session-storage-tasks.mdx)列出跨模块落地顺序。
+- 项目历史：[项目历史存储](./memory.mdx)定义项目与 General 消息的落盘、更新和恢复。
+- 上下文：[上下文管理](./context-management.mdx)定义模型输入的选取、组织、压缩与检查点恢复。
+- 模型请求：[模型请求](./model-request.mdx)定义上下文、工具定义和 Provider 参数的请求装配，以及流式结果归一化。
+- 运行循环：[运行循环](./runtime-loop.mdx)定义续轮、自然完成、取消和失败判定。
+- 工具系统：[工具系统](./tools/index.mdx)定义模型可见工具、真实执行实现和结构化结果。
+- 运行事件：[运行事件](./events.mdx)定义宿主接收的稳定身份、运行状态、回合状态和工具状态。
+- 字段归属：跨模块字段由所属模块完整定义，协作模块通过链接引用；跨模块实施顺序集中记录在[项目历史存储实现清单](./session-storage-tasks.mdx)。
 
-项目历史从用户输入到 SQLite 的运行链路见[项目历史存储流程](./session-storage-flow.mdx)。
+分层职责。
 
-## 模块划分
+- Host boundary：提交冻结运行输入、提供取消信号并接收 Agent 事件；Runtime 控制运行流程，Tool Registry 提供工具定义。
+- History Memory：保存项目与 General 消息、流式草稿、已完成快照和本地恢复事实；Execution 执行工具，Desktop 渲染页面。
+- Agent Runtime：编排模型请求、工具调用、工具结果和下一轮请求；Host 装配平台能力，Desktop 管理页面状态。
+- Provider Adapter：将模型协议归一化为统一消息、流事件和停止原因；Execution 执行调用，Runtime 判定完成状态。
+- Tool Registry：保存模型可见工具定义与对应实现；Provider 提供结构化调用，权限策略限定执行能力。
+- Execution：执行已注册且通过校验的 Bash、文件与查询操作，返回结构化结果；Runtime 决定模型续轮，权限策略定义能力范围。
+- 宿主类型：Electron 桌面端、CLI 和测试程序通过稳定输入、事件回调与执行接口接入 Agent；桌面交互与运行循环分别维护各自状态。
 
-Agent 设计按稳定的运行模块组织：
+行为追踪协作。
 
-| 模块 | 负责回答的问题 |
-| --- | --- |
-| [项目历史存储](./memory.mdx) | 项目和无项目消息如何落盘、更新与恢复 |
-| [模型请求](./model-request.mdx) | 上下文、工具定义和 Provider 参数如何形成请求，流式结果如何归一化 |
-| [运行循环](./runtime-loop.mdx) | Agent 为什么继续、何时自然完成、何时取消或失败 |
-| [工具系统](./tools/index.mdx) | Agent 有哪些工具，模型调用如何落到真实实现并返回结果 |
-| [运行事件](./events.mdx) | Agent 如何用稳定身份向宿主报告运行、回合和工具状态 |
+- 协议事实：Adapter 将原生公开正文、原始推理和工具调用归一化为独立字段，流式事件与完整响应使用相同的内容归属；字段映射见[模型请求](./model-request.mdx)。
+- 回合身份：`runId` 关联整次运行，`turnId` 关联一次逻辑模型请求及其工具批次，attempt 关联同回合内的请求尝试，`toolCallId` 关联单次调用及其结果。
+- 运行职责：Runtime 消费归一化事实，完成响应分类、消息提交、批次执行与终态交付；Recorder 保存模型正文、原始推理、工具调用与结果，AgentEvent 向宿主交付相同事实。
+- 宿主职责：Renderer 将实时事件与历史记录汇入统一 AgentState，展示投影生成回合文字、工具组和操作行，React 根据阶段与用户选择完成折叠、排版和详情交互；具体契约见[消息流](../desktop/design/workbench/message-stream.mdx)。
+- 公开语言：主模型按最新已应用用户任务的语言生成原生公开正文，原始推理保持其协议原文；工具操作标签依据实际参数生成，语言来源见[模型请求](./model-request.mdx)。
 
-跨模块字段由所属模块完整定义，其他文件通过链接引用。跨模块实施顺序统一记录在[项目历史存储实现清单](./session-storage-tasks.mdx)。
+跨模块运行链路。
 
-## 分层职责
+- 启动输入：宿主创建冻结运行输入、`runId`、取消信号、`projectId` 和绑定该范围的 HistoryRecorder。
+- 用户提交：Runtime 提交用户消息，创建 `turnId`，再通过统一入口请求模型。
+- 响应分类：Adapter 完成协议归一化，Runtime 将流结果分类为完整回答、工具调用、`incomplete` 或失败。
+- 完整助手消息：Assistant Message 提交成功后，Runtime 进入工具执行或结束运行。
+- 待恢复输出：`incomplete` attempt 保存为 `interrupted`，再由 `retryModelTurn()` 进行有限恢复。
+- 工具续轮：完整 Tool Message 提交成功后，Runtime 发起下一次模型请求；模型错误进入失败或重试分支，中止信号进入取消分支。
+- 过程输出：HistoryRecorder 保存项目历史事实，结构化运行事件报告过程与唯一终态，宿主负责跨进程传递和渲染。
 
-| 层 | 职责 | 协作边界 |
-| --- | --- | --- |
-| Host boundary | 提交冻结运行输入、提供取消信号、接收 Agent 事件 | Runtime 负责控制流，Tool Registry 负责工具定义 |
-| History Memory | 保存项目或无项目消息与草稿，提供完成消息快照和本地恢复 | Execution 负责工具，Desktop 负责页面渲染 |
-| Agent Runtime | 编排模型请求、工具调用、工具结果和下一轮请求 | Host 负责平台装配，Desktop 负责页面状态 |
-| Provider Adapter | 将不同模型协议归一化为统一消息、流事件和停止原因 | Execution 负责工具调用，Runtime 负责完成判断 |
-| Tool Registry | 保存模型可见的工具定义与对应执行实现 | Provider 提供结构化调用，权限策略提供运行边界 |
-| Execution | 执行经过注册和校验的 Bash、文件与查询操作，返回结构化结果 | Runtime 负责模型续轮，权限策略负责能力范围 |
+权限边界。
 
-宿主可以是 Electron 桌面端、CLI 或测试程序。Agent 只依赖稳定的输入、事件回调和执行接口，因此桌面交互变化不会反向污染运行循环。
+- 执行能力：Agent 工具使用宿主提供的能力和权限。
+- 工作目录：`cwd` 决定相对路径解析和命令启动位置，文件系统访问范围由宿主权限机制决定。
+- 隔离装配：系统沙盒、远程执行和额外权限确认属于宿主的独立实现职责，能力描述以实际装配为准。
 
-## 跨模块主链路
+参考边界。
 
-一次运行从不可变的运行输入开始。宿主创建 `runId`、取消信号、`projectId` 和绑定该范围的 HistoryRecorder。Runtime 提交用户消息后创建 `turnId` 并请求模型，Adapter 只负责协议归一化，Runtime 将流结果分类为完整回答、工具调用、不完整或失败。完整 Assistant Message 提交成功后才进入工具执行或结束运行；不完整 attempt 先保存为 interrupted，再由 `retryModelTurn()` 进行有限恢复。完整 Tool Message 提交后进入下一次模型请求；模型错误进入失败或重试，中止信号进入取消。
-
-Agent 通过 HistoryRecorder 保存项目历史事实，并通过结构化运行事件报告过程和唯一终止结果。宿主负责跨进程传递事件和渲染状态。
-
-
-## 权限边界
-
-Agent 的工具使用宿主提供的执行能力和权限。工作目录只决定相对路径解析和命令启动位置，不自动构成文件系统沙盒；是否采用系统沙盒、远程执行或额外权限确认，必须由宿主另行实现，Agent 文档不能把不存在的隔离能力描述为已经可用。
-
-## 参考边界
-
-运行循环的继续与结束语义借鉴同级 `pi` 项目的 `packages/agent/src/agent-loop.ts` 和对应测试：没有数值型循环上限；存在工具调用时执行并回填结果，没有工具调用时自然结束；模型请求 `error` / `aborted` 直接终止；普通工具错误返回模型后允许其恢复。
-
-本项目只借鉴控制语义，不依赖 `pi` 的包，也不照搬它的 steering、follow-up 或动态工具加载等当前 Agent 契约之外的能力。
+- 控制语义：运行循环借鉴同级 `pi` 项目 `packages/agent/src/agent-loop.ts` 及对应测试的继续与结束规则。
+- 续轮规则：工具调用驱动执行与结果回填，正文回答驱动自然完成；回合数量承担排序和诊断职责。
+- 错误规则：模型请求 `error` / `aborted` 进入终态；普通工具错误回填模型，允许模型恢复。
+- 依赖关系：本项目独立实现 Agent 契约；`pi` 提供控制语义参考，steering、follow-up 和动态工具加载等能力按本项目自身契约演进。

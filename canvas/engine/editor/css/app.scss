@@ -29,7 +29,8 @@
 
   .LoadingMessage-text {
     margin-top: 1em;
-    font-size: 0.8em;
+    // Keep the inherited font offset additive after applying the relative scale.
+    font-size: calc(0.8em + var(--ui-font-offset, 0px) * 0.2);
   }
 }
 

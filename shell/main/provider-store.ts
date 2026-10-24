@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import type { ModelCapabilities } from "../../agent/model/types.js";
 import type {
   DiscoveredModel,
   ModelOption,
@@ -11,9 +12,14 @@ import type {
   ProviderProfileSummary,
 } from "../shared/ipc.js";
 import { haveSameProviderOrigin } from "../shared/provider-origin.js";
-import { inferProviderFromBaseURL, type ProviderDiscoveryConnection } from "./provider-model-discovery.js";
+import {
+  inferProviderFromBaseURL,
+  normalizeModelCapabilities,
+  resolveModelCapabilities,
+  type ProviderDiscoveryConnection,
+} from "./provider-model-discovery.js";
 
-const STORE_VERSION = 3;
+const STORE_VERSION = 4;
 // 只保留 OpenAI 兼容协议（DeepSeek 等）：历史存量 profile（anthropic/google 等）
 // 在加载时不再通过校验，视为废弃数据；重新添加时按 openai 协议处理。
 const PROVIDERS = new Set<Provider>(["openai"]);
@@ -25,6 +31,7 @@ interface StoredModel {
   available: boolean;
   imported: boolean;
   state: ProviderModelState;
+  capabilities?: ModelCapabilities;
 }
 
 interface StoredProfile {
@@ -68,6 +75,7 @@ export interface ResolvedModelOption {
   provider: Provider;
   modelId: string;
   baseURL?: string;
+  capabilities?: ModelCapabilities;
   getApiKey: () => Promise<string>;
 }
 
@@ -98,6 +106,7 @@ export class ProviderStore {
       const providerProfileId = existing?.providerProfileId ?? normalized.providerProfileId ?? randomUUID();
       const encryptedApiKey = this.resolveEncryptedSecret(normalized.apiKey, existing, normalized.baseURL);
       const previousModels = new Map(existing?.models.map((model) => [model.modelId, model]) ?? []);
+      const sameOrigin = existing && haveSameProviderOrigin(existing.baseURL, normalized.baseURL);
       const profile: StoredProfile = {
         providerProfileId,
         provider: inferProviderFromBaseURL(normalized.baseURL),
@@ -106,6 +115,7 @@ export class ProviderStore {
         encryptedApiKey,
         models: normalized.models.map((model) => {
           const previous = previousModels.get(model.id);
+          const capabilities = resolveModelCapabilities(normalized.baseURL, model.id, model.capabilities, sameOrigin ? previous?.capabilities : undefined);
           return {
             modelOptionId: previous?.modelOptionId ?? randomUUID(),
             modelId: model.id,
@@ -113,6 +123,7 @@ export class ProviderStore {
             available: true,
             imported: true,
             state: "saved",
+            ...(capabilities ? { capabilities } : {}),
           };
         }),
       };
@@ -145,12 +156,14 @@ export class ProviderStore {
         && candidate.available
       ));
       if (!model) continue;
+      const capabilities = resolveModelCapabilities(profile.baseURL, model.modelId, model.capabilities);
       return {
         providerProfileId: profile.providerProfileId,
         modelOptionId,
         provider: profile.provider,
         modelId: model.modelId,
         baseURL: profile.baseURL,
+        ...(capabilities ? { capabilities } : {}),
         // Capture the same immutable profile as baseURL, so later edits cannot
         // pair this run's address with another connection's credential.
         getApiKey: async () => this.requireCredential(profile),
@@ -191,6 +204,7 @@ export class ProviderStore {
       const previous = new Map(profile.models.map((model) => [model.modelId, model]));
       const models: StoredModel[] = discovered.map((model) => {
         const saved = previous.get(model.id);
+        const capabilities = resolveModelCapabilities(profile.baseURL, model.id, model.capabilities, saved?.capabilities);
         return {
           modelOptionId: saved?.modelOptionId ?? randomUUID(),
           modelId: model.id,
@@ -198,6 +212,7 @@ export class ProviderStore {
           available: true,
           imported: true,
           state: "saved",
+          ...(capabilities ? { capabilities } : {}),
         };
       });
       const refreshed = { ...profile, models };
@@ -231,7 +246,7 @@ export class ProviderStore {
     let completed = false;
     try {
       const parsed = JSON.parse(await readFile(this.filePath, "utf8")) as { version?: unknown; profiles?: unknown };
-      if ((parsed.version === STORE_VERSION || parsed.version === 2) && Array.isArray(parsed.profiles)) {
+      if ((parsed.version === STORE_VERSION || parsed.version === 3 || parsed.version === 2) && Array.isArray(parsed.profiles)) {
         this.profiles = parsed.profiles.filter(isStoredProfile).map(normalizeStoredProfile);
       } else if (parsed.version === 1 && Array.isArray(parsed.profiles)) {
         this.profiles = parsed.profiles.filter(isLegacyStoredProfile).map(migrateLegacyProfile).map(normalizeStoredProfile);
@@ -263,16 +278,20 @@ export class ProviderStore {
       name: profile.name,
       baseURL: profile.baseURL,
       credentialConfigured,
-      models: profile.models.map<ModelOption>((model) => ({
-        modelOptionId: model.modelOptionId,
-        providerProfileId: profile.providerProfileId,
-        providerName: profile.name,
-        modelId: model.modelId,
-        displayName: model.displayName,
-        available: credentialAvailable && model.available,
-        imported: model.imported,
-        state: model.state,
-      })),
+      models: profile.models.map<ModelOption>((model) => {
+        const capabilities = resolveModelCapabilities(profile.baseURL, model.modelId, model.capabilities);
+        return {
+          modelOptionId: model.modelOptionId,
+          providerProfileId: profile.providerProfileId,
+          providerName: profile.name,
+          modelId: model.modelId,
+          displayName: model.displayName,
+          available: credentialAvailable && model.available,
+          imported: model.imported,
+          state: model.state,
+          ...(capabilities ? { capabilities } : {}),
+        };
+      }),
     };
   }
 
@@ -318,10 +337,21 @@ function normalizeInput(input: ProviderProfileInput): ProviderProfileInput & {
   const name = input.name.trim();
   if (!name) throw new Error("Enter a provider name.");
   const baseURL = normalizeBaseURL(input.baseURL);
-  const models = input.models.map((model) => ({
-    id: model.id.trim(),
-    displayName: model.displayName.trim() || model.id.trim(),
-  })).filter((model) => model.id);
+  const models = input.models.map((model) => {
+    const capabilities = normalizeModelCapabilities(model.capabilities);
+    if (model.capabilities !== undefined && (!capabilities
+      || ["maxInputTokens", "maxOutputTokens"].some((field) => {
+        const key = field as "maxInputTokens" | "maxOutputTokens";
+        return model.capabilities?.[key] !== undefined && capabilities[key] !== model.capabilities[key];
+      }))) {
+      throw new Error("Model capabilities require a valid source and positive safe integer token limits.");
+    }
+    return {
+      id: model.id.trim(),
+      displayName: model.displayName.trim() || model.id.trim(),
+      ...(capabilities ? { capabilities } : {}),
+    };
+  }).filter((model) => model.id);
   if (models.length === 0) throw new Error("Select at least one model.");
   if (new Set(models.map((model) => model.id)).size !== models.length) {
     throw new Error("A provider cannot save duplicate models.");
@@ -376,7 +406,11 @@ function isStoredModel(value: unknown): value is StoredModel {
 function normalizeStoredProfile(profile: StoredProfile): StoredProfile {
   const models: StoredModel[] = profile.models
     .filter((model) => model.available && model.state !== "unavailable")
-    .map((model) => ({ ...model, imported: true, state: "saved" }));
+    .map((model) => {
+      const { capabilities: rawCapabilities, ...stored } = model;
+      const capabilities = normalizeModelCapabilities(rawCapabilities);
+      return { ...stored, imported: true, state: "saved", ...(capabilities ? { capabilities } : {}) };
+    });
   return { ...profile, models };
 }
 

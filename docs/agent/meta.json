@@ -4,6 +4,7 @@
   "pages": [
     "architecture",
     "memory",
+    "context-management",
     "session-storage-flow",
     "session-storage-tasks",
     "model-request",
