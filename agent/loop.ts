@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { RepositoryError, ToolAttemptBlockedError, type HistoryRecorder, type ToolInvocationPlan, type ToolInvocationRecord } from "./memory/types.js";
 import { response, type ModelConfig } from "./model/index.js";
-import { ModelAdapterError, type LlmResponse, type ModelMessage, type ToolCall, type ToolDef } from "./model/types.js";
+import { ModelAdapterError, type LlmResponse, type ModelMessage, type ModelAttachment, type ToolCall, type ToolDef } from "./model/types.js";
 import { canonicalJson } from "./json.js";
 import { toolInputHash } from "./tools/identity.js";
 import type { RegisteredTool, PreparedToolExecution, ToolExecutionContext, ToolRecoveryResult, ToolResult } from "./tools/index.js";
@@ -58,6 +58,7 @@ export interface AgentRunConfig {
   initialUserEntryId?: string;
   /** Fixed user creation time shared with the admission ACK and history entry. */
   initialUserCreatedAt?: number;
+  initialAttachments?: ModelAttachment[];
   steeringInbox?: AgentSteeringInbox;
   /** The host persists Stop before aborting; failures must reach run completion. */
   cancellationBarrier?: () => Promise<void>;
@@ -194,7 +195,7 @@ export async function run(
   config = { ...config, recorder: config.recorder ?? ownedRecorder };
   const recorder = config.recorder!;
   const context = new ContextManager(recorder.repository, recorder.projectId, config.responseImpl ?? response);
-  const userMessage: ModelMessage = { role: "user", content: task };
+  const userMessage: ModelMessage = { role: "user", content: task, ...(config.initialAttachments?.length ? { attachments: config.initialAttachments } : {}) };
   const initialUserEntryId = config.initialUserEntryId ?? randomUUID();
   const initialUserCreatedAt = config.initialUserCreatedAt ?? runStartedAt;
   const tools = [...config.tools.values()].map((tool) => tool.definition);

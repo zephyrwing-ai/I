@@ -1,0 +1,3 @@
+# Official modular SDK, PDF/Office parsing, local layout/tables and ONNX OCR.
+# Python 3.12 is selected by scripts/setup-attachments.mjs.
+docling-slim[convert-core,format-pdf,format-office,models-local,feat-ocr-rapidocr-onnx,cli]==2.142.1

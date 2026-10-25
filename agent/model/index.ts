@@ -3,7 +3,7 @@
  * 内部根据 provider 动态加载对应实现（不用的 SDK 不需要装）。
  */
 
-import type { ToolDef, LlmResponse, ModelMessage, ModelStreamEvent, ModelCapabilities } from "./types.js";
+import type { ToolDef, LlmResponse, ModelMessage, ModelStreamEvent, ModelCapabilities, ResolveAttachmentImages } from "./types.js";
 
 export type { ToolDef, LlmResponse, ModelMessage, ModelStreamEvent, ToolCall, ModelStopReason, ModelErrorKind, ModelUsage, ModelCapabilities } from "./types.js";
 export { ModelAdapterError } from "./types.js";
@@ -26,6 +26,7 @@ export interface ModelConfig {
   capabilities?: ModelCapabilities;
   context?: ModelContextConfig;
   maxOutputTokens?: number;
+  resolveAttachmentImages?: ResolveAttachmentImages;
   /** OpenAI 兼容接口的额外配置 (baseURL、凭据和 Provider 思考字段)。 */
   openai?: {
     baseURL?: string;
@@ -52,7 +53,7 @@ export async function* response(
   switch (config.provider) {
     case "openai": {
       const { streamOpenAI } = await import("./openai.js");
-      yield* streamOpenAI(messages, tools, { ...config.openai, model: config.model, maxOutputTokens: config.maxOutputTokens }, system, signal);
+      yield* streamOpenAI(messages, tools, { ...config.openai, model: config.model, maxOutputTokens: config.maxOutputTokens, resolveAttachmentImages: config.resolveAttachmentImages, inputModalities: config.capabilities?.inputModalities }, system, signal);
       return;
     }
   }

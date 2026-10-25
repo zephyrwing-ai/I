@@ -5,7 +5,28 @@ export interface ModelCapabilities {
   maxInputTokens?: number;
   maxOutputTokens?: number;
   source: "provider" | "catalog" | "manual";
+  inputModalities?: Array<"text" | "image">;
 }
+
+/** Durable attachment input snapshot. Image bytes are resolved only for a request. */
+export interface ModelAttachment {
+  attachmentId: string;
+  name: string;
+  mediaType: string;
+  byteSize: number;
+  text: string;
+  imageLabels: string[];
+  previewUrl?: string;
+  mediaUrl?: string;
+  durationSeconds?: number;
+}
+
+export interface ModelImage {
+  mediaType: string;
+  dataUrl: string;
+}
+
+export type ResolveAttachmentImages = (attachment: ModelAttachment, signal?: AbortSignal) => Promise<ModelImage[]>;
 
 /** 工具参数属性描述 — 支持嵌套 object 与 array（items），与 OpenAI schema 对应。 */
 export interface ToolParamSpec {
@@ -54,6 +75,7 @@ export class ModelAdapterError extends Error {
 export interface ModelMessage {
   role: "user" | "assistant" | "tool";
   content: string;
+  attachments?: ModelAttachment[];
   /** 兼容既有消息中的独立公开说明；原生响应使用 content。 */
   progress?: string;
   /** 思考内容（模型推理过程）；由具体 Provider Adapter 决定是否以及如何回传。 */
@@ -62,7 +84,7 @@ export interface ModelMessage {
   toolCallId?: string;
   toolName?: string;
   isError?: boolean;
-  /** 图片类工具结果（Read 图片）：适配层拼入 tool 消息图片部分。 */
+  /** 图片类工具结果；适配层按 Provider 协议插入视觉内容。 */
   media?: { mediaType: string; dataUrl: string };
 }
 
@@ -75,6 +97,19 @@ export function readModelMessage(value: unknown): ModelMessage | undefined {
     if (message[field] !== undefined && typeof message[field] !== "string") return undefined;
   }
   if (message.isError !== undefined && typeof message.isError !== "boolean") return undefined;
+  if (message.attachments !== undefined) {
+    if (message.role !== "user" || !Array.isArray(message.attachments) || message.attachments.length > 10
+      || !message.attachments.every((value: unknown) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+        const item = value as Record<string, unknown>;
+        return typeof item.attachmentId === "string" && /^[a-f0-9]{64}$/.test(item.attachmentId)
+          && typeof item.name === "string" && typeof item.mediaType === "string"
+          && typeof item.byteSize === "number" && Number.isSafeInteger(item.byteSize) && item.byteSize >= 0
+          && typeof item.text === "string" && item.text.length <= 24_000
+          && Array.isArray(item.imageLabels) && item.imageLabels.length <= 6
+          && item.imageLabels.every((label: unknown) => typeof label === "string");
+      })) return undefined;
+  }
   if (message.toolCalls !== undefined) {
     if (!Array.isArray(message.toolCalls) || !message.toolCalls.every((item: unknown) => {
       if (!item || typeof item !== "object" || Array.isArray(item)) return false;
