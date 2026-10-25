@@ -3,3 +3,7 @@
 .settings-general-row + .settings-general-row { border-top: 1px solid var(--border); }
 .settings-general-row dt { color: var(--text); }
 .settings-general-row dd { max-width: 60%; margin: 0; color: var(--text-secondary); }
+.settings-document-install { min-height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 14px; background: transparent; color: var(--text); display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-size-caption); }
+.settings-document-install:hover:not(:disabled) { background: var(--hover); }
+.settings-document-install:disabled { opacity: .55; }
+.settings-general-error { padding: 8px calc(2 * var(--workbench-frame-gap)); color: var(--danger); font-size: var(--font-size-caption); }

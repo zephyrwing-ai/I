@@ -1,11 +1,12 @@
 import { useI18n } from "../../../shared/i18n";
 import { useUiPreferences } from "../../../shared/preferences/uiPreferences";
 import { Select } from "../../../shared/ui/Select";
+import { DocumentProcessingSettings } from "./DocumentProcessingSettings";
 import "./GeneralSettings.css";
 
-export function GeneralSettings() {
+export function GeneralSettings({ disabled = false }: { disabled?: boolean }) {
   const t = useI18n();
-  const { appearance, language, setAppearance, setLanguage } = useUiPreferences();
+  const { appearance, language, error, setAppearance, setLanguage } = useUiPreferences();
 
   return (
     <section className="settings-section" aria-labelledby="settings-general-title">
@@ -28,7 +29,9 @@ export function GeneralSettings() {
             { value: "zh-CN", label: "简体中文" },
           ]} /></dd>
         </div>
+        <DocumentProcessingSettings disabled={disabled} />
       </dl>
+      {error && <p className="form-error" role="alert">{t(error)}</p>}
     </section>
   );
 }

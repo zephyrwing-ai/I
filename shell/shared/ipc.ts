@@ -1,4 +1,5 @@
 import type { ModelCapabilities, ModelMessage } from "../../agent/model/types.js";
+import type { UiPreferences } from "./ui-preferences.js";
 export type { ModelCapabilities } from "../../agent/model/types.js";
 import type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types.js";
 export type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types.js";
@@ -62,12 +63,42 @@ export type ProviderModelDiscoveryResult =
   | { ok: true; models: DiscoveredModel[] }
   | { ok: false; error: ProviderModelDiscoveryErrorKind; message: string };
 
+export const MAX_INPUT_ATTACHMENT_COUNT = 10;
+export const MAX_INPUT_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+
 export interface InputAttachmentDescriptor {
   attachmentId: string;
   name: string;
   mediaType: string;
   byteSize: number;
+  previewUrl?: string;
+  mediaUrl?: string;
+  durationSeconds?: number;
 }
+
+export interface AttachmentImportResult {
+  attachments: InputAttachmentDescriptor[];
+  errors: Array<{ name: string; message: string }>;
+}
+
+export interface DocumentParserDescriptor {
+  parserId: string;
+  displayName: string;
+  version: string;
+  advanced: boolean;
+  available: boolean;
+  installing: boolean;
+  canInstall: boolean;
+  unavailableReason?: string;
+}
+
+export interface AttachmentProcessingSettings {
+  documentParserId: string;
+  parsers: DocumentParserDescriptor[];
+}
+
+/** Preload resolves disk-backed File objects; memory files use a bounded byte payload. */
+export type AttachmentUpload = { path: string } | { name: string; bytes: Uint8Array };
 
 /** Serializable CanvasEditor state kept outside the model conversation history. */
 export interface CanvasElementRecord {
@@ -178,6 +209,31 @@ export type VoiceTranscriptionResult =
   | { ok: true; text: string }
   | { ok: false; error: VoiceTranscriptionError; message: string };
 
+export type VoiceModelStatus = "not_downloaded" | "downloading" | "installed";
+
+export interface VoiceModelSummary {
+  id: string;
+  name: string;
+  tag: string;
+  sizeLabel: string;
+  ramLabel: string;
+  speedLevel: number;
+  wer: string;
+  recommended: boolean;
+  status: VoiceModelStatus;
+  progress: number | null;
+  selected: boolean;
+}
+
+export interface VoiceModelEvent {
+  modelId: string;
+  status: VoiceModelStatus;
+  progress: number | null;
+  error?: string;
+}
+
+export type VoiceModelActionResult = { ok: true } | { ok: false; error: string };
+
 export type SteerAck =
   | { ok: true; runId: string; projectId: string | null; inputId: string; acceptOrder: number; acceptedAt: number }
   | { ok: false; error: string };
@@ -188,6 +244,34 @@ export interface ProjectDescriptor {
   canonicalPath: string | null;
   pinned?: boolean;
 }
+
+export interface ProjectDirectoryRequest {
+  projectId: string;
+  /** Empty string selects the project root; descendants use slash-separated paths. */
+  relativePath: string;
+  cursor?: string;
+}
+
+export interface ProjectDirectoryEntry {
+  name: string;
+  relativePath: string;
+  kind: "file" | "directory" | "symlink";
+}
+
+export type ProjectDirectoryResult =
+  | {
+      ok: true;
+      projectId: string;
+      relativePath: string;
+      entries: ProjectDirectoryEntry[];
+      nextCursor: string | null;
+    }
+  | {
+      ok: false;
+      error: "invalid_request" | "not_found" | "not_directory" | "outside_project" | "symlink_not_allowed"
+        | "project_changed" | "stale_cursor" | "directory_changed" | "permission_denied" | "read_failed";
+      message: string;
+    };
 
 export interface ProjectActionRequest {
   projectId: string;
@@ -230,7 +314,7 @@ export type RunError = {
   retryable?: boolean;
 };
 
-export type RunStartAck = { ok: true; runId: string; inputId: string; createdAt: number } | { ok: false; error: string };
+export type RunStartAck = { ok: true; runId: string; inputId: string; createdAt: number; attachments?: InputAttachmentDescriptor[] } | { ok: false; error: string };
 
 export interface HistoryPageRequest {
   cursor: string | null;
@@ -319,6 +403,8 @@ export type AgentEvent =
   | { type: "runCompleted"; runId: string; status: RunStatus; error?: RunError; turnCount: number; unappliedInputIds?: string[]; finalTurnId?: string; finalDurationMs?: number };
 
 export interface AgentAPI {
+  getUiPreferences(legacyPreferences?: UiPreferences): Promise<UiPreferences>;
+  updateUiPreferences(patch: Partial<UiPreferences>): Promise<UiPreferences>;
   onPrepareToQuit(cb: (request: QuitPreparationRequest) => void): () => void;
   completeQuitPreparation(result: QuitPreparationResult): void;
   run(req: RunRequest): Promise<RunStartAck>;
@@ -326,9 +412,15 @@ export interface AgentAPI {
   stop(): void;
   transcribeVoice(request: VoiceTranscriptionRequest): Promise<VoiceTranscriptionResult>;
   cancelVoiceTranscription(requestId: string): void;
+  listVoiceModels(): Promise<VoiceModelSummary[]>;
+  downloadVoiceModel(modelId: string): Promise<VoiceModelActionResult>;
+  cancelVoiceModelDownload(modelId: string): void;
+  selectVoiceModel(modelId: string): Promise<VoiceModelActionResult>;
+  onVoiceModelEvent(cb: (event: VoiceModelEvent) => void): () => void;
   loadHistoryPage(request: HistoryPageRequest): Promise<HistoryPageResult>;
   getActiveProject(): Promise<ProjectDescriptor>;
   listProjects(): Promise<ProjectDescriptor[]>;
+  listProjectDirectory(request: ProjectDirectoryRequest): Promise<ProjectDirectoryResult>;
   activateProject(projectId: string): Promise<ProjectDescriptor>;
   performProjectAction(request: ProjectActionRequest): Promise<ProjectActionResult>;
   selectProject(): Promise<ProjectDescriptor | null>;
@@ -339,7 +431,13 @@ export interface AgentAPI {
   refreshProviderModels(providerProfileId: string): Promise<RefreshProviderModelsResult>;
   saveProvider(input: ProviderProfileInput): Promise<SaveProviderResult>;
   deleteProvider(providerProfileId: string): Promise<DeleteProviderResult>;
-  selectAttachments(): Promise<InputAttachmentDescriptor[]>;
+  selectAttachments(): Promise<AttachmentImportResult>;
+  importAttachments(files: File[]): Promise<AttachmentImportResult>;
+  openAttachment(attachmentId: string): Promise<OpenOutputFileResult>;
+  openAttachmentsDirectory(): Promise<OpenOutputFileResult>;
+  getAttachmentProcessingSettings(): Promise<AttachmentProcessingSettings>;
+  setDocumentParser(parserId: string): Promise<AttachmentProcessingSettings>;
+  installDocumentParser(parserId: string): Promise<AttachmentProcessingSettings>;
   loadCanvasDocument(projectId: string | null): Promise<CanvasDocumentResult>;
   saveCanvasDocument(request: CanvasSaveRequest): Promise<CanvasSaveResult>;
   prepareCanvasContext(input: CanvasContextInput): Promise<CanvasContextDescriptor>;
@@ -352,6 +450,8 @@ export interface AgentAPI {
 }
 
 export const IPC = {
+  getUiPreferences: "preferences:get",
+  updateUiPreferences: "preferences:update",
   prepareToQuit: "app:prepare-to-quit",
   quitPreparationReady: "app:quit-preparation-ready",
   quitPreparationResult: "app:quit-preparation-result",
@@ -361,9 +461,15 @@ export const IPC = {
   event: "agent:event",
   transcribeVoice: "voice:transcribe",
   cancelVoiceTranscription: "voice:cancel-transcription",
+  listVoiceModels: "voice-models:list",
+  downloadVoiceModel: "voice-models:download",
+  cancelVoiceModelDownload: "voice-models:cancel",
+  selectVoiceModel: "voice-models:select",
+  voiceModelEvent: "voice-models:event",
   loadHistoryPage: "history:load-page",
   getActiveProject: "projects:active",
   listProjects: "projects:list",
+  listProjectDirectory: "projects:list-directory",
   activateProject: "projects:activate",
   performProjectAction: "projects:action",
   selectProject: "projects:select",
@@ -375,6 +481,12 @@ export const IPC = {
   saveProvider: "providers:save",
   deleteProvider: "providers:delete",
   selectAttachments: "attachments:select",
+  importAttachments: "attachments:import",
+  openAttachment: "attachments:open",
+  openAttachmentsDirectory: "attachments:open-directory",
+  getAttachmentProcessingSettings: "attachments:processing-settings",
+  setDocumentParser: "attachments:set-document-parser",
+  installDocumentParser: "attachments:install-document-parser",
   loadCanvasDocument: "canvas:load-document",
   saveCanvasDocument: "canvas:save-document",
   prepareCanvasContext: "canvas:prepare-context",

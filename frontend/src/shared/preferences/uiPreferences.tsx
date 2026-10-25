@@ -1,28 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { DEFAULT_UI_PREFERENCES, parseUiPreferences, type AppearancePreference, type InterfaceLanguage, type UiPreferences } from "../../../../shell/shared/ui-preferences";
+export type { AppearancePreference, InterfaceLanguage } from "../../../../shell/shared/ui-preferences";
 
-export type AppearancePreference = "system" | "light" | "dark";
-export type InterfaceLanguage = "en" | "zh-CN";
-export interface UiPreferences {
-  appearance: AppearancePreference;
-  language: InterfaceLanguage;
-}
-
-export const UI_PREFERENCES_STORAGE_KEY = "workbench.uiPreferences";
-const defaults: UiPreferences = { appearance: "system", language: "en" };
-
-export function parseUiPreferences(value: string | null): UiPreferences {
-  try {
-    const parsed: unknown = JSON.parse(value ?? "null");
-    if (!parsed || typeof parsed !== "object") return defaults;
-    const { appearance, language } = parsed as Partial<UiPreferences>;
-    return {
-      appearance: appearance === "light" || appearance === "dark" ? appearance : "system",
-      language: language === "zh-CN" ? language : "en",
-    };
-  } catch {
-    return defaults;
-  }
-}
+const LEGACY_STORAGE_KEY = "workbench.uiPreferences";
 
 export function resolveAppearance(appearance: AppearancePreference, systemDark: boolean): "light" | "dark" {
   return appearance === "system" ? (systemDark ? "dark" : "light") : appearance;
@@ -30,24 +10,46 @@ export function resolveAppearance(appearance: AppearancePreference, systemDark: 
 
 interface UiPreferencesContextValue extends UiPreferences {
   theme: "light" | "dark";
+  error: string | null;
   setAppearance: (appearance: AppearancePreference) => void;
   setLanguage: (language: InterfaceLanguage) => void;
 }
 
 const UiPreferencesContext = createContext<UiPreferencesContextValue>({
-  ...defaults, theme: "light", setAppearance: () => undefined, setLanguage: () => undefined,
+  ...DEFAULT_UI_PREFERENCES, theme: "light", error: null, setAppearance: () => undefined, setLanguage: () => undefined,
 });
 
 export function UiPreferencesProvider({ children }: { children: ReactNode }) {
-  const [preferences, setPreferences] = useState(() => {
-    try { return parseUiPreferences(globalThis.localStorage?.getItem(UI_PREFERENCES_STORAGE_KEY) ?? null); }
-    catch { return defaults; }
-  });
+  const [preferences, setPreferences] = useState<UiPreferences>({ ...DEFAULT_UI_PREFERENCES });
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [systemDark, setSystemDark] = useState(() => (
     typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
   ));
-  const saved = useRef(preferences);
+  const saveRequest = useRef(0);
+  const appliedRequest = useRef(0);
   const theme = resolveAppearance(preferences.appearance, systemDark);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        let legacy: UiPreferences | undefined;
+        try {
+          const raw = globalThis.localStorage?.getItem(LEGACY_STORAGE_KEY);
+          if (raw != null) legacy = parseUiPreferences(raw);
+        } catch { /* Main preferences also work when browser storage is unavailable. */ }
+        const restored = await window.agentAPI.getUiPreferences(legacy);
+        if (active) setPreferences(restored);
+        try { globalThis.localStorage?.removeItem(LEGACY_STORAGE_KEY); } catch { /* The file is already authoritative. */ }
+      } catch {
+        if (active) setError("Unable to load interface preferences.");
+      } finally {
+        if (active) setReady(true);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   useLayoutEffect(() => {
     if (preferences.appearance !== "system") return;
@@ -63,21 +65,28 @@ export function UiPreferencesProvider({ children }: { children: ReactNode }) {
     document.documentElement.lang = preferences.language;
   }, [preferences.language, theme]);
 
-  useEffect(() => {
-    if (saved.current === preferences) return;
-    try { globalThis.localStorage?.setItem(UI_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences)); }
-    catch { /* Live preferences remain usable when local storage is unavailable. */ }
-    saved.current = preferences;
-  }, [preferences]);
+  const update = useCallback(async (patch: Partial<UiPreferences>) => {
+    const request = ++saveRequest.current;
+    setError(null);
+    try {
+      const saved = await window.agentAPI.updateUiPreferences(patch);
+      if (request > appliedRequest.current) {
+        appliedRequest.current = request;
+        setPreferences(saved);
+      }
+    } catch {
+      if (request === saveRequest.current) setError("Unable to save interface preferences.");
+    }
+  }, []);
 
   const setAppearance = useCallback((appearance: AppearancePreference) => {
-    setPreferences(current => current.appearance === appearance ? current : { ...current, appearance });
-  }, []);
+    void update({ appearance });
+  }, [update]);
   const setLanguage = useCallback((language: InterfaceLanguage) => {
-    setPreferences(current => current.language === language ? current : { ...current, language });
-  }, []);
-  const value = useMemo(() => ({ ...preferences, theme, setAppearance, setLanguage }), [preferences, theme, setAppearance, setLanguage]);
-  return <UiPreferencesContext.Provider value={value}>{children}</UiPreferencesContext.Provider>;
+    void update({ language });
+  }, [update]);
+  const value = useMemo(() => ({ ...preferences, theme, error, setAppearance, setLanguage }), [preferences, theme, error, setAppearance, setLanguage]);
+  return <UiPreferencesContext.Provider value={value}>{ready ? children : null}</UiPreferencesContext.Provider>;
 }
 
 export function useUiPreferences(): UiPreferencesContextValue {

@@ -2,8 +2,8 @@
  * Electron 主进程入口 — 创建窗口、注册 IPC、装配 AgentRunner。
  */
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, session, shell, webContents } from "electron";
-import { mkdirSync } from "node:fs";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, safeStorage, session, shell, webContents } from "electron";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,7 +17,9 @@ import {
   type CanvasDocumentResult,
   type CanvasSaveRequest,
   type CanvasSaveResult,
-  type InputAttachmentDescriptor,
+  type AttachmentImportResult,
+  type AttachmentProcessingSettings,
+  type AttachmentUpload,
   type OpenOutputFileResult,
   type OutputFilePreviewResult,
   type ProviderModelDiscoveryInput,
@@ -26,6 +28,8 @@ import {
   type ProviderProfileSummary,
   type RefreshProviderModelsResult,
   type ProjectDescriptor,
+  type ProjectDirectoryRequest,
+  type ProjectDirectoryResult,
   type ProjectActionRequest,
   type ProjectActionResult,
   type QuitPreparationResult,
@@ -40,19 +44,27 @@ import {
   type HistoryPageResult,
 } from "../shared/ipc.js";
 import { OutputFileRegistry, validateOutputForOpen } from "./output-files.js";
-import { composeTaskWithAttachments, InputAttachmentRegistry } from "./input-attachments.js";
+import { AttachmentStore } from "./attachments/store.js";
+import { createAttachmentProcessor } from "./attachments/processors.js";
+import { attachmentResourceResponse } from "./attachments/resources.js";
+import { DocumentParserRegistry } from "./attachments/document-parsers.js";
 import { ProviderStore } from "./provider-store.js";
+import { UiPreferencesStore } from "./ui-preferences.js";
+import type { UiPreferences } from "../shared/ui-preferences.js";
 import { discoverProviderModels, discoveryErrorResult } from "./provider-model-discovery.js";
 import { AgentRunner } from "./runner.js";
 import { HistoryService } from "./session-history.js";
 import { ProjectRegistry, type ActiveProjectContext } from "./project-registry.js";
+import { ProjectFilesService } from "./project-files.js";
 import { CanvasContextRegistry } from "../../canvas/context/CanvasContextRegistry.js";
 import { CanvasDocumentStore } from "../../canvas/persistence/CanvasDocumentStore.js";
 import { CanvasEditBridge, CanvasEditBridgeError } from "./canvas-edit-bridge.js";
 import { CanvasCliExecutor } from "./canvas-cli-executor.js";
 import { VoiceTranscriptionService, voiceResourcePaths } from "./voice-transcription.js";
+import { VoiceModelService } from "./voice-models.js";
 import { ApplicationLifecycle, installApplicationLifecycle, registerWindowResources } from "./application-lifecycle.js";
 import { QuitPreparation } from "./quit-preparation.js";
+import { initializeApplicationStorage } from "./application-storage.js";
 import {
   createHistoryRecorder,
   SqliteHistoryRepository,
@@ -61,15 +73,15 @@ import {
 } from "../../agent/memory/index.js";
 
 const mainProcessDirectory = fileURLToPath(new URL(".", import.meta.url));
-const { name: storageIdentity, productName } = applicationMetadata;
+const { productName } = applicationMetadata;
+protocol.registerSchemesAsPrivileged([{ scheme: "attachment", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 
-// 产品展示名与持久化身份分别配置，历史数据和钥匙串沿用同一身份。
-app.setName(storageIdentity);
-const userDataDirectory = app.commandLine.getSwitchValue("user-data-dir")
-  || join(app.getPath("appData"), storageIdentity);
-mkdirSync(userDataDirectory, { recursive: true });
-app.setPath("userData", userDataDirectory);
-app.setPath("sessionData", userDataDirectory);
+try {
+  initializeApplicationStorage(app);
+} catch (error) {
+  dialog.showErrorBox("I data could not be opened", error instanceof Error ? error.message : String(error));
+  app.exit(1);
+}
 
 const voicePermissionOwners = new Set<number>();
 let voicePermissionsRegistered = false;
@@ -149,7 +161,8 @@ function registerIpc(
   runner: AgentRunner,
   providers: ProviderStore,
   outputFiles: OutputFileRegistry,
-  inputAttachments: InputAttachmentRegistry,
+  inputAttachments: AttachmentStore,
+  documentParsers: DocumentParserRegistry,
   canvasContexts: CanvasContextRegistry,
   canvasDocuments: CanvasDocumentStore,
   canvasEditBridge: CanvasEditBridge,
@@ -158,6 +171,7 @@ function registerIpc(
   getHistoryRecorder: (projectId: HistoryScope) => Promise<HistoryRecorder>,
   releaseHistoryRecorder: (projectId: HistoryScope) => Promise<void>,
   voiceTranscription: VoiceTranscriptionService,
+  voiceModels: VoiceModelService,
   lifecycle: ApplicationLifecycle,
   quitPreparation: QuitPreparation,
 ): void {
@@ -170,10 +184,14 @@ function registerIpc(
   ipcMain.on(IPC.quitPreparationReady, (event, ready: unknown) => {
     if (BrowserWindow.fromWebContents(event.sender)) quitPreparation.setReady(event.sender.id, ready === true);
   });
+  const uiPreferences = new UiPreferencesStore(join(app.getPath("userData"), "ui-preferences.json"));
+  handle(IPC.getUiPreferences, (_event, legacyPreferences?: UiPreferences) => uiPreferences.get(legacyPreferences));
+  handle(IPC.updateUiPreferences, (_event, patch: Partial<UiPreferences>) => uiPreferences.update(patch));
   ipcMain.on(IPC.quitPreparationResult, (event, result: QuitPreparationResult) => {
     quitPreparation.complete(event.sender.id, result);
   });
   const discoveryControllers = new Map<string, AbortController>();
+  const projectFiles = new ProjectFilesService(projects);
   const activatedCanvasProjects = new Set<string | null>([projects.activeScope]);
   let projectScopeOperations: Promise<void> = Promise.resolve();
   const inProjectScope = <T>(operation: () => Promise<T>): Promise<T> => {
@@ -201,7 +219,7 @@ function registerIpc(
       if (req.projectId !== undefined && req.projectId !== projectId) return { ok: false, error: "The selected project changed. Choose the project again." };
       const cwd = active.cwd;
       const modelOptionId = req.modelOptionId.trim();
-      if (!task) return { ok: false, error: "Enter a task." };
+      if (!task && !req.attachmentIds?.length) return { ok: false, error: "Enter a task or add an attachment." };
       if (!modelOptionId) return { ok: false, error: "Choose a model." };
       const attachments = await inputAttachments.resolve(Array.isArray(req.attachmentIds) ? req.attachmentIds : []);
       const resolved = await providers.resolve(modelOptionId);
@@ -215,7 +233,7 @@ function registerIpc(
         return { ok: false, error: "The selected project changed. Send the task again." };
       }
       const handle = runner.start({
-        task: composeTaskWithAttachments(task, attachments),
+        task,
         cwd,
         projectId,
         projectContextVersion: active.contextVersion,
@@ -233,7 +251,7 @@ function registerIpc(
         if (win && !win.isDestroyed()) win.webContents.send(IPC.event, payload);
       });
       canvasContexts.consumeMany(canvasContextIds);
-      return { ok: true, runId: handle.runId, inputId, createdAt };
+      return { ok: true, runId: handle.runId, inputId, createdAt, attachments: attachments.map(({ path: _path, input: _input, ...descriptor }) => descriptor) };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -274,6 +292,16 @@ function registerIpc(
     if (typeof requestId === "string") voiceTranscription.cancel(requestId, event.sender.id);
   });
 
+  handle(IPC.listVoiceModels, () => voiceModels.list());
+
+  handle(IPC.downloadVoiceModel, (_event, modelId: string) => voiceModels.download(modelId));
+
+  ipcMain.on(IPC.cancelVoiceModelDownload, (_event, modelId: string) => {
+    if (typeof modelId === "string") voiceModels.cancel(modelId);
+  });
+
+  handle(IPC.selectVoiceModel, (_event, modelId: string) => voiceModels.select(modelId));
+
   handle(IPC.loadHistoryPage, async (_event, request: HistoryPageRequest): Promise<HistoryPageResult> => {
     return historyService.loadPage(request);
   });
@@ -283,6 +311,10 @@ function registerIpc(
   )));
 
   handle(IPC.listProjects, (): Promise<ProjectDescriptor[]> => projects.list());
+
+  handle(IPC.listProjectDirectory, (_event, request: ProjectDirectoryRequest): Promise<ProjectDirectoryResult> => (
+    projectFiles.listProjectDirectory(request)
+  ));
 
   handle(IPC.activateProject, (_event, projectId: string): Promise<ProjectDescriptor> => inProjectScope(async () => {
     requireIdleProjectScope();
@@ -421,11 +453,55 @@ function registerIpc(
     }
   });
 
-  handle(IPC.selectAttachments, async (event): Promise<InputAttachmentDescriptor[]> => {
+  handle(IPC.selectAttachments, async (event): Promise<AttachmentImportResult> => {
+    requireIdleProjectScope();
     const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
-    if (!win) return [];
+    if (!win) return { attachments: [], errors: [] };
     const result = await dialog.showOpenDialog(win, { properties: ["openFile", "multiSelections"] });
-    return result.canceled ? [] : inputAttachments.register(result.filePaths);
+    requireIdleProjectScope();
+    return result.canceled ? { attachments: [], errors: [] } : inputAttachments.register(result.filePaths);
+  });
+
+  handle(IPC.importAttachments, async (_event, uploads: AttachmentUpload[]): Promise<AttachmentImportResult> => {
+    requireIdleProjectScope();
+    return inputAttachments.import(uploads);
+  });
+
+  handle(IPC.openAttachment, async (_event, attachmentId: string): Promise<OpenOutputFileResult> => {
+    if (typeof attachmentId !== "string" || !attachmentId) {
+      return { ok: false, error: "The attachment identity is missing." };
+    }
+    try {
+      const error = await shell.openPath(await inputAttachments.originalPath(attachmentId));
+      return error ? { ok: false, error } : { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  handle(IPC.openAttachmentsDirectory, async (): Promise<OpenOutputFileResult> => {
+    try {
+      const error = await shell.openPath(await inputAttachments.ensureDirectory());
+      return error ? { ok: false, error } : { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  handle(IPC.getAttachmentProcessingSettings, (): Promise<AttachmentProcessingSettings> => (
+    documentParsers.settings()
+  ));
+
+  handle(IPC.setDocumentParser, async (_event, parserId: string): Promise<AttachmentProcessingSettings> => {
+    requireIdleProjectScope();
+    if (typeof parserId !== "string") throw new Error("Choose a supported document parser.");
+    return documentParsers.select(parserId);
+  });
+
+  handle(IPC.installDocumentParser, async (_event, parserId: string): Promise<AttachmentProcessingSettings> => {
+    requireIdleProjectScope();
+    if (typeof parserId !== "string") throw new Error("Choose a supported document parser.");
+    return documentParsers.install(parserId);
   });
 
   handle(IPC.loadCanvasDocument, async (_event, projectId: string | null): Promise<CanvasDocumentResult> => {
@@ -526,7 +602,34 @@ app.whenReady().then(async () => {
     },
   );
   const outputFiles = new OutputFileRegistry();
-  const inputAttachments = new InputAttachmentRegistry();
+  const attachmentRuntimeDirectory = process.env.ATTACHMENT_RUNTIME_DIRECTORY
+    ?? join(app.getPath("userData"), "attachment-runtime");
+  const attachmentResources = app.isPackaged && !process.defaultApp
+    ? join(process.resourcesPath, "resources/attachments")
+    : join(app.getAppPath(), "resources/attachments");
+  const documentParsers = new DocumentParserRegistry({
+    settingsPath: join(app.getPath("userData"), "attachment-processing.json"),
+    runtimeDirectory: attachmentRuntimeDirectory,
+    doclingWorkerPath: join(attachmentResources, "docling_worker.py"),
+    installScriptPath: app.isPackaged && !process.defaultApp
+      ? join(process.resourcesPath, "setup-attachments.mjs")
+      : join(app.getAppPath(), "scripts/setup-attachments.mjs"),
+  });
+  await documentParsers.initialize();
+  const inputAttachments = new AttachmentStore(join(app.getPath("userData"), "attachments"), createAttachmentProcessor({
+    runtimeDirectory: attachmentRuntimeDirectory,
+    workerPath: join(attachmentResources, "docling_worker.py"),
+    documentProcessor: documentParsers.processor,
+    normalizeImage: async (path, outputDirectory) => {
+      const image = await nativeImage.createThumbnailFromPath(path, { width: 2048, height: 2048 });
+      if (image.isEmpty()) throw new Error("This image format could not be decoded. Export it as PNG or JPEG and retry.");
+      await writeFile(join(outputDirectory, "image.jpg"), image.toJPEG(85));
+      const preview = image.resize({ width: 512 });
+      await writeFile(join(outputDirectory, "preview.jpg"), preview.toJPEG(80));
+      return { text: "User-supplied image. The prepared image preserves the visual content at a bounded resolution; animated images use a still preview.", images: [{ fileName: "image.jpg", mediaType: "image/jpeg", label: "Image" }], previewFile: "preview.jpg", truncated: false };
+    },
+  }));
+  protocol.handle("attachment", (request) => attachmentResourceResponse(inputAttachments, request));
   const canvasDocuments = new CanvasDocumentStore(app.getPath("userData"));
   const canvasContexts = new CanvasContextRegistry();
   const canvasEditBridge = new CanvasEditBridge({
@@ -562,17 +665,33 @@ app.whenReady().then(async () => {
   }, {
     enableCreateWithoutSelection: true,
     execute: (ownerWebContentsId, request, signal) => canvasCli.execute(ownerWebContentsId, request, signal),
+  }, inputAttachments);
+  const voiceModels = new VoiceModelService({
+    modelsDirectory: join(app.getPath("userData"), "voice-models"),
+    statePath: join(app.getPath("userData"), "voice-models-state.json"),
+    sendEvent: (event) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send(IPC.voiceModelEvent, event);
+      }
+    },
   });
-  const voiceTranscription = new VoiceTranscriptionService(voiceResourcePaths({
+  await voiceModels.load();
+  const voicePaths = voiceResourcePaths({
     isPackaged: app.isPackaged,
     defaultApp: process.defaultApp,
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath(),
-  }));
+  });
+  const voiceTranscription = new VoiceTranscriptionService({
+    ...voicePaths,
+    modelPath: () => voiceModels.currentModelPath() ?? voicePaths.modelPath,
+  });
   const quitPreparation = new QuitPreparation();
   const lifecycle = new ApplicationLifecycle({
     prepare: async () => {
       runner.stop();
+      await documentParsers.dispose();
+      await inputAttachments.dispose();
       for (const window of BrowserWindow.getAllWindows()) voiceTranscription.cancelOwner(window.webContents.id);
       // Admitted project changes settle before the renderer flushes its current scope.
       await lifecycle.waitForRequests();
@@ -586,6 +705,7 @@ app.whenReady().then(async () => {
     drain: async () => {
       canvasCli.dispose();
       canvasEditBridge.dispose();
+      voiceModels.dispose();
       await voiceTranscription.dispose();
       await canvasDocuments.waitForIdle();
       await Promise.all([...recorders.values()].map((recorder) => recorder.close()));
@@ -602,7 +722,7 @@ app.whenReady().then(async () => {
     const window = createWindow();
     registerWindowResources(window, { voicePermissionOwners, quitPreparation, voiceTranscription });
   };
-  registerIpc(runner, providers, outputFiles, inputAttachments, canvasContexts, canvasDocuments, canvasEditBridge, projects, historyService, getHistoryRecorder, releaseHistoryRecorder, voiceTranscription, lifecycle, quitPreparation);
+  registerIpc(runner, providers, outputFiles, inputAttachments, documentParsers, canvasContexts, canvasDocuments, canvasEditBridge, projects, historyService, getHistoryRecorder, releaseHistoryRecorder, voiceTranscription, voiceModels, lifecycle, quitPreparation);
   installApplicationLifecycle(app, process, lifecycle, {
     hasOpenWindows: () => BrowserWindow.getAllWindows().length > 0,
     create: openWindow,

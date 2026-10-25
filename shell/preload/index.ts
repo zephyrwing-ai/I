@@ -3,9 +3,11 @@
  * 渲染进程无法直接拿 Node；所有能力都从这里显式透出。
  */
 
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import {
   IPC,
+  MAX_INPUT_ATTACHMENT_COUNT,
+  MAX_INPUT_ATTACHMENT_BYTES,
   type AgentAPI,
   type AgentEvent,
   type DeleteProviderResult,
@@ -17,7 +19,9 @@ import {
   type CanvasDocumentResult,
   type CanvasSaveResult,
   type CanvasSaveRequest,
-  type InputAttachmentDescriptor,
+  type AttachmentImportResult,
+  type AttachmentProcessingSettings,
+  type AttachmentUpload,
   type OpenOutputFileResult,
   type OutputFilePreviewResult,
   type ProviderModelDiscoveryInput,
@@ -26,6 +30,8 @@ import {
   type ProviderProfileSummary,
   type RefreshProviderModelsResult,
   type ProjectDescriptor,
+  type ProjectDirectoryRequest,
+  type ProjectDirectoryResult,
   type ProjectActionRequest,
   type ProjectActionResult,
   type QuitPreparationRequest,
@@ -36,12 +42,17 @@ import {
   type SteerAck,
   type VoiceTranscriptionRequest,
   type VoiceTranscriptionResult,
+  type VoiceModelActionResult,
+  type VoiceModelEvent,
+  type VoiceModelSummary,
   type SaveProviderResult,
   type HistoryPageRequest,
   type HistoryPageResult,
 } from "../shared/ipc.js";
 
 const api: AgentAPI = {
+  getUiPreferences: (legacyPreferences) => ipcRenderer.invoke(IPC.getUiPreferences, legacyPreferences),
+  updateUiPreferences: (patch) => ipcRenderer.invoke(IPC.updateUiPreferences, patch),
   onPrepareToQuit: (cb: (request: QuitPreparationRequest) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, request: QuitPreparationRequest): void => cb(request);
     ipcRenderer.on(IPC.prepareToQuit, listener);
@@ -70,6 +81,26 @@ const api: AgentAPI = {
     ipcRenderer.send(IPC.cancelVoiceTranscription, requestId);
   },
 
+  listVoiceModels: (): Promise<VoiceModelSummary[]> => ipcRenderer.invoke(IPC.listVoiceModels),
+
+  downloadVoiceModel: (modelId: string): Promise<VoiceModelActionResult> => (
+    ipcRenderer.invoke(IPC.downloadVoiceModel, modelId)
+  ),
+
+  cancelVoiceModelDownload: (modelId: string): void => {
+    ipcRenderer.send(IPC.cancelVoiceModelDownload, modelId);
+  },
+
+  selectVoiceModel: (modelId: string): Promise<VoiceModelActionResult> => (
+    ipcRenderer.invoke(IPC.selectVoiceModel, modelId)
+  ),
+
+  onVoiceModelEvent: (cb: (event: VoiceModelEvent) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, event: VoiceModelEvent): void => cb(event);
+    ipcRenderer.on(IPC.voiceModelEvent, listener);
+    return () => ipcRenderer.removeListener(IPC.voiceModelEvent, listener);
+  },
+
   loadHistoryPage: (request: HistoryPageRequest): Promise<HistoryPageResult> => (
     ipcRenderer.invoke(IPC.loadHistoryPage, request)
   ),
@@ -77,6 +108,10 @@ const api: AgentAPI = {
   getActiveProject: (): Promise<ProjectDescriptor> => ipcRenderer.invoke(IPC.getActiveProject),
 
   listProjects: (): Promise<ProjectDescriptor[]> => ipcRenderer.invoke(IPC.listProjects),
+
+  listProjectDirectory: (request: ProjectDirectoryRequest): Promise<ProjectDirectoryResult> => (
+    ipcRenderer.invoke(IPC.listProjectDirectory, request)
+  ),
 
   activateProject: (projectId: string): Promise<ProjectDescriptor> => ipcRenderer.invoke(IPC.activateProject, projectId),
 
@@ -104,7 +139,43 @@ const api: AgentAPI = {
 
   deleteProvider: (providerProfileId: string): Promise<DeleteProviderResult> => ipcRenderer.invoke(IPC.deleteProvider, providerProfileId),
 
-  selectAttachments: (): Promise<InputAttachmentDescriptor[]> => ipcRenderer.invoke(IPC.selectAttachments),
+  selectAttachments: (): Promise<AttachmentImportResult> => ipcRenderer.invoke(IPC.selectAttachments),
+
+  importAttachments: async (files: File[]): Promise<AttachmentImportResult> => {
+    if (!Array.isArray(files) || files.length > MAX_INPUT_ATTACHMENT_COUNT) throw new Error(`Add up to ${MAX_INPUT_ATTACHMENT_COUNT} files at a time.`);
+    const uploads: AttachmentUpload[] = [];
+    let memoryBytes = 0;
+    for (const file of files) {
+      const path = webUtils.getPathForFile(file);
+      if (path) uploads.push({ path });
+      else {
+        memoryBytes += file.size;
+        if (memoryBytes > MAX_INPUT_ATTACHMENT_BYTES) throw new Error("In-memory file uploads must total at most 100 MB.");
+        uploads.push({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+      }
+    }
+    return ipcRenderer.invoke(IPC.importAttachments, uploads);
+  },
+
+  openAttachment: (attachmentId: string): Promise<OpenOutputFileResult> => (
+    ipcRenderer.invoke(IPC.openAttachment, attachmentId)
+  ),
+
+  openAttachmentsDirectory: (): Promise<OpenOutputFileResult> => (
+    ipcRenderer.invoke(IPC.openAttachmentsDirectory)
+  ),
+
+  getAttachmentProcessingSettings: (): Promise<AttachmentProcessingSettings> => (
+    ipcRenderer.invoke(IPC.getAttachmentProcessingSettings)
+  ),
+
+  setDocumentParser: (parserId: string): Promise<AttachmentProcessingSettings> => (
+    ipcRenderer.invoke(IPC.setDocumentParser, parserId)
+  ),
+
+  installDocumentParser: (parserId: string): Promise<AttachmentProcessingSettings> => (
+    ipcRenderer.invoke(IPC.installDocumentParser, parserId)
+  ),
 
   loadCanvasDocument: (projectId: string | null): Promise<CanvasDocumentResult> => ipcRenderer.invoke(IPC.loadCanvasDocument, projectId),
 
