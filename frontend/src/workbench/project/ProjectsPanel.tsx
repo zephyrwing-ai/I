@@ -172,7 +172,7 @@ export function ProjectsPanel({
 
   return (
     <aside ref={shellRef} id="projects-panel" className={`projects-panel phase-${phase}${collapseReady ? " collapse-ready" : ""}`} style={{ width: targetWidth }} aria-labelledby="projects-panel-title" aria-hidden={!open} onTransitionEnd={finishTransition}>
-      <div className="projects-resizer" role="separator" tabIndex={open ? 0 : -1} aria-label={t("Resize projects sidebar")} aria-orientation="vertical" aria-valuemin={PROJECTS_SIDEBAR_POLICY.minimumWidth} aria-valuemax={maximumWidth} aria-valuenow={Math.round(targetWidth)} onPointerDown={startDrag} onDoubleClick={resetWidth} onKeyDown={resizeWithKeyboard} />
+      <div className="projects-resizer workbench-divider workbench-divider--vertical" role="separator" tabIndex={open ? 0 : -1} aria-label={t("Resize projects sidebar")} aria-orientation="vertical" aria-valuemin={PROJECTS_SIDEBAR_POLICY.minimumWidth} aria-valuemax={maximumWidth} aria-valuenow={Math.round(targetWidth)} onPointerDown={startDrag} onDoubleClick={resetWidth} onKeyDown={resizeWithKeyboard} />
       <div className="projects-panel-body" style={{ width: phase === "dragging" ? targetWidth : effectiveWidth }}>
         <header className="projects-panel-header">
           <h2 id="projects-panel-title">{t("Projects")}</h2>
