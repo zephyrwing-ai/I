@@ -23,7 +23,7 @@ import { nativeFileSystemSupported } from "../data/filesystem";
 import type { NonDeletedCanvasEditorElement } from "../element/types";
 import { t } from "../i18n";
 import { isSomeElementSelected } from "../scene";
-import { exportToCanvas } from "@agent-studio/canvas-utils/export";
+import { exportToCanvas } from "@i/canvas-utils/export";
 
 import { copyIcon, downloadIcon, helpIcon } from "./icons";
 import { Dialog } from "./Dialog";

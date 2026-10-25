@@ -1,23 +1,23 @@
 import {
   exportToCanvas as _exportToCanvas,
   exportToSvg as _exportToSvg,
-} from "@agent-studio/canvas-editor/scene/export";
-import { getDefaultAppState } from "@agent-studio/canvas-editor/appState";
-import type { AppState, BinaryFiles } from "@agent-studio/canvas-editor/types";
+} from "@i/canvas-editor/scene/export";
+import { getDefaultAppState } from "@i/canvas-editor/appState";
+import type { AppState, BinaryFiles } from "@i/canvas-editor/types";
 import type {
   CanvasEditorElement,
   CanvasEditorFrameLikeElement,
   NonDeleted,
-} from "@agent-studio/canvas-editor/element/types";
-import { restore } from "@agent-studio/canvas-editor/data/restore";
-import { MIME_TYPES } from "@agent-studio/canvas-editor/constants";
-import { encodePngMetadata } from "@agent-studio/canvas-editor/data/image";
-import { serializeAsJSON } from "@agent-studio/canvas-editor/data/json";
+} from "@i/canvas-editor/element/types";
+import { restore } from "@i/canvas-editor/data/restore";
+import { MIME_TYPES } from "@i/canvas-editor/constants";
+import { encodePngMetadata } from "@i/canvas-editor/data/image";
+import { serializeAsJSON } from "@i/canvas-editor/data/json";
 import {
   copyBlobToClipboardAsPng,
   copyTextToSystemClipboard,
   copyToClipboard,
-} from "@agent-studio/canvas-editor/clipboard";
+} from "@i/canvas-editor/clipboard";
 
 export { MIME_TYPES };
 

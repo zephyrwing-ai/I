@@ -1,5 +1,5 @@
-import type { GlobalPoint, Radians } from "@agent-studio/canvas-math";
-import { pointFrom, pointRotateRads } from "@agent-studio/canvas-math";
+import type { GlobalPoint, Radians } from "@i/canvas-math";
+import { pointFrom, pointRotateRads } from "@i/canvas-math";
 import { MIME_TYPES } from "../../constants";
 import type { Bounds } from "../../element/bounds";
 import { getElementAbsoluteCoords } from "../../element/bounds";

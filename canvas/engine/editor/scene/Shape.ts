@@ -17,7 +17,7 @@ import {
   isLinearElement,
 } from "../element/typeChecks";
 import { canChangeRoundness } from "./comparisons";
-import { pointFrom, pointDistance, type LocalPoint } from "@agent-studio/canvas-math";
+import { pointFrom, pointDistance, type LocalPoint } from "@i/canvas-math";
 import { getCornerRadius } from "../shapes";
 import { headingForPointIsHorizontal } from "../element/heading";
 

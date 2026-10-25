@@ -1,5 +1,5 @@
 import { getDiamondPoints } from ".";
-import type { Curve, LineSegment } from "@agent-studio/canvas-math";
+import type { Curve, LineSegment } from "@i/canvas-math";
 import {
   curve,
   lineSegment,
@@ -10,7 +10,7 @@ import {
   vectorNormalize,
   vectorScale,
   type GlobalPoint,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import { getCornerRadius } from "../shapes";
 import type {
   CanvasEditorDiamondElement,

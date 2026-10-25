@@ -19,8 +19,8 @@ import {
   isAndroid,
   isIOS,
 } from "../constants";
-import type { Radians } from "@agent-studio/canvas-math";
-import { pointFrom, pointRotateRads } from "@agent-studio/canvas-math";
+import type { Radians } from "@i/canvas-math";
+import { pointFrom, pointRotateRads } from "@i/canvas-math";
 
 export type TransformHandleDirection =
   | "n"

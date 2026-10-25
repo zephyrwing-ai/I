@@ -30,7 +30,7 @@ import { hitElementBoundingBox } from "../../element/collision";
 import { isLocalLink, normalizeLink } from "../../data/url";
 import { useDevice, useCanvasEditorAppState } from "../App";
 import { getLinkHandleFromCoords } from "./helpers";
-import { pointFrom, type GlobalPoint } from "@agent-studio/canvas-math";
+import { pointFrom, type GlobalPoint } from "@i/canvas-math";
 import { isElementLink } from "../../element/elementLink";
 
 import "./Hyperlink.scss";

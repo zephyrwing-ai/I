@@ -50,7 +50,7 @@ import {
 import { wrapText } from "./textWrapping";
 import { LinearElementEditor } from "./linearElementEditor";
 import { isInGroup } from "../groups";
-import type { GlobalPoint } from "@agent-studio/canvas-math";
+import type { GlobalPoint } from "@i/canvas-math";
 import {
   pointCenter,
   normalizeRadians,
@@ -59,7 +59,7 @@ import {
   pointRotateRads,
   type Radians,
   type LocalPoint,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import {
   getMinTextElementWidth,
   measureText,

@@ -2,7 +2,7 @@ import {
   pointFromPair,
   type GlobalPoint,
   type LocalPoint,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 
 export const getSizeFromPoints = (
   points: readonly (GlobalPoint | LocalPoint)[],

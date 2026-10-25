@@ -19,7 +19,7 @@ import { moveAllLeft, moveAllRight, moveOneLeft, moveOneRight } from "../zindex"
 import { syncInvalidIndices } from "../fractionalIndex";
 import type { BinaryFileData, BinaryFiles, AppState } from "../types";
 import type { CanvasEditorArrowElement, CanvasEditorBindableElement, CanvasEditorElement, CanvasEditorTextElement, FileId, NonDeletedSceneElementsMap } from "../element/types";
-import { pointFrom, type LocalPoint, type Radians } from "@agent-studio/canvas-math";
+import { pointFrom, type LocalPoint, type Radians } from "@i/canvas-math";
 import { newElementWith } from "../element/mutateElement";
 import { canvasEditValuesEqual as deepEqual, reconcileCanvasEditElements } from "./reconcileCanvasEdit";
 

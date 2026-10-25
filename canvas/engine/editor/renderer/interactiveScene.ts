@@ -82,7 +82,7 @@ import {
   type GlobalPoint,
   type LocalPoint,
   type Radians,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import { getCornerRadius } from "../shapes";
 
 const renderElbowArrowMidPointHighlight = (

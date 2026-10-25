@@ -1,4 +1,4 @@
-import { clamp, round } from "@agent-studio/canvas-math";
+import { clamp, round } from "@i/canvas-math";
 import { MAX_ZOOM, MIN_ZOOM } from "../constants";
 import type { NormalizedZoomValue } from "../types";
 

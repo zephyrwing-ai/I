@@ -1,3 +1,3 @@
 /// <reference types="vite/client" />
-import "@agent-studio/canvas-editor/global";
-import "@agent-studio/canvas-editor/css";
+import "@i/canvas-editor/global";
+import "@i/canvas-editor/css";

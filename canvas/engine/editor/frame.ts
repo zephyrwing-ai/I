@@ -29,10 +29,10 @@ import { getElementLineSegments } from "./element/bounds";
 import {
   doLineSegmentsIntersect,
   elementsOverlappingBBox,
-} from "@agent-studio/canvas-utils";
+} from "@i/canvas-utils";
 import { isFrameElement, isFrameLikeElement } from "./element/typeChecks";
 import type { ReadonlySetLike } from "./utility-types";
-import { isPointWithinBounds, pointFrom } from "@agent-studio/canvas-math";
+import { isPointWithinBounds, pointFrom } from "@i/canvas-math";
 
 // --------------------------- Frame State ------------------------------------
 export const bindElementsToFramesAfterDuplication = (

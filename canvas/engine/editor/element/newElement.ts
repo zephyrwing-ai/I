@@ -44,7 +44,7 @@ import {
 } from "../constants";
 import type { MarkOptional, Merge, Mutable } from "../utility-types";
 import { getLineHeight } from "../fonts";
-import type { Radians } from "@agent-studio/canvas-math";
+import type { Radians } from "@i/canvas-math";
 import { normalizeText, measureText } from "./textMeasurements";
 
 export type ElementConstructorOpts = MarkOptional<

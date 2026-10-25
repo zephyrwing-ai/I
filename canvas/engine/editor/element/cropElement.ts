@@ -12,7 +12,7 @@ import {
   pointFromVector,
   clamp,
   isCloseTo,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import type { TransformHandleType } from "./transformHandles";
 import type {
   ElementsMap,

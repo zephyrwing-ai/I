@@ -46,9 +46,9 @@ export default defineConfig({
     },
     resolve: {
       alias: {
-        '@agent-studio/canvas-editor': resolve(root, 'canvas/engine/editor'),
-        '@agent-studio/canvas-utils': resolve(root, 'canvas/engine/utils'),
-        '@agent-studio/canvas-math': resolve(root, 'canvas/engine/math')
+        '@i/canvas-editor': resolve(root, 'canvas/engine/editor'),
+        '@i/canvas-utils': resolve(root, 'canvas/engine/utils'),
+        '@i/canvas-math': resolve(root, 'canvas/engine/math')
       }
     },
     build: {

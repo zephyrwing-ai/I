@@ -213,8 +213,8 @@ import {
   getElementShape,
   isPathALoop,
 } from "../shapes";
-import { getSelectionBoxShape } from "@agent-studio/canvas-utils/geometry/shape";
-import { isPointInShape } from "@agent-studio/canvas-utils/collision";
+import { getSelectionBoxShape } from "@i/canvas-utils/geometry/shape";
+import { isPointInShape } from "@i/canvas-utils/collision";
 import type {
   AppClassProperties,
   AppProps,
@@ -393,7 +393,7 @@ import {
   FlowChartNavigator,
   getLinkDirectionFromKey,
 } from "../element/flowchart";
-import type { LocalPoint, Radians } from "@agent-studio/canvas-math";
+import type { LocalPoint, Radians } from "@i/canvas-math";
 import {
   clamp,
   pointFrom,
@@ -405,7 +405,7 @@ import {
   vectorSubtract,
   vectorDot,
   vectorNormalize,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import { cropElement } from "../element/cropElement";
 import { wrapText } from "../element/textWrapping";
 import { actionCopyElementLink } from "../actions/actionElementLink";

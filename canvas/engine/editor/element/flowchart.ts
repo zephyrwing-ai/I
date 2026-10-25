@@ -30,7 +30,7 @@ import {
   isFlowchartNodeElement,
 } from "./typeChecks";
 import { invariant, toBrandedType } from "../utils";
-import { pointFrom, type LocalPoint } from "@agent-studio/canvas-math";
+import { pointFrom, type LocalPoint } from "@i/canvas-math";
 import { aabbForElement } from "../shapes";
 import { updateElbowArrowPoints } from "./elbowArrow";
 

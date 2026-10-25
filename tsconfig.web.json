@@ -6,9 +6,9 @@
     "moduleResolution": "bundler",
     "baseUrl": ".",
     "paths": {
-      "@agent-studio/canvas-editor": ["canvas/shims.d.ts"],
-      "@agent-studio/canvas-editor/types": ["canvas/shims.d.ts"],
-      "@agent-studio/canvas-editor/element/types": ["canvas/shims.d.ts"]
+      "@i/canvas-editor": ["canvas/shims.d.ts"],
+      "@i/canvas-editor/types": ["canvas/shims.d.ts"],
+      "@i/canvas-editor/element/types": ["canvas/shims.d.ts"]
     },
     "strict": true,
     "esModuleInterop": true,

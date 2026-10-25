@@ -7,7 +7,7 @@ import {
   pointsEqual,
   type GlobalPoint,
   type LocalPoint,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import {
   getClosedCurveShape,
   getCurvePathOps,
@@ -16,7 +16,7 @@ import {
   getFreedrawShape,
   getPolygonShape,
   type GeometricShape,
-} from "@agent-studio/canvas-utils/geometry/shape";
+} from "@i/canvas-utils/geometry/shape";
 import {
   ArrowIcon,
   DiamondIcon,

@@ -12,12 +12,12 @@
     "jsx": "react-jsx",
     "emitDeclarationOnly": true,
     "paths": {
-      "@agent-studio/canvas-editor": ["../editor/index.tsx"],
-      "@agent-studio/canvas-utils": ["../utils/index.ts"],
-      "@agent-studio/canvas-math": ["../math/index.ts"],
-      "@agent-studio/canvas-editor/*": ["../editor/*"],
-      "@agent-studio/canvas-utils/*": ["../utils/*"],
-      "@agent-studio/canvas-math/*": ["../math/*"]
+      "@i/canvas-editor": ["../editor/index.tsx"],
+      "@i/canvas-utils": ["../utils/index.ts"],
+      "@i/canvas-math": ["../math/index.ts"],
+      "@i/canvas-editor/*": ["../editor/*"],
+      "@i/canvas-utils/*": ["../utils/*"],
+      "@i/canvas-math/*": ["../math/*"]
     }
   },
   "exclude": ["**/*.test.*", "tests", "types", "examples", "dist"]

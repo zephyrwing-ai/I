@@ -4,7 +4,7 @@ import {
   pointOnEllipse,
   type GeometricShape,
 } from "./geometry/shape";
-import type { Curve } from "@agent-studio/canvas-math";
+import type { Curve } from "@i/canvas-math";
 import {
   lineSegment,
   pointFrom,
@@ -15,7 +15,7 @@ import {
   type GlobalPoint,
   type LocalPoint,
   type Polygon,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 
 // check if the given point is considered on the given shape's border
 export const isPointOnShape = <Point extends GlobalPoint | LocalPoint>(

@@ -7,7 +7,7 @@ import type { Mutable } from "../utility-types";
 import { ShapeCache } from "../scene/ShapeCache";
 import { isElbowArrow } from "./typeChecks";
 import { updateElbowArrowPoints } from "./elbowArrow";
-import type { Radians } from "@agent-studio/canvas-math";
+import type { Radians } from "@i/canvas-math";
 
 export type ElementUpdate<TElement extends CanvasEditorElement> = Omit<
   Partial<TElement>,

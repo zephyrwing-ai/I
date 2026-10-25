@@ -3,24 +3,24 @@ import type {
   CanvasEditorFreeDrawElement,
   CanvasEditorLinearElement,
   NonDeletedCanvasEditorElement,
-} from "@agent-studio/canvas-editor/element/types";
+} from "@i/canvas-editor/element/types";
 import {
   isArrowElement,
   isCanvasEditorElement,
   isFreeDrawElement,
   isLinearElement,
   isTextElement,
-} from "@agent-studio/canvas-editor/element/typeChecks";
-import type { Bounds } from "@agent-studio/canvas-editor/element/bounds";
-import { getElementBounds } from "@agent-studio/canvas-editor/element/bounds";
-import { arrayToMap } from "@agent-studio/canvas-editor/utils";
-import type { LocalPoint } from "@agent-studio/canvas-math";
+} from "@i/canvas-editor/element/typeChecks";
+import type { Bounds } from "@i/canvas-editor/element/bounds";
+import { getElementBounds } from "@i/canvas-editor/element/bounds";
+import { arrayToMap } from "@i/canvas-editor/utils";
+import type { LocalPoint } from "@i/canvas-math";
 import {
   rangeIncludesValue,
   pointFrom,
   pointRotateRads,
   rangeInclusive,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 
 type Element = NonDeletedCanvasEditorElement;
 type Elements = readonly NonDeletedCanvasEditorElement[];

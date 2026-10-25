@@ -1,23 +1,23 @@
-declare module "@agent-studio/canvas-editor" {
+declare module "@i/canvas-editor" {
   import type React from "react";
 
   export const CanvasEditor: React.ComponentType<Record<string, unknown>>;
   export function exportToBlob(options: Record<string, unknown>): Promise<Blob>;
   export function serializeAsJSON(
-    elements: readonly import("@agent-studio/canvas-editor/element/types").CanvasEditorElement[],
-    appState: import("@agent-studio/canvas-editor/types").AppState,
-    files: import("@agent-studio/canvas-editor/types").BinaryFiles,
+    elements: readonly import("@i/canvas-editor/element/types").CanvasEditorElement[],
+    appState: import("@i/canvas-editor/types").AppState,
+    files: import("@i/canvas-editor/types").BinaryFiles,
     type: "local" | "database",
   ): string;
   export function saveAsJSON(
-    elements: readonly import("@agent-studio/canvas-editor/element/types").CanvasEditorElement[],
-    appState: import("@agent-studio/canvas-editor/types").AppState,
-    files: import("@agent-studio/canvas-editor/types").BinaryFiles,
+    elements: readonly import("@i/canvas-editor/element/types").CanvasEditorElement[],
+    appState: import("@i/canvas-editor/types").AppState,
+    files: import("@i/canvas-editor/types").BinaryFiles,
     name?: string,
   ): Promise<{ fileHandle: unknown }>;
   export function getCommonBounds(
-    elements: readonly import("@agent-studio/canvas-editor/element/types").CanvasEditorElement[],
-    elementsMap?: Map<string, import("@agent-studio/canvas-editor/element/types").CanvasEditorElement>,
+    elements: readonly import("@i/canvas-editor/element/types").CanvasEditorElement[],
+    elementsMap?: Map<string, import("@i/canvas-editor/element/types").CanvasEditorElement>,
   ): [number, number, number, number];
   export function getRotationHandleTopOffset(pointerType: "mouse" | "pen" | "touch", margin?: number, spacing?: number): number;
   export function sceneCoordsToViewportCoords(
@@ -26,7 +26,7 @@ declare module "@agent-studio/canvas-editor" {
   ): { x: number; y: number };
 }
 
-declare module "@agent-studio/canvas-editor/types" {
+declare module "@i/canvas-editor/types" {
   export interface AppState {
     selectedElementIds?: Record<string, boolean>;
     theme?: string;
@@ -61,7 +61,7 @@ declare module "@agent-studio/canvas-editor/types" {
   }
 }
 
-declare module "@agent-studio/canvas-editor/element/types" {
+declare module "@i/canvas-editor/element/types" {
   export interface CanvasEditorElement {
     id: string;
     isDeleted?: boolean;

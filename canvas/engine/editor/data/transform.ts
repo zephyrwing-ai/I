@@ -53,7 +53,7 @@ import { randomId } from "../random";
 import { syncInvalidIndices } from "../fractionalIndex";
 import { getLineHeight } from "../fonts";
 import { isArrowElement } from "../element/typeChecks";
-import { pointFrom, type LocalPoint } from "@agent-studio/canvas-math";
+import { pointFrom, type LocalPoint } from "@i/canvas-math";
 import { measureText, normalizeText } from "../element/textMeasurements";
 
 export type ValidLinearElement = {

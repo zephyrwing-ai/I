@@ -43,7 +43,7 @@ import type { Mutable } from "../utility-types";
 import { ShapeCache } from "../scene/ShapeCache";
 import type { Store } from "../store";
 import type Scene from "../scene/Scene";
-import type { Radians } from "@agent-studio/canvas-math";
+import type { Radians } from "@i/canvas-math";
 import {
   pointCenter,
   pointFrom,
@@ -53,7 +53,7 @@ import {
   type LocalPoint,
   pointDistance,
   vectorFromPoint,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import {
   getBezierCurveLength,
   getBezierXY,
@@ -63,7 +63,7 @@ import {
 } from "../shapes";
 import { getGridPoint } from "../snapping";
 import { headingIsHorizontal, vectorToHeading } from "./heading";
-import { getCurvePathOps } from "@agent-studio/canvas-utils/geometry/shape";
+import { getCurvePathOps } from "@i/canvas-utils/geometry/shape";
 
 const editorMidPointsCache: {
   version: number | null;

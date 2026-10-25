@@ -1,11 +1,11 @@
-import type { GlobalPoint, Radians } from "@agent-studio/canvas-math";
+import type { GlobalPoint, Radians } from "@i/canvas-math";
 import {
   curvePointDistance,
   distanceToLineSegment,
   pointFrom,
   pointRotateRads,
-} from "@agent-studio/canvas-math";
-import { ellipse, ellipseDistanceFromPoint } from "@agent-studio/canvas-math/ellipse";
+} from "@i/canvas-math";
+import { ellipse, ellipseDistanceFromPoint } from "@i/canvas-math/ellipse";
 import type {
   CanvasEditorBindableElement,
   CanvasEditorDiamondElement,

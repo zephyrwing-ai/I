@@ -1,4 +1,4 @@
-import type { InclusiveRange } from "@agent-studio/canvas-math";
+import type { InclusiveRange } from "@i/canvas-math";
 import {
   pointFrom,
   pointRotateRads,
@@ -6,7 +6,7 @@ import {
   rangeIntersection,
   rangesOverlap,
   type GlobalPoint,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import { TOOL_TYPE } from "./constants";
 import type { Bounds } from "./element/bounds";
 import {

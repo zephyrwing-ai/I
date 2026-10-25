@@ -34,7 +34,7 @@ import {
 import type { SceneBounds } from "../element/bounds";
 import { setCursor } from "../cursor";
 import { CaptureUpdateAction } from "../store";
-import { clamp, roundToStep } from "@agent-studio/canvas-math";
+import { clamp, roundToStep } from "@i/canvas-math";
 import {
   formatZoomPercentage,
   parseZoomPercentage,

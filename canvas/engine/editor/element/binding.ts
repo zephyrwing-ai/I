@@ -23,7 +23,7 @@ import {
   doBoundsIntersect,
 } from "./bounds";
 import type { AppState } from "../types";
-import { isPointOnShape } from "@agent-studio/canvas-utils/collision";
+import { isPointOnShape } from "@i/canvas-utils/collision";
 import {
   isArrowElement,
   isBindableElement,
@@ -56,7 +56,7 @@ import {
   vectorToHeading,
   type Heading,
 } from "./heading";
-import type { LocalPoint, Radians } from "@agent-studio/canvas-math";
+import type { LocalPoint, Radians } from "@i/canvas-math";
 import {
   lineSegment,
   pointFrom,
@@ -74,7 +74,7 @@ import {
   lineSegmentIntersectionPoints,
   round,
   PRECISION,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import { intersectElementWithLineSegment } from "./collision";
 import { distanceToBindableElement } from "./distance";
 

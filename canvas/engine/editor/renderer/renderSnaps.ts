@@ -1,4 +1,4 @@
-import { pointFrom, type GlobalPoint, type LocalPoint } from "@agent-studio/canvas-math";
+import { pointFrom, type GlobalPoint, type LocalPoint } from "@i/canvas-math";
 import { THEME } from "../constants";
 import type { PointSnapLine, PointerSnapLine } from "../snapping";
 import type { InteractiveCanvasAppState } from "../types";

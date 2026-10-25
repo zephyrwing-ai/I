@@ -15,7 +15,7 @@ import { isBindingElement, isLinearElement } from "../element/typeChecks";
 import type { AppState } from "../types";
 import { resetCursor } from "../cursor";
 import { CaptureUpdateAction } from "../store";
-import { pointFrom } from "@agent-studio/canvas-math";
+import { pointFrom } from "@i/canvas-math";
 import { isPathALoop } from "../shapes";
 
 export const actionFinalize = register({

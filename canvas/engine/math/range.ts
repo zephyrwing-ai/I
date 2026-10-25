@@ -1,4 +1,4 @@
-import { toBrandedType } from "@agent-studio/canvas-editor/utils";
+import { toBrandedType } from "@i/canvas-editor/utils";
 import type { InclusiveRange } from "./types";
 
 /**

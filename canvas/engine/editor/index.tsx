@@ -183,7 +183,7 @@ export {
   exportToBlob,
   exportToSvg,
   exportToClipboard,
-} from "@agent-studio/canvas-utils/export";
+} from "@i/canvas-utils/export";
 
 export { serializeAsJSON } from "./data/json";
 export { saveAsJSON } from "./data/json";
@@ -229,7 +229,7 @@ export {
   elementsOverlappingBBox,
   isElementInsideBBox,
   elementPartiallyOverlapsWithOrContainsBBox,
-} from "@agent-studio/canvas-utils/withinBounds";
+} from "@i/canvas-utils/withinBounds";
 
 export { getDataURL } from "./data/blob";
 export { isElementLink } from "./element/elementLink";

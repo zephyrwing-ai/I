@@ -57,8 +57,8 @@ import {
   getNormalizedGridStep,
   getNormalizedZoom,
 } from "../scene";
-import type { LocalPoint, Radians } from "@agent-studio/canvas-math";
-import { isFiniteNumber, pointFrom } from "@agent-studio/canvas-math";
+import type { LocalPoint, Radians } from "@i/canvas-math";
+import { isFiniteNumber, pointFrom } from "@i/canvas-math";
 import { detectLineHeight } from "../element/textMeasurements";
 import {
   updateElbowArrowPoints,

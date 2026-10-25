@@ -1,4 +1,4 @@
-import type { LocalPoint, Radians } from "@agent-studio/canvas-math";
+import type { LocalPoint, Radians } from "@i/canvas-math";
 import type {
   FONT_FAMILY,
   ROUNDNESS,

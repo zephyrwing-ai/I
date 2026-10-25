@@ -3,8 +3,8 @@ import {
   vectorFromPoint,
   type GlobalPoint,
   type LocalPoint,
-} from "@agent-studio/canvas-math";
-import type { Bounds } from "@agent-studio/canvas-editor/element/bounds";
+} from "@i/canvas-math";
+import type { Bounds } from "@i/canvas-editor/element/bounds";
 
 export type LineSegment<P extends LocalPoint | GlobalPoint> = [P, P];
 

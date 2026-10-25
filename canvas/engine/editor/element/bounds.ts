@@ -29,7 +29,7 @@ import type {
   LineSegment,
   LocalPoint,
   Radians,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import {
   degreesToRadians,
   lineSegment,
@@ -37,9 +37,9 @@ import {
   pointDistance,
   pointFromArray,
   pointRotateRads,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import type { Mutable } from "../utility-types";
-import { getCurvePathOps } from "@agent-studio/canvas-utils/geometry/shape";
+import { getCurvePathOps } from "@i/canvas-utils/geometry/shape";
 
 export type RectangleBox = {
   x: number;

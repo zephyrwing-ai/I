@@ -328,7 +328,7 @@ export const isFixedPointBinding = (
   );
 };
 
-// TODO: Move this to @agent-studio/canvas-math
+// TODO: Move this to @i/canvas-math
 export const isBounds = (box: unknown): box is Bounds =>
   Array.isArray(box) &&
   box.length === 4 &&

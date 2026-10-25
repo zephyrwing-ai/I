@@ -12,7 +12,7 @@
  * to pure shapes
  */
 
-import type { Curve, LineSegment, Polygon, Radians } from "@agent-studio/canvas-math";
+import type { Curve, LineSegment, Polygon, Radians } from "@i/canvas-math";
 import {
   curve,
   lineSegment,
@@ -30,9 +30,9 @@ import {
   vectorScale,
   type GlobalPoint,
   type LocalPoint,
-} from "@agent-studio/canvas-math";
-import { getElementAbsoluteCoords } from "@agent-studio/canvas-editor/element";
-import { ellipse as createMathEllipse, ellipseDistanceFromPoint } from "@agent-studio/canvas-math/ellipse";
+} from "@i/canvas-math";
+import { getElementAbsoluteCoords } from "@i/canvas-editor/element";
+import { ellipse as createMathEllipse, ellipseDistanceFromPoint } from "@i/canvas-math/ellipse";
 import type {
   ElementsMap,
   CanvasEditorBindableElement,
@@ -48,10 +48,10 @@ import type {
   CanvasEditorRectangleElement,
   CanvasEditorSelectionElement,
   CanvasEditorTextElement,
-} from "@agent-studio/canvas-editor/element/types";
+} from "@i/canvas-editor/element/types";
 import { pointsOnBezierCurves } from "points-on-curve";
 import type { Drawable, Op } from "roughjs/bin/core";
-import { invariant } from "@agent-studio/canvas-editor/utils";
+import { invariant } from "@i/canvas-editor/utils";
 
 // a polyline (made up term here) is a line consisting of other line segments
 // this corresponds to a straight line element in the editor but it could also

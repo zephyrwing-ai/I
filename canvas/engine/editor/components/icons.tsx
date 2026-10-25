@@ -268,7 +268,7 @@ export const FreedrawIcon = createIcon(
   modifiedTablerIconProps,
 );
 
-// Agent Studio sans-serif text tool
+// I sans-serif text tool
 export const TextIcon = createIcon(
   <g strokeWidth="1.5" strokeLinecap="round">
     <path d="M5 4h14" />

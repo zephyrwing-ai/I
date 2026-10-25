@@ -1,5 +1,5 @@
 import Pool from "es6-promise-pool";
-import { average } from "@agent-studio/canvas-math";
+import { average } from "@i/canvas-math";
 import { COLOR_PALETTE } from "./colors";
 import type { EVENT } from "./constants";
 import {

@@ -8,9 +8,9 @@ import type {
 } from "./types";
 import { getElementBounds } from "./bounds";
 import type { FrameNameBounds } from "../types";
-import type { GeometricShape } from "@agent-studio/canvas-utils/geometry/shape";
-import { getPolygonShape } from "@agent-studio/canvas-utils/geometry/shape";
-import { isPointInShape, isPointOnShape } from "@agent-studio/canvas-utils/collision";
+import type { GeometricShape } from "@i/canvas-utils/geometry/shape";
+import { getPolygonShape } from "@i/canvas-utils/geometry/shape";
+import { isPointInShape, isPointOnShape } from "@i/canvas-utils/collision";
 import {
   hasBoundTextElement,
   isIframeLikeElement,
@@ -24,7 +24,7 @@ import type {
   LocalPoint,
   Polygon,
   Radians,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import {
   curveIntersectLineSegment,
   isPointWithinBounds,
@@ -34,11 +34,11 @@ import {
   pointFrom,
   pointRotateRads,
   pointsEqual,
-} from "@agent-studio/canvas-math";
+} from "@i/canvas-math";
 import {
   ellipse,
   ellipseLineIntersectionPoints,
-} from "@agent-studio/canvas-math/ellipse";
+} from "@i/canvas-math/ellipse";
 import {
   deconstructDiamondElement,
   deconstructRectanguloidElement,
