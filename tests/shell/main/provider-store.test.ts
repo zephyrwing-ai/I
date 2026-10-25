@@ -13,7 +13,7 @@ const codec: SecretCodec = {
 };
 
 test("ProviderStore encrypts credentials in the provider file and preserves imported model identities", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-provider-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-provider-"));
   const file = join(directory, "providers.json");
   try {
     const store = new ProviderStore(file, codec);
@@ -87,7 +87,7 @@ test("ProviderStore encrypts credentials in the provider file and preserves impo
 });
 
 test("ProviderStore rejects saved credentials for another origin in both saving and discovery", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-provider-origin-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-provider-origin-"));
   const file = join(directory, "providers.json");
   try {
     const store = new ProviderStore(file, codec);
@@ -125,7 +125,7 @@ test("ProviderStore rejects saved credentials for another origin in both saving 
 });
 
 test("ProviderStore reuses credentials for canonical same-origin path changes", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-provider-same-origin-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-provider-same-origin-"));
   const file = join(directory, "providers.json");
   try {
     const store = new ProviderStore(file, codec);
@@ -158,7 +158,7 @@ test("ProviderStore reuses credentials for canonical same-origin path changes", 
 });
 
 test("ProviderStore requires an explicit replacement key for a changed origin and preserves connection snapshots", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-provider-snapshot-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-provider-snapshot-"));
   const file = join(directory, "providers.json");
   try {
     const store = new ProviderStore(file, codec);
@@ -212,7 +212,7 @@ test("ProviderStore requires an explicit replacement key for a changed origin an
 });
 
 test("ProviderStore persists independent credentials and model identities across providers and restarts", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-providers-independent-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-providers-independent-"));
   const file = join(directory, "providers.json");
   try {
     const store = new ProviderStore(file, codec);
@@ -251,7 +251,7 @@ test("ProviderStore persists independent credentials and model identities across
 });
 
 test("ProviderStore migrates version one profiles without exposing credentials", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-provider-v1-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-provider-v1-"));
   const file = join(directory, "providers.json");
   try {
     await writeFile(file, JSON.stringify({
@@ -300,7 +300,7 @@ test("ProviderStore migrates version one profiles without exposing credentials",
 });
 
 test("ProviderStore removes legacy unavailable models when loading the catalog", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-provider-cleanup-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-provider-cleanup-"));
   const file = join(directory, "providers.json");
   try {
     await writeFile(file, JSON.stringify({

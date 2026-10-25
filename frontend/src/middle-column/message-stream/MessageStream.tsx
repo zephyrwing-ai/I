@@ -4,6 +4,7 @@ import { buildMessageBlockRecords, type MessageBlockKind } from "../../store/mes
 import { normalizePunctuation } from "../../utils/punctuation";
 import { AssistantMessage } from "./AssistantMessage";
 import { MessageMeta } from "./MessageMeta";
+import { AttachmentCards } from "../composer/upload-files/AttachmentCards";
 import { useI18n } from "../../shared/i18n";
 import { useVirtualMessageWindow, type VirtualMessageItem } from "./useVirtualMessageWindow";
 import "./message-stream.css";
@@ -35,11 +36,12 @@ function buildMessageBlocks(
         blockId: record.blockId,
         kind: record.kind,
         searchText: record.text,
-        estimatedHeight: USER_MESSAGE_ESTIMATE,
+        estimatedHeight: USER_MESSAGE_ESTIMATE + (input.attachments?.length ? 140 : 0),
         content: (
           <div className="user-message-row">
             <div className="user-message-group">
-              <div className={`user-message${activeSearchBlockId === record.blockId ? " search-active" : ""}`}>{taskText}</div>
+              {input.attachments?.length ? <AttachmentCards attachments={input.attachments} /> : null}
+              {taskText && <div className={`user-message${activeSearchBlockId === record.blockId ? " search-active" : ""}`}>{taskText}</div>}
               {input.status === "interrupted" && (
                 <div className="user-message-interrupted">
                   <span>{t("Not applied")}</span>

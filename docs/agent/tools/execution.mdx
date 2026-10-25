@@ -18,9 +18,9 @@
 - 记录输入：Runtime 保留完整 `ToolCall.input`，Assistant Message、工具登记、AgentEvent、历史恢复与 Provider 续轮沿用同一调用数据；`runId`、`turnId` 和 `toolCallId` 持续关联各阶段身份。元数据使用既有 JSON 字段和数据库结构保存。
 - 实现输入：Runtime 在工具实现的公共调用边界从 input 副本中剥离 `purpose`、`targets`，再将操作参数交给具体实现；execute、prepare 与 reconcile 共用这一处理。原调用 input 继续作为事件、历史与活动展示的数据来源。
 - 恢复一致性：首次执行、准备、checkpoint 核对与恢复重放都通过相同的参数边界，具体工具的校验、操作与恢复策略沿用既有结构化参数契约。
-- 目标权威：实际结构化操作参数决定执行语义与操作行内容，读取按 `path` 生成 `Read <path>`，shell 按 `command` 生成 `Ran <command>`，其他工具按类别与实际查询、实体或目标生成标签；旧 `purpose`、`targets` 保留兼容数据职责。
-- 旧调用兼容：历史 input 原样进入恢复链路，公共边界接受活动元数据省略的调用；Renderer 与实时状态共用工具 kind 及实际参数的投影规则，原生 `content` 与旧 `progress` 按所属 turn 进入文字区。
-- 视图职责：每个 turn 的原生 `content` 与一个工具组构成活动阅读流，工具组标题按实际类别汇总，如 `Read files, ran commands`。各操作行独立展开完整命令、input JSON、输出与错误，详情按展开状态惰性挂载，标题省略由 CSS 宽度溢出决定；原始 reasoning 保持数据与协议续轮职责，模型 Tool Message 继续提供执行结果，交互细节见[消息流](../../desktop/design/workbench/message-stream.mdx)。
+- 目标权威：实际结构化操作参数决定执行语义与操作行内容，读取按 `path` 生成 `Read <path>`，shell 按 `command` 生成 `Ran <command>`；`purpose` 表达动作目的并进入本 turn 的共享 commentary，`targets` 保留关联资源语义。
+- 旧调用兼容：历史 input 原样进入恢复链路，公共边界接受活动元数据省略的调用；Renderer 与实时状态共用工具 kind、实际参数与 commentary 投影，旧 `progress` 保留旧记录段前顺序。
+- 视图职责：宿主按 turn 组织已有公开正文、本批目的说明和一个工具组，目的直接来自调用参数，缺失时按实际工具与目标回退。类别标题、单条详情、按宽度省略和阶段折叠由[消息流](../../desktop/design/workbench/message-stream.mdx)定义；原始 reasoning 保持数据与协议续轮职责，模型 Tool Message 提供执行结果。
 
 执行顺序。
 

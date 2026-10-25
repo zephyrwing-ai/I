@@ -28,7 +28,7 @@ function selectionJSON(elements: Record<string, unknown>[], files: Record<string
 }
 
 test("CanvasDocumentStore keeps each project's scene and immutable image asset together", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const savedA = await store.save("project-a", document(), (await store.load("project-a")).version);
@@ -58,7 +58,7 @@ test("CanvasDocumentStore keeps each project's scene and immutable image asset t
 });
 
 test("CanvasDocumentStore serializes overlapping writes and rejects a queued stale baseline", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-queue-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-queue-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const initialVersion = (await store.load("project-a")).version;
@@ -78,7 +78,7 @@ test("CanvasDocumentStore serializes overlapping writes and rejects a queued sta
 });
 
 test("CanvasDocumentStore reads legacy image filenames and migrates them on the next save", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-legacy-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-legacy-"));
   try {
     const projectDirectory = join(directory, "canvases", "project-a");
     await mkdir(projectDirectory, { recursive: true });
@@ -104,7 +104,7 @@ test("CanvasDocumentStore reads legacy image filenames and migrates them on the 
 });
 
 test("CanvasDocumentStore accepts a later save after one project write fails", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-retry-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-retry-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const initialVersion = (await store.load("project-a")).version;
@@ -121,7 +121,7 @@ test("CanvasDocumentStore accepts a later save after one project write fails", a
 });
 
 test("CanvasDocumentStore keeps external same-revision edits when stale editor memory saves", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-conflict-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-conflict-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const initialVersion = (await store.load("project-a")).version;
@@ -143,7 +143,7 @@ test("CanvasDocumentStore keeps external same-revision edits when stale editor m
 });
 
 test("CanvasDocumentStore checks the scene again after preparing image assets", async (context) => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-commit-check-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-commit-check-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const first = await store.save("project-a", document(), (await store.load("project-a")).version);
@@ -174,7 +174,7 @@ test("CanvasDocumentStore checks the scene again after preparing image assets", 
 });
 
 test("CanvasDocumentStore replaces content-addressed image assets after the scene commits", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-assets-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-assets-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const first = await store.save("project-a", document(), (await store.load("project-a")).version);
@@ -197,7 +197,7 @@ test("CanvasDocumentStore replaces content-addressed image assets after the scen
 });
 
 test("CanvasDocumentStore acknowledges identical retries and captures each queued input", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-idempotent-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-idempotent-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const initial = await store.load("project-a");
@@ -226,7 +226,7 @@ test("CanvasDocumentStore acknowledges identical retries and captures each queue
 });
 
 test("CanvasDocumentStore fingerprints normalized content and resource metadata", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-fingerprint-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-fingerprint-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const initialVersion = (await store.load("project-a")).version;
@@ -254,7 +254,7 @@ test("CanvasDocumentStore fingerprints normalized content and resource metadata"
 });
 
 test("CanvasDocumentStore preserves malformed stored documents and rejects their save baselines", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-malformed-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-malformed-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const initialVersion = (await store.load("project-a")).version;
@@ -289,7 +289,7 @@ test("CanvasDocumentStore preserves malformed stored documents and rejects their
 });
 
 test("CanvasDocumentStore restores missing legacy fields with explicit empty defaults", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-legacy-defaults-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-legacy-defaults-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const missingVersion = (await store.load("project-a")).version;
@@ -311,7 +311,7 @@ test("CanvasDocumentStore restores missing legacy fields with explicit empty def
 });
 
 test("CanvasDocumentStore round-trips image identifiers that match object prototype properties", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-resource-id-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-resource-id-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const files = JSON.parse(JSON.stringify({
@@ -336,7 +336,7 @@ test("CanvasDocumentStore round-trips image identifiers that match object protot
 });
 
 test("CanvasDocumentStore verifies and rebuilds missing assets before acknowledging identical scenes", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-noop-assets-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-noop-assets-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const initialVersion = (await store.load("project-a")).version;
@@ -363,7 +363,7 @@ test("CanvasDocumentStore verifies and rebuilds missing assets before acknowledg
 });
 
 test("CanvasDocumentStore detects disk edits during identical-scene asset verification", async (context) => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-noop-conflict-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-noop-conflict-"));
   try {
     const store = new CanvasDocumentStore(directory);
     const initialVersion = (await store.load("project-a")).version;
@@ -397,7 +397,7 @@ test("CanvasDocumentStore detects disk edits during identical-scene asset verifi
 });
 
 test("CanvasContextRegistry freezes selected JSON without writing a scene", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "agent-studio-canvas-context-"));
+  const directory = await mkdtemp(join(tmpdir(), "i-canvas-context-"));
   try {
     const registry = new CanvasContextRegistry();
     const descriptor = await registry.prepare({

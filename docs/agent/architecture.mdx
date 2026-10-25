@@ -11,7 +11,7 @@ Agent 总览。
 
 - 项目历史：[项目历史存储](./memory.mdx)定义项目与 General 消息的落盘、更新和恢复。
 - 上下文：[上下文管理](./context-management.mdx)定义模型输入的选取、组织、压缩与检查点恢复。
-- 模型请求：[模型请求](./model-request.mdx)定义上下文、工具定义和 Provider 参数的请求装配，以及流式结果归一化。
+- 模型请求：[模型请求](./model-request.mdx)定义上下文、工具定义和 Provider 参数的请求装配、流式结果归一化，以及与 Adapter 解耦的共享回合说明（commentary）契约。
 - 运行循环：[运行循环](./runtime-loop.mdx)定义续轮、自然完成、取消和失败判定。
 - 工具系统：[工具系统](./tools/index.mdx)定义模型可见工具、真实执行实现和结构化结果。
 - 运行事件：[运行事件](./events.mdx)定义宿主接收的稳定身份、运行状态、回合状态和工具状态。
@@ -22,18 +22,21 @@ Agent 总览。
 - Host boundary：提交冻结运行输入、提供取消信号并接收 Agent 事件；Runtime 控制运行流程，Tool Registry 提供工具定义。
 - History Memory：保存项目与 General 消息、流式草稿、已完成快照和本地恢复事实；Execution 执行工具，Desktop 渲染页面。
 - Agent Runtime：编排模型请求、工具调用、工具结果和下一轮请求；Host 装配平台能力，Desktop 管理页面状态。
-- Provider Adapter：将模型协议归一化为统一消息、流事件和停止原因；Execution 执行调用，Runtime 判定完成状态。
+- Provider Adapter：将各 Provider 原始协议归一化为 `content`、`reasoning`、`toolCalls`、停止原因和可选原生阶段事实；Provider 特有字段、流格式与续轮格式的分支集中在这一层，Runtime 判定完成状态。
+- Commentary Projection：共享说明投影直接消费归一化 turn 事实，为每个 turn 生成一条用户可见 commentary；原生响应以 `content` 为首段，兼容 `progress` 保留旧记录既有段前顺序，purposes 按调用顺序作为补充或空正文回退，完整行按空白归一化后精确去重。
 - Tool Registry：保存模型可见工具定义与对应实现；Provider 提供结构化调用，权限策略限定执行能力。
 - Execution：执行已注册且通过校验的 Bash、文件与查询操作，返回结构化结果；Runtime 决定模型续轮，权限策略定义能力范围。
 - 宿主类型：Electron 桌面端、CLI 和测试程序通过稳定输入、事件回调与执行接口接入 Agent；桌面交互与运行循环分别维护各自状态。
 
 行为追踪协作。
 
-- 协议事实：Adapter 将原生公开正文、原始推理和工具调用归一化为独立字段，流式事件与完整响应使用相同的内容归属；字段映射见[模型请求](./model-request.mdx)。
+- 协议事实：Adapter 将原生公开正文、原始推理、工具调用和可选 Provider 原生阶段归一化为独立事实，流式事件与完整响应使用相同字段归属；Provider 分支停留在 Adapter，下游消费统一契约，字段映射见[模型请求](./model-request.mdx)。
+- 说明投影：共享 commentary 投影直接消费本 turn 的 `content` 与完整目的行，原生 `content` 放在首要位置；兼容 `progress` 保存旧记录既有段前顺序，purposes 作为补充或空正文回退，并去重完全相同的归一化行。装配固定使用本 turn 的主模型响应。
+- 推理边界：`reasoning` 保留 Provider 归一化原文，沿历史记录、运行状态和 Provider 续轮链路承担数据与续轮职责；用户可见 commentary 来自 `content` 与 `purpose`。
 - 回合身份：`runId` 关联整次运行，`turnId` 关联一次逻辑模型请求及其工具批次，attempt 关联同回合内的请求尝试，`toolCallId` 关联单次调用及其结果。
 - 运行职责：Runtime 消费归一化事实，完成响应分类、消息提交、批次执行与终态交付；Recorder 保存模型正文、原始推理、工具调用与结果，AgentEvent 向宿主交付相同事实。
-- 宿主职责：Renderer 将实时事件与历史记录汇入统一 AgentState，展示投影生成回合文字、工具组和操作行，React 根据阶段与用户选择完成折叠、排版和详情交互；具体契约见[消息流](../desktop/design/workbench/message-stream.mdx)。
-- 公开语言：主模型按最新已应用用户任务的语言生成原生公开正文，原始推理保持其协议原文；工具操作标签依据实际参数生成，语言来源见[模型请求](./model-request.mdx)。
+- 宿主职责：Renderer 将实时事件与历史记录汇入统一 AgentState，共享 commentary 投影生成每 turn 的一条说明和一个工具批次的阅读顺序，React 根据阶段与用户选择完成折叠、排版和详情交互；最终回答由 `runCompleted.finalTurnId` 确认并位于活动详情之外，具体契约见[消息流](../desktop/design/workbench/message-stream.mdx)。
+- 公开语言：主模型按最新已应用用户任务的语言生成公开正文和工具目的，工具操作标签依据实际参数生成，语言来源见[模型请求](./model-request.mdx)。
 
 跨模块运行链路。
 
@@ -43,7 +46,7 @@ Agent 总览。
 - 完整助手消息：Assistant Message 提交成功后，Runtime 进入工具执行或结束运行。
 - 待恢复输出：`incomplete` attempt 保存为 `interrupted`，再由 `retryModelTurn()` 进行有限恢复。
 - 工具续轮：完整 Tool Message 提交成功后，Runtime 发起下一次模型请求；模型错误进入失败或重试分支，中止信号进入取消分支。
-- 过程输出：HistoryRecorder 保存项目历史事实，结构化运行事件报告过程与唯一终态，宿主负责跨进程传递和渲染。
+- 过程输出：HistoryRecorder 保存归一化模型与执行事实，结构化运行事件报告过程与唯一终态，宿主通过同一 commentary 投影重建实时和历史阅读顺序。
 
 权限边界。
 

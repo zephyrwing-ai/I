@@ -102,7 +102,7 @@ test("editing loads saved connection and model state while keeping the credentia
   assert.ok(!html.includes("credentialConfigured"), html);
   assert.match(html, /aria-label="Show API Key"/);
 
-  assert.ok(html.includes("Loaded saved models."), html);
+  assert.ok(!html.includes("Loaded saved models."), html);
   assert.ok(html.includes("Selected 3/3 models"), html);
   assert.ok(!html.includes("新增"), html);
   assert.ok(!html.includes("不可用"), html);

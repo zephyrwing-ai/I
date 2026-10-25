@@ -16,6 +16,15 @@ const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => r
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const frames = async () => { await frame(); await frame(); };
 
+function commentarySnapshot() {
+  const nodes = Array.from(document.querySelectorAll<HTMLElement>(".work-commentary-text"));
+  return {
+    commentaryTexts: nodes.map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? ""),
+    commentaryVisible: nodes.map((node) => !node.closest("[inert]") && node.getBoundingClientRect().height > 0
+      && getComputedStyle(node).visibility === "visible"),
+  };
+}
+
 function sample(scroll: HTMLElement) {
   const content = scroll.querySelector<HTMLElement>(".stream-content")!;
   const thumb = document.querySelector<HTMLElement>(".stream-scrollbar-thumb")!;
@@ -110,11 +119,12 @@ async function sustainedSequence() {
 
 /** Reuse the Electron message-area fixture to check real disclosure layout and focus. */
 async function activityTraceRegression() {
+  const purpose = "检查上下文管理实现";
   const command = "stat -f '%Sm %N' -t '%Y-%m-%d' agent/model/openai.ts";
   const longCommand = `sqlite3 -readonly 'sessions.sqlite' "SELECT ${"entry_order, ".repeat(120)}payload_json FROM entries;"`;
   const output = "FULL TOOL OUTPUT\n".repeat(1_000);
   const extraCalls = Array.from({ length: 14 }, (_, index) => ({
-    toolCallId: `extra-${index}`, name: "read", input: { path: `agent/context/dependency-${index}.ts` }, status: "completed" as const,
+    toolCallId: `extra-${index}`, name: "read", input: { path: `agent/context/dependency-${index}.ts`, purpose }, status: "completed" as const,
   }));
   const run: RunState = {
     runId: "activity", projectId: null, status: "completed", finalTurnId: "answer", finalDurationMs: 2_000,
@@ -123,19 +133,19 @@ async function activityTraceRegression() {
     outputFileOrder: [], outputFiles: {},
     turns: {
       files: {
-        turnId: "files", turnOrdinal: 1, anchorInputId: "user", status: "completed", assistantContent: "先检查上下文管理实现", reasoningContent: "PRIVATE REASONING",
+        turnId: "files", turnOrdinal: 1, anchorInputId: "user", status: "completed", assistantContent: "", reasoningContent: "PRIVATE REASONING",
         toolOrder: ["files-call", "short-call", "command-call", "long-call", ...extraCalls.map((call) => call.toolCallId)],
         tools: {
-          "files-call": { toolCallId: "files-call", name: "read", status: "completed", input: { path: "agent/context/config.ts", purpose: "旧的目的文案" }, result: { ok: true, output: "export const config = {};", returncode: 0, truncated: false } },
-          "short-call": { toolCallId: "short-call", name: "bash", status: "completed", input: { command: "pwd" } },
-          "command-call": { toolCallId: "command-call", name: "bash", status: "completed", input: { command } },
-          "long-call": { toolCallId: "long-call", name: "bash", status: "completed", input: { command: longCommand, cwd: "/workspace" }, result: { ok: true, output, returncode: 0, truncated: false } },
+          "files-call": { toolCallId: "files-call", name: "read", status: "completed", input: { path: "agent/context/config.ts", purpose }, result: { ok: true, output: "export const config = {};", returncode: 0, truncated: false } },
+          "short-call": { toolCallId: "short-call", name: "bash", status: "completed", input: { command: "pwd", purpose: ` \n${purpose}\t ` } },
+          "command-call": { toolCallId: "command-call", name: "bash", status: "completed", input: { command, purpose } },
+          "long-call": { toolCallId: "long-call", name: "bash", status: "completed", input: { command: longCommand, cwd: "/workspace", purpose }, result: { ok: true, output, returncode: 0, truncated: false } },
           ...Object.fromEntries(extraCalls.map((call) => [call.toolCallId, call])),
         },
       },
       history: {
-        turnId: "history", turnOrdinal: 2, anchorInputId: "user", status: "completed", assistantContent: "然后检查历史读取逻辑", reasoningContent: "PRIVATE REASONING", toolOrder: ["history-call"],
-        tools: { "history-call": { toolCallId: "history-call", name: "read", input: { path: "agent/tools/history-read.ts", purpose: "查看历史读取工具" }, status: "completed" } },
+        turnId: "history", turnOrdinal: 2, anchorInputId: "user", status: "completed", assistantContent: "", reasoningContent: "PRIVATE REASONING", toolOrder: ["history-call"],
+        tools: { "history-call": { toolCallId: "history-call", name: "read", input: { path: "agent/tools/history-read.ts" }, status: "completed" } },
       },
       answer: { turnId: "answer", turnOrdinal: 3, status: "completed", assistantContent: "已完成分析", reasoningContent: "PRIVATE FINAL REASONING", toolOrder: [], tools: {} },
     },
@@ -152,6 +162,8 @@ async function activityTraceRegression() {
     const style = getComputedStyle(node);
     return { text: node.textContent, width: node.clientWidth, contentWidth: node.scrollWidth, ellipsis: style.textOverflow, whiteSpace: style.whiteSpace, overflow: style.overflowX };
   };
+  const activitySequence = () => Array.from(document.querySelectorAll<HTMLElement>(".work-commentary-text, .turn-action-summary"))
+    .map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? "");
   render(760);
   await frames();
   const outer = document.querySelector<HTMLButtonElement>(".run-work-toggle")!;
@@ -163,6 +175,11 @@ async function activityTraceRegression() {
   outer.click();
   await delay(220);
   await frames();
+  const foldedCommentary = {
+    ...commentarySnapshot(),
+    outerOpen: outer.getAttribute("aria-expanded") === "true" && !detail.inert,
+    groupsClosed: groups.every((group) => group.getAttribute("aria-expanded") === "false"),
+  };
   groups[0].focus();
   const openFocusAllowed = document.activeElement === groups[0];
   groups[0].click();
@@ -170,7 +187,7 @@ async function activityTraceRegression() {
   await delay(220);
   await frames();
   const rows = Array.from(document.querySelectorAll<HTMLElement>(".tool-row"));
-  const sequence = Array.from(document.querySelectorAll<HTMLElement>(".work-intermediate-text, .turn-action-summary")).map((node) => node.textContent);
+  const sequence = activitySequence();
   const text = document.getElementById("root")!.textContent ?? "";
   const reasoningHidden = !text.includes("PRIVATE");
   const commandVisible = text.includes(`Ran ${command}`);
@@ -214,12 +231,30 @@ async function activityTraceRegression() {
   const narrowLong = labelGeometry("long-call");
   const completeLabels = label("long-call").textContent === `Ran ${longCommand}` && label("files-call").textContent === "Read agent/context/config.ts";
   const noHorizontalOverflow = narrowRows.every((row) => row.scrollWidth <= row.clientWidth + 1);
+
+  run.turns.files.progressContent = `保留上下文检查进度\n \t${purpose}  `;
+  run.turns.files.assistantContent = "保留上下文检查正文";
+  run.turns.history.progressContent = "保留历史读取进度";
+  run.turns.history.assistantContent = "保留历史读取正文";
+  run.turns.history.tools["history-call"].input = { path: "agent/tools/history-read.ts", purpose: "查看历史读取工具" };
+  render(760);
+  await frames();
+  const legacyDuplicateSequence = activitySequence();
+  const legacyDuplicateCommentary = commentarySnapshot().commentaryTexts;
+
+  run.turns.files.progressContent = "保留上下文检查进度";
+  run.turns.files.assistantContent = ` \n${purpose}\t `;
+  render(760);
+  await frames();
+  const nativeDuplicateSequence = activitySequence();
+  const nativeDuplicateCommentary = commentarySnapshot().commentaryTexts;
   outer.click();
   await delay(220);
   await frames();
   return {
     initiallyClosed, closedFocusBlocked, openFocusAllowed, reasoningHidden, commandVisible, finalOutside, individualDisclosures, expandedHeight,
-    sequence, rows: rows.map((row) => row.querySelector(".tool-action")?.textContent), headers: groups.map((group) => group.textContent), noHorizontalOverflow,
+    sequence, foldedCommentary, legacyDuplicateSequence, legacyDuplicateCommentary, nativeDuplicateSequence, nativeDuplicateCommentary,
+    rows: rows.map((row) => row.querySelector(".tool-action")?.textContent), headers: groups.map((group) => group.textContent), noHorizontalOverflow,
     detailsInitiallyUnmounted, firstRowExpanded, independentExpansion, independentCollapse, fullCommandInput, fullCommandOutput, reasoningHiddenWithDetails, detailsUnmountedAgain,
     wideShort, wideCommand, narrowShort, narrowCommand, narrowLong, completeLabels, groupScroll,
     collapsedAgain: detail.inert && detail.getBoundingClientRect().height < 1,
@@ -251,7 +286,7 @@ async function pureProgressRegression() {
   await frames();
   const outer = document.querySelector<HTMLButtonElement>(".run-work-toggle")!;
   const detail = document.querySelector<HTMLElement>(".run-work-detail")!;
-  const link = detail.querySelector<HTMLAnchorElement>(".work-progress-text a")!;
+  const link = detail.querySelector<HTMLAnchorElement>(".work-commentary-text a")!;
   const initiallyClosed = detail.inert && detail.getBoundingClientRect().height < 1;
   link.focus();
   const closedFocusBlocked = document.activeElement !== link;
@@ -267,6 +302,9 @@ async function pureProgressRegression() {
   const finalOutside = !document.querySelector(".final-answer")!.closest(".run-work");
   const metadataOutside = !document.querySelector(".message-meta")!.closest(".run-work");
   const noTools = document.querySelectorAll(".turn-action, .tool-row").length === 0;
+  const noPurposeText = document.querySelectorAll(".work-purpose-text").length === 0;
+  const progressText = link.closest(".work-commentary-text")?.textContent;
+  const finalText = document.querySelector(".final-answer")?.textContent;
   const noRawEvidence = !document.getElementById("root")!.textContent?.includes("PRIVATE")
     && !document.querySelector("progress, answer");
   const workedLabel = outer.textContent;
@@ -299,16 +337,16 @@ async function pureProgressRegression() {
   await frames();
   const waitingClickable = outer.getAttribute("aria-expanded") === "true" && !detail.inert;
   const waitingStatus = detail.querySelector('[role="status"]')?.textContent;
-  const waitingHasNoProse = !detail.querySelector(".work-progress-text, .work-intermediate-text, .work-legacy-notice");
+  const waitingHasNoProse = !detail.querySelector(".work-commentary-text, .work-legacy-notice");
   run.turns.answer.progressContent = "现在开始核对约束";
   render(true);
   await frames();
   const streamedWhileOpen = outer.getAttribute("aria-expanded") === "true"
-    && detail.querySelector(".work-progress-text")?.textContent === "现在开始核对约束"
+    && detail.querySelector(".work-commentary-text")?.textContent === "现在开始核对约束"
     && !detail.querySelector('[role="status"]');
   return {
     initiallyClosed, closedFocusBlocked, toggleFocusAllowed, openedByClick, openFocusAllowed, progressInside, finalOutside, metadataOutside,
-    noTools, noRawEvidence, workedLabel, collapsedAgain, legacyNotice, legacyClickable, legacyNoRawEvidence,
+    noTools, noPurposeText, progressText, finalText, noRawEvidence, workedLabel, collapsedAgain, legacyNotice, legacyClickable, legacyNoRawEvidence,
     waitingAutoOpen, waitingClickable, waitingStatus, waitingHasNoProse, streamedWhileOpen,
   };
 }
@@ -346,7 +384,9 @@ async function activityLifecycleRegression() {
       groupsInert: Array.from(document.querySelectorAll<HTMLElement>(".turn-action-detail")).map((node) => node.inert),
       groupRows: Array.from(document.querySelectorAll(".turn-action")).map((node) => Array.from(node.querySelectorAll(".tool-row")).map((row) => row.getAttribute("data-tool-call-id"))),
       runningToolIds: Object.values(run.turns).flatMap((turn) => turn.toolOrder.filter((id) => turn.tools[id]?.status === "running")),
-      flowTexts: Array.from(document.querySelectorAll(".work-intermediate-text")).map((node) => node.textContent),
+      flowTexts: Array.from(document.querySelectorAll(".work-commentary-text"))
+        .map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? ""),
+      ...commentarySnapshot(),
       finalText: final?.textContent ?? null,
       finalOutside: Boolean(final && !final.closest(".run-work")),
       reasoningHidden: !document.getElementById("root")!.textContent?.includes("PRIVATE"),
@@ -356,12 +396,12 @@ async function activityLifecycleRegression() {
   const outer = () => document.querySelector<HTMLButtonElement>(".run-work-toggle")!;
   const group = (index: number) => document.querySelectorAll<HTMLButtonElement>(".turn-action-fold")[index];
   const completeTool = (turnId: string, toolCallId: string, name: string) => send({ type: "toolCompleted", runId, turnId, toolCallId, name, result: { ok: true, output: "工具完成", returncode: 0, truncated: false } });
-  const beginTools = (turnId: string, turnOrdinal: number, content: string) => {
+  const beginTools = (turnId: string, turnOrdinal: number, content: string, purpose = content) => {
     send({ type: "turnStarted", runId, turnId, turnOrdinal });
     send({ type: "assistantDelta", runId, turnId, delta: content });
     send({ type: "assistantCompleted", runId, turnId, content, completedAt: 2_000, stopReason: "tool_use", toolCalls: [
-      { id: `${turnId}-read`, name: "read", input: { path: "agent/context/config.ts" }, inputComplete: true },
-      { id: `${turnId}-command`, name: "bash", input: { command: "pwd" }, inputComplete: true },
+      { id: `${turnId}-read`, name: "read", input: { path: "agent/context/config.ts", purpose }, inputComplete: true },
+      { id: `${turnId}-command`, name: "bash", input: { command: "pwd", purpose }, inputComplete: true },
     ] });
   };
 
@@ -372,9 +412,9 @@ async function activityLifecycleRegression() {
   send({ type: "assistantDelta", runId, turnId: "first", delta: "先检查上下文管理实现" });
   steps.nativeContent = await capture();
   send({ type: "assistantCompleted", runId, turnId: "first", content: "先检查上下文管理实现", completedAt: 2_000, stopReason: "tool_use", toolCalls: [
-    { id: "first-read", name: "read", input: { path: "agent/context/config.ts" }, inputComplete: true },
-    { id: "first-command", name: "bash", input: { command: "pwd" }, inputComplete: true },
-    { id: "pending-command", name: "bash", input: { command: "stat agent/model/openai.ts" }, inputComplete: true },
+    { id: "first-read", name: "read", input: { path: "agent/context/config.ts", purpose: "检查上下文管理实现" }, inputComplete: true },
+    { id: "first-command", name: "bash", input: { command: "pwd", purpose: " \n检查上下文管理实现\t " }, inputComplete: true },
+    { id: "pending-command", name: "bash", input: { command: "stat agent/model/openai.ts", purpose: "检查上下文管理实现" }, inputComplete: true },
   ] });
   steps.batchOpened = await capture();
   group(0).click();
@@ -387,14 +427,14 @@ async function activityLifecycleRegression() {
   steps.pendingKeepsOpen = await capture();
   outer().click();
   await frames();
-  send({ type: "toolStarted", runId, turnId: "first", toolCallId: "pending-command", name: "bash", input: { command: "stat agent/model/openai.ts" } });
+  send({ type: "toolStarted", runId, turnId: "first", toolCallId: "pending-command", name: "bash", input: { command: "stat agent/model/openai.ts", purpose: "检查上下文管理实现" } });
   steps.manualOuterClosed = await capture();
   outer().click();
   await frames();
   completeTool("first", "pending-command", "bash");
   steps.allToolsDone = await capture();
   send({ type: "turnCompleted", runId, turnId: "first" });
-  beginTools("second", 2, "然后检查历史读取逻辑");
+  beginTools("second", 2, "然后检查历史读取逻辑", "查看历史读取工具");
   steps.nextTurnOpened = await capture();
   completeTool("second", "second-read", "read");
   steps.secondPartiallyDone = await capture();
@@ -421,7 +461,7 @@ async function activityLifecycleRegression() {
   // Preserve the same React keys to expose stale manual overrides after a full phase cycle.
   state = { ...state, status: "running", runs: { ...state.runs, [runId]: { ...state.runs[runId], status: "running" } } };
   send({ type: "turnStarted", runId, turnId: "first", turnOrdinal: 1 });
-  send({ type: "toolStarted", runId, turnId: "first", toolCallId: "first-read", name: "read", input: { path: "agent/context/config.ts" } });
+  send({ type: "toolStarted", runId, turnId: "first", toolCallId: "first-read", name: "read", input: { path: "agent/context/config.ts", purpose: "检查上下文管理实现" } });
   steps.sameGroupWorkingAgain = await capture();
   completeTool("first", "first-read", "read");
   steps.sameGroupDoneAgain = await capture();

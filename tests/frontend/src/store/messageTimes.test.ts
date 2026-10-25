@@ -29,7 +29,7 @@ test("live and reloaded messages render the same authoritative dates and copy ac
         const streamingHtml = renderToStaticMarkup(createElement(AssistantMessage, {
           run: running, turnIds: Object.keys(running.turns), answerTurnId: Object.keys(running.turns)[0], isWorking: true,
         }));
-        assert.match(streamingHtml, /work-intermediate-text/);
+        assert.match(streamingHtml, /work-commentary-text/);
         assert.doesNotMatch(streamingHtml, /aria-label="Copy answer"/);
         assert.doesNotMatch(streamingHtml, /class="message-time"/);
         now = completedAt;

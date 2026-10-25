@@ -15,20 +15,22 @@
 - `ModelConfig`：Provider 配置由 Host 注入，OpenAI-compatible 连接可提供 Main 侧的 `apiKeyProvider`。
 - 凭据读取：Adapter 在每次外发模型请求前读取 API Key，并交给 SDK 传输层；模型消息、system prompt、Runtime 快照与 AgentEvent 使用公共运行数据。
 - 运行身份：Runtime 回合上下文维护 `runId`、`turnId` 和 `attempt`，并用其关联对外事件；Adapter 的输入契约聚焦模型配置、消息、工具和取消信号。
-- 消息内容：`ModelMessage.content` 使用字符串，承载该回合面向用户的过程说明或最终正文；Assistant Message 的可选 `progress?: string` 保留历史独立公开说明，`reasoning`、`toolCalls` 与 `media` 分别承载原始思考、工具调用和可选媒体。
+- 消息内容：`ModelMessage.content` 使用字符串，承载用户原文、助手过程说明或最终正文；用户消息的 `attachments` 保存附件身份、来源信息、有预算的提取文字与图片标签。Assistant Message 的可选 `progress?: string` 保留历史独立公开说明，`reasoning`、`toolCalls` 与 `media` 分别承载原始思考、工具调用和可选媒体。
 - 工具消息：`toolCallId`、`toolName` 和 `isError` 关联调用身份、工具名称与错误语义。
 - 工具调用：`ToolCall.id` 保存调用身份，`name` 保存名称，`input` 保存参数，`inputComplete` 标识参数完整性。
 - 聚合输出：`LlmResponse` 包含该回合公开正文 `content`、原始思考、工具调用、归一化停止原因、原始停止原因、可选 `usage` 和诊断字段；可选 `progress?: string` 兼容既有响应与历史消息。
 - 生命周期：`runId` 关联整次运行，`turnId` 关联逻辑模型回合，`attempt` 关联具体请求，`toolCallId` 贯穿调用与结果；循环退出条件由 Runtime 的响应分类、取消与错误语义定义。
 
-原生公开正文。
+回合公开说明。
 
-- 任务范围：主模型在每批工具调用前，通过同一次响应的原生 `content` 给出一至两句简洁公开说明，描述当前目标与下一步动作；任务完成时，通过原生 `content` 返回常规 Markdown 答案。
-- 回合身份：一个模型 turn 对应一次逻辑模型请求及其返回的工具调用批次，模型重试沿用该 turn 并递增 attempt；每次请求尝试产生独立的流与记录。Runtime 依据实际工具调用和停止原因分类响应，宿主展示投影根据已确认的运行身份安排过程文字、该回合工具组与最终答案。
-- 归一化职责：Adapter 分离并聚合协议字段，Runtime 消费归一化响应完成控制流程，宿主展示投影生成文字区与工具操作行，React 承担折叠、排版、内部滚动和宽度省略；展示契约见[消息流](../desktop/design/workbench/message-stream.mdx)。
-- 通道职责：原生 `content` 映射为 `text_delta` 并聚合到 `content`，`reasoning_content` 映射为 `reasoning_delta` 并聚合到 `reasoning`，`tool_calls` 按 index 聚合。公开说明由主模型独立组织，原始思考沿 Recorder、运行状态与 Provider 续轮链路保留原值。
-- 语言来源：主模型依据最新已应用人类任务或 steering 指令的语言组织公开正文、最终答案和工具目的，明确的语言要求优先；引用文件、工具结果与注入材料作为任务数据。中英文正文使用相同的字段映射，历史文本沿用原文。
-- 请求协作：公开说明随正常任务响应生成。上下文压缩摘要请求沿用专用指令、原生正文解析、输出预算和压缩快照流程。
+- 投影单位：每个逻辑 turn 由一套与 Adapter 解耦的共享说明投影生成一条用户可见回合说明（commentary）。投影直接消费本 turn 的归一化 `content` 与完整 `toolCalls[].input.purpose`。
+- 内容优先级：原生响应的 commentary 以 `content` 原文为首段，按工具调用顺序追加去重后的 `purpose` 行；`content` 为空时由 purposes 构成同一段说明。兼容 `progress` 保存旧记录既有的段前顺序，原生 `content` 随后延续同一条 commentary。
+- 行级去重：投影先折叠空白并修剪首尾空白，再对完整行执行精确比较；与 `content` 任一行或前序 purpose 完全相同的行保留首次出现的原文。
+- 展示顺序：工具回合在活动详情中先显示该 turn 的 commentary，随后显示一个完整工具批次；最终回答 turn 的 `content` 由 `runCompleted.finalTurnId` 确认，并作为最终回答显示在活动详情之外。
+- 职责分层：Provider Adapter 负责原始字段、原生阶段和续轮格式的映射，Runtime 消费归一化事实，共享说明投影读取 `content` 与 `toolCalls`。Provider 分支集中在 Adapter，commentary 装配保持单一实现，实时界面与历史恢复共用同一结果。
+- 通道职责：原生 `content` 映射为 `text_delta` 并聚合到 `content`，`reasoning_content` 映射为 `reasoning_delta` 并聚合到 `reasoning`，`tool_calls` 按 index 聚合。`purpose` 表达模型生成的动作意图，`reasoning` 保留归一化原文并沿 Recorder、运行状态与 Provider 续轮链路作为数据和续轮输入。
+- 语言来源：主模型依据最新已应用人类任务或 steering 指令的语言组织 `content`、最终答案和工具目的，明确的语言要求优先；引用文件、工具结果与注入材料作为任务数据。中英文字段使用相同映射，历史文本沿用原文。
+- 调用归属：commentary 的模型调用归属本 turn 主模型响应，装配路径由字段选择、行级去重和排序直接完成；上下文压缩摘要请求承担长期上下文维护，并沿用专用指令、输出预算和压缩快照流程。
 
 历史说明兼容。
 
@@ -39,25 +41,31 @@
 
 工具活动元数据。
 
-- 同轮说明：工具回合通过同一次主模型响应的原生 `content` 给出简洁行动说明，并提供该 turn 的 `toolCalls`；纯分析和最终回合通过原生正文交付面向用户的回答。
+- 同轮说明：每次调用的 `input.purpose` 保存模型生成的动作意图，共享说明投影按原调用顺序把它作为 commentary 的补充或空正文回退；完整调用集合跟随 commentary 形成一个工具批次。
 - 调用元数据：模型可见工具 schema 统一在 input 对象中增加必填 `purpose: string` 与可选 `targets: string[]`；主模型为每个调用填写简洁语义目的与文件、路径、查询或实体目标，`purpose` 沿用用户语言。
-- 字段职责：`content` 承载该回合的公开说明，`purpose` 与 `targets` 作为活动元数据保存在调用记录中；工具原有结构化操作参数定义实际操作。展示投影根据实际 `command`、`path`、查询与实体生成操作行，展开详情呈现已保存的完整参数与结果。
-- 生成入口：工具目的、目标与独立过程说明由同一次常规任务响应交付，生成与交付遵循所属 turn 的正常生命周期；过程说明、目的和目标随流式事件与完成事件进入活动记录。
+- 字段职责：`purpose` 保存单次调用的动作目的，`content` 保存公开正文，`targets` 保存关联资源，`reasoning` 保留原始推理数据；工具原有结构化参数定义实际操作。共享投影从内容和目的装配 commentary，从实际命令、路径与查询生成操作行，展开详情呈现原参数与结果；展示布局由[消息流](../desktop/design/workbench/message-stream.mdx)统一定义。
+- 生成入口：工具目的、目标与公开正文由同一次常规任务响应交付，生成与交付遵循所属 turn 的正常生命周期；commentary 在完整调用集合到达后完成目的补充，活动记录保存正文、目的与目标。
 - 历史兼容：旧调用沿用原参数，Renderer 依据工具 kind 与实际目标生成固定英文操作标签；等待提示与失败提示依据该回合关联的已应用用户输入选择 zh/en。
 - 执行协作：Runtime 在现有 `ToolCall.input`、事件和历史消息中保留元数据，工具实现接收经公共边界剥离活动元数据后的操作参数，具体规则见[工具执行](./tools/execution.mdx)。
 
 用户引用装配。
 
 - 引用提交：Composer 将上传文件和 Canvas Use selection 作为同次发送的两类引用，分别通过 `attachmentId` 和 `canvasContextId` 交给 Main。
-- Main 校验：启动 Run 前校验文件可读性和 Canvas 项目归属；文件引用形成供工具按需读取的路径提示，Canvas 引用提供当前选区冻结的 JSON，并沿用 Save JSON 元素结构。
+- Main 校验：上传接入将原始字节保存为应用管理的副本，并缓存有界提取结果；启动 Run 前校验附件身份与 Canvas 项目归属。用户原文与附件引用构成同一条持久化 user 消息，Canvas 引用提供当前选区冻结的 JSON，并沿用 Save JSON 元素结构。
 - Runtime 注入：Runner 将 Canvas JSON 映射为 user `ModelMessage`，通过 `runScopedContext` 交给 Runtime；上下文模块复用历史摘要并读取后续原文，将运行期材料放在对应历史与本 run 用户消息之间。
 - 元素内容：原生形状与文字的类型、坐标和 `text` 字段进入 JSON，`canvasContext` 元数据提供场景坐标系与选区边界。
-- 媒体内容：Canvas 视觉快照使用本 run 的 user message media，工具图片结果使用 tool message media；Adapter 将两者转换为文本加 `image_url`。
-- 生命周期：Recorder 保存用户任务文字，Canvas 引用由本 run 持有，同 run 的模型重试与工具续轮共享冻结内容。
+- 媒体内容：图片通过原生视觉内容块进入首轮请求，文档通过 Docling 提取文字、表格与有界页面图片，视频通过 FFmpeg 提供有时间戳的采样帧；附件输入与用户原文组成同一条 user 协议消息。Canvas 视觉快照继续使用本 run 的 user message media。
+- 请求装配：ContextManager 按附件文字与图片数量计入输入预算，Adapter 根据被保留的附件引用从 Host 解析图片字节；文字使用 text 内容块，图片使用 image_url 内容块，Provider 明确的纯文本能力在外发前产生可读配置错误。
+- 工具图片：Chat Completions 的 tool 消息保存文本与调用 ID，同批全部工具结果交付后附加包含图片的 user 消息；调用集合与结果保持连续，媒体通过接口支持的视觉角色进入下一次请求。
+- 生命周期：Recorder 保存用户原文、附件 ID 和有预算的内容快照，原始文件与处理产物由附件存储管理，Base64 在请求阶段按需构造；Canvas 引用由本 run 持有，同 run 的模型重试与工具续轮共享冻结内容。
+- 按需读取：attachment_read 按附件 ID 分页提供提取文字或指定准备图片，返回覆盖范围、剩余位置与可用页图和帧标签；原始文件副本保留本地工具进一步处理的入口。摘要保留附件身份和来源线索，后续可按引用读取。
+- 资料预算：每条初始用户消息最多接入10份附件，原始文件上限100 MiB，文档转换上限64 MiB；文档准备覆盖最多50页、幻灯片或工作表，首轮文字每附件最多6000个 Unicode 字符、合计24000个字符，图片合计最多6张。PDF 首轮使用有预算的页图，视频从6张缓存采样帧中选择覆盖起始、中段和尾段的最多3张；剩余缓存内容通过 attachment_read 访问。
+- 覆盖声明：文档缓存提供实际转换范围、页码与截断信息，Office 提供原生正文、表格和来源结构，视觉排版属于 Office 渲染能力；视频覆盖为有限视觉采样，音轨保留在原始副本。提示缓存与本地处理缓存分别承担服务端输入复用和本地解析复用。
 - 绘制工具：桌面 Runner 通过同一工具定义通道提供 `canvas_edit`，依据冻结选区定位已有元素，按用户要求新增元素，并由当前 Canvas 编辑器完成绘制和保存。
 
 Provider 归一化。
 
+- 适配边界：每个 Provider Adapter 负责其原始协议、流格式、阶段字段与续轮字段的解析，并归一化为 `content`、`reasoning`、`toolCalls`、停止原因和可选的 Provider 原生阶段事实；Runtime、Recorder、实时界面和历史恢复消费同一适配契约。
 - 参数解析：Adapter 解析 OpenAI-compatible 的 `tool_calls[].function.arguments` 并保留原始调用 ID。
 - 分片聚合：工具调用按 Provider index 累积，流结束时转换为 `ToolCall[]`；参数解析失败的调用继续保留，并设置 `inputComplete: false`。
 - 停止原因：原始原因保存在 `rawStopReason`，控制层消费归一化 `stopReason`；`content_filter`、未知原因和正常 `stop` 各自保持独立语义。
@@ -65,14 +73,15 @@ Provider 归一化。
 - 续轮依据：`tool_use` 表达归一化停止原因，Runtime 依据 `LlmResponse.toolCalls` 的实际内容决定工具续轮。
 - 思考分离：Provider `reasoning_content` 和正文中识别出的 thinking 标记内容进入原始 reasoning 通道；其余原生正文形成 `content`，结构化 `tool_calls` 形成工具调用。
 - 思考回传：每个连接通过 `reasoningField` 声明对应 Provider 字段，Adapter 按该配置回传已完成 Assistant Message 的 reasoning；DeepSeek 工具续轮同时携带原始 reasoning、公开正文、工具调用与结果。
+- DeepSeek 兼容：`content` 为空且 `input.purpose` 为中文时，共享投影显示中文 purpose 构成的 commentary；同一响应中的 `reasoning_content` 保留在 reasoning 数据事实中并参与续轮回放，用户界面呈现 commentary 和最终回答。
 - 后续协议：Anthropic `tool_use` 和 Google `functionCall` 将映射到统一工具契约；文本与工具块交错顺序通过扩展的消息类型承载，先补充 `ToolCallBlock`，再接入原生 Adapter。
 
 流式请求。
 
 - 流事件：OpenAI-compatible Adapter 产出 `reasoning_delta`、`text_delta` 和 `completed`，统一 `ModelStreamEvent` 保留 `progress_delta` 兼容契约。
 - 增量交付：Adapter 持续发送原始思考和公开正文增量，工具调用随最终 `completed` 一次性交付；完成响应与对应增量累积结果一致。
-- 完成语义：Adapter `completed` 表达 Provider 流解析完成，Runtime 继续判定回合有效性和持久化结果。
-- 工具响应：原生 `content` 与 `completed.toolCalls` 构成公开说明和完整工具批次；纯工具响应允许空正文，Runtime 按实际调用与停止原因分类。
+- 完成语义：Adapter `completed` 表达 Provider 流解析完成，并携带归一化完成事实；Runtime 继续判定回合有效性和持久化结果。
+- 工具响应：`completed.content` 与 `completed.toolCalls` 提供 commentary 和完整工具批次所需的归一化事实；空 `content` 的工具响应由中文 purposes 形成可读说明，Runtime 按实际调用与停止原因分类。
 - 终止原因：成功模型流以明确 `finish_reason` 结束；终态原因缺失时，Adapter 抛出可重试的 `model_protocol` 错误。
 - 用量：流式请求启用 `stream_options.include_usage`，连接可通过 `streamUsage: false` 适配网关；Adapter 先读取 usage 再处理 choice，空 choices 的尾块提供计量信息。
 - 用量契约：`ModelUsage` 的 `inputTokens`、`outputTokens`、`cachedInputTokens` 与 `totalTokens` 分别保存 Provider 提供的可用计数，缺失项保持未知；缓存命中属于输入子集。
@@ -80,7 +89,7 @@ Provider 归一化。
 - 历史与事件：Runtime 负责增量持久化和宿主事件分发，Adapter 负责一次请求的协议转换、流解析与错误归一化。
 - 错误类型：配置、网络、Provider、模型协议与上下文超限错误归一化为 `ModelAdapterError`，附带 `retryable`；Runtime 映射为 `TurnOutcome` 并决定恢复，取消信号收敛为 `cancelled`。
 - 状态归属：Runtime 持有 Recorder 与调度控制，上下文模块准备摘要和原文，Adapter 返回一次性流或归一化错误，任务运行收敛为唯一终止事件；摘要正文保存到压缩快照。
-- 宿主边界：Provider chunk 由 Adapter 解析，Runtime 将归一化消息转为 AgentEvent；宿主设计定义跨进程传输和高频增量批处理。
+- 宿主边界：Provider chunk 由 Adapter 解析，Runtime 将归一化消息转为 AgentEvent；宿主通过共享 commentary 投影组织实时与历史展示，并独立负责跨进程传输和高频增量批处理。
 
 长度截断。
 

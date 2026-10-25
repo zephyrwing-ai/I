@@ -63,7 +63,7 @@
 
 - Renderer 的 `frontend/src/shared/scroll/useElasticScroll.ts` 负责输入归一化、拉力与回弹状态、动画帧调度；消息流与输出文件列表共用 hook。
 - `frontend/src/middle-column/message-stream/StreamScrollbar.tsx` 负责消息流滚动布局、自定义轨道与滑块、滚动几何测量和拖拽交互；消息流通过 `scrollbar-width: none` 与 WebKit 滚动条隐藏样式呈现自定义滑块。
-- `frontend/src/workbench/output/OutputSidebar.tsx` 为输出文件列表提供同样的布局裁剪层与位移内容层，文件选择和预览沿用现有交互。
+- 右侧工作侧栏的目录树与普通资源列表使用各自的常规滚动区域；消息流继续使用本页定义的弹性回弹。
 - Main 与 IPC 继续提供消息、输出文件与预览数据；滚动输入、弹性状态和逐帧视觉更新由 Renderer 本地完成。
 
 滚动表现。

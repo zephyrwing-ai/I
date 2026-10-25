@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseUiPreferences, resolveAppearance } from "../../../../../frontend/src/shared/preferences/uiPreferences";
+import { resolveAppearance } from "../../../../../frontend/src/shared/preferences/uiPreferences";
+import { parseUiPreferences } from "../../../../../shell/shared/ui-preferences";
 import { translate } from "../../../../../frontend/src/shared/i18n";
 
 test("UI preferences restore validated values and recover each invalid field independently", () => {

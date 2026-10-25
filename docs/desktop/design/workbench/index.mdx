@@ -8,29 +8,30 @@
 - 外壳：导航轨道位于外层，原生窗口控制按钮使用轨道顶部预留区域；轨道实际宽度为 `calc(var(--project-navigation-width) + var(--workbench-frame-gap))`，当前64px，横向 padding 为8px，按钮左右分别距窗口左边和内框左边8px；导航宽度、内框留白与表面层次由[设计令牌](./tokens.mdx)统一提供。
 - 视图模式：`I` 与 `Project` 共用同一页面和消息组件，App 通过独立视图模式控制导航选中态、标题分隔线与项目开合入口；项目列表展开状态和活动历史范围分别维护。
 - 内框：`workbench-frame` 按项目列表、消息主列和右侧工作侧栏分配三列，纵向分为标题行与内容行；项目列跨越两行并维护自身标题，主标题栏位于中间列至右侧边缘的标题行，消息与右侧面板位于内容行。内框负责圆角裁剪，消息主列使用侧栏之间的剩余空间，列表开合与右侧栏拖拽共同触发重排。
-- 项目入口：工作台显示期间，左侧导航持续展示 `I` 和 `Project`，普通模式呈现连续的标题与消息表面；项目模式在内框左侧展开项目列表，标题右侧依次提供 `＋` 与收起按钮，列表收起后在内框主标题栏左端保留展开入口。
+- 项目入口：工作台显示期间，左侧导航持续展示 `I` 和 `Project`；点击 Project 取得项目列表并按当前显示顺序自动激活第一项，项目模式在内框左侧展开项目列表，标题右侧依次提供 `＋` 与收起按钮，列表收起后在内框主标题栏左端保留展开入口。
 - 标题区域：内框顶部52px标题行承载工作台操作按钮，拖拽区和按钮热区分别定义；消息主列与右侧工作侧栏使用标题行下方的剩余高度，右端操作按钮随侧栏开合保持内框位置。右侧工作侧栏默认关闭，偏好宽度保存在本机。
+- 右侧视图设计：侧栏展开先显示当前范围入口页；具体项目提供打开工作目录文件与画布两个选项，普通 I 提供画布及上传资源和消息打开记录。选择工作目录后展示右侧目录树，选择文件后在树左侧展开内容位，选择画布后展示当前范围 Canvas。两种范围和目标设计的实施边界见[右侧工作侧栏](./titlebar/sidebar/index.mdx)。
 - 设置页面：左下 Settings 以齿轮图标单独呈现，Tooltip 与无障碍名称保留；点击后页面完整接管窗口，左侧提供 Back、General、Providers、Usage、TTS 导航，右侧显示对应模块。原项目导航、工作台与工作台浮层同步退出展示和命中，工作台组件继续挂载以保留历史、Composer 草稿和 Canvas；Back 恢复工作台并将焦点返回入口。顶部独立窗口拖拽带与下方 `no-drag` 内容区分别承载窗口拖动和按钮交互，页面复用现有字体、颜色与几何 token。模块内容和提供商链路见[设置](./titlebar/sidebar/settings.mdx)。
 - 浮层：搜索保留在应用外壳层，项目菜单通过 Portal 呈现；浮层按窗口可用范围定位，与内框裁剪分别管理，Settings 打开期间随工作台进入隐藏状态。
 
 运行与项目历史边界。
 
 - 工作台向用户呈现当前项目或无项目范围的一条连续消息流，同一时间运行一个任务；每次发送创建新的 `runId`，历史范围由 Main 管理。
-- Renderer 的 `agentReducer` 按 `runId → turnId → toolCallId` 维护展示投影并消费当前运行的 AgentEvent。输出栏取当前运行文件；搜索范围见[全局搜索](./titlebar/search.mdx)。
+- Renderer 的 `agentReducer` 按 `runId → turnId → toolCallId` 维护展示投影并消费当前运行的 AgentEvent。运行产物继续保留 `runId + fileId` 来源身份，右侧目录和资源按各自所属范围组织；搜索范围见[全局搜索](./titlebar/search.mdx)。
 - Main 的项目路由为每次运行提供一个确定的 `projectId` 或 `NULL`，Runner 使用该范围取得 HistoryRecorder。
 - HistoryRecorder 保存当前范围的消息、草稿和本地写入队列，Renderer 保存页面事件队列和展示状态。两者的装配与事件链路见[历史存储装配](./session-storage.mdx)。
 - 持久化 entries 通过[历史投影](./history-projection.mdx)恢复成统一 AgentState，消息主列按[消息流](./message-stream.mdx)定义的虚拟窗口渲染。
 
 行为追踪展示。
 
-- 数据来源：模型通过原生 `content` 交付用户可见的过程文字和回答，`toolCalls` 交付同回合调用集合，原始 `reasoning` 服务存储、诊断与 Provider 续轮。公开文字的语言约定由[模型请求](../../../agent/model-request.mdx)定义。
-- 展示职责：实时 AgentEvent 与持久化 entries 汇入同一 AgentState；MessageBlock 构造器确定输入锚点、活动组与回答身份，活动投影生成各 turn 的文字区与工具操作行，React 消费该投影完成排版和交互。
+- 数据来源：模型通过 `toolCalls[].input.purpose` 提供工具动作目的，通过原生 `content` 提供公开进展和回答；工具集合与结果保持所属回合身份，原始 reasoning 服务存储、诊断与协议续轮。公开文字的语言约定由[模型请求](../../../agent/model-request.mdx)定义。
+- 展示职责：Provider Adapter 归一化各模型协议，实时 AgentEvent 与持久化 entries 汇入同一 AgentState；MessageBlock 构造器确定输入锚点、活动组与回答身份，共享活动投影为每个 turn 生成一条 commentary 与工具操作行，React 消费该投影完成排版和交互。
 - 阅读顺序：活动详情按回合依次呈现公开文字和该回合工具组，空工具回合形成相邻文字段落；最终回答身份确认后，正文进入外层活动组下方，时间与复制行随回答呈现。
 - 阶段交互：外层活动组在工作期间默认展开，组内工具列表在该批调用执行期间默认展开并按最大高度内部滚动；全部调用完成后工具组默认收起，运行结束后外层组默认收起。手动展开、单条工具详情、宽度省略和终态规则见[消息流](./message-stream.mdx)。
 
 宿主运行链路。
 
-- 项目入口：Renderer 通过左侧 `I` 激活普通历史，通过项目列表条目激活已有项目，通过列表标题的 `＋` 添加项目目录；Main 维护项目身份和活动范围，入口切换继续使用现有历史与 Canvas 加载链路。
+- 项目入口：Renderer 通过左侧 I 激活普通历史，通过 Project 默认激活列表首项，通过项目列表条目切换已有项目，通过列表标题的 `＋` 添加项目目录；Main 维护项目身份和活动范围，激活结果统一驱动历史、右侧入口页与 Canvas 加载链路。
 - 提交：Renderer 提交任务文字、`modelOptionId`、附件 ID、Canvas 引用和当前 `projectId`；Composer 使用 App 提供的活动项目描述构造请求，Main 保存规范化路径和项目元数据。
 - 语音草稿：Composer 通过语音专用 IPC 把完整 WAV 交给 Main 的本地 ASR 服务；识别结果只回填任务草稿，用户确认发送后才进入 Run 或 Steer。
 - 解析：Preload 通过受限 `agentAPI` 转发 IPC；Main 校验项目范围、解析模型、文件附件和 Canvas 引用，取得 HistoryRecorder 并构造运行输入，Runner 创建运行身份和取消信号。

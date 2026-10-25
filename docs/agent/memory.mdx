@@ -50,9 +50,9 @@
 
 助手消息通道。
 
-- 原生正文：Assistant `ModelMessage.content` 保存本 turn 的用户可见原生正文，工具回合与中间回合的正文承担公开过程说明，最终回答由运行完成事实确认；`reasoning` 保存原始思考，`toolCalls` 保存结构化调用及实际操作参数。
+- 原生内容：Assistant `ModelMessage.content` 保存该 turn 的公开正文，`toolCalls[].input.purpose` 保存每次调用的动作目的；宿主共享 commentary 投影组织公开正文与去重后的目的行。最终回答由运行完成事实确认，reasoning 保存原始思考，结构化调用与实际参数沿原消息保存。
 - JSON 承载：`payload_json` 保存完整消息并兼容可选旧 `progress`，沿用 `payload_version = 1` 和既有消息表；`progress` 字段类型校验接受字符串或字段省略，新响应直接保存原生字段。
-- 历史兼容：旧 payload 的 `content`、`progress`、原始 reasoning 与调用字段按原文恢复；实时与历史汇入相同 AgentState，由展示投影按最终回合身份分配正文位置，旧 `progress` 保留活动文字区兼容职责。
+- 历史兼容：旧 payload 的 `content`、`progress`、原始 reasoning 与调用字段按原文恢复；实时与历史汇入相同 AgentState，由共享 commentary 投影按最终回合身份分配正文位置，旧 `progress` 保留旧记录段前顺序。
 - 快照与续轮：completed 消息快照保留原生正文、原始 reasoning、工具调用及可选旧 `progress`；Provider serializer 按[模型请求](./model-request.mdx)的原生协议构造续轮消息，DeepSeek 工具续轮按协议回传原始 reasoning。输入计量覆盖实际序列化文本与协议开销，压缩快照沿用既有摘要与来源版本规则。
 - 展示边界：正文经 `assistantDelta → assistantContent` 实时交付，活跃组最终身份来自 `runCompleted.finalTurnId`，历史通过最终 Assistant entry 的 `turnId` 与 `durationMs` 恢复；已应用 steer 启动下一组后，前组已提交的无工具回答按输入锚点与回合事实继续呈现。原始 reasoning 保持存储、诊断与协议回放职责，折叠状态由 Renderer 根据既有生命周期事实与本地交互派生。
 

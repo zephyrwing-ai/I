@@ -1,15 +1,6 @@
 /* ===== 对话框列（原来的 composer-* 规则整体迁入，不再依赖外层 24px 内边距） ===== */
 .composer { position: relative; padding: 0 0 18px; background: transparent; }
 .composer-shell { position: relative; z-index: 1; width: 100%; min-height: 116px; margin: 0; padding: 18px 14px 10px; border: 1px solid var(--border); border-radius: 20px; background: var(--input); box-shadow: 0 1px 3px var(--shadow-soft), 0 8px 24px var(--shadow-soft); display: flex; flex-direction: column; gap: 8px; }
-.composer-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
-.composer-attachment { max-width: 230px; height: 42px; padding: 5px 6px 5px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--input); display: grid; grid-template-columns: 28px minmax(0,1fr) 26px; align-items: center; gap: 7px; }
-.attachment-icon { width: 28px; height: 28px; border-radius: 7px; background: var(--selection); color: var(--accent); display: grid; place-items: center; }
-.attachment-info { min-width: 0; display: flex; flex-direction: column; }
-.attachment-info strong, .attachment-info small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attachment-info strong { font-size: var(--font-size-caption); font-weight: 560; }
-.attachment-info small { color: var(--text-muted); font-size: var(--font-size-detail); }
-.composer-attachment button { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); display: grid; place-items: center; }
-.composer-attachment button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
 .composer-canvas-contexts { display: flex; flex-wrap: wrap; gap: 8px; }
 .composer-canvas-context { max-width: 280px; min-height: 42px; padding: 5px 6px 5px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--input); color: var(--accent); display: grid; grid-template-columns: 28px minmax(0,1fr) 26px; align-items: center; gap: 7px; }
 .composer-canvas-context > svg { width: 28px; height: 28px; padding: 6px; border-radius: 7px; background: var(--selection); }

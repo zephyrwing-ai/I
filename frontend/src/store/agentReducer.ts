@@ -4,6 +4,7 @@ import type {
   RunStatus,
   HistoryPageResult,
   ToolResult,
+  InputAttachmentDescriptor,
 } from "../../../shell/shared/ipc";
 import { initialHistoryState, mergeHistoryEntries, type HistoryState } from "./sessionHistory";
 import { mergePersistedEntries } from "./sessionProjection";
@@ -47,6 +48,7 @@ export interface TurnState {
 export interface UserInputState {
   inputId: string;
   task: string;
+  attachments?: InputAttachmentDescriptor[];
   at: number;
   status: "accepted" | "applied" | "interrupted";
   acceptOrder?: number;
@@ -88,7 +90,7 @@ export interface AgentState {
 
 export type AgentAction =
   | { type: "runRequested" }
-  | { type: "runAccepted"; runId: string; projectId: string | null; inputId: string; task: string; taskAt: number }
+  | { type: "runAccepted"; runId: string; projectId: string | null; inputId: string; task: string; taskAt: number; attachments?: InputAttachmentDescriptor[] }
   | { type: "steerAccepted"; runId: string; projectId: string | null; inputId: string; task: string; acceptOrder: number; acceptedAt: number }
   | { type: "steerRejected"; error: string }
   | { type: "runRejected"; error: string }
@@ -245,7 +247,8 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
 
     case "runAccepted": {
       const existing = state.runs[action.runId];
-      const run = existing ?? createRun(action.runId, action.projectId, action.task, action.taskAt, action.inputId);
+      const base = existing ?? createRun(action.runId, action.projectId, action.task, action.taskAt, action.inputId);
+      const run = action.attachments?.length ? { ...base, inputs: { ...base.inputs, [action.inputId]: { ...base.inputs[action.inputId], attachments: action.attachments } } } : base;
       return {
         ...state,
         status: "running",

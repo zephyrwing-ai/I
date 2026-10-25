@@ -4,6 +4,7 @@ import { useProjects } from "../../../frontend/src/workbench/project/useProjects
 import "../../../frontend/src/styles.css";
 import type { AgentAPI, AgentEvent, HistoryPageResult, ProjectActionRequest, ProjectDescriptor } from "../../../shell/shared/ipc";
 import { canvasOperations } from "./canvas";
+import { normalizeUiPreferences, type UiPreferences } from "../../../shell/shared/ui-preferences";
 
 const ordinary: ProjectDescriptor = { projectId: null, displayName: "I", canonicalPath: null };
 const alpha: ProjectDescriptor = { projectId: "alpha", displayName: "I", canonicalPath: "/projects/I" };
@@ -21,6 +22,7 @@ let pickerCalls = 0;
 let confirmDelete = false;
 const projectActions: ProjectActionRequest[] = [];
 const historyReads: Array<string | null> = [];
+const directoryReads: Array<{ projectId: string; relativePath: string }> = [];
 const listeners = new Set<(event: AgentEvent) => void>();
 const errors: string[] = [];
 window.addEventListener("error", (event) => errors.push(event.message));
@@ -41,6 +43,18 @@ function page(projectId: string | null): HistoryPageResult {
 
 localStorage.setItem("workbench.modelOptionId", "model-test");
 const api: Partial<AgentAPI> = {
+  getUiPreferences: async legacy => {
+    const stored = sessionStorage.getItem("test.mainUiPreferences");
+    const preferences = stored ? normalizeUiPreferences(JSON.parse(stored)) : normalizeUiPreferences(legacy);
+    sessionStorage.setItem("test.mainUiPreferences", JSON.stringify(preferences));
+    return preferences;
+  },
+  updateUiPreferences: async patch => {
+    const current = normalizeUiPreferences(JSON.parse(sessionStorage.getItem("test.mainUiPreferences") ?? "null"));
+    const preferences: UiPreferences = { ...current, ...patch };
+    sessionStorage.setItem("test.mainUiPreferences", JSON.stringify(preferences));
+    return preferences;
+  },
   getActiveProject: async () => active,
   listProjects: async () => {
     listReads += 1;
@@ -93,6 +107,16 @@ const api: Partial<AgentAPI> = {
     if (captured === delayedScope && captured !== null) await pause(200);
     return page(captured);
   },
+  listProjectDirectory: async (request) => {
+    directoryReads.push({ projectId: request.projectId, relativePath: request.relativePath });
+    const entries = request.relativePath === ""
+      ? [
+          { name: "docs", relativePath: "docs", kind: "directory" as const },
+          { name: "README.md", relativePath: "README.md", kind: "file" as const },
+        ]
+      : [{ name: "guide.md", relativePath: `${request.relativePath}/guide.md`, kind: "file" as const }];
+    return { ok: true, projectId: request.projectId, relativePath: request.relativePath, entries, nextCursor: null };
+  },
   listProviderProfiles: async () => [{
     providerProfileId: "provider-test", name: "Test", baseURL: "https://example.invalid", credentialConfigured: true,
     models: [{ modelOptionId: "model-test", providerProfileId: "provider-test", providerName: "Test", modelId: "test", displayName: "Test model", available: true, imported: true, state: "saved" }],
@@ -116,6 +140,12 @@ async function until(predicate: () => boolean, description: string): Promise<voi
 function click(selector: string): void {
   const button = document.querySelector<HTMLButtonElement>(selector);
   if (!button || button.disabled) throw new Error(`Button unavailable: ${selector}`);
+  button.click();
+}
+function clickText(text: string): void {
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+    .find((entry) => entry.textContent?.includes(text));
+  if (!button || button.disabled) throw new Error(`Button unavailable: ${text}`);
   button.click();
 }
 function expect(condition: unknown, description: string): void {
@@ -223,7 +253,7 @@ async function verifyProjectsResize(panel: HTMLElement): Promise<void> {
   window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 23, clientX: collapseStart - 180 }));
   window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 23, clientX: collapseStart - 180 }));
   await until(() => panel.inert && panel.getBoundingClientRect().width < 1, 'dragging to the edge collapses projects');
-  expect(historyVisible('ordinary'), 'resizing and collapsing should preserve the current conversation');
+  expect(historyVisible('alpha'), 'resizing and collapsing should preserve the current conversation');
   click('#projects-sidebar-toggle');
   await until(() => !panel.inert && Math.abs(panel.getBoundingClientRect().width - initialWidth) < 1, 'reopen restores the saved project width');
 }
@@ -238,16 +268,25 @@ async function runRegression() {
   expect(document.querySelector('.project-navigation')!.getBoundingClientRect().width === navigationWidth + frameGap, 'the navigation should span the shell through the frame edge');
   expect(!document.querySelector(".composer-project-row"), "Composer project row should be removed");
   expect(document.querySelectorAll(".project-navigation button").length === 3, "navigation should contain I, Project and the Settings icon");
+  click("#workbench-sidebar-toggle");
+  await until(() => !!document.querySelector(".sidebar-resource-entries"), "ordinary sidebar resource entries");
+  expect(document.querySelector(".sidebar-resource-entries")?.textContent?.includes("Open Canvas"), "ordinary sidebar should expose Canvas");
+  expect(document.querySelector(".sidebar-resources")?.textContent?.includes("View All Outputs"), "ordinary sidebar should expose the resource list");
+  expect(!document.querySelector(".sidebar-launcher")?.textContent?.includes("Open workspace files"), "ordinary sidebar should omit workspace files");
+  clickText("Open Canvas");
+  await until(() => document.querySelector("[data-canvas-scope]")?.getAttribute("data-canvas-scope") === "ordinary", "ordinary Canvas");
+  click("#workbench-sidebar-toggle");
+  await until(() => document.querySelector("#right-sidebar")?.getAttribute("aria-hidden") === "true", "closed ordinary sidebar");
+  const beforeDefaultActivation = canvasOperations.length;
   click('.project-navigation [aria-label="Project"]');
   await until(() => !!document.querySelector(".projects-panel-error"), "first project load failure");
   expect(listReads === 1, "first open should issue one list read");
   delayNextListRead = 80;
   click(".projects-panel-error button");
-  click('.project-navigation [aria-label="Project"]');
-  click('.project-navigation [aria-label="Project"]');
-  await until(() => !!document.querySelector('[data-project-id="alpha"]'), "project list");
-  expect(listReads === 2, "opening while a list read is pending should reuse its request");
-  expect(historyVisible("ordinary"), "browsing projects should preserve ordinary history");
+  await until(() => !!document.querySelector('[data-project-id="alpha"]') && historyVisible("alpha"), "default first project");
+  expect(listReads === 2, "retry should issue one list read");
+  expect(projectOrder()[0] === "alpha", "Project should activate the first displayed project");
+  expect(canvasOperations.slice(beforeDefaultActivation).indexOf("flush") < canvasOperations.slice(beforeDefaultActivation).indexOf("activate:alpha"), "Canvas flush should precede default project activation");
   const background = getComputedStyle(document.querySelector(".projects-panel")!).backgroundColor;
   expect(background === getComputedStyle(document.querySelector(".workbench-frame")!).backgroundColor, "project list should share the raised frame surface");
   const icon = document.querySelector<SVGSVGElement>(".project-navigation-brand")!;
@@ -285,13 +324,20 @@ async function runRegression() {
   expect(toggleRect.left >= rect.right, "the expanded project toggle should sit to the right of Add");
   verifyFrameBounds();
 
-  click('[aria-label="Show canvas"]');
-  await until(() => !!document.querySelector("[data-canvas-scope]"), "Canvas lifecycle boundary");
-  const beforeActivate = canvasOperations.length;
-  click('[data-project-id="alpha"]');
-  await until(() => historyVisible("alpha"), "selected project history");
   expect(projectOrder().join() === originalOrder, "activating a project should preserve its list position");
-  expect(canvasOperations.slice(beforeActivate).indexOf("flush") < canvasOperations.slice(beforeActivate).indexOf("activate:alpha"), "Canvas flush should precede project activation");
+  click("#workbench-sidebar-toggle");
+  await until(() => document.querySelector(".sidebar-launcher")?.textContent?.includes("Open workspace files"), "project sidebar launcher");
+  expect(document.querySelector(".sidebar-launcher")?.textContent?.includes("Open canvas"), "project sidebar should expose Canvas");
+  expect(!document.querySelector(".sidebar-resources"), "project sidebar should omit ordinary resources");
+  clickText("Open workspace files");
+  await until(() => document.querySelector(".sidebar-file-tree")?.textContent?.includes("README.md"), "project directory tree");
+  expect(directoryReads.some((read) => read.projectId === "alpha" && read.relativePath === ""), "workspace entry should load the active project root");
+  click('[aria-label="Back to sidebar"]');
+  await until(() => !!document.querySelector(".sidebar-launcher"), "sidebar home after files");
+  clickText("Open canvas");
+  await until(() => document.querySelector("[data-canvas-scope]")?.getAttribute("data-canvas-scope") === "alpha", "project Canvas");
+  click("#workbench-sidebar-toggle");
+  await until(() => document.querySelector("#right-sidebar")?.getAttribute("aria-hidden") === "true", "closed project sidebar");
   const afterFirst = historyReads.length;
   click('[data-project-id="alpha"]');
   await pause(40);
@@ -370,9 +416,10 @@ async function runRegression() {
   await until(() => historyVisible("ordinary") && panel.inert, "return to ordinary history");
 
   click('.project-navigation [aria-label="Project"]');
-  await until(() => !!document.querySelector('[data-project-id="added"]'), "reopened project list");
-  click('[data-project-id="added"]');
-  await until(() => historyVisible("added"), "final project view");
+  await until(() => !!document.querySelector('[data-project-id="added"]') && historyVisible("added"), "reopened project list with default first project");
+  expect(historyVisible("added"), "Project should activate the first remaining project");
+  click("#workbench-sidebar-toggle");
+  await until(() => document.querySelector(".sidebar-launcher")?.textContent?.includes("Open workspace files"), "final project launcher");
   await pause(240);
   const main = document.querySelector<HTMLElement>(".workspace")!.getBoundingClientRect();
   expect(main.width >= 360, "message area should keep a usable width with both sidebars");
@@ -380,7 +427,7 @@ async function runRegression() {
   verifyFrameBounds();
   expect(listReads === 3, "metadata actions and all subsequent navigation should reuse the loaded list");
   await verifyProjectSnapshotRaces();
-  return { historyReads, pickerCalls, listReads, projectActions, canvasOperations, mainWidth: main.width, errors };
+  return { historyReads, directoryReads, pickerCalls, listReads, projectActions, canvasOperations, mainWidth: main.width, errors };
 }
 
 function measureLayout() {

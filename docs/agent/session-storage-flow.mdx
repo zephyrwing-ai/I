@@ -23,7 +23,7 @@
 - 完整响应：模型返回原生 content、reasoning 和 toolCalls，Runtime 分类后调用 `finishAssistantAttempt(...)`；普通答案与空计划提交，工具调用响应与整批 planned invocation 共同提交。`assistantCompleted` 对齐完整正文与调用，旧 `progress` 保留可选兼容读取，既有 JSON payload 与数据库结构继续承载完整消息。
 - 工具续轮：Runtime 按登记顺序执行工具，调用 `commitToolResult(toolMessage)` 将 Tool Message 与恢复状态共同保存，整批结果提交后使用当前范围的上下文继续请求模型。
 - 直接回答：回答提交后检查运行中输入，队列清空时通过 `finishRun(completed)` 完成运行；成功 `runCompleted.finalTurnId` 确认最终回答，Renderer 收起外层活动并把对应正文移到折叠外。新输入按既有安全边界进入下一轮。
-- 请求与续轮：公开说明来自主模型原生 content，Provider serializer 按原生协议回放已提交正文、工具调用和 Tool Message，DeepSeek 工具续轮按协议回传原始 reasoning；输入预算按实际序列化文本计量，独立摘要请求继续服务既有上下文压缩流程。
+- 请求与续轮：Provider Adapter 归一化 content、reasoning 与 toolCalls；共享 commentary 投影从已有公开正文和本批 purpose 组织一条用户说明。Provider serializer 回放已提交正文、工具参数与结果，并按协议回传原始 reasoning；独立摘要请求继续服务上下文压缩。
 - 展示顺序：实时与历史共用活动投影，按 turn 呈现文字、一个完整工具组、下一段文字，空工具回合直接接续文字。已应用 steer 启动下一组后，前组最后一个已提交的无工具有效回答继续位于折叠外并参与搜索，活跃组沿用最终身份确认规则。工具组标题与操作行使用实际 command、path 及工具类别，详情由各行独立展开并惰性挂载。
 - 展开交互：Renderer 复用运行、回合、工具状态及最终回合身份派生默认展开值；等待执行与执行中的调用共用 `running`，结算后为 `completed`。当前工作组默认展开，所属 run 与 turn 处于运行态且任一工具为 `running` 时工具组默认展开，工具全部结算或 turn、run 终态时工具组默认收起。手动覆盖在当前工作或结算阶段生效，阶段变化恢复默认值；工具列表使用320px最大高度与内部滚动，外层活动区按内容自然增长。
 - 登记接口：单调用登记接口 `registerToolInvocation(...)` 与整批登记共同遵循[工具执行恢复](./tools/recovery.mdx)的身份和事务契约。

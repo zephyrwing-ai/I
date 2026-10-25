@@ -1,7 +1,7 @@
 设计令牌。
 
 - 主题解析：Appearance 的 System、Light、Dark 选择统一解析为浅色或深色，通过根节点 `data-theme` 启用对应颜色令牌；System 持续读取系统明暗偏好，手动选择保持对应主题。
-- 页面背景颜色：中性灰阶（浅色 #F8F8F8，深色 #171717），Canvas 与通用背景使用这一颜色；应用外壳使用独立外壳表面，工作台内框使用独立的抬升表面，输出文件侧栏使用次级表面颜色并沿内框内容行伸展。
+- 页面背景颜色：中性灰阶（浅色 #F8F8F8，深色 #171717），Canvas 与通用背景使用这一颜色；应用外壳使用独立外壳表面，工作台内框使用独立的抬升表面，右侧工作侧栏使用次级表面颜色并沿内框内容行伸展。
 - 主要表面颜色：浅色 #FFFFFF，深色 #212121，用于设置面板、模型菜单和预览内容区。
 - 高不透明主要表面颜色：浅色 #FFFFFFF2，深色 #212121F2，用于预览区标题栏等浮层。
 - 悬停表面颜色：浅色 #F1F1F1，深色 #2B2B2B。
@@ -50,7 +50,7 @@
 - 外壳几何：`--project-navigation-width` 为56px，导航轨道的实际宽度使用该值加 `--workbench-frame-gap`，当前合计64px；轨道横向内边距各8px，按钮到窗口左缘与内框左缘的距离均为8px。原生窗口控制按钮使用顶部预留区域。
 - 外壳表面：`--workbench-shell-surface` 在浅色主题中使用 #EEEEEE，在深色主题中使用 #171717；外层应用壳和 `I / Project` 导航共同使用这一表面。
 - 内框几何：`--workbench-frame-gap` 为8px，`--workbench-frame-radius` 为16px；内框左边缘位于导航宽度加留白处，顶部、右侧与底部各保留一份留白，外边框使用1px工作台分隔颜色。
-- 设置页几何：左侧模块导航宽度复用 `--projects-panel-width`，顶部52px拖拽带使用 `--topbar-height`，Back 与模块入口使用其下方的交互区域；Back 圆角12px。右侧内容面板复用内框留白、圆角与表面；标题与列表共用左对齐线，顶部留白使用四份 `--workbench-frame-gap`（32px）并承载独立拖拽带，左右留白使用五份间距（40px），列表宽度随内框可用空间变化。General 列表沿用输入表面与8px圆角，外边框宽度0，行高48px，相邻行保留1px通用边界分隔线。页面标题使用 `--font-size-title`，模块名称与选择控件使用 `--font-size-body`。
+- 设置页几何：左侧模块导航宽度复用 `--projects-panel-width`，顶部52px拖拽带使用 `--topbar-height`，Back 与模块入口使用其下方的交互区域；Back 圆角14px。右侧内容面板复用内框留白、圆角与表面；标题与列表共用左对齐线，顶部留白使用四份 `--workbench-frame-gap`（32px）并承载独立拖拽带，左右留白使用五份间距（40px），列表宽度随内框可用空间变化。General 列表沿用输入表面与8px圆角，外边框宽度0，行高48px，相邻行保留1px通用边界分隔线。页面标题使用 `--font-size-title`，模块名称与选择控件使用 `--font-size-body`。
 - 共享选择控件：模型、Appearance、Language 共用 Select；默认触发器最小高度32px、圆角16px，紧凑触发器高度28px、圆角14px。设置入口边框宽度0、默认背景透明，悬停与展开使用 `var(--hover)` 和 `var(--text)`；正文统一使用14px字号、22px行高、400字重。共享 `chevron-right` 展开指示收起向右、展开顺时针旋转90度向下，选中项文字与共享16px `check` 图标使用主要文字颜色。
 - 设置选择菜单：Portal 挂载至 `document.body`，右边缘与触发器右边缘对齐，使用 `align="end"`、`side="bottom"`、`sideOffset={8}`，顶边始终位于触发器底边下方8px；表面使用 `var(--surface)`，边框宽度0，圆角复用 `--workbench-frame-radius`（16px），阴影沿用现有浮层层级。
 - 内框表面：`--workbench-frame-surface` 引用 `--surface`，浅色为 #FFFFFF，深色为 #212121；标题栏、项目列与消息主列共同呈现这一表面。

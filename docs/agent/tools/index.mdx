@@ -9,8 +9,8 @@
 公共活动元数据。
 
 - 模型 schema：Runtime 为基础注册表与宿主附加工具统一增加模型可见 input 字段 `purpose: string` 与 `targets: string[]`；`purpose` 为必填操作目的，`targets` 为可选目标列表，每个工具沿用自身操作参数与校验契约。
-- 主模型生成：同一次常规工具调用响应通过 `content` 提供简洁工具前说明，并为各调用提供用户语言的 `purpose` 和对应 `targets`。
-- 目标依据：工具行从实际结构化操作参数提取命令、路径、查询或实体；读取使用 `Read <path>`，shell 使用 `Ran <command>`，其他工具按类别与实际目标生成标签，旧 `purpose`、`targets` 保留兼容数据职责。
+- 主模型生成：同一次工具调用响应为各调用提供用户语言的 `purpose` 与对应 `targets`，原生 `content` 可提供公开正文。宿主共享 commentary 投影组织正文与目的，实时与历史共用提取、去重和回退规则。
+- 目标依据：`purpose` 表达动作目的，实际结构化参数决定工具行中的命令、路径、查询或实体；读取使用 `Read <path>`，shell 使用 `Ran <command>`，其他工具按类别与实际目标生成标签，展开详情保留原调用参数与结果。
 - 数据链路：活动元数据保存在 `ToolCall.input`，随现有事件与项目历史恢复；现有 JSON 消息字段承载扩展。Runtime 公共执行边界向工具实现提供纯操作参数，覆盖 execute、prepare 与 reconcile，具体见[工具执行](./execution.mdx)。
 - 展示协作：桌面活动按 turn 交替呈现原生正文与一个工具组，工具组按实际类别生成英文标题，如 `Read files, ran commands`。操作行显示实际命令或路径，单行 CSS 省略随可用宽度溢出出现；各行可独立展开完整输入与结果，详情惰性挂载，失败行附紧凑标记。实时与历史共用相同投影，原始 reasoning 保持数据与协议续轮职责，交互与语言规则见[消息流](../../desktop/design/workbench/message-stream.mdx)。
 
@@ -22,6 +22,7 @@
 - [Edit](./edit.mdx)：已注册，对已有文件执行可验证的局部文本替换，并发布修改结果。
 - [Write](./write.mdx)：已注册，创建文件或用完整内容覆盖文件。
 - [Query](./query.mdx)：已注册，以只读方式列出目录、查找文件与搜索文件内容。
+- 附件读取：桌面 Runner 注册 `attachment_read`，通过稳定附件 ID 分页读取 Docling 文字、普通文本和 FFmpeg 采样信息，或返回指定页面图片与视频帧；运行范围覆盖项目对话与普通对话，副本和处理缓存由 Main 附件服务管理。
 - [Canvas Edit](./canvas-edit.mdx)：桌面端已注册，按用户指令新增元素，依据 Use selection 编辑引用元素并保存画布变化。
 - 桌面注册：桌面 Run 按 Canvas 编辑能力附加 `canvas_edit`，Runner 将其绑定当前窗口、项目与 Run。
 - 元素引用：Use selection 为更新、删除等已有元素操作提供身份与冲突基线，新增元素依据用户指令创建。

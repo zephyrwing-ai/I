@@ -6,7 +6,7 @@ import test from "node:test";
 import { createLocalBashOps } from "../../agent/environment.js";
 
 test("local Bash reports created files without parsing the command text", async () => {
-  const temporary = await mkdtemp(join(tmpdir(), "agent-studio-bash-"));
+  const temporary = await mkdtemp(join(tmpdir(), "i-bash-"));
   const cwd = await realpath(temporary);
   try {
     const result = await createLocalBashOps().exec("printf 'hello' > result.txt", cwd, { timeout: 5 });

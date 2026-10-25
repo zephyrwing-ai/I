@@ -7,7 +7,7 @@
 
 - 层级：事件使用 `runId → turnId → attempt → toolCallId` 四层稳定身份。
 - `runId`：标识一次完整任务运行，隔离重试、取消和并发运行。
-- `turnId`：标识一次逻辑模型回合及其工具批次，关联多次 attempt 的公开过程说明、流式正文、完整消息和本回合调用。
+- `turnId`：标识一次逻辑模型回合及其工具批次，关联多次 attempt 的归一化事实、共享回合说明（commentary）、流式正文、完整消息和本回合调用。
 - `attempt`：标识同一逻辑 turn 内的一次模型尝试，关联增量草稿、重试状态和终态。
 - `toolCallId`：标识模型产生的一次工具调用，关联工具开始、增量结果、完成结果和回填消息。
 - `inputId`：标识一次运行中补充文本提交，横向关联 Main 持久化 ACK、Runtime 应用事件与最终用户 entry。
@@ -19,8 +19,8 @@
 - 事件类型：Agent 提供运行开始、回合开始、Assistant 原生正文增量、原始思考增量、回合重试、Assistant 完成、工具开始、工具完成、回合完成和运行完成事件；旧公开过程说明增量保留兼容接收。
 - 公共字段：每类事件携带 `runId`；回合事件携带 `turnId`；重试事件携带当前与下一次 attempt；工具事件携带 `toolCallId`。
 - `runStarted`：报告运行开始，携带 `startedAt`。
-- `assistantDelta`：宿主交付 Adapter 原生 `content` 对应的正文增量，沿用当前 `runId`、`turnId` 与 attempt 关联；同一正文字段承载工具回合说明、中间回合文字与最终回答。
-- `assistantCompleted`：报告归一化 Assistant Message、停止原因和固定的 `completedAt`，时间单位为 Unix 毫秒；`content` 保存本 turn 的完整原生正文，原始 reasoning 与 toolCalls 保持独立字段，可选旧 `progress` 沿用兼容读取。
+- `assistantDelta`：宿主交付 Adapter 原生 `content` 对应的正文增量，沿用当前 `runId`、`turnId` 与 attempt 关联；正文先进入所属 turn，工具回合的 commentary 与最终回答 turn 的正文都从这份归一化内容派生。
+- `assistantCompleted`：报告归一化 Assistant Message、停止原因和固定的 `completedAt`，时间单位为 Unix 毫秒；`content` 保存本 turn 的完整正文，`toolCalls` 保存完整调用集合，`reasoning` 与可选 Provider 原生阶段事实保持独立字段，可选旧 `progress` 沿用兼容读取。
 - `toolCompleted`：报告结构化工具结果。
 - `runCompleted`：报告 `completed`、`cancelled` 或 `failed`，可附带结构化 `RunError` 与诊断信息；成功事件的 `finalTurnId` 确认最终回答身份，`finalDurationMs` 提供完整运行时长。
 - 回合计数：可选 `turnOrdinal` 与 `turnCount` 用于排序和诊断；退出判定由响应分类、取消与错误语义承担，事件字段围绕这些事实组织。
@@ -29,11 +29,12 @@
 
 - 分工：AgentEvent 报告过程，HistoryRecorder 保存项目与 General 历史；Host 分别注入事件接收器和绑定 `projectId: string | null` 的 Recorder，Runtime 在同一语义节点调用两者。
 - 增量身份：`assistantDelta` 与 `reasoningDelta` 沿用 `runId`、`turnId`、attempt 与冻结的 delta 字符串，分别表达原生正文和原始思考；旧 `progressDelta` 保留兼容字段映射。
-- 增量分发：Adapter 分离原生 content、reasoning 与 toolCalls，Runtime 按既有正文和思考 kind 调用 `recordAssistantDelta(kind, delta, context)` 并交付对应回调；Recorder 与宿主收到同一通道的冻结文本，新正文直接沿 `assistantDelta` 进入 `assistantContent`。
-- 完成对齐：`assistantCompleted.content` 与已提交消息的 `content` 保持一致，纯分析、比较、工具回合与最终回合共用同一正文链路；旧 `progress` 在事件、存储与历史读取中保留兼容语义。
-- 宿主消费：Runtime 交付模型与执行事实，宿主展示投影根据输入锚点、turn 与工具关联生成公开文字和工具组；实时事件与历史记录进入同一 AgentState，正文位置与任务边界见[历史投影](../desktop/design/workbench/history-projection.mdx)。
+- 增量分发：Provider Adapter 将原始协议归一化为 content、reasoning、toolCalls 与可选原生阶段事实，Provider 分支集中在适配层；Runtime 按既有正文和思考 kind 调用 `recordAssistantDelta(kind, delta, context)` 并交付对应回调，Recorder 与宿主收到同一通道的冻结文本。
+- 完成对齐：`assistantCompleted.content` 与已提交消息的 `content` 保持一致，`toolCalls` 与提交后的调用集合一致；共享 commentary 投影从完整 turn 事实生成一条用户可见说明，旧 `progress` 在事件、存储与历史读取中保留兼容语义。
+- 宿主消费：Runtime 交付模型与执行事实，宿主通过与 Adapter 解耦的共享 commentary 投影按输入锚点、turn 与工具关联生成说明和工具组；实时事件与历史记录进入同一 AgentState，正文位置与任务边界见[历史投影](../desktop/design/workbench/history-projection.mdx)。
 - 状态职责：正文增量更新文本，`assistantCompleted` 确认完整模型消息的提交，工具事件确认本批调用与结果，`turnCompleted` 确认回合完成，`runCompleted` 交付运行终态及成功回答身份。Renderer 从这些事实派生默认展开值，并保存本地手动选择，交互契约见[消息流](../desktop/design/workbench/message-stream.mdx)。
-- 推理职责：原始 reasoning 按原文保存并按 Provider 契约参与 DeepSeek 工具续轮，公开说明使用原生 content，用户语言由任务提示约定。
+- 说明投影：共享投影为每个 turn 生成一条 commentary，原生 `content` 原文置于首要位置；兼容 `progress` 保留旧记录既有段前顺序，`toolCalls[].input.purpose` 按调用顺序作为补充或空正文回退。完整行先折叠空白，再对相同文本精确去重并保留首次出现的原文。
+- 内容职责：`reasoning` 按原文保存并参与 Provider 续轮，`content` 保存公开正文，`purpose` 保存模型生成的动作意图；用户语言由任务提示约定，实时与历史展示共用同一 commentary 结果。
 - 重试屏障：Runtime 将当前 attempt 保存为 `interrupted` / `failed` 后发出 `turnRetrying`，报告 `reason`、`attempt`、`nextAttempt`、`delayMs` 和 `maxAttempts`。
 - 助手屏障：完整 Assistant Message 成功提交并加入 `Runtime.messages` 后发出 `assistantCompleted`，事件与记录共享同一 `completedAt`。
 - 工具屏障：完整 Tool Message 与对应 invocation 的 `completed` 事务成功后发出 `toolCompleted`。
@@ -63,6 +64,7 @@
 - 回合开始：同一回合先发出 `turnStarted`，随后发出 Assistant 增量。
 - 完整输出：完整回答与完整工具调用发出 `assistantCompleted`；待恢复 attempt 在保存后进入 `turnRetrying`，沿用 `turnId` 并递增 attempt。
 - 工具批次：每个调用分别发出开始与完成事件，全部调用处理完成后发出 `turnCompleted`。
+- 展示顺序：工具回合按 commentary、该 turn 的唯一工具批次排列，下一 turn 继续按同一节奏接续；最终回答由 `runCompleted.finalTurnId` 确认，并显示在活动详情之外。
 - 运行终态：自然完成、模型失败、取消和运行异常均收敛到唯一的 `runCompleted`。
 - 当前调度：Runtime 按模型顺序串行执行工具。
 - 并发扩展：协议通过稳定 ID 支持未来乱序完成；两个工具即使按不同顺序完成，仍各自归入原 `toolCallId`，到达顺序用于过程展示。

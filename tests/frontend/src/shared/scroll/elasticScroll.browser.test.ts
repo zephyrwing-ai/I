@@ -34,6 +34,7 @@ type LabelGeometry = {
 type LifecycleSample = {
   status: string; outerOpen: boolean; outerInert: boolean; groupsOpen: boolean[]; groupsInert: boolean[];
   groupRows: string[][]; runningToolIds: string[]; flowTexts: string[]; finalText: string | null; finalOutside: boolean; reasoningHidden: boolean;
+  commentaryTexts: string[]; commentaryVisible: boolean[];
 };
 
 test("Electron 中的弹性滚动保持布局与动画连续", { timeout: 40_000 }, async (t) => {
@@ -74,10 +75,13 @@ test("Electron 中的弹性滚动保持布局与动画连续", { timeout: 40_000
         fullCommandInput: boolean; fullCommandOutput: boolean; reasoningHiddenWithDetails: boolean; detailsUnmountedAgain: boolean; completeLabels: boolean;
         wideShort: LabelGeometry; wideCommand: LabelGeometry; narrowShort: LabelGeometry; narrowCommand: LabelGeometry; narrowLong: LabelGeometry;
         groupScroll: { maxHeight: string; overflowY: string; height: number; contentHeight: number; scrollTop: number };
+        foldedCommentary: { commentaryTexts: string[]; commentaryVisible: boolean[]; outerOpen: boolean; groupsClosed: boolean };
+        legacyDuplicateSequence: string[]; legacyDuplicateCommentary: string[]; nativeDuplicateSequence: string[]; nativeDuplicateCommentary: string[];
       };
       pureProgress: {
         initiallyClosed: boolean; closedFocusBlocked: boolean; toggleFocusAllowed: boolean; openedByClick: boolean; openFocusAllowed: boolean;
-        progressInside: boolean; finalOutside: boolean; metadataOutside: boolean; noTools: boolean; noRawEvidence: boolean; workedLabel: string;
+        progressInside: boolean; finalOutside: boolean; metadataOutside: boolean; noTools: boolean; noPurposeText: boolean;
+        progressText: string; finalText: string; noRawEvidence: boolean; workedLabel: string;
         collapsedAgain: boolean; legacyNotice: string; legacyClickable: boolean; legacyNoRawEvidence: boolean;
         waitingAutoOpen: boolean; waitingClickable: boolean; waitingStatus: string; waitingHasNoProse: boolean; streamedWhileOpen: boolean;
       };
@@ -177,12 +181,40 @@ test("Electron 中的弹性滚动保持布局与动画连续", { timeout: 40_000
       }
       assert.equal(activity.individualDisclosures, activity.rows.length);
       assert.ok(activity.expandedHeight > 100);
-      assert.deepEqual(activity.sequence, ["先检查上下文管理实现", "Read files, ran commands", "然后检查历史读取逻辑", "Read files"]);
+      assert.deepEqual(activity.sequence, ["检查上下文管理实现", "Read files, ran commands", "读取文件 agent/tools/history-read.ts", "Read files"]);
       assert.deepEqual(activity.headers, ["Read files, ran commands", "Read files"]);
       assert.equal(activity.rows[0], "Read agent/context/config.ts");
       assert.equal(activity.rows[1], "Ran pwd");
       assert.equal(activity.rows.at(-1), "Read agent/tools/history-read.ts");
       assert.ok(activity.retainedOutput > 10_000);
+    });
+
+    await t.test("已恢复的空正文工具回合保留各自目的，工具批次关闭时目的可见", () => {
+      const folded = result.activityTrace.foldedCommentary;
+      assert.equal(folded.outerOpen, true);
+      assert.equal(folded.groupsClosed, true);
+      assert.deepEqual(folded.commentaryTexts, ["检查上下文管理实现", "读取文件 agent/tools/history-read.ts"], "duplicate purposes collapse and missing purpose falls back to the real path");
+      assert.deepEqual(folded.commentaryVisible, [true, true]);
+    });
+
+    await t.test("工具目的保留在既有进度与正文之后，按空白归一化去重公开文本", () => {
+      const activity = result.activityTrace;
+      assert.deepEqual(activity.legacyDuplicateCommentary, [
+        "保留上下文检查进度 检查上下文管理实现 保留上下文检查正文",
+        "保留历史读取进度 保留历史读取正文 查看历史读取工具",
+      ]);
+      assert.deepEqual(activity.nativeDuplicateCommentary, [
+        "保留上下文检查进度 检查上下文管理实现",
+        "保留历史读取进度 保留历史读取正文 查看历史读取工具",
+      ]);
+      assert.deepEqual(activity.legacyDuplicateSequence, [
+        "保留上下文检查进度 检查上下文管理实现 保留上下文检查正文", "Read files, ran commands",
+        "保留历史读取进度 保留历史读取正文 查看历史读取工具", "Read files",
+      ]);
+      assert.deepEqual(activity.nativeDuplicateSequence, [
+        "保留上下文检查进度 检查上下文管理实现", "Read files, ran commands",
+        "保留历史读取进度 保留历史读取正文 查看历史读取工具", "Read files",
+      ]);
     });
 
     await t.test("工具行仅在宽度不足时省略，DOM 保留完整命令，工具组限制 320px 内部滚动", () => {
@@ -218,9 +250,11 @@ test("Electron 中的弹性滚动保持布局与动画连续", { timeout: 40_000
 
     await t.test("无工具回答的箭头实际展开过程，焦点与最终答案保留各自边界", () => {
       const progress = result.pureProgress;
-      for (const field of ["initiallyClosed", "closedFocusBlocked", "toggleFocusAllowed", "openedByClick", "openFocusAllowed", "progressInside", "finalOutside", "metadataOutside", "noTools", "noRawEvidence", "collapsedAgain"] as const) {
+      for (const field of ["initiallyClosed", "closedFocusBlocked", "toggleFocusAllowed", "openedByClick", "openFocusAllowed", "progressInside", "finalOutside", "metadataOutside", "noTools", "noPurposeText", "noRawEvidence", "collapsedAgain"] as const) {
         assert.equal(progress[field], true, field);
       }
+      assert.equal(progress.progressText, "先比较约束记录, 再整理中文结论.");
+      assert.equal(progress.finalText, "最终中文结论");
       assert.equal(progress.workedLabel, "Worked for 0.9s");
     });
 
@@ -259,10 +293,23 @@ test("Electron 中的弹性滚动保持布局与动画连续", { timeout: 40_000
       checkLifecycle("nextTurnOpened", { outerOpen: true, groupsOpen: [false, true], groupRows: [["first-read", "first-command", "pending-command"], ["second-read", "second-command"]] });
       checkLifecycle("secondPartiallyDone", { groupsOpen: [false, true], runningToolIds: ["second-command"] });
       checkLifecycle("secondAllDone", { outerOpen: true, groupsOpen: [false, false], runningToolIds: [] });
-      const flowTexts = ["先检查上下文管理实现", "然后检查历史读取逻辑", "接下来汇总核验结果", "最终中文结论"];
+      const flowTexts = ["先检查上下文管理实现 检查上下文管理实现", "然后检查历史读取逻辑 查看历史读取工具", "接下来汇总核验结果", "最终中文结论"];
       checkLifecycle("answerStreamingInFlow", { outerOpen: true, groupsOpen: [false, false], flowTexts, finalText: null });
       checkLifecycle("answerWaitingForRunCompleted", { outerOpen: true, groupsOpen: [false, false], flowTexts, finalText: null });
       checkLifecycle("runCompleted", { status: "completed", outerOpen: false, outerInert: true, groupsOpen: [false, false], flowTexts: flowTexts.slice(0, -1), finalText: "最终中文结论", finalOutside: true });
+    });
+
+    await t.test("实时工具批次手动或自动收起时，外层展开保留每回合目的", () => {
+      const firstCommentary = { commentaryTexts: ["先检查上下文管理实现 检查上下文管理实现"], commentaryVisible: [true] };
+      checkLifecycle("manualGroupClosed", { outerOpen: true, groupsOpen: [false], ...firstCommentary });
+      checkLifecycle("allToolsDone", { outerOpen: true, groupsOpen: [false], ...firstCommentary });
+      const bothCommentary = { commentaryTexts: ["先检查上下文管理实现 检查上下文管理实现", "然后检查历史读取逻辑 查看历史读取工具"], commentaryVisible: [true, true] };
+      checkLifecycle("secondAllDone", { outerOpen: true, groupsOpen: [false, false], ...bothCommentary });
+      checkLifecycle("doneManuallyReopened", {
+        outerOpen: true, groupsOpen: [true, false],
+        commentaryTexts: [...bothCommentary.commentaryTexts, "接下来汇总核验结果"],
+        commentaryVisible: [true, true, true],
+      });
     });
 
     await t.test("手动重开完成的折叠后，再次运行并完成会清除上一阶段的选择", () => {

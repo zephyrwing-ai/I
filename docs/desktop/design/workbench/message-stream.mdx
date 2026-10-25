@@ -119,16 +119,18 @@
 - 文字：使用 `--font-size-body` 的14px字号与24px行高，颜色沿用 `--text-reading`（浅色 #444444、深色 #EEEEEE），字距0.02em。
 - 间距：与前一条时间线消息保持28px阅读节奏；活动组、最终回答与消息元信息使用统一细节间距。
 - 呈现：模型消息块与 Composer 共用同一内容列宽度，文本行直接进入阅读流，与消息流左对齐；代码块、表格和其他 Markdown 结构在该列内展开。
-- 流式呈现：Renderer 以 `turnId` 接收原生正文和结构化模型状态，以 `toolCallId` 关联工具操作和结果；活动组聚合连续的多个模型 turn。每个 turn 的 `assistantContent` 先进入活动详情，再呈现同回合工具组；空工具集合对应连续文字段落。实时完成事件和历史恢复共同使用 assistant entry 的固定 `completedAt` 作为回答日期。
+- 流式呈现：Renderer 以 `turnId` 接收归一化正文和完整调用集合，以 `toolCallId` 关联工具操作和结果；活动组聚合连续的多个模型 turn。共享 commentary 投影为每个 turn 生成一条用户说明，随后呈现该回合的一个工具组；空工具回合直接使用公开正文形成段落。实时与历史共用固定 `completedAt` 作为回答日期。
 - 最终回答：运行成功完成时，`runCompleted.finalTurnId` 确认最终助手回复，投影将该 turn 的 `assistantContent` 移至折叠外下方，以普通模型消息呈现 Markdown、时间戳与复制交互；最终回合的旧 `progressContent` 继续归入活动折叠。活跃组在最终身份确认前保留全部原生正文于活动详情，已由应用 steer 结束的前组遵循任务回答边界规则。
 
-原生正文与兼容过程状态。
+统一 commentary 与来源字段。
 
-- 字段职责：`TurnState.assistantContent` 保存该 turn 的原生 `content`，工具回合与中间回合的正文承担公开过程说明，最终回答身份由 run 完成事实决定；原始 reasoning 保存在既有思考字段，`progressContent` 承载旧记录的独立过程说明。
+- 字段职责：Provider Adapter 将原始协议归一化为 `content`、`reasoning` 与 `toolCalls`，并映射可选原生阶段事实；Provider 分支集中在该层。`TurnState.assistantContent` 保存正文，`reasoningContent` 保存原始思考，`progressContent` 承载旧记录说明，`ToolCall.input.purpose` 保存各项动作目的。
 - 增量链路：Adapter 将原生 `content` 映射为 `text_delta`，Runtime 经既有正文回调与 IPC `assistantDelta` 更新对应 turn 的 `assistantContent`；原始思考沿独立事件进入思考字段。新响应直接使用原生正文与结构化工具调用。
 - 完成与恢复：`assistantCompleted` 以完整 `content` 对齐正文，历史投影从 `payload.content` 恢复同一状态；旧事件和旧 payload 中的可选 `progress` 继续恢复为 `progressContent`，两条读取链路汇入同一展示投影。
+- commentary 投影：`assistantActivity.ts` 为每个 turn 生成单一 `commentary` 字符串。投影先采用 `progressContent` 与仍处于活动区的 `content`，再按调用顺序追加去重后的 `purpose` 行；完整集合到达后，缺失正文的工具回合仍能显示动作说明。
+- 去重规则：投影把连续空白折叠为单个空格并修剪首尾空白，对完整行执行精确比较；重复行保留第一次出现的原文，语义相近的不同目的分别保留。数据库保存原始字段，不保存派生 commentary。
 - 回合定义：一个 turn 表达一次逻辑模型请求及其返回的完整工具批次；模型重试沿用相同 `turnId` 并递增 attempt，回合确认后按工具调用原顺序生成一个工具组。工具集合为空时，该 turn 保留公开文字区。
-- 生成与语言：系统提示词引导主模型按最新已应用用户输入的语言生成公开正文，Renderer 直接呈现返回的 `content`。原始 reasoning 保留其原文，职责为持久化、协议续轮与诊断；界面公开说明来自模型正文，语言约定见[模型请求](../../../agent/model-request.mdx)。
+- 生成与语言：主模型按最新已应用用户输入的语言填写工具 `purpose` 并生成公开正文，共享投影使用已有模型文本组织说明。目的缺失时，共享投影按关联输入的 zh/en 语言生成工具动作与实际目标说明；原始 reasoning 保留持久化、协议续轮与诊断职责，语言约定见[模型请求](../../../agent/model-request.mdx)。
 
 最终回答 Markdown 结构。
 
@@ -157,8 +159,10 @@
 - 锚点生命周期：ACK 先于排队中的 `turnStarted` 到达时，新 turn 仍捕获当时已应用的输入。`inputsApplied` 更新后续回合使用的边界，已有 turn 保持启动时捕获的锚点和稳定 blockId。
 - 迟到 ACK：`inputsApplied` 可以先在时间线中建立已应用的 `inputId` 顺序，后续 ACK 补齐同一输入的正文和时间。用户气泡与助手活动组沿用原有身份和顺序；实时投影与历史恢复通过同一个 MessageBlock 构造器建立分组。
 - 任务回答边界：已应用 steer 的下一活动组启动后，前组结束当前工作阶段，并可将组内最后一个已提交、工具集合为空的有效回答作为 `answerTurnId` 放在折叠外，沿用原 blockId 与搜索行为。该身份由输入锚点、回合状态和工具事实派生；活跃组继续等待运行完成确认最终回答，各已应用人类任务分别保留所属回答。
-- 折叠结构：外层沿用带箭头的活动折叠行；组内按 turn 的时间顺序呈现 `assistantContent → 该 turn 的一个工具组 → 下一 turn 的 assistantContent`。空工具集合使相邻回合的文字直接上下排列；旧 `progressContent` 保留在所属 turn 的文字区。最终身份确认后，该 turn 的 `assistantContent` 进入折叠外，先前回合继续留在活动详情。
-- 内容来源：公开说明直接使用各 turn 的原生 `content`，工具组与操作行由实际工具调用生成；原始 `reasoning` 保留在存储、AgentState 与 Provider 续轮数据中，字段原值服务模型协议与诊断职责。
+- 折叠结构：组内按 turn 顺序呈现一条 `commentary`、该回合的一个工具组、下一回合 commentary。commentary 以兼容 `progressContent` 和已有 `content` 为公开文本，本批 `purpose` 作为补充或空正文回退；空工具回合直接展示公开正文。最终身份确认后，该 turn 的回答正文进入折叠外，先前回合保留在活动详情。
+- 内容来源：原生响应的 commentary 以模型公开 `content` 为首段，兼容 `progress` 保留旧记录既有段前顺序；工具目的按原调用顺序补充动作意图。工具组标题与操作行由实际调用生成，原始 reasoning 保留数据与协议职责。
+- 目的去重：同一回合按空白归一化后的完整文字去重，保留第一次出现的目的原文；与已有公开正文、兼容过程正文或其中单行完全相同的目的复用已有展示。目的按换行连接为一个说明块，语义相近的不同原文分别保留，数据库字段保持原值。
+- 目的回退：缺失、空白或类型异常的 `purpose` 使用工具类别和实际路径、查询或实体生成对应语言的明确操作说明；命令类缺省目的使用“执行命令”等类别文字，完整命令保留在工具操作行。回退文字描述实际动作，结果结论沿用公开正文与工具结果。
 - 运行等待：当前活动组持续显示 `Working for` 工作指示并保持可展开；整组的首段公开说明或工具活动到达前，展开区显示等待状态，中文文案为“正在等待过程说明。”，英文文案为 `Waiting for a process explanation.`。已有过程说明与工具活动按顺序保留，首个可见活动到达后等待状态由真实内容接续。
 - 历史可见性：含中间正文、旧 `progress` 或工具活动的历史组生成活动折叠行；仅保存原始 reasoning 的中断组保持数据记录形态。回答按最终回合身份或已应用输入的任务回答边界进入折叠外；活动等待与内容可见性由公开正文和工具事实决定。
 - 身份待确认：活跃组的最终身份由成功运行的 `finalTurnId` 确认，历史由最终 Assistant entry 的持久化时长恢复该身份；身份待确认的记录继续在活动详情中呈现已有公开正文和工具事实。取消或失败终态按相同输入锚点规则保留前组已提交回答。
@@ -168,7 +172,7 @@
 - 活动行样式：最小高度26px，文字14px、行高22px、次要文字颜色，背景透明；文案与箭头间距8px。Chevron-right 为15×15px，收起指向右，展开后旋转90度向下，过渡180ms并沿用统一缓动。
 - 活动行交互：当前工作组依据既有 `run.status` 与 `isWorking` 默认展开，模型正文增量、工具执行和续轮期间持续沿用该默认值；成功 `runCompleted` 确认 `finalTurnId` 时默认收起，并将最终正文放到折叠外。已应用 steer 启动下一组时，前组采用工作结束后的收起默认值；取消、失败和已完成历史采用结算后的收起默认值。折叠箭头始终可见，悬停保持图标与文字原有颜色和笔重，行背景透明；点击与键盘操作控制展开，箭头旋转过渡180ms，展开高度过渡200ms、透明度过渡180ms。
 - 状态归属：展示投影复用 `run.status`、`isWorking`、`finalTurnId`、`turn.status` 和 `tool.status` 派生正文位置与默认展开值；文本增量更新所属 turn 的正文，生命周期事件更新运行与执行事实。React 保存当前工作或结算阶段的本地手动覆盖，同一阶段沿用用户选择，阶段变化后重置为对应默认值；持久化保存模型与执行事实。
-- 公开过程说明：各 turn 的原生 `assistantContent` 按流式增量直接呈现，使用14px、行高24px和次要文字颜色；段落间距8px，与相邻工具组间距6px。内容使用 `MarkdownText`，单次换行保留为 `<br>`；旧 `progressContent` 兼容使用同一排版。
+- commentary 排版：每个 turn 只渲染一个 `work-commentary-text` Markdown 块，公开正文与目的段之间保留空行，正文大小、行高和次要文字颜色沿用过程文字样式；单次换行继续由 `MarkdownText` 保留，commentary 与相邻工具组间距6px。
 - 工具组折叠：每个 turn 的完整调用集合形成一个工具组，标题按实际工具类别汇总为固定英文，如 `Read files`、`Ran commands`、`Read files, ran commands`。等待执行与执行中的调用共用 `running` 状态，调用集合在完整 Assistant 消息到达时建立；所属 run 与 turn 处于运行态，且该 turn 任一工具为 `running` 时默认展开。全部工具 `completed`、turn 终态或 run 终态时默认收起；组身份为 `runId + turnId`，组内按原调用顺序显示各工具行。
 - 组内工具行：每行包含折叠箭头、16×16px语义图标与实际操作文本，最小行高26px、行间距0。读取按实际 `path` 生成 `Read <path>`，命令按实际 `command` 生成 `Ran <command>`，其他调用按工具类别与实际目标生成标签；`purpose`、`targets` 保留在调用参数和展开详情中。字体为 PingFang SC regular 400、14px、行高22px、次要文字颜色。
 - 行宽省略：工具行标题采用 `white-space: nowrap`、`overflow: hidden` 和 `text-overflow: ellipsis`，布局容器允许文本区域收缩；完整标签按原文保留，省略号随消息流实际可用宽度溢出而出现，字符长度由 CSS 布局决定。
@@ -183,7 +187,7 @@
 活动展示与执行数据。
 
 - 分组职责：`messageBlocks.ts` 从统一 AgentState 确定已应用输入锚点、稳定 blockId、组内 turn、回答身份与计时归属，消息渲染与搜索共同消费同一消息块序列。
-- 投影职责：`assistantActivity.ts` 按 turn 生成公开文字、兼容过程字段、工具活动和批次运行状态；`toolActivity.ts` 从工具实际参数生成完整操作标签与去重后的类别标题，并引用原 ToolState 提供详情。
+- 投影职责：`toolActivity.ts` 从调用参数生成 `purpose`、实际操作标签与类别，引用原 ToolState 提供详情；`assistantActivity.ts` 按 turn 生成单一 commentary 与批次运行状态。实时与历史共同调用这组规则，Provider 差异停留在 Adapter，commentary 语义在共享层保持统一。
 - 组件职责：`AssistantMessage.tsx` 消费投影，按阶段默认值与用户选择控制外层活动组和内层工具组，单条工具行独立展开输入与结果，CSS 负责排版、限高滚动与按宽度省略。实时事件与历史恢复共同使用这组投影与组件职责。
 - 数据归属：原生正文、命令、原始 input JSON、完整工具输出与错误详情保存在执行、模型上下文和项目历史数据中，工具行展开时按需呈现详情；原始 reasoning 保留在数据层并用于 DeepSeek 工具续轮所需的协议回放。
 - 恢复兼容：`runId`、`turnId`、`toolCallId` 与已应用输入锚点持续关联正文、调用与结果。Assistant JSON payload 按保存值兼容读取 `progress`，`ToolCall.input` 保存 `purpose`、`targets` 与实际操作参数；原生响应通过 content 与 toolCalls 交付公开内容，存储结构沿用既有消息表。

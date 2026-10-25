@@ -109,7 +109,7 @@ async function verifySettingsNavigation(window) {
   assert.equal(page.backRegion, "no-drag");
   assert.ok(page.backTop >= page.dragBottom);
   assert.equal(page.bodyFont, page.backFont);
-  assert.equal(page.backRadius, "12px");
+  assert.equal(page.backRadius, "14px");
   assert.ok(page.frameRetained);
 
   const verifyGeneralLayout = async () => {
@@ -147,7 +147,7 @@ async function verifySettingsNavigation(window) {
     assert.ok(layout.rowWidths.every(width => width === layout.listInnerWidth));
     assert.ok(layout.rowHeights.every(height => height === 48), JSON.stringify(layout));
     assert.deepEqual(layout.listBorders, ["0px", "0px", "0px", "0px"]);
-    assert.deepEqual(layout.rowDividers, ["0px", "1px"]);
+    assert.deepEqual(layout.rowDividers, ["0px", "1px", "1px"]);
     assert.equal(layout.dragHeight, layout.top);
     assert.ok(layout.dragBottom <= layout.titleTop);
     assert.equal(layout.dragRegion, "drag");
@@ -307,7 +307,7 @@ async function verifySettingsNavigation(window) {
     assert.deepEqual(window.getBounds(), bounds);
   };
 
-  const preferencesBeforeDismissal = await evaluate("localStorage.getItem('workbench.uiPreferences')");
+  const preferencesBeforeDismissal = await evaluate("window.agentAPI.getUiPreferences()");
   const dropdownBounds = window.getBounds();
   await openSelect("settings-appearance");
   await press("Escape");
@@ -321,7 +321,7 @@ async function verifySettingsNavigation(window) {
   await openSelect("settings-language");
   await press("Tab", ["shift"]);
   await waitForClosed("settings-language", "settings-appearance");
-  assert.equal(await evaluate("localStorage.getItem('workbench.uiPreferences')"), preferencesBeforeDismissal);
+  assert.deepEqual(await evaluate("window.agentAPI.getUiPreferences()"), preferencesBeforeDismissal);
 
   // Keyboard navigation changes the active option; Enter commits it while focus stays on the trigger.
   await press("Down");
@@ -335,13 +335,13 @@ async function verifySettingsNavigation(window) {
   await press("Down");
   await press("Enter");
   await waitForClosed("settings-appearance");
-  await waitFor("document.documentElement.dataset.theme === 'light' && JSON.parse(localStorage.getItem('workbench.uiPreferences')).appearance === 'light'");
+  await waitFor("document.documentElement.dataset.theme === 'light' && (await window.agentAPI.getUiPreferences()).appearance === 'light'");
   await press("Space");
   await waitFor("document.getElementById('settings-appearance').getAttribute('aria-expanded') === 'true' && document.getElementById('settings-appearance-listbox')");
   await press("Home");
   await press("Space");
   await waitForClosed("settings-appearance");
-  await waitFor("document.documentElement.dataset.theme === 'dark' && JSON.parse(localStorage.getItem('workbench.uiPreferences')).appearance === 'system'");
+  await waitFor("document.documentElement.dataset.theme === 'dark' && (await window.agentAPI.getUiPreferences()).appearance === 'system'");
   window.setContentSize(840, initialContentSize[1]);
   await waitFor("innerWidth === 840");
   await painted();
@@ -368,7 +368,7 @@ async function verifySettingsNavigation(window) {
   await waitFor("!matchMedia('(prefers-color-scheme: dark)').matches");
   await select("settings-appearance", "dark");
   await waitFor("document.documentElement.dataset.theme === 'dark'");
-  await waitFor("JSON.parse(localStorage.getItem('workbench.uiPreferences')).appearance === 'dark' && JSON.parse(localStorage.getItem('workbench.uiPreferences')).language === 'zh-CN'");
+  await waitFor("(await window.agentAPI.getUiPreferences()).appearance === 'dark' && (await window.agentAPI.getUiPreferences()).language === 'zh-CN'");
 
   const bounds = window.getBounds();
   await click(".settings-page-back");

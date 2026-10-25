@@ -41,7 +41,7 @@
 .run-work.is-open .run-work-detail { grid-template-rows: 1fr; opacity: 1; }
 .run-work-clip { min-height: 0; overflow: hidden; }
 .run-work-turn + .run-work-turn { margin-top: 6px; }
-.work-progress-text, .work-intermediate-text { margin-top: 6px; color: var(--text-secondary); font-size: var(--font-size-body); line-height: calc(24px + var(--ui-font-offset)); word-break: break-word; }
+.work-commentary-text { margin-top: 6px; color: var(--text-secondary); font-size: var(--font-size-body); line-height: calc(24px + var(--ui-font-offset)); word-break: break-word; }
 .work-status { margin: 6px 0 0; color: var(--text-muted); font-size: var(--font-size-meta); line-height: calc(22px + var(--ui-font-offset)); }
 .run-work + .model-text,
 .run-work-label + .model-text { margin-top: 8px; }

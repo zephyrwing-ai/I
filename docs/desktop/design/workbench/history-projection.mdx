@@ -21,8 +21,8 @@
 - 任务边界：下一已应用 steer 组启动后，前组沿用最后一个已提交、工具集合为空的有效回答作为折叠外正文；历史按 completed 用户 entry 与 turn 锚点重建相同任务边界。前组回答沿用原 blockId 与搜索身份，活跃组正文继续等待最终回合确认，状态依据复用既有输入和回合事实。
 - 兼容形态：历史读取沿用既有 JSON payload 与可选字段校验，旧 `progress` 按保存值参与回合文字区，字段省略时使用原生 `content` 与工具事实。原始 reasoning 保留持久化、诊断与 DeepSeek 工具续轮回放职责。
 - 尝试恢复：同一 turn 的助手 entries 按 `entryOrder` 恢复，最新 attempt 的过程、正文、原始思考与状态替换该 turn 的投影；最后一条助手记录完成且携带运行总时长时，run 以成功终态呈现，较早的中断尝试继续保存在原始历史中。
-- 展示共用：历史恢复与实时 Reducer 汇入同一 AgentState，活动展示投影按 turn 生成文字区、一个工具组与操作行；相邻空工具回合呈现上下相接的文字。React 负责折叠与排版；已完成无工具回答的活动文字区为空、原始 reasoning 已保存时，可展开查看[消息流](./message-stream.mdx)定义的推理保存提示，公开正文在折叠外呈现，原始 reasoning 保持数据职责。
-- 模块职责：`messageBlocks.ts` 确定活动组、稳定 blockId、回答身份与计时归属；`assistantActivity.ts` 生成所属 turn 的公开文字、兼容过程字段及工具组运行状态；`toolActivity.ts` 根据实际参数生成工具标签与类别标题。React 使用同一投影实现折叠、详情与布局，两层职责共同服务实时和历史数据。
+- 展示共用：历史恢复与实时 Reducer 汇入同一 AgentState，共享 commentary 投影按 turn 生成一条说明、一个工具组与操作行；相邻空工具回合形成连续 commentary。React 负责折叠与排版；已完成无工具回答的活动正文为空、原始 reasoning 已保存时，可展开查看[消息流](./message-stream.mdx)定义的推理保存提示。
+- 模块职责：`messageBlocks.ts` 确定活动组、稳定 blockId、回答身份与计时归属；`assistantActivity.ts` 生成所属 turn 的 commentary 及工具组运行状态；`toolActivity.ts` 根据实际参数生成工具标签与类别标题。Provider 特有字段停留在 Adapter，React 使用同一共享投影实现折叠、详情与布局。
 - 折叠依据：既有 `run.status`、`isWorking`、`finalTurnId`、`turn.status` 与 `tool.status` 提供默认展开依据，Renderer 本地手动覆盖在当前工作或结算阶段内生效，阶段变化重置默认值。已结算历史采用收起默认值，实时与历史共用[消息流](./message-stream.mdx)定义的交互规则。
 
 工具结果投影。
@@ -30,7 +30,8 @@
 - 结果关联：Main 对当前页的 `tool_result` entry 批量关联 `tool_invocations.outcome_json`。关联使用预留的 `resultEntryId`，并同时核对项目、run、turn 与 toolCall 身份；每页使用一次关联查询取得已有结构化结果。
 - 公共字段：实时事件与历史页共用公共 ToolResult 转换，提供 `ok`、原始 `output`、`returncode`、`truncated` 和 `error`。`HistoryPageEntry.toolResult` 承载该投影，Renderer 优先使用它恢复工具展示。模型消息继续通过 `payload` 保存并参与模型上下文；历史展示与实时展示共享相同的结果字段。
 - 结果校验：Main 在读取边界校验 outcome 的字段类型，结构损坏形成历史存储错误。工具的 checkpoint、内部完整输出文件位置和产物登记信息归属 Main。既有文本历史条目通过消息内容恢复工具结果状态。
-- 活动字段：Assistant payload 的 `toolCalls[].input` 保留实际操作参数及旧 `purpose`、`targets`；实时与历史共用工具投影，读取按 `path` 生成 `Read <path>`，命令按 `command` 生成 `Ran <command>`，工具组标题按实际类别汇总，如 `Read files, ran commands`。完整参数与结果保留在 ToolState，单行详情展开时惰性挂载；标题的单行省略由 CSS 可用宽度决定，布局与折叠契约见[消息流](./message-stream.mdx)。
+- 活动字段：Assistant payload 的 `toolCalls[].input` 保留 `purpose`、`targets` 与实际操作参数，实时和历史投影均从 ToolState 提取目的、标签与状态。共享 commentary 以公开正文为第一段，各调用目的按顺序去重后补充；正文为空的工具回合依然呈现动作说明。
+- 工具呈现：读取按 `path` 生成 `Read <path>`，命令按 `command` 生成 `Ran <command>`，工具组标题按实际类别汇总。目的缺失时根据语言、工具类别与实际目标回退；完整参数与结果保留在 ToolState，详情按展开状态惰性挂载，标题省略由 CSS 宽度决定，具体规则见[消息流](./message-stream.mdx)。
 
 运行中输入投影。
 

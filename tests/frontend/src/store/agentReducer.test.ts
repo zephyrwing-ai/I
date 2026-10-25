@@ -25,7 +25,7 @@ test("native content keeps its activity identity through tool batches until the 
   apply({ type: "turnStarted", turnId: "read", turnOrdinal: 1 });
   apply({ type: "assistantDelta", turnId: "read", delta: "先检查实现" });
   assert.equal(group().text, undefined);
-  assert.equal(activity().turns[0].text, "先检查实现");
+  assert.equal(activity().turns[0].commentary, "先检查实现");
   apply({ type: "assistantCompleted", turnId: "read", content: "先检查实现", stopReason: "tool_use", completedAt: 2_000,
     toolCalls: ["a", "b"].map((id) => ({ id, name: "read", input: { path: `${id}.ts` }, inputComplete: true })) });
   assert.equal(activity().turns[0].toolsRunning, true);
@@ -37,14 +37,14 @@ test("native content keeps its activity identity through tool batches until the 
   apply({ type: "turnCompleted", turnId: "read" });
   apply({ type: "turnStarted", turnId: "answer", turnOrdinal: 2 });
   apply({ type: "assistantDelta", turnId: "answer", delta: "这是结论" });
-  assert.deepEqual(activity().turns.map((turn) => turn.text), ["先检查实现", "这是结论"]);
+  assert.deepEqual(activity().turns.map((turn) => turn.commentary), ["先检查实现\n\n读取文件 a.ts\n\n读取文件 b.ts", "这是结论"]);
   assert.equal(group().text, undefined);
   apply({ type: "assistantCompleted", turnId: "answer", content: "这是结论", stopReason: "stop", toolCalls: [], completedAt: 3_000 });
   apply({ type: "turnCompleted", turnId: "answer" });
   assert.equal(group().text, undefined, "model stop still awaits the runtime steering boundary");
   apply({ type: "runCompleted", status: "completed", finalTurnId: "answer", finalDurationMs: 2_000, turnCount: 2 });
   assert.equal(group().text, "这是结论");
-  assert.deepEqual(activity().turns.map((turn) => turn.text), ["先检查实现", ""]);
+  assert.deepEqual(activity().turns.map((turn) => turn.commentary), ["先检查实现\n\n读取文件 a.ts\n\n读取文件 b.ts", ""]);
 });
 
 function outputFile(

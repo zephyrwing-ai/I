@@ -32,6 +32,9 @@ test("SettingsPage exposes Back and separate General, Providers, Usage, and TTS 
   assert.match(html, /<span>TTS<\/span>/);
   assert.match(html, /aria-current="page"[^>]*>.*General/s);
   assert.match(html, /<h1 id="settings-general-title">General<\/h1>/);
+  assert.match(html, /<span id="settings-document-parser-label">Document parsing<\/span>/);
+  assert.match(html, /<span>Built-in<\/span>/);
+  assert.doesNotMatch(html, />Download</);
   assert.doesNotMatch(html, /class="provider-list"/);
 });
 

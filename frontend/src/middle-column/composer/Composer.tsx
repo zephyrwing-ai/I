@@ -7,6 +7,8 @@ import { isSendKey } from "./sendKey";
 import { useVoiceInput } from "./useVoiceInput";
 import { VoiceWaveform } from "./VoiceWaveform";
 import { appendVoiceTranscript, voiceButtonLabel } from "./voice";
+import { AttachmentCards } from "./upload-files/AttachmentCards";
+import { useUploadFiles } from "./upload-files/useUploadFiles";
 import "./Composer.css";
 
 const MODEL_OPTION_STORAGE_KEY = "workbench.modelOptionId";
@@ -51,6 +53,7 @@ interface ComposerProps {
   onSteer?: (req: SteerRequest) => Promise<boolean>;
   onStop: () => void;
   project?: ProjectDescriptor;
+  onAttachmentsChange?: (projectId: string | null, attachments: InputAttachmentDescriptor[]) => void;
   canvasContexts?: CanvasContextDescriptor[];
   onRemoveCanvasContext?: (contextId: string) => void;
   onClearCanvasContexts?: (contextIds: string[]) => void;
@@ -83,7 +86,7 @@ export function parseStoredModelPickerPreference(serialized: string | null, lega
 }
 
 /** 对话框列：输入框 + 附件 + 模型选择 + 发送/停止。位于中间列（Column）的 auto 行。 */
-export function Composer({ running, stopping, activeRunId = null, restoreDraft = null, ready = true, modelOptions, modelLoading, onRun, onSteer, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
+export function Composer({ running, stopping, activeRunId = null, restoreDraft = null, ready = true, modelOptions, modelLoading, onRun, onSteer, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, onAttachmentsChange, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
   const t = useI18n();
   const [task, setTask] = useState("");
   const taskRevision = useRef(0);
@@ -91,7 +94,6 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
     taskRevision.current += 1;
     setTask(next);
   }, []);
-  const [attachments, setAttachments] = useState<InputAttachmentDescriptor[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [narrowModelMenu, setNarrowModelMenu] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 700px)").matches);
   const { selectedModelOptionId, selectModel, storedPreference } = useSelectedModelOption(modelOptions, modelLoading);
@@ -122,16 +124,6 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
   const hasText = task.trim() !== "";
   const action = selectComposerAction({ running, stopping, submitting, activeRunId, hasText });
   const stopAction = action === "stop" || action === "stopping";
-  const canSubmit = ready && hasText && (action === "start"
-    ? Boolean(selectedModel?.available)
-    : action === "steer" && Boolean(onSteer));
-  const disabledReason = !hasText
-    ? "Enter a task"
-    : action === "stopping" ? "Stopping run"
-    : action === "starting" ? "Starting run"
-    : action === "start" && !selectedModel?.available
-      ? "Choose an available model"
-      : null;
 
   useEffect(() => {
     if (!restoreDraft) return;
@@ -182,23 +174,12 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
     return () => window.clearTimeout(timer);
   }, [animateModelWidth]);
 
-  const pickAttachments = async (): Promise<void> => {
-    if (!window.agentAPI || typeof window.agentAPI.selectAttachments !== "function") return;
-    const selected = await window.agentAPI.selectAttachments();
-    if (!selected.length) return;
-    setAttachments((current) => {
-      const byId = new Map(current.map((attachment) => [attachment.attachmentId, attachment]));
-      for (const attachment of selected) byId.set(attachment.attachmentId, attachment);
-      return [...byId.values()];
-    });
-  };
-
   const submit = async (source: "button" | "keyboard"): Promise<void> => {
-    if (!canSubmit || voiceBusy) return;
+    if (!canSubmit || voiceBusy || uploads.hasPendingUpload()) return;
     const restoreInputFocus = source === "button" || document.activeElement === taskInputRef.current;
     const submittedTask = task.trim();
     const submittedRevision = taskRevision.current;
-    const submittedAttachmentIds = attachments.map((attachment) => attachment.attachmentId);
+    const submittedAttachmentIds = uploads.attachments.map((attachment) => attachment.attachmentId);
     const submittedCanvasContextIds = canvasContexts.map((context) => context.contextId);
     setSubmitting(true);
     try {
@@ -221,8 +202,7 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
         }
       }
       if (!running) {
-        const consumed = new Set(submittedAttachmentIds);
-        setAttachments((current) => current.filter((attachment) => !consumed.has(attachment.attachmentId)));
+        uploads.removeAttachments(submittedAttachmentIds);
         onClearCanvasContexts?.(submittedCanvasContextIds);
       }
       if (restoreInputFocus) requestAnimationFrame(() => {
@@ -269,27 +249,30 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
     },
   });
   const voiceBusy = voice.state.phase !== "idle";
+  const uploads = useUploadFiles({ scopeKey: project.projectId, disabled: running || stopping || submitting || !ready || voiceBusy });
+  useEffect(() => onAttachmentsChange?.(project.projectId, uploads.attachments), [onAttachmentsChange, project.projectId, uploads.attachments]);
+  const hasAttachments = uploads.attachments.length > 0;
+  const canSubmit = ready && !uploads.busy && (action === "start"
+    ? (hasText || hasAttachments) && Boolean(selectedModel?.available)
+    : action === "steer" && hasText && Boolean(onSteer));
+  const disabledReason = uploads.busy ? null
+    : !hasText && !hasAttachments ? "Enter a task"
+    : action === "stopping" ? "Stopping run"
+    : action === "starting" ? "Starting run"
+    : action === "start" && !selectedModel?.available ? "Choose an available model"
+    : null;
   const voiceDisabled = !ready || submitting || (running && voice.state.phase === "idle");
   const submitDisabled = stopAction ? stopping : !canSubmit || voiceBusy;
-  const sendTitle = stopAction
+  const sendTitle = uploads.busy ? "Send"
+    : stopAction
     ? (stopping ? "Stopping" : "Stop run")
     : ready ? (disabledReason ?? "Send")
     : "Loading history";
 
   return (
     <footer className="composer">
-      <div className="composer-shell">
-        {attachments.length > 0 && (
-          <div className="composer-attachments" aria-label={t("Attachments")}>
-            {attachments.map((attachment) => (
-              <div className="composer-attachment" key={attachment.attachmentId}>
-                <span className="attachment-icon"><Icon name={attachment.mediaType.startsWith("image/") ? "image" : "book-open"} width="15" height="15" /></span>
-                <span className="attachment-info"><strong>{attachment.name}</strong><small>{formatBytes(attachment.byteSize)}</small></span>
-          <button type="button" onClick={() => setAttachments((current) => current.filter((candidate) => candidate.attachmentId !== attachment.attachmentId))} disabled={running || !ready} aria-label={t("Remove attachment {name}", { name: attachment.name })} title={t("Remove attachment")}><Icon name="close" width="14" height="14" /></button>
-              </div>
-            ))}
-          </div>
-        )}
+      <div className={`composer-shell${uploads.dragging ? " is-file-dragging" : ""}`} data-drop-label={t("Drop files to attach")} {...uploads.dropHandlers}>
+        <AttachmentCards attachments={uploads.attachments} onRemove={uploads.removeAttachment} disabled={uploads.disabled} />
         {canvasContexts.length > 0 && (
           <div className="composer-canvas-contexts" aria-label={t("Canvas references")}>
             {canvasContexts.map((context) => (
@@ -341,7 +324,7 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
           ) : (
             <>
               <div className="composer-left">
-                <button type="button" className="composer-icon-button" onClick={() => void pickAttachments()} disabled={running || !ready} aria-label={t("Upload files")} title={t("Upload files")}><Icon name="plus" width="18" height="18" /></button>
+                <button type="button" className="composer-icon-button" onClick={() => void uploads.pickFiles()} disabled={uploads.disabled} aria-busy={uploads.busy || undefined} aria-label={t("Upload files")} title={t("Upload files")}><Icon name="plus" width="18" height="18" /></button>
                 <button
                   type="button"
                   className={`composer-icon-button composer-voice-button ${voice.state.phase !== "idle" ? "is-active" : ""}`}
@@ -391,13 +374,19 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
             </>
           )}
         </div>
+        {uploads.errors.length > 0 && (
+          <div className="upload-files-errors" role="status">
+            <ul>{uploads.errors.map((error, index) => <li key={index}>{error.name && `${error.name}: `}{t(error.message)}</li>)}</ul>
+            <button type="button" onClick={uploads.dismissErrors} aria-label={t("Dismiss upload errors")} title={t("Dismiss")}><Icon name="close" width={12} height={12} /></button>
+          </div>
+        )}
         {voice.state.error && (
           <div className="composer-voice-error" role="status">
             <span>{t(voice.state.error)}</span>
             <button type="button" onClick={voice.dismissError} aria-label={t("Dismiss voice input error")} title={t("Dismiss")}><Icon name="close" width="12" height="12" /></button>
           </div>
         )}
-        {disabledReason && task.trim() && <span className="composer-hint" role="status">{t(disabledReason)}</span>}
+        {disabledReason && !uploads.busy && (hasText || hasAttachments) && <span className="composer-hint" role="status">{t(disabledReason)}</span>}
       </div>
     </footer>
   );
@@ -450,10 +439,4 @@ function persistModelPickerPreference(preference: StoredModelPickerPreference): 
   } catch {
     // 本地偏好不可写时，Composer 保持本次 Renderer 生命周期内的选择和名称。
   }
-}
-
-function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }

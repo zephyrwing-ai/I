@@ -106,11 +106,10 @@ export function AssistantMessage({
           <div className="run-work-detail" aria-hidden={!open} {...(!open ? { inert: "" } : {})}>
             <div className="run-work-clip">
               {activityTurns.map((turn) => {
-                if (!turn.progress.trim() && !turn.text.trim() && turn.tools.length === 0) return null;
+                if (!turn.commentary && turn.tools.length === 0) return null;
                 return (
                   <div className="run-work-turn" key={turn.turnId}>
-                    {turn.progress.trim() && <MarkdownText className="work-progress-text" text={turn.progress} />}
-                    {turn.text && <MarkdownText className="work-intermediate-text" text={turn.text} />}
+                    {turn.commentary && <MarkdownText className="work-commentary-text" text={turn.commentary} />}
                     {turn.tools.length > 0 && <TurnActionFold activities={turn.tools} running={turn.toolsRunning} />}
                   </div>
                 );

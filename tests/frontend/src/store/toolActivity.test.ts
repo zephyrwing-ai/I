@@ -69,6 +69,20 @@ test("expanded details keep the exact tool reference and full input and result",
   assert.equal(projectToolActivity(call).failureLabel, "Failed");
 });
 
+test("trace purposes prefer the declared intent and fall back to localized operational facts", () => {
+  const declared = { path: "actual.ts", purpose: "\n 检查上下文\n边界 \t", targets: ["invented.ts"] };
+  const activity = projectToolActivity(tool("read", declared), "zh");
+  assert.equal(activity.purpose, "检查上下文 边界");
+  assert.strictEqual(activity.tool.input, declared);
+  for (const purpose of [undefined, null, false, {}, [], "\n "]) {
+    assert.equal(projectToolActivity(tool("read", { path: "actual.ts", purpose, targets: ["invented.ts"] }), "zh").purpose, "读取文件 actual.ts");
+    assert.equal(projectToolActivity(tool("read", { path: "actual.ts", purpose }), "en").purpose, "Read file actual.ts");
+  }
+  assert.equal(projectToolActivity(tool("bash", { command: "long operational command" }), "zh").purpose, "执行命令");
+  assert.equal(projectToolActivity(tool("write", { path: "new.ts" }), "zh").purpose, "写入文件 new.ts");
+  assert.equal(projectToolActivity(tool("search_content", { text: "context", path: "agent" }), "zh").purpose, "搜索文件 context");
+});
+
 test("running and successful snapshots expose their current status without a failure", () => {
   const running = tool("read", { path: "config.ts" });
   const completed = { ...running, status: "completed" as const, result: { ok: true, output: "{}", returncode: 0, truncated: false } };

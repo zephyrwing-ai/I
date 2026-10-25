@@ -6,7 +6,7 @@ import test from "node:test";
 import { OutputFileRegistry } from "../../../shell/main/output-files.js";
 
 test("OutputFileRegistry registers created files and previews updates by opaque id", async () => {
-  const temporary = await mkdtemp(join(tmpdir(), "agent-studio-output-"));
+  const temporary = await mkdtemp(join(tmpdir(), "i-output-"));
   const directory = await realpath(temporary);
   try {
     const path = join(directory, "result.md");

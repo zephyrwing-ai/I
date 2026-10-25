@@ -9,51 +9,51 @@ function renderTopBar(patch: Partial<Parameters<typeof TopBar>[0]> = {}): string
     projectMode: true,
     projectsOpen: false,
     onProjects: () => undefined,
-    outputOpen: false,
-    outputCount: 0,
+    sidebarOpen: false,
     searchOpen: false,
     searchButtonRef: createRef<HTMLButtonElement>(),
-    onOutput: () => undefined,
+    onSidebar: () => undefined,
     onSearch: () => undefined,
     ...patch,
   }));
 }
 
-test("TopBar keeps the project toggle visible alongside the three workbench actions", () => {
+test("TopBar keeps the project toggle visible alongside the two workbench actions", () => {
   const html = renderTopBar();
 
   assert.match(html, /<h1 class="sr-only">I<\/h1>/);
-  assert.equal(html.match(/<button/g)?.length, 4);
+  assert.equal(html.match(/<button/g)?.length, 3);
   assert.match(html, /id="projects-sidebar-toggle"[^>]*aria-label="Show projects"[^>]*aria-expanded="false"[^>]*aria-controls="projects-panel"/);
-  assert.match(html, /aria-label="Show output files"[^>]*aria-expanded="false"[^>]*aria-controls="right-sidebar"/);
+  assert.match(html, /title="Show sidebar" aria-label="Show sidebar"[^>]*aria-expanded="false"[^>]*aria-controls="right-sidebar"/);
   assert.match(html, /d="M16 6v12"/);
-  assert.match(html, /aria-label="Show canvas"[^>]*aria-expanded="false"[^>]*aria-controls="right-sidebar"/);
   assert.match(html, /aria-label="Search all content"[^>]*aria-expanded="false"[^>]*aria-controls="search-popover"/);
+  assert.doesNotMatch(html, /icon-badge|Show canvas|Hide canvas/);
 });
 
 test("TopBar leaves the expanded project toggle to the project header", () => {
   const html = renderTopBar({ projectsOpen: true });
-  assert.equal(html.match(/<button/g)?.length, 3);
+  assert.equal(html.match(/<button/g)?.length, 2);
   assert.doesNotMatch(html, /id="projects-sidebar-toggle"/);
 });
 
-test("TopBar reflects open panels and hides the output badge while the sidebar is visible", () => {
-  const html = renderTopBar({
-    outputOpen: true,
-    outputCount: 4,
-    searchOpen: true,
-  });
+for (const sidebarOpen of [false, true]) {
+  for (const searchOpen of [false, true]) {
+    test(`TopBar reflects sidebarOpen=${sidebarOpen} and searchOpen=${searchOpen} independently`, () => {
+      const html = renderTopBar({ projectsOpen: true, sidebarOpen, searchOpen });
+      const buttons = html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g) ?? [];
+      assert.equal(buttons.length, 2);
+      const [sidebarButton, searchButton] = buttons;
 
-  assert.match(html, /class="icon-button active"[^>]*aria-label="Hide output files"[^>]*aria-expanded="true"/);
-  assert.match(html, /d="M15 3v18"/);
-  assert.equal(html.match(/class="icon-button active"/g)?.length, 2);
-  assert.doesNotMatch(html, /class="icon-badge"/);
-});
-
-test("TopBar reports a bounded output count only when the sidebar is closed", () => {
-  const exactCount = renderTopBar({ outputCount: 7 });
-  const boundedCount = renderTopBar({ outputCount: 12 });
-
-  assert.match(exactCount, /<span class="icon-badge">7<\/span>/);
-  assert.match(boundedCount, /<span class="icon-badge">9\+<\/span>/);
-});
+      assert.match(sidebarButton, new RegExp(`class="icon-button ${sidebarOpen ? "active" : ""}"`));
+      assert.match(sidebarButton, new RegExp(`title="${sidebarOpen ? "Hide" : "Show"} sidebar" aria-label="${sidebarOpen ? "Hide" : "Show"} sidebar" aria-expanded="${sidebarOpen}" aria-controls="right-sidebar"`));
+      const sidebarIcon = sidebarButton.match(/<svg\b[^>]*>/)?.[0] ?? "";
+      assert.match(sidebarIcon, /\bwidth="18"/);
+      assert.match(sidebarIcon, /\bheight="18"/);
+      assert.match(sidebarIcon, /\bstroke-width="2"/);
+      assert.match(sidebarButton, sidebarOpen ? /d="M15 3v18"/ : /d="M16 6v12"/);
+      assert.match(searchButton, new RegExp(`class="icon-button ${searchOpen ? "active" : ""}"`));
+      assert.match(searchButton, new RegExp(`aria-label="Search all content" aria-expanded="${searchOpen}" aria-controls="search-popover"`));
+      assert.doesNotMatch(html, /icon-badge|Show canvas|Hide canvas/);
+    });
+  }
+}

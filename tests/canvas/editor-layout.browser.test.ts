@@ -55,9 +55,9 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
       define: { "process.env.IS_PREACT": "false" },
       resolve: {
         alias: {
-          "@agent-studio/canvas-editor": join(repository, "canvas/engine/editor"),
-          "@agent-studio/canvas-utils": join(repository, "canvas/engine/utils"),
-          "@agent-studio/canvas-math": join(repository, "canvas/engine/math"),
+          "@i/canvas-editor": join(repository, "canvas/engine/editor"),
+          "@i/canvas-utils": join(repository, "canvas/engine/utils"),
+          "@i/canvas-math": join(repository, "canvas/engine/math"),
         },
       },
       css: { preprocessorOptions: { scss: { quietDeps: true, silenceDeprecations: ["import"] } } },

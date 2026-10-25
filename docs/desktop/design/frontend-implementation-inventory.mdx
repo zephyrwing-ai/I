@@ -43,20 +43,19 @@
 双侧栏与宽度交互。
 
 - 项目列尺寸：默认 240px、最小 180px，向左侧缩小到 132px 时进入待收起状态，松开后关闭；拖动使用 requestAnimationFrame 节流，拖动期间宽度动画停止（`frontend/src/workbench/project/projectSidebarState.ts`、`frontend/src/shared/sidebar/useResizableSidebar.ts:88`）。
-- 右侧栏尺寸：默认 360px、最小 280px，可用最大宽度为局部空间减去 360px 消息主列；同一个共享 hook 提供左右方向对应的拖动计算（`frontend/src/workbench/output/outputSidebarState.ts:3`、`frontend/src/shared/sidebar/useResizableSidebar.ts:98`）。
-- 侧栏拖拽热区：可见边界 1px，实际热区 8px；悬停、键盘聚焦和待收起状态把边界强调为 2px（`frontend/src/workbench/project/ProjectsPanel.css:5`、`frontend/src/styles.css:278`）。
+- 右侧栏尺寸：默认 360px、最小 280px，可用最大宽度为局部空间减去 360px 消息主列；同一个共享 hook 提供左右方向对应的拖动计算（`frontend/src/workbench/sidebar/sidebarState.ts:3`、`frontend/src/shared/sidebar/useResizableSidebar.ts:98`）。
+- 侧栏拖拽热区：左右侧栏与项目模式标题分隔线复用同一个 `.workbench-divider` 伪元素样式，统一2px `--workbench-resizer-emphasis`；普通 `I` 模式将右侧视觉线向上延伸到标题区，项目模式保持内容行范围（`frontend/src/styles.css:159`、`frontend/src/workbench/sidebar/sidebar.css:8`、`frontend/src/workbench/sidebar/WorkbenchSidebar.tsx`）。
 - 键盘调宽：方向键按 16px 步进，Shift 加方向键按 64px 步进；到达最小方向后继续向外按键会收起侧栏（`frontend/src/shared/sidebar/useResizableSidebar.ts:158`）。
 - 拖拽恢复：双击拖拽条恢复默认宽度；拖动中按 Escape、pointercancel 或窗口失焦都恢复拖动前宽度（`frontend/src/shared/sidebar/useResizableSidebar.ts:125`、`frontend/src/shared/sidebar/useResizableSidebar.ts:137`）。
-- 宽度记忆：项目列和右侧栏分别保存到 `workbench.projectsSidebarWidth` 与 `workbench.outputSidebarWidth`，窗口变窄时只限制有效宽度，窗口恢复后重新使用用户偏好（`frontend/src/workbench/project/ProjectsPanel.tsx:55`、`frontend/src/workbench/output/OutputSidebar.tsx:29`）。
+- 宽度记忆：项目列和右侧栏分别保存到 `workbench.projectsSidebarWidth` 与 `workbench.outputSidebarWidth`，窗口变窄时只限制有效宽度，窗口恢复后重新使用用户偏好（`frontend/src/workbench/project/ProjectsPanel.tsx:55`、`frontend/src/workbench/sidebar/WorkbenchSidebar.tsx`）。
 - 收起隔离：关闭的侧栏宽度归零，并同步设置 `inert` 与 `aria-hidden`，其内部焦点和拖拽条退出键盘顺序（`frontend/src/shared/sidebar/useResizableSidebar.ts:71`）。
 - 开合动画：侧栏宽度使用 180ms 标准缓动，宽度 transition 结束后才提交 open/closed 阶段；reduced-motion 下直接切换（`frontend/src/styles.css:269`、`frontend/src/shared/sidebar/useResizableSidebar.ts:57`）。
-- 右侧内容淡入：打开时内容在 180ms 内淡入，关闭时 90ms 淡出，宽度和透明度按不同节奏分工（`frontend/src/styles.css:273`）。
-- 单侧栏壳体：输出文件与 Canvas 共用同一个右侧栏，同一时间展示一个面板，宽度、开合和拖拽状态保持连续（`frontend/src/App.tsx:454`）。
+- 右侧内容淡入：打开时内容在 180ms 内淡入，关闭时 90ms 淡出，宽度和透明度按不同节奏分工（`frontend/src/workbench/sidebar/sidebar.css:2`）。
+- 单侧栏壳体：入口页、项目目录、普通资源、资源预览与 Canvas 共用同一个右侧栏，同一时间展示一个表面，宽度、开合和拖拽状态保持连续（`frontend/src/App.tsx`、`frontend/src/workbench/sidebar/WorkbenchSidebar.tsx`）。
 
 标题栏、搜索与设置。
 
-- 顶部操作组：右侧依次放置输出、Canvas、搜索三个 30×30px 图标按钮，间距4px；透明常态、悬停与激活共享背景，按钮提供 title、aria-label、aria-expanded；Settings 齿轮入口位于左侧导航底部（`frontend/src/workbench/titlebar/TopBar.tsx:27`、`frontend/src/workbench/navigation/ProjectNavigation.tsx`）。
-- 输出角标：右侧栏处于输出面板以外的状态时，按钮显示当前输出文件数；数量超过 9 时显示 `9+`（`frontend/src/workbench/titlebar/TopBar.tsx:30`）。
+- 顶部操作组：右侧依次放置工作侧栏与搜索两个 30×30px 图标按钮，间距4px；透明常态、悬停与激活共享背景，按钮提供 title、aria-label、aria-expanded；Settings 齿轮入口位于左侧导航底部（`frontend/src/workbench/titlebar/TopBar.tsx`、`frontend/src/workbench/navigation/ProjectNavigation.tsx`）。
 - 项目开合按钮：项目模式且项目列收起时，顶部左侧显示展开入口；展开后同一按钮移动到项目标题，保持 `aria-expanded`、`aria-controls` 与原焦点目标（`frontend/src/workbench/titlebar/TopBar.tsx:28`、`frontend/src/workbench/project/ProjectSidebarToggle.tsx:12`）。
 - 搜索入口：Command+F 或 Ctrl+F 打开全局搜索，Escape 关闭并清空查询、选择和主消息流高亮；点击按钮或浮层外部收起浮层并保留查询与选中状态（`frontend/src/App.tsx:195`）。
 - 搜索浮层：宽 `min(560px, 100vw - 24px)`，圆角 18px，2px 毛玻璃遮罩，160ms 位移缩放淡入；挂载后输入框自动聚焦（`frontend/src/styles.css:166`、`frontend/src/workbench/titlebar/search/SearchPopover.tsx`）。
@@ -76,16 +75,17 @@
 - 模型发现：获取期间按钮显示 spinner 与 `Fetching`，并提供 Cancel；取消后通过 requestId 丢弃迟到结果（`frontend/src/workbench/settings/providers/ProviderEditor.tsx:116`、`frontend/src/workbench/settings/providers/ProviderEditor.tsx:280`）。
 - 模型容量：每个模型有 `Model limits` 折叠区，编辑 context window 与可选 max output；提交时校验正整数，并要求输出值小于等于窗口（`frontend/src/workbench/settings/providers/ProviderEditor.tsx:36`、`frontend/src/workbench/settings/providers/ProviderEditor.tsx:299`）。
 
-输出文件侧栏。
+右侧工作侧栏。
 
-- 文件范围：右侧列表显示当前运行登记的输出文件，按 `updatedAt` 倒序排列；同一文件再次更新时保留原 `fileId`，列表位置随最新时间变化（`frontend/src/store/agentReducer.ts:505`）。
-- 自动选择：文件列表有内容时默认选中第一项；当前文件仍存在时保持选择，目标消失时切回第一项（`frontend/src/workbench/output/OutputSidebar.tsx:26`、`frontend/src/workbench/output/OutputSidebar.tsx:64`）。
-- 列表布局：文件区高度为侧栏的 34%、最小 108px；条目最小 42px，包含文件/图片图标、文件名、可读路径与 `Created/Updated` 状态（`frontend/src/styles.css:274`、`frontend/src/styles.css:284`）。
-- 文件预览：文本以 SF Mono 11px 显示，保留换行并软折行；图片等比适配；超过 512KiB 的文本截取前段并显示提示；`unsupported` 媒体类型进入专用提示（`frontend/src/workbench/output/OutputSidebar.tsx:113`、`frontend/src/styles.css:298`）。
-- 预览请求门控：目标以 `runId + fileId + updatedAt` 识别，预览与系统打开各使用递增 generation；切换文件立即隐藏旧内容，当前目标的最新 generation 独占提交权（`frontend/src/workbench/output/useOutputFilePreview.ts:9`、`frontend/src/workbench/output/outputFilePreview.ts:26`）。
-- 刷新与打开：预览标题栏提供 28px 的 refresh 与 external 按钮；读取和系统打开错误分别显示在当前文件状态区域（`frontend/src/workbench/output/OutputSidebar.tsx:114`）。
-- 弹性列表：输出文件列表和消息流共用弹簧回弹 hook，列表内部完成边界跟手与回弹，文件选择、预览和滚动几何保持同一视图（`frontend/src/workbench/output/OutputSidebar.tsx:33`）。
-- Canvas 保留：Canvas 首次打开后保持挂载；切到输出或关闭侧栏时进入隐藏，连续隐藏 10 分钟且允许释放后卸载编辑器实例（`frontend/src/workbench/output/OutputSidebar.tsx:20`、`frontend/src/workbench/output/OutputSidebar.tsx:39`）。
+- 视图选择：已经激活的 `projectId` 决定当前侧栏范围；具体项目提供 `Open workspace files` 和 `Open canvas` 两个入口，普通范围在资源区左上角提供 `View All Outputs` 和 `Open Canvas` 胶囊按钮，下方展示资源列表（`frontend/src/workbench/sidebar/WorkbenchSidebar.tsx`、`frontend/src/workbench/sidebar/SidebarResources.tsx`）。
+- 普通入口：两个按钮共享30px最小高度、13px界面字体、500字重、18px透明底SVG与次级表面；`View All Outputs` 通过 `openAttachmentsDirectory()` 打开 Main 管理的附件目录，Canvas按钮激活当前范围画布（`frontend/src/workbench/sidebar/SidebarResources.tsx`、`frontend/src/workbench/sidebar/sidebar.css`、`shell/main/attachments/store.ts`）。
+- 项目默认：点击左侧 Project 后，App 等待项目列表快照并按当前显示顺序激活首个真实项目；同一项目描述同步左侧选中态、历史范围、Composer、右侧入口页和 Canvas 文档（`frontend/src/App.tsx`、`frontend/src/workbench/project/useProjects.ts`）。
+- 项目目录：Main 的 `listProjectDirectory` 按 `projectId` 与相对路径提供单层、目录优先、每页 200 项的只读目录结果；路径必须位于登记根目录内，符号链接只作为展示条目（`shell/main/project-files.ts`、`shell/shared/ipc.ts`）。
+- 目录交互：文件树按需展开目录，支持分页、错误重试、当前文件选中与普通滚动；每个项目独立缓存目录状态，项目切换使用新的目录查询（`frontend/src/workbench/sidebar/projectDirectory.ts`、`frontend/src/workbench/sidebar/ProjectFileTree.tsx`）。
+- 普通资源：入口页展示当前草稿附件、已加载消息附件和所有已加载运行的产物，选择资源后在侧栏内打开文本、图片、视频或音频预览；附件地址只接受 `attachment:` 与 `blob:`（`frontend/src/App.tsx`、`frontend/src/workbench/sidebar/SidebarResources.tsx`、`frontend/src/shared/attachmentUrl.ts`）。
+- 资源预览门控：运行产物继续以 `runId + fileId + updatedAt` 识别，预览与系统打开各使用递增 generation；当前目标的最新结果独占提交权（`frontend/src/workbench/output/useOutputFilePreview.ts`、`frontend/src/workbench/output/outputFilePreview.ts`）。
+- Canvas 保留：Canvas 首次打开后保持挂载；离开画布或关闭侧栏时进入隐藏，连续隐藏 10 分钟且允许释放后卸载编辑器实例（`frontend/src/workbench/sidebar/WorkbenchSidebar.tsx`）。
+- 后续边界：项目目录原文查看器与修改对比作为后续功能接入；当前文件树提供原文件身份、目录选择和稳定相对路径（`docs/desktop/design/workbench/titlebar/sidebar/project-files.mdx`）。
 
 Composer 输入与提交。
 
@@ -288,7 +288,7 @@ UX/UI 决策归纳。
 - 模块加载：Canvas 编辑器使用动态 import，消息正文使用 React 组件树，Renderer 与 Canvas 引擎按需拆分；项目文档通过 preload promise 缓存（`canvas/ui/CanvasSurface.tsx:28`、`canvas/ui/CanvasSurface.tsx:36`）。
 - 状态归属：`App` 协调页面级范围与浮层，`Composer` 拥有模型选择和任务草稿，`AgentState` 拥有运行/历史投影，`useResizableSidebar` 拥有侧栏交互，`CanvasSurface` 拥有编辑器实例和保存协调器（`frontend/src/App.tsx:27`、`frontend/src/middle-column/composer/Composer.tsx:84`）。
 - 可维护性：语义颜色、字号、缓动与图标集中定义；左右侧栏共用宽度 hook，两类消息共用 Markdown 渲染，实时与历史共用 MessageBlock/ToolActivity 投影。
-- 可测试性：Composer、voice、MessageStream、AssistantMessage、ProjectNavigation、OutputSidebar、elastic-scroll browser、Canvas editor layout 都有独立测试入口（`tests/frontend/src/middle-column/composer/Composer.test.ts:45`、`tests/frontend/src/middle-column/message-stream/AssistantMessage.test.ts:46`、`tests/frontend/src/hooks/elasticScroll.browser.test.ts:39`）。
+- 可测试性：Composer、voice、MessageStream、AssistantMessage、ProjectNavigation、WorkbenchSidebar、project directory、elastic-scroll browser、Canvas editor layout 都有独立测试入口（`tests/frontend/src/middle-column/composer/Composer.test.ts:45`、`tests/frontend/src/middle-column/message-stream/AssistantMessage.test.ts:46`、`tests/frontend/src/workbench/sidebar/WorkbenchSidebar.test.ts`、`tests/frontend/src/hooks/elasticScroll.browser.test.ts:39`）。
 
 资料同步点。
 

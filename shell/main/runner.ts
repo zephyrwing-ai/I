@@ -7,7 +7,8 @@ import { resolveContextPolicy } from "../../agent/context/policy.js";
 import type { ModelMessage } from "../../agent/model/types.js";
 import type { PendingRunInput } from "../../agent/memory/types.js";
 import type { ResolvedCanvasContext } from "../../canvas/context/CanvasContextRegistry.js";
-import type { ResolvedAttachment } from "./input-attachments.js";
+import type { AttachmentStore, ResolvedAttachment } from "./attachments/store.js";
+import { createAttachmentReadTool } from "../../agent/tools/attachment-read.js";
 import { createLocalBashOps } from "../../agent/environment.js";
 import { createHistoryReadTool, createToolRegistry } from "../../agent/tools/index.js";
 import { createCanvasEditTool, type CanvasEditExecutor } from "../../agent/tools/canvas-edit.js";
@@ -71,6 +72,7 @@ export class AgentRunner {
   constructor(
     private readonly registerArtifacts?: ArtifactRegistrar,
     private readonly canvasEdit?: { execute: CanvasEditExecutor; enableCreateWithoutSelection?: boolean },
+    private readonly attachments?: AttachmentStore,
   ) {}
 
   get isActive(): boolean {
@@ -92,6 +94,7 @@ export class AgentRunner {
     const recorder = req.historyRecorder;
     const tools = new Map(this.baseTools);
     tools.set("history_read", createHistoryReadTool(recorder.repository, req.projectId));
+    if (this.attachments) tools.set("attachment_read", createAttachmentReadTool(this.attachments.read));
     if (this.canvasEdit && req.ownerWebContentsId !== undefined &&
         ((req.canvasContexts?.length ?? 0) > 0 || this.canvasEdit.enableCreateWithoutSelection)) {
       const sourceElements = selectedCanvasElements(req.canvasContexts ?? [], req.projectId);
@@ -156,6 +159,7 @@ export class AgentRunner {
       model: req.modelId,
       capabilities: req.capabilities,
       context,
+      resolveAttachmentImages: this.attachments?.resolveModelImages,
       openai: {
         baseURL: req.baseURL,
         apiKeyProvider: req.getApiKey,
@@ -176,6 +180,7 @@ export class AgentRunner {
         recorder,
         initialUserEntryId: req.initialUserEntryId,
         initialUserCreatedAt: req.initialUserCreatedAt,
+        initialAttachments: req.attachments?.map((attachment) => attachment.input),
         steeringInbox: inbox,
         cancellationBarrier: () => activeRun.cancellation ?? Promise.resolve(),
         runScopedContext: [

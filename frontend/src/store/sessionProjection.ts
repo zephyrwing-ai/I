@@ -71,6 +71,7 @@ export function mergePersistedEntries(
         run.inputs[entry.entryId] = {
           inputId: entry.entryId,
           task: entry.payload.content,
+          attachments: entry.payload.attachments,
           at: entry.createdAt,
           status: "interrupted",
         };
@@ -79,6 +80,7 @@ export function mergePersistedEntries(
       run.inputs[entry.entryId] = {
         inputId: entry.entryId,
         task: entry.payload.content,
+        attachments: entry.payload.attachments,
         at: entry.createdAt,
         status: "applied",
       };

@@ -166,7 +166,7 @@ test("tool-call prose stays inside activity details even before its stop reason 
     toolOrder: ["call-1"], tools: { "call-1": { toolCallId: "call-1", name: "list_dir", input: { path: "." }, status: "completed" } },
   };
   const html = renderToStaticMarkup(createElement(MessageStream, { order: [current.runId], runs: { [current.runId]: current } }));
-  assert.match(html, /work-intermediate-text/);
+  assert.match(html, /work-commentary-text/);
   assert.match(html, /准备读取目录/);
   assert.doesNotMatch(html, /final-answer/);
 });
@@ -196,7 +196,7 @@ test("an active turn keeps one Working for block as reasoning and tools arrive",
 
   current.turns["turn-1"].progressContent = "先确认目录边界";
   const progressHtml = render();
-  assert.match(progressHtml, /work-progress-text/);
+  assert.match(progressHtml, /work-commentary-text/);
   assert.match(progressHtml, /先确认目录边界/);
   assert.doesNotMatch(progressHtml, /正在等待过程说明|先看目录/);
 
@@ -231,7 +231,7 @@ test("a completed pure answer has one progress fold with the answer and metadata
   assert.match(html, /data-block-count="2"/);
   assert.equal(html.match(/class="run-work-toggle"/g)?.length, 1);
   assert.match(html, /Worked for 2\.0s/);
-  assert.match(html, /work-progress-text markdown"><p>先核对约束再形成结论/);
+  assert.match(html, /work-commentary-text markdown"><p>先核对约束再形成结论/);
   assert.match(html, /<\/section><div class="model-text final-answer markdown"><p>中文结论/);
   assert.match(html, /aria-label="Copy answer"/);
   assert.doesNotMatch(html, /PRIVATE|turn-action|work-legacy-notice/);

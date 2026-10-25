@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Column } from "./middle-column/Column";
 import { MessageStream, type MessageStreamHandle } from "./middle-column/message-stream/MessageStream";
 import { StreamRegion } from "./middle-column/message-stream/StreamScrollbar";
@@ -6,7 +6,8 @@ import { Composer } from "./middle-column/composer/Composer";
 import { TopBar } from "./workbench/titlebar/TopBar";
 import { SearchPopover } from "./workbench/titlebar/search/SearchPopover";
 import { SettingsPage, type SettingsSection } from "./workbench/settings/SettingsPage";
-import { OutputSidebar } from "./workbench/output/OutputSidebar";
+import { WorkbenchSidebar, type SidebarSurface } from "./workbench/sidebar/WorkbenchSidebar";
+import type { SidebarAttachment } from "./workbench/sidebar/SidebarResources";
 import { ProjectNavigation } from "./workbench/navigation/ProjectNavigation";
 import { ProjectsPanel } from "./workbench/project/ProjectsPanel";
 import {
@@ -23,7 +24,7 @@ import { agentReducer, initialAgentState } from "./store/agentReducer";
 import { useProviderCatalog } from "./workbench/settings/providers/providerCatalog";
 import { UiPreferencesProvider, useUiPreferences } from "./shared/preferences/uiPreferences";
 import { useI18n } from "./shared/i18n";
-import type { AgentEvent, CanvasContextDescriptor, ProjectActionRequest, ProjectDescriptor, RunRequest, SteerRequest } from "../../shell/shared/ipc";
+import type { AgentEvent, CanvasContextDescriptor, InputAttachmentDescriptor, ProjectActionRequest, ProjectDescriptor, RunRequest, SteerRequest } from "../../shell/shared/ipc";
 import type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types";
 
 export default function App() {
@@ -38,11 +39,18 @@ function Workbench() {
   const [activePage, setActivePage] = useState<"workbench" | "settings">("workbench");
   const settingsOpen = activePage === "settings";
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
-  const [sidebarPanel, setSidebarPanel] = useState<"outputs" | "canvas" | null>(null);
+  const [sidebarPanel, setSidebarPanel] = useState<SidebarSurface | null>(null);
   const [canvasContexts, setCanvasContexts] = useState<CanvasContextDescriptor[]>([]);
   const [pendingCanvasEdit, setPendingCanvasEdit] = useState<CanvasEditRequest | null>(null);
   const [canvasCanRelease, setCanvasCanRelease] = useState(true);
   const [project, setProject] = useState<ProjectDescriptor>({ projectId: null, displayName: "Choose folder", canonicalPath: null });
+  const activeScope = useRef(project.projectId);
+  activeScope.current = project.projectId;
+  const [draftAttachments, setDraftAttachments] = useState<{ projectId: string | null; attachments: InputAttachmentDescriptor[] }>({ projectId: null, attachments: [] });
+  const publishDraftAttachments = useCallback((projectId: string | null, attachments: InputAttachmentDescriptor[]): void => {
+    if (activeScope.current !== projectId) return;
+    setDraftAttachments((current) => current.projectId === projectId && current.attachments === attachments ? current : { projectId, attachments });
+  }, []);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [selectedView, setSelectedView] = useState<"ordinary" | "projects" | null>(null);
   const projectView = selectedView === "projects" || (selectedView === null && project.projectId !== null);
@@ -69,10 +77,25 @@ function Workbench() {
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const running = state.status === "running" || state.status === "starting" || state.status === "stopping";
   const stopping = state.status === "stopping";
-  const currentRun = state.currentRunId ? state.runs[state.currentRunId] : undefined;
-  const outputFiles = currentRun?.outputFileOrder.map((id) => currentRun.outputFiles[id]).filter(Boolean) ?? [];
-  const outputOpen = sidebarPanel === "outputs";
-  const canvasOpen = sidebarPanel === "canvas";
+  const sidebarFiles = useMemo(() => state.runOrder.flatMap((runId) => {
+    const run = state.runs[runId];
+    if (!run || run.projectId !== project.projectId) return [];
+    return run.outputFileOrder.map((id) => run.outputFiles[id]).filter(Boolean);
+  }).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)), [project.projectId, state.runOrder, state.runs]);
+  const sidebarAttachments = useMemo(() => {
+    const attachments = new Map<string, SidebarAttachment>();
+    if (draftAttachments.projectId === project.projectId) {
+      draftAttachments.attachments.forEach((attachment) => attachments.set(attachment.attachmentId, { attachment, pending: true }));
+    }
+    for (const runId of state.runOrder) {
+      const run = state.runs[runId];
+      if (run.projectId !== project.projectId) continue;
+      for (const input of Object.values(run.inputs)) {
+        input.attachments?.forEach((attachment) => attachments.set(attachment.attachmentId, { attachment, pending: false }));
+      }
+    }
+    return [...attachments.values()];
+  }, [draftAttachments, project.projectId, state.runOrder, state.runs]);
   useEffect(() => {
     if (!window.agentAPI || typeof window.agentAPI.onEvent !== "function") return;
     const offEvent = window.agentAPI.onEvent((event) => {
@@ -215,7 +238,7 @@ function Workbench() {
         return false;
       }
       // Main's admission timestamp is shared with the persisted user entry.
-      dispatch({ type: "runAccepted", runId: ack.runId, inputId: ack.inputId, projectId: req.projectId ?? null, task: req.task, taskAt: ack.createdAt });
+      dispatch({ type: "runAccepted", runId: ack.runId, inputId: ack.inputId, projectId: req.projectId ?? null, task: req.task, taskAt: ack.createdAt, attachments: ack.attachments });
       return true;
     } catch (error) {
       dispatch({ type: "runRejected", error: error instanceof Error ? error.message : String(error) });
@@ -251,6 +274,7 @@ function Workbench() {
   const applyProjectDescriptor = (selected: ProjectDescriptor): Promise<void> | undefined => {
     setProject(selected);
     if (selected.projectId === project.projectId) return;
+    setSidebarPanel((current) => current === null ? null : "home");
     setCanvasContexts([]);
     resetPreloadedCanvasDocument();
     setRestoreDraft(null);
@@ -274,10 +298,12 @@ function Workbench() {
       await canvasSurfaceRef.current?.flush();
       const selected = await activate();
       if (!selected) return;
+      setSidebarPanel((current) => current === null ? null : "home");
       if (closeProjects) {
         setProjectsOpen(false);
         setSelectedView("ordinary");
       }
+      else setSelectedView("projects");
       // Main also consumes canvas references when an existing folder is added again.
       if (selected.projectId === project.projectId) setCanvasContexts([]);
       historyRequest = applyProjectDescriptor(selected);
@@ -298,6 +324,7 @@ function Workbench() {
       setProjectsOpen(false);
       setSelectedView("ordinary");
       setProjectError(null);
+      setSidebarPanel((current) => current === null ? null : "home");
       return;
     }
     retryProjectActionRef.current = handleOrdinary;
@@ -339,15 +366,41 @@ function Workbench() {
     await historyRequest;
   };
 
+  const openProjectDirectory = async (): Promise<string | null> => {
+    if (!project.projectId) return null;
+    try {
+      await window.agentAPI.performProjectAction({ projectId: project.projectId, action: "reveal" });
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  };
+
   const handleProjects = (): void => {
     setProjectsOpen((open) => !open);
     if (!projectsOpen) void projectList.ensureLoaded();
   };
 
   const handleProjectNavigation = (): void => {
+    if (running || projectTransitionRef.current) {
+      setSelectedView("projects");
+      setProjectsOpen(true);
+      void projectList.ensureLoaded();
+      return;
+    }
     setSelectedView("projects");
     setProjectsOpen(true);
-    void projectList.ensureLoaded();
+    retryProjectActionRef.current = handleProjectNavigation;
+    void switchProject("default", async () => {
+      const projects = await projectList.ensureLoaded();
+      if (!projects) throw new Error(t("Could not load projects."));
+      const first = projects.find((entry) => entry.projectId !== null);
+      if (!first?.projectId) {
+        setSidebarPanel((current) => current === null ? null : "home");
+        return null;
+      }
+      return first.projectId === project.projectId ? first : window.agentAPI.activateProject(first.projectId);
+    });
   };
 
   const openSettings = (): void => {
@@ -378,13 +431,10 @@ function Workbench() {
             projectMode={projectView}
             projectsOpen={projectsOpen}
             onProjects={handleProjects}
-            outputOpen={outputOpen}
-            outputCount={outputFiles.length}
-            canvasOpen={canvasOpen}
+            sidebarOpen={sidebarPanel !== null}
             searchOpen={searchOpen}
             searchButtonRef={searchButtonRef}
-            onOutput={() => setSidebarPanel((value) => value === "outputs" ? null : "outputs")}
-            onCanvas={() => setSidebarPanel((value) => value === "canvas" ? null : "canvas")}
+            onSidebar={() => setSidebarPanel((value) => value === null ? "home" : null)}
             onSearch={() => setSearchOpen((value) => !value)}
           />
           <ProjectsPanel
@@ -447,6 +497,7 @@ function Workbench() {
                     modelOptions={catalog.modelOptions}
                     modelLoading={catalog.loading}
                     project={project}
+                    onAttachmentsChange={publishDraftAttachments}
                     onRun={handleRun}
                     onSteer={handleSteer}
                     onStop={handleStop}
@@ -461,13 +512,20 @@ function Workbench() {
               </Column>
             </section>
           </section>
-          <OutputSidebar
+          <WorkbenchSidebar
             workspaceRef={workspaceRef}
-            open={sidebarPanel !== null}
-            activePanel={sidebarPanel ?? "outputs"}
-            files={outputFiles}
+            surface={sidebarPanel}
+            onSurfaceChange={setSidebarPanel}
+            project={project}
+            projectMode={projectView}
+            projectPending={projectOperation !== null && !projectOperation.startsWith("action:")}
+            projectError={projectError}
+            onRetryProject={() => retryProjectActionRef.current?.()}
+            onAddProject={handleAddProject}
+            onOpenProjectDirectory={openProjectDirectory}
+            attachments={sidebarAttachments}
+            files={sidebarFiles}
             canvasCanRelease={canvasCanRelease}
-            onOpenChange={(open) => { if (!open) setSidebarPanel(null); }}
             canvas={<CanvasSurface ref={canvasSurfaceRef} theme={theme} language={language} projectId={project.projectId} pendingEdit={pendingCanvasEdit} onEditResult={completeCanvasEdit} onContextPrepared={(descriptor) => {
               if (descriptor.projectId === project.projectId) setCanvasContexts((current) => [...current, descriptor]);
             }} onCanReleaseChange={setCanvasCanRelease} />}

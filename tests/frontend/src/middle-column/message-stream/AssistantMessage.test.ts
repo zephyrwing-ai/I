@@ -67,10 +67,10 @@ test("a running assistant turn retains its work indicator and renders only user-
 
   assert.match(html, />Working for</);
   assert.doesNotMatch(html, />Thinking</);
-  assert.doesNotMatch(html, /内部过程|think-block|work-progress-text/);
+  assert.doesNotMatch(html, /内部过程|think-block|work-progress-text|work-purpose-text|work-intermediate-text/);
   assert.match(html, /class="run-work-toggle" aria-expanded="true"/);
   assert.doesNotMatch(html, /work-status|final-answer/);
-  assert.ok(html.includes('class="work-intermediate-text markdown"'), html);
+  assert.ok(html.includes('class="work-commentary-text markdown"'), html);
   assert.ok(html.includes("正在生成, 答案"), html);
   assert.doesNotMatch(html, /aria-label="Copy answer"/);
   assert.doesNotMatch(html, /class="message-time"/);
@@ -168,7 +168,8 @@ test("assistant text and tool actions stay together in the same assistant block"
   assert.ok(html.includes("先检查目录"), html);
   assert.ok(html.includes("Ran ls"), html);
   assert.match(html, /tool-fold/);
-  assert.doesNotMatch(html, /查看工作目录|当前项目|tool-detail/);
+  assert.match(html, /work-commentary-text markdown"><p>先检查目录<\/p>\s*<p>查看工作目录/);
+  assert.doesNotMatch(html, /当前项目|tool-detail/);
   assert.match(html, />Working for</);
 });
 
@@ -193,7 +194,8 @@ test("collapsed tool rows show actual commands and defer mounting input and outp
 
   assert.match(html, /Ran generate --private-argument/);
   assert.match(html, /class="tool-fold" aria-expanded="false"/);
-  assert.doesNotMatch(html, /生成报告|report\.md|tool-input-pre|tool-output-pre/);
+  assert.match(html, /work-commentary-text markdown"><p>生成报告/);
+  assert.doesNotMatch(html, /报告.*report\.md|tool-input-pre|tool-output-pre/);
   assert.ok(!html.includes("a".repeat(100)) && !html.includes("b".repeat(100)));
   assert.equal(state.turns["turn-1"].tools["tool-1"].result?.output, output, "presentation preserves execution evidence");
 });
@@ -222,6 +224,51 @@ test("process prose alternates with its tool batch and the final answer stays ou
   assert.equal(state.turns["read-turn"].reasoningContent, "PRIVATE FIRST THOUGHT");
 });
 
+test("purpose-only turns show one ordered explanation before each batch and preserve the final answer", () => {
+  const state = run([
+    turn({ turnId: "read", status: "completed", reasoningContent: "PRIVATE REASONING", toolOrder: ["a", "b"], tools: {
+      a: { toolCallId: "a", name: "read", input: { path: "config.ts", purpose: "读取上下文管理实现" }, status: "completed" },
+      b: { toolCallId: "b", name: "read", input: { path: "manager.ts", purpose: " 读取上下文管理实现 " }, status: "completed" },
+    } }),
+    turn({ turnId: "check", turnOrdinal: 2, status: "completed", toolOrder: ["c"], tools: {
+      c: { toolCallId: "c", name: "bash", input: { command: "pwd", purpose: "检查历史读取逻辑" }, status: "completed" },
+    } }),
+    turn({ turnId: "answer", turnOrdinal: 3, status: "completed", assistantContent: "最终结论" }),
+  ]);
+  state.status = "completed";
+  state.finalTurnId = "answer";
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: ["read", "check", "answer"], answerTurnId: "answer" }));
+  const positions = ["读取上下文管理实现", "Read files", "检查历史读取逻辑", "Ran commands", "最终结论"].map((text) => html.indexOf(text));
+  assert.ok(positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1])), html);
+  assert.equal(html.match(/读取上下文管理实现/g)?.length, 1);
+  assert.equal(html.match(/class="work-commentary-text markdown"/g)?.length, 2);
+  assert.match(html, /<\/section><div class="model-text final-answer markdown"><p>最终结论/);
+  assert.doesNotMatch(html, /PRIVATE/);
+  assert.equal(state.turns.read.assistantContent, "", "purpose projection preserves raw native content");
+});
+
+test("commentary preserves source Markdown boundaries while merging tool purposes", () => {
+  const state = run([turn({ assistantContent: "    const answer = 1;", toolOrder: ["call"], tools: {
+    call: { toolCallId: "call", name: "read", input: { path: "answer.ts", purpose: "核对答案" }, status: "completed" },
+  } })]);
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: ["turn-1"], isWorking: true }));
+  assert.ok(html.includes("<pre><code>const answer = 1;"), html);
+  assert.match(html, /<\/pre>\s*<p>核对答案/);
+});
+
+test("purpose de-duplicates against native prose and legacy progress while keeping distinct intents", () => {
+  const state = run([turn({ progressContent: "核对约束", assistantContent: "检查实现\n整理结论", toolOrder: ["a", "b", "c"], tools: {
+    a: { toolCallId: "a", name: "read", input: { path: "a.ts", purpose: " 检查实现 " }, status: "running" },
+    b: { toolCallId: "b", name: "read", input: { path: "b.ts", purpose: "核对约束" }, status: "running" },
+    c: { toolCallId: "c", name: "read", input: { path: "c.ts", purpose: "查看其他文件" }, status: "running" },
+  } })]);
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: ["turn-1"], isWorking: true }));
+  assert.equal(html.match(/检查实现/g)?.length, 1);
+  assert.equal(html.match(/核对约束/g)?.length, 1);
+  assert.match(html, /work-commentary-text markdown/);
+  assert.ok(html.indexOf("查看其他文件") < html.indexOf("Read files"), html);
+});
+
 test("a pure answer discloses independent progress and keeps raw reasoning out of markup", () => {
   const state = run([turn({
     status: "completed", progressContent: "先比较约束，再整理结论", assistantContent: "最终中文答案",
@@ -235,7 +282,7 @@ test("a pure answer discloses independent progress and keeps raw reasoning out o
   }));
   assert.match(html, /class="run-work-toggle" aria-expanded="false"/);
   assert.match(html, /Worked for 0.9s/);
-  assert.match(html, /class="work-progress-text markdown"><p>先比较约束, 再整理结论/);
+  assert.match(html, /class="work-commentary-text markdown"><p>先比较约束, 再整理结论/);
   assert.match(html, /<\/section><div class="model-text final-answer markdown"><p>最终中文答案/);
   assert.doesNotMatch(html, /PRIVATE|English reasoning|raw marker|raw answer|&lt;progress|<progress|<answer|turn-action|work-legacy-notice/);
   assert.equal(html.match(/aria-label="Copy answer"/g)?.length, 1);
@@ -273,7 +320,7 @@ test("an active empty group has an expandable waiting status in the applied inpu
   const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: [], isWorking: true }));
   assert.match(html, /class="run-work-toggle" aria-expanded="true"/);
   assert.match(html, /class="work-status" role="status">Waiting for a process explanation\./);
-  assert.doesNotMatch(html, /work-progress-text|work-intermediate-text|work-legacy-notice/);
+  assert.doesNotMatch(html, /work-commentary-text|work-legacy-notice/);
 });
 
 test("tool failures remain visible with an expandable action and lazily mounted error details", () => {
@@ -318,6 +365,8 @@ test("live tool metadata and restored history render the identical chronological
   assert.equal(liveHtml, render(restored.runs[runId]));
   assert.match(liveHtml, /先查看项目配置/);
   assert.match(liveHtml, /Read config\.ts/);
+  assert.match(liveHtml, /work-commentary-text markdown/);
+  assert.match(liveHtml, /读取上下文配置/);
   assert.match(liveHtml, /config\.ts/);
   assert.match(liveHtml, /先确认配置来源/);
   assert.match(liveHtml, /据此整理配置分析/);

@@ -8,9 +8,21 @@ import {
   discoveryErrorResult,
   inferProviderFromBaseURL,
   normalizeDiscoveredModels,
+  normalizeModelCapabilities,
+  resolveModelCapabilities,
 } from "../../../shell/main/provider-model-discovery.js";
 
 type RequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
+
+test("model discovery and saved capability resolution retain declared image modalities", async () => {
+  const capabilities = { contextWindowTokens: 128_000, source: "provider" as const, inputModalities: ["text", "image"] as Array<"text" | "image"> };
+  assert.deepEqual(normalizeModelCapabilities(capabilities), capabilities);
+  assert.deepEqual(resolveModelCapabilities("https://example.invalid", "vision-model", capabilities), capabilities);
+  await withServer((_request, response) => json(response, { data: [{ id: "vision-model", capabilities }] }), async (baseURL) => {
+    const models = await discoverProviderModels({ provider: "openai", baseURL, apiKey: "fixture" });
+    assert.deepEqual(models[0].capabilities, capabilities);
+  });
+});
 
 async function withServer<T>(handler: RequestHandler, run: (baseURL: string) => Promise<T>): Promise<T> {
   const server = createServer(handler);

@@ -9,6 +9,8 @@ export interface ToolActivity {
   kind: ToolActivityKind;
   /** Full row text; the component controls width-based ellipsis. */
   label: string;
+  /** User-facing intent; legacy calls use a factual action and target. */
+  purpose: string;
   /** The original call provides status, input, and result for expanded details. */
   tool: ToolState;
   failed: boolean;
@@ -32,6 +34,24 @@ function kindForTool(name: string): ToolActivityKind {
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+const PURPOSE_ACTIONS: Record<ActivityLanguage, Record<ToolActivityKind, string>> = {
+  zh: { command: "执行命令", read: "读取文件", edit: "编辑文件", search: "搜索文件", list: "查看目录", history: "读取历史记录", canvas: "编辑画布", unknown: "使用工具" },
+  en: { command: "Run command", read: "Read file", edit: "Edit file", search: "Search files", list: "List directory", history: "Read history", canvas: "Edit Canvas", unknown: "Use tool" },
+};
+
+function purposeForTool(kind: ToolActivityKind, name: string, input: Record<string, unknown>, language: ActivityLanguage): string {
+  const declared = text(input.purpose);
+  if (declared) return declared.replace(/\s+/g, " ").trim();
+  const action = kind === "edit" && name === "write"
+    ? language === "zh" ? "写入文件" : "Write file"
+    : PURPOSE_ACTIONS[language][kind];
+  const target = kind === "read" || kind === "edit" || kind === "list" ? text(input.path) ?? (kind === "list" ? "." : undefined)
+    : kind === "search" ? text(input.text) ?? text(input.query) ?? text(input.pattern) ?? text(input.path)
+    : kind === "history" ? text(input.entryId)
+    : kind === "unknown" ? text(name) : undefined;
+  return target ? `${action} ${target}` : action;
 }
 
 /** Operational arguments supply row labels; the raw input remains available on the tool. */
@@ -64,6 +84,7 @@ export function projectToolActivity(tool: ToolState, language: ActivityLanguage 
     toolCallId: tool.toolCallId,
     kind,
     label: labelForTool(kind, tool.name, input),
+    purpose: purposeForTool(kind, tool.name, input, language),
     tool,
     failed: tool.result?.ok === false,
     failureLabel: language === "zh" ? "执行失败" : "Failed",

@@ -8,7 +8,7 @@
 
 模型能力。
 
-- 契约：`ModelCapabilities` 保存 `contextWindowTokens`、可选 `maxInputTokens` 与 `maxOutputTokens`，分别表示完整窗口、独立输入上限与最大输出能力；`source` 使用 `provider`、`catalog` 或 `manual` 标记来源。
+- 契约：`ModelCapabilities` 保存 `contextWindowTokens`、可选 `maxInputTokens` 与 `maxOutputTokens`，分别表示完整窗口、独立输入上限与最大输出能力；可选 `inputModalities` 表达已声明的文字与图片输入能力，`source` 使用 `provider`、`catalog` 或 `manual` 标记来源。
 - 获取：模型发现读取服务返回的窗口、输入和输出能力字段，统一成模型能力对象；官方原生端点使用本地目录补齐对应精确模型标识的能力资料，目录保留官方来源和核验日期。
 - 保存：ProviderStore 将能力资料随模型记录保存，模型目录返回和 `resolve()` 沿用同一契约；同 origin 刷新保留手动配置，服务资料、官方目录与已保存资料依次补齐其他字段。
 - 传递：Main 根据所选 `modelOptionId` 解析连接和模型能力，Runner 将能力传入 `ModelConfig.capabilities`，并结合宿主配置计算完整预算；运行期间使用本次捕获的模型资料。
@@ -23,9 +23,9 @@
 - 来源：原文保留 `entryId`、`entryOrder`、`revision`、`runId`、`turnId` 与 `toolCallId`；项目、Canvas 和附件材料保留来源身份、项目范围与捕获版本。
 - 用户输入：本 run 的起始输入与最新补充输入保留原文，各输入身份进入一次；已应用的补充输入按接收顺序进入请求，摘要中的目标与约束延续较早要求。
 - 请求顺序：固定指令与工具定义构成稳定前缀，已有摘要和其后的已提交原文维持历史顺序，本轮材料按运行引用位置组装；用户输入、助手消息和工具结果保持因果关系，每个输入身份贡献一次内容。
-- 本轮材料：项目地图、Canvas 文本与图片、附件路径说明使用本轮冻结引用，共同进入请求与容量计算。
+- 本轮材料：项目地图与 Canvas 文本、图片使用本轮冻结引用；附件的 ID、有预算文字与图片标签跟随所属用户消息进入请求和容量计算，图片字节在 Adapter 请求边界从应用管理的缓存读取。
 - 大型结果：工具长正文使用首尾预览，并携带原始 `entryId`；完整正文、工具参数与媒体保存在原文记录中，`history_read` 按相同历史范围和记录身份分页回读。
-- 回读：`history_read` 默认返回6000个 Unicode 字符，上限12000；来源头包含原文顺序与版本，图片在首屏返回，目录与文件内容继续使用文件工具读取。
+- 回读：`history_read` 默认返回6000个 Unicode 字符，上限12000；来源头包含原文顺序与版本，内联图片在首屏返回，附件引用通过 attachment_read 读取缓存文字与图片，目录与文件内容继续使用文件工具读取。
 
 容量与双阈值。
 
