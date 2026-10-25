@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Voice settings mockup</title>
+<style>
+  :root {
+    --bg: #f8f8f8;
+    --surface: #ffffff;
+    --frame: #ffffff;
+    --shell: #eeeeee;
+    --text: #171717;
+    --text-secondary: #666666;
+    --text-muted: #888888;
+    --border: #e4e4e4;
+    --hover: #1717170a;
+    --selection: #1717171a;
+    --focus-ring: #1717173d;
+    --danger: #c0362c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--text);
+    background: var(--shell);
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    background: var(--shell);
+  }
+  .sidebar {
+    padding: 60px 8px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .nav-item {
+    width: 100%;
+    min-height: 36px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    text-align: left;
+    cursor: default;
+  }
+  .nav-item:hover { background: var(--hover); color: var(--text); }
+  .nav-item.active { background: var(--hover); color: var(--text); }
+  .nav-icon { width: 18px; height: 18px; display: inline-grid; place-items: center; }
+  .main {
+    margin: 8px 8px 8px 0;
+    border: 1px solid #dedede;
+    border-radius: 16px;
+    background: var(--frame);
+    box-shadow: 0 1px 3px rgba(23,23,23,.12);
+    padding: 32px 40px 32px;
+    overflow: auto;
+  }
+  h1 { margin: 0 0 4px; font-size: 20px; font-weight: 500; }
+  .subtitle { margin: 0 0 8px; color: var(--text-secondary); font-size: 13px; }
+  .hardware-note {
+    margin: 0 0 20px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg);
+    color: var(--text-secondary);
+    font-size: 12.5px;
+  }
+  .model-list { display: grid; gap: 8px; }
+  .model-card {
+    min-height: 64px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    transition: background 120ms ease;
+  }
+  .model-card:hover { background: #fcfcfc; }
+  .model-card.selected { background: var(--selection); border-color: #d7d7d7; }
+  .model-info { min-width: 0; }
+  .model-title { display: flex; align-items: center; gap: 8px; }
+  .model-name { font-weight: 500; }
+  .tag {
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+  .metrics {
+    margin-top: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  .metrics b { color: var(--text-secondary); font-weight: 500; }
+  .model-action { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+  .radio {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 1.5px solid var(--text-secondary);
+    border-radius: 50%;
+    background: transparent;
+    display: grid;
+    place-items: center;
+    cursor: default;
+    visibility: hidden;
+  }
+  .model-card.installed .radio,
+  .model-card.selected .radio { visibility: visible; }
+  .radio::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text);
+    transform: scale(0);
+    transition: transform 120ms ease;
+  }
+  .model-card.selected .radio::after { transform: scale(1); }
+  .download {
+    min-width: 92px;
+    height: 30px;
+    padding: 0 14px;
+    border: 1px solid var(--border-strong, #aeaeae);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: default;
+  }
+  .download:hover { background: var(--hover); }
+  .download.downloading { color: var(--text-secondary); border-style: dashed; }
+  .download.installed,
+  .download.inuse { border-color: var(--border); color: var(--text-secondary); }
+  .model-card.selected .download { color: var(--text); }
+  .progress { margin-left: 2px; color: var(--text); }
+</style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <button class="nav-item"><span class="nav-icon">‹</span><span>Back</span></button>
+      <button class="nav-item"><span class="nav-icon">⚙</span><span>General</span></button>
+      <button class="nav-item"><span class="nav-icon">▮</span><span>Providers</span></button>
+      <button class="nav-item"><span class="nav-icon">✦</span><span>Usage</span></button>
+      <button class="nav-item"><span class="nav-icon">◗</span><span>TTS</span></button>
+      <button class="nav-item active"><span class="nav-icon">🎤</span><span>Voice</span></button>
+    </aside>
+
+    <main class="main">
+      <h1>Voice</h1>
+      <p class="subtitle">Local speech-to-text models for whisper.cpp. Download a model, then select it for Composer voice input.</p>
+      <p class="hardware-note">Models run locally on CPU or Apple&nbsp;Silicon GPU. Memory use is about the model size plus 1&nbsp;GB; the speed tag shows whether it can transcribe faster than real time.</p>
+
+      <div class="model-list">
+        <div class="model-card" data-model="large-v3-turbo">
+          <div class="model-info">
+            <div class="model-title"><span class="model-name">Whisper large-v3-turbo</span><span class="tag">GGML q5_0</span></div>
+            <div class="metrics"><span><b>547 MB</b> size</span><span><b>≈ 1.5 GB</b> RAM</span><span><b>2.5×</b> real-time</span><span><b>99</b> languages</span><span>WER <b>8.9%</b></span></div>
+          </div>
+          <div class="model-action">
+            <button class="radio" aria-label="Use Whisper large-v3-turbo"></button>
+            <button class="download">Download</button>
+          </div>
+        </div>
+
+        <div class="model-card" data-model="large-v3">
+          <div class="model-info">
+            <div class="model-title"><span class="model-name">Whisper large-v3</span><span class="tag">GGML q5_0</span></div>
+            <div class="metrics"><span><b>≈ 1.2 GB</b> size</span><span><b>≈ 2.2 GB</b> RAM</span><span><b>1.1×</b> real-time</span><span><b>99</b> languages</span><span>WER <b>8.1%</b></span></div>
+          </div>
+          <div class="model-action">
+            <button class="radio" aria-label="Use Whisper large-v3"></button>
+            <button class="download downloading">Downloading <span class="progress">42%</span></button>
+          </div>
+        </div>
+
+        <div class="model-card installed" data-model="medium">
+          <div class="model-info">
+            <div class="model-title"><span class="model-name">Whisper medium</span><span class="tag">GGML q5_0</span></div>
+            <div class="metrics"><span><b>≈ 539 MB</b> size</span><span><b>≈ 1.5 GB</b> RAM</span><span><b>4×</b> real-time</span><span><b>99</b> languages</span><span>WER <b>11.2%</b></span></div>
+          </div>
+          <div class="model-action">
+            <button class="radio" aria-label="Use Whisper medium"></button>
+            <button class="download installed">Installed</button>
+          </div>
+        </div>
+
+        <div class="model-card selected" data-model="small">
+          <div class="model-info">
+            <div class="model-title"><span class="model-name">Whisper small</span><span class="tag">GGML q5_0</span></div>
+            <div class="metrics"><span><b>≈ 182 MB</b> size</span><span><b>≈ 1.2 GB</b> RAM</span><span><b>8×</b> real-time</span><span><b>99</b> languages</span><span>WER <b>15.4%</b></span></div>
+          </div>
+          <div class="model-action">
+            <button class="radio" aria-label="Use Whisper small"></button>
+            <button class="download inuse">In Use</button>
+          </div>
+        </div>
+
+        <div class="model-card" data-model="base">
+          <div class="model-info">
+            <div class="model-title"><span class="model-name">Whisper base</span><span class="tag">GGML q5_0</span></div>
+            <div class="metrics"><span><b>≈ 58 MB</b> size</span><span><b>≈ 1 GB</b> RAM</span><span><b>12×</b> real-time</span><span><b>99</b> languages</span><span>WER <b>22.6%</b></span></div>
+          </div>
+          <div class="model-action">
+            <button class="radio" aria-label="Use Whisper base"></button>
+            <button class="download">Download</button>
+          </div>
+        </div>
+
+        <div class="model-card" data-model="tiny">
+          <div class="model-info">
+            <div class="model-title"><span class="model-name">Whisper tiny</span><span class="tag">GGML q5_0</span></div>
+            <div class="metrics"><span><b>≈ 32 MB</b> size</span><span><b>≈ 1 GB</b> RAM</span><span><b>16×</b> real-time</span><span><b>99</b> languages</span><span>WER <b>30.1%</b></span></div>
+          </div>
+          <div class="model-action">
+            <button class="radio" aria-label="Use Whisper tiny"></button>
+            <button class="download">Download</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const cards = document.querySelectorAll(".model-card");
+    function select(card) {
+      cards.forEach((c) => c.classList.remove("selected"));
+      card.classList.add("selected");
+      const label = card.querySelector(".download");
+      label.textContent = "In Use";
+      label.className = "download inuse";
+      cards.forEach((c) => {
+        if (c !== card) {
+          const l = c.querySelector(".download");
+          if (l.classList.contains("inuse")) { l.textContent = "Installed"; l.className = "download installed"; }
+        }
+      });
+    }
+    cards.forEach((card) => {
+      const label = card.querySelector(".download");
+      label.addEventListener("click", () => {
+        if (label.classList.contains("downloading") || label.classList.contains("inuse")) return;
+        if (label.classList.contains("installed")) { select(card); return; }
+        label.textContent = "Downloading 0%";
+        label.className = "download downloading";
+        let pct = 0;
+        const timer = setInterval(() => {
+          pct += 7 + Math.floor(Math.random() * 12);
+          if (pct >= 100) {
+            clearInterval(timer);
+            card.classList.add("installed");
+            label.textContent = "Installed";
+            label.className = "download installed";
+          } else {
+            label.innerHTML = `Downloading <span class="progress">${pct}%</span>`;
+          }
+        }, 260);
+      });
+      const radio = card.querySelector(".radio");
+      radio.addEventListener("click", () => select(card));
+    });
+  </script>
+</body>
+</html>

@@ -29,7 +29,7 @@ interface VoiceTranscriptionServiceOptions {
   resourcesDirectory?: string;
   temporaryDirectory?: string;
   enginePath?: string;
-  modelPath?: string;
+  modelPath?: string | (() => string | null);
 }
 
 /**
@@ -141,7 +141,7 @@ export class VoiceTranscriptionService {
     const executable = this.options.enginePath
       ?? process.env.YANSU_WHISPER_CLI
       ?? join(this.options.resourcesDirectory ?? "", "whisper", "whisper-cli");
-    const model = this.options.modelPath
+    const model = this.resolveModelPath()
       ?? process.env.YANSU_WHISPER_MODEL
       ?? join(this.options.resourcesDirectory ?? "", "whisper", "ggml-large-v3-turbo-q5_0.bin");
 
@@ -158,6 +158,11 @@ export class VoiceTranscriptionService {
       );
     }
     return { executable, model };
+  }
+
+  private resolveModelPath(): string | null {
+    if (typeof this.options.modelPath === "function") return this.options.modelPath();
+    return this.options.modelPath ?? null;
   }
 }
 
@@ -348,7 +353,7 @@ export function voiceResourcePaths({
   defaultApp?: boolean;
   resourcesPath: string;
   appPath: string;
-}): Pick<VoiceTranscriptionServiceOptions, "enginePath" | "modelPath"> {
+}): { enginePath: string; modelPath: string } {
   // A renamed development shell can report isPackaged=true while the default
   // Electron loader still loads the application from its source directory.
   const resourcesDirectory = isPackaged && !defaultApp
