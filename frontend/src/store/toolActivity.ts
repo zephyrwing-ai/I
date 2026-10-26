@@ -1,7 +1,15 @@
 import type { ToolState } from "./agentReducer";
+import { normalizeWebUrl } from "../../../agent/tools/web-result";
 
 export type ActivityLanguage = "zh" | "en";
-export type ToolActivityKind = "command" | "read" | "edit" | "search" | "list" | "history" | "canvas" | "unknown";
+export type ToolActivityKind = "command" | "read" | "edit" | "search" | "web-search" | "list" | "history" | "canvas" | "unknown";
+
+export interface WebSourceActivity {
+  url: string;
+  title: string;
+  domain: string;
+  faviconUrl: string;
+}
 
 /** A disposable view of a call; execution arguments and results remain in AgentState. */
 export interface ToolActivity {
@@ -15,6 +23,9 @@ export interface ToolActivity {
   tool: ToolState;
   failed: boolean;
   failureLabel: string;
+  statusLabel?: string;
+  webPages?: WebSourceActivity[];
+  emptyLabel?: string;
 }
 
 export function activityLanguage(userInput: string): ActivityLanguage {
@@ -26,6 +37,7 @@ function kindForTool(name: string): ToolActivityKind {
   if (["read", "file", "cat"].includes(name)) return "read";
   if (["write", "edit", "patch"].includes(name)) return "edit";
   if (["search_content", "find_files", "search", "grep", "find"].includes(name)) return "search";
+  if (name === "web_search") return "web-search";
   if (["list_dir", "list", "files", "glob"].includes(name)) return "list";
   if (name === "history_read") return "history";
   if (name === "canvas_edit") return "canvas";
@@ -37,8 +49,8 @@ function text(value: unknown): string | undefined {
 }
 
 const PURPOSE_ACTIONS: Record<ActivityLanguage, Record<ToolActivityKind, string>> = {
-  zh: { command: "执行命令", read: "读取文件", edit: "编辑文件", search: "搜索文件", list: "查看目录", history: "读取历史记录", canvas: "编辑画布", unknown: "使用工具" },
-  en: { command: "Run command", read: "Read file", edit: "Edit file", search: "Search files", list: "List directory", history: "Read history", canvas: "Edit Canvas", unknown: "Use tool" },
+  zh: { command: "执行命令", read: "读取文件", edit: "编辑文件", search: "搜索文件", "web-search": "搜索网页", list: "查看目录", history: "读取历史记录", canvas: "编辑画布", unknown: "使用工具" },
+  en: { command: "Run command", read: "Read file", edit: "Edit file", search: "Search files", "web-search": "Search web", list: "List directory", history: "Read history", canvas: "Edit Canvas", unknown: "Use tool" },
 };
 
 function purposeForTool(kind: ToolActivityKind, name: string, input: Record<string, unknown>, language: ActivityLanguage): string {
@@ -49,13 +61,47 @@ function purposeForTool(kind: ToolActivityKind, name: string, input: Record<stri
     : PURPOSE_ACTIONS[language][kind];
   const target = kind === "read" || kind === "edit" || kind === "list" ? text(input.path) ?? (kind === "list" ? "." : undefined)
     : kind === "search" ? text(input.text) ?? text(input.query) ?? text(input.pattern) ?? text(input.path)
+    : kind === "web-search" ? text(input.query)
     : kind === "history" ? text(input.entryId)
     : kind === "unknown" ? text(name) : undefined;
   return target ? `${action} ${target}` : action;
 }
 
+function webActivity(tool: ToolState, language: ActivityLanguage) {
+  const webPages = tool.result?.web?.pages.flatMap((page): WebSourceActivity[] => {
+    const href = normalizeWebUrl(page.url);
+    if (!href) return [];
+    const url = new URL(href);
+    return [{
+      url: url.href,
+      title: text(page.title) ?? url.hostname,
+      domain: url.hostname.replace(/^www\./, ""),
+      faviconUrl: normalizeWebUrl(page.faviconUrl) ?? new URL("/favicon.ico", url.origin).href,
+    }];
+  });
+  const running = tool.status === "running";
+  const failed = tool.result?.ok === false;
+  let statusLabel: string | undefined;
+  if (!failed) {
+    if (running) statusLabel = language === "zh" ? "搜索中" : "Searching";
+    else if (tool.result?.ok) {
+      if (webPages) {
+        const count = webPages.length;
+        statusLabel = language === "zh" ? `${count} 个结果` : `${count} result${count === 1 ? "" : "s"}`;
+      } else statusLabel = language === "zh" ? "已完成" : "Completed";
+    }
+  }
+  return {
+    statusLabel,
+    webPages,
+    emptyLabel: tool.result?.ok && webPages?.length === 0
+      ? language === "zh" ? "本次搜索没有找到结果。" : "No results found for this search."
+      : undefined,
+  };
+}
+
 /** Operational arguments supply row labels; the raw input remains available on the tool. */
-function labelForTool(kind: ToolActivityKind, name: string, input: Record<string, unknown>): string {
+function labelForTool(kind: ToolActivityKind, name: string, input: Record<string, unknown>, status: ToolState["status"]): string {
   const path = text(input.path);
   switch (kind) {
     case "command": return `Ran ${text(input.command) ?? "command"}`;
@@ -66,6 +112,7 @@ function labelForTool(kind: ToolActivityKind, name: string, input: Record<string
       const query = text(input.text) ?? text(input.query) ?? text(input.pattern);
       return query ? `Searched ${query} in ${path ?? "."}` : `Searched ${path ?? "."}`;
     }
+    case "web-search": return `${status === "running" ? "Searching" : "Searched"} ${text(input.query) ?? "web"}`;
     case "history": {
       const entryId = text(input.entryId);
       return entryId ? `Read history ${entryId}` : "Read history";
@@ -83,16 +130,17 @@ export function projectToolActivity(tool: ToolState, language: ActivityLanguage 
   return {
     toolCallId: tool.toolCallId,
     kind,
-    label: labelForTool(kind, tool.name, input),
+    label: labelForTool(kind, tool.name, input, tool.status),
     purpose: purposeForTool(kind, tool.name, input, language),
     tool,
     failed: tool.result?.ok === false,
     failureLabel: language === "zh" ? "执行失败" : "Failed",
+    ...(kind === "web-search" ? webActivity(tool, language) : {}),
   };
 }
 
 const GROUP_ACTIONS: Record<ToolActivityKind, string> = {
-  command: "ran commands", read: "read files", edit: "edited files", search: "searched files", list: "listed directories", history: "read history", canvas: "edited Canvas", unknown: "used tools",
+  command: "ran commands", read: "read files", edit: "edited files", search: "searched files", "web-search": "searched web", list: "listed directories", history: "read history", canvas: "edited Canvas", unknown: "used tools",
 };
 
 /** The caller supplies one turn's batch; each category appears once in call order. */

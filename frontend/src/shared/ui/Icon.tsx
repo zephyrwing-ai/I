@@ -15,6 +15,7 @@ export type IconName =
   | "folder"
   | "folder-closed"
   | "film"
+  | "globe"
   | "image"
   | "line-squiggle"
   | "microphone"
@@ -47,6 +48,7 @@ const paths: Record<IconName, ReactNode> = {
   "folder-closed": <><path d="M20 20a3 3 0 0 0 3-3V8a3 3 0 0 0-3-3h-7.9a3 3 0 0 1-2.54-1.35l-.7-1.05A3 3 0 0 0 5.36 1H4a3 3 0 0 0-3 3v13a3 3 0 0 0 3 3Z"/><path d="M1 10h22"/></>,
   image: <><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></>,
   film: <><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4M3 16h4M17 8h4M17 16h4"/></>,
+  globe: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18"/></>,
   "line-squiggle": <path d="M7 3.5c5-2 7 2.5 3 4C1.5 10 2 15 5 16c5 2 9-10 14-7s.5 13.5-4 12c-5-2.5.5-11 6-2"/>,
   microphone: <><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 10.5a6.5 6.5 0 0 0 13 0"/><path d="M12 17v4"/><path d="M8.5 21h7"/></>,
   pin: <><path d="M8 3h8l-1 7 3 3v3H6v-3l3-3Z"/><path d="M12 16v6"/></>,

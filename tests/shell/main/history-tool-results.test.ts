@@ -7,13 +7,14 @@ import { toolResultMessage } from "../../../agent/tools/result.js";
 import { HistoryError, HistoryService } from "../../../shell/main/session-history.js";
 import { toPublicToolResult } from "../../../shell/shared/tool-result.js";
 
-test("paginated history delivers the same public tool result as live execution", async () => {
+test("paginated history delivers the same public tool result and web sources as live execution", async () => {
   const repository = new SqliteHistoryRepository(":memory:");
   const recorder = await createHistoryRecorder(repository, null);
   const result: ToolResult = {
     ok: false, output: "first lines", returncode: 42, truncated: true, error: "nonzero_exit",
     fullOutputPath: "/private/full-output.txt",
     artifacts: [{ path: "/private/artifact.txt", operation: "created", mediaType: "text/plain", byteSize: 10, updatedAt: "2026-10-07T00:00:00Z" }],
+    web: { pages: [{ url: "https://example.com/docs", title: "Documentation", snippet: "Original result" }] },
   };
   let liveResult: ReturnType<typeof toPublicToolResult> | undefined;
   let requests = 0;
@@ -45,7 +46,8 @@ test("paginated history delivers the same public tool result as live execution",
     assert.equal(entry.toolResult?.returncode, 42);
     assert.equal(entry.toolResult?.truncated, true);
     assert.equal(entry.toolResult?.output, "first lines");
-    assert.deepEqual(Object.keys(entry.toolResult!).sort(), ["error", "ok", "output", "returncode", "truncated"]);
+    assert.deepEqual(entry.toolResult?.web, result.web);
+    assert.deepEqual(Object.keys(entry.toolResult!).sort(), ["error", "ok", "output", "returncode", "truncated", "web"]);
     assert.equal(JSON.stringify(entry.toolResult).includes("/private/"), false);
     assert.equal(entry.payload.isError, true);
     assert.match(entry.payload.content, /<returncode>42<\/returncode>/);

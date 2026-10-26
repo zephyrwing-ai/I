@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Icon, type IconName } from "../../shared/ui/Icon";
 import type { RunState } from "../../store/agentReducer";
 import { projectAssistantActivity } from "../../store/assistantActivity";
-import { activityLanguage, summarizeToolActivities, type ToolActivity } from "../../store/toolActivity";
+import { activityLanguage, summarizeToolActivities, type ToolActivity, type WebSourceActivity } from "../../store/toolActivity";
 import { MarkdownText } from "./MarkdownText";
 import { MessageMeta } from "./MessageMeta";
 
@@ -26,10 +26,35 @@ function toolIconName(kind: ToolActivity["kind"]): IconName {
     case "history": return "book-open";
     case "edit":
     case "canvas": return "edit";
-    case "search": return "search";
+    case "search":
+    case "web-search": return "search";
     case "list": return "folder";
     default: return "tool";
   }
+}
+
+function SourceIcon({ url }: { url: string }) {
+  const [failedUrl, setFailedUrl] = useState<string>();
+  return failedUrl === url
+    ? <Icon name="globe" width={16} height={16} className="tool-web-icon" />
+    : <img className="tool-web-icon" src={url} width={16} height={16} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailedUrl(url)} />;
+}
+
+function WebSources({ pages }: { pages: WebSourceActivity[] }) {
+  return (
+    <ul className="tool-web-sources">
+      {pages.map((page, index) => (
+        <li key={`${page.url}:${index}`}>
+          <a className="tool-web-source" href={page.url} target="_blank" rel="noopener noreferrer" title={`${page.title} · ${page.domain}`}>
+            <SourceIcon url={page.faviconUrl} />
+            <span className="tool-web-title">{page.title}</span>
+            <span className="tool-web-domain">{page.domain}</span>
+            <Icon name="external" width={16} height={16} className="tool-web-icon" />
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** 折叠箭头：复用系统图标（同模型选择器），chevron-right 收起指右，展开旋转 90° 指下。 */
@@ -169,13 +194,20 @@ function ToolRow({ activity }: { activity: ToolActivity }) {
       <button type="button" className="tool-fold" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <Icon name={activity.failed ? "warning" : toolIconName(activity.kind)} width={16} height={16} className="tool-icon" />
         <span className="tool-action">{activity.label}</span>
+        {activity.statusLabel && <span className="tool-status">{activity.statusLabel}</span>}
         {activity.failed && <span className="tool-error">{activity.failureLabel}</span>}
         <Chevron expanded={open} />
       </button>
       {open && (
         <div className="tool-detail">
-          <pre className="tool-input-pre">{JSON.stringify(activity.tool.input, null, 2)}</pre>
-          {activity.tool.result && <pre className="tool-output-pre">{activity.tool.result.output}</pre>}
+          {activity.kind === "web-search" && activity.webPages ? (
+            activity.webPages.length > 0 ? <WebSources pages={activity.webPages} /> : activity.emptyLabel && <p className="tool-web-empty">{activity.emptyLabel}</p>
+          ) : (
+            <>
+              <pre className="tool-input-pre">{JSON.stringify(activity.tool.input, null, 2)}</pre>
+              {activity.tool.result && <pre className="tool-output-pre">{activity.tool.result.output}</pre>}
+            </>
+          )}
           {activity.tool.result?.error && <p className="tool-error">{activity.tool.result.error}</p>}
         </div>
       )}

@@ -335,6 +335,22 @@ test("tool failures remain visible with an expandable action and lazily mounted 
   assert.doesNotMatch(html, /PRIVATE ERROR|tool-detail/);
 });
 
+test("web search stays in the existing tool fold with query, count and commentary", () => {
+  const state = run([turn({ toolOrder: ["search"], tools: {
+    search: { toolCallId: "search", name: "web_search", input: { query: "Electron current documentation", purpose: "查找官方资料" }, status: "completed", result: {
+      ok: true, output: "FULL SEARCH EVIDENCE", returncode: 0, truncated: false,
+      web: { pages: [{ url: "https://www.electronjs.org/docs/latest/", title: "Electron Documentation" }] },
+    } },
+  } })]);
+  const html = renderToStaticMarkup(createElement(AssistantMessage, { run: state, turnIds: ["turn-1"] }));
+  assert.match(html, /Searched web/);
+  assert.match(html, /Searched Electron current documentation/);
+  assert.match(html, /1 个结果/);
+  assert.match(html, /查找官方资料/);
+  assert.match(html, /class="tool-fold" aria-expanded="false"/);
+  assert.doesNotMatch(html, /tool-web-source|Electron Documentation|FULL SEARCH EVIDENCE|Searched files/);
+});
+
 test("live tool metadata and restored history render the identical chronological activity", () => {
   const runId = "parity-run";
   const call = { id: "read-call", name: "read", input: { path: "config.ts", purpose: "读取上下文配置", targets: ["incorrect.ts"] }, inputComplete: true };

@@ -133,3 +133,48 @@ test("activityLanguage remains available and fixed action labels preserve origin
   assert.equal(projectToolActivity(call, "zh").label, "Read 文档/配置.ts");
   assert.equal(projectToolActivity(call, "en").label, "Read 文档/配置.ts");
 });
+
+test("web search uses its query and execution facts without changing local search labels", () => {
+  const input = { query: "Electron web search", purpose: "核对当前官方资料" };
+  const running = projectToolActivity(tool("web_search", input), "zh");
+  assert.equal(running.kind, "web-search");
+  assert.equal(running.label, "Searching Electron web search");
+  assert.equal(running.statusLabel, "搜索中");
+  assert.equal(running.purpose, input.purpose);
+  const result = { ok: true, output: "Saved search evidence", returncode: 0, truncated: false, web: { pages: [
+    { url: "https://www.electronjs.org/docs/latest/", title: "Electron Documentation", snippet: "Original source snippet" },
+    { url: "https://example.com/article", title: "Article", faviconUrl: "https://example.com/site.png" },
+  ] } };
+  const complete = projectToolActivity(tool("web_search", input, { status: "completed", result }), "en");
+  assert.equal(complete.label, "Searched Electron web search");
+  assert.equal(complete.statusLabel, "2 results");
+  assert.deepEqual(complete.webPages, [
+    { url: "https://www.electronjs.org/docs/latest/", title: "Electron Documentation", domain: "electronjs.org", faviconUrl: "https://www.electronjs.org/favicon.ico" },
+    { url: "https://example.com/article", title: "Article", domain: "example.com", faviconUrl: "https://example.com/site.png" },
+  ]);
+  assert.strictEqual(complete.tool.result, result, "source snippets and raw output remain in the execution result");
+  assert.equal(summarizeToolActivities([complete, projectToolActivity(tool("search_content", { text: "query" }))]), "Searched web, searched files");
+  assert.equal(projectToolActivity(tool("web_search", { query: "releases" }), "zh").purpose, "搜索网页 releases");
+  assert.equal(projectToolActivity(tool("search_content", { text: "query" })).label, "Searched query in .");
+});
+
+test("web sources accept HTTP links and distinguish successful empty search from failure", () => {
+  const result = { ok: true, output: "raw", returncode: 0, truncated: false, web: { pages: [
+    { url: "javascript:alert(1)", title: "Unsafe" },
+    { url: "file:///private/document", title: "Local" },
+    { url: "not a URL", title: "Invalid" },
+    { url: "http://example.com/page", title: " ", faviconUrl: "data:image/svg+xml,unsafe" },
+  ] } };
+  const valid = projectToolActivity(tool("web_search", { query: "docs" }, { status: "completed", result }));
+  assert.equal(valid.statusLabel, "1 result");
+  assert.deepEqual(valid.webPages, [{ url: "http://example.com/page", title: "example.com", domain: "example.com", faviconUrl: "http://example.com/favicon.ico" }]);
+  const emptyResult = { ...result, web: { pages: [] } };
+  const empty = projectToolActivity(tool("web_search", { query: "rare query" }, { status: "completed", result: emptyResult }), "zh");
+  assert.equal(empty.statusLabel, "0 个结果");
+  assert.equal(empty.emptyLabel, "本次搜索没有找到结果。");
+  const failed = projectToolActivity(tool("web_search", { query: "docs" }, { status: "completed", result: { ok: false, output: "", returncode: -1, truncated: false, error: "network_error" } }), "zh");
+  assert.equal(failed.failed, true);
+  assert.equal(failed.statusLabel, undefined);
+  assert.equal(failed.emptyLabel, undefined);
+  assert.equal(projectToolActivity(tool("web_search", { query: "docs" }, { status: "completed" })).statusLabel, undefined, "a terminal call without a saved outcome is not presented as a successful search");
+});
