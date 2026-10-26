@@ -311,7 +311,8 @@ async function runRegression() {
   expect(listReads === 2, "reopening a loaded list should use its snapshot");
   const selectedNavigation = document.querySelector<HTMLElement>('.project-navigation [aria-current="page"]')!;
   const headerToggle = document.querySelector<HTMLElement>('#projects-sidebar-toggle')!;
-  expect(getComputedStyle(selectedNavigation).backgroundColor === getComputedStyle(headerToggle).backgroundColor, "navigation selection should share the toggle's light background");
+  expect(getComputedStyle(selectedNavigation).backgroundColor === getComputedStyle(headerToggle).backgroundColor,
+    `navigation selection should share the toggle's light background: ${JSON.stringify({ selected: getComputedStyle(selectedNavigation).backgroundColor, toggle: getComputedStyle(headerToggle).backgroundColor, toggleClass: headerToggle.className })}`);
   expect(document.querySelectorAll('#projects-sidebar-toggle').length === 1, "one toggle should move between the frame toolbar and project header");
   expect(getComputedStyle(document.querySelector('.workbench-frame')!).borderTopWidth === '1px', "the inner workspace should have its own boundary");
   listContent.style.maxHeight = "";

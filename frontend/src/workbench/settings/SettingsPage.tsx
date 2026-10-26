@@ -2,11 +2,12 @@ import { useEffect, useRef } from "react";
 import type { ProviderProfileSummary } from "../../../../shell/shared/ipc";
 import { GeneralSettings } from "./general/GeneralSettings";
 import { ConfigPanel } from "./providers/ConfigPanel";
+import { VoiceSettings } from "./voice/VoiceSettings";
 import { Icon } from "../../shared/ui/Icon";
 import { useI18n } from "../../shared/i18n";
 import "./SettingsPage.css";
 
-export type SettingsSection = "general" | "providers" | "usage" | "tts";
+export type SettingsSection = "general" | "providers" | "usage" | "tts" | "voice";
 
 interface SettingsPageProps {
   section: SettingsSection;
@@ -50,6 +51,7 @@ export function SettingsPage({
             <SettingsNavItem section="providers" active={section === "providers"} label={t("Providers")} icon="terminal" onClick={onSectionChange} />
             <SettingsNavItem section="usage" active={section === "usage"} label={t("Usage")} icon="tool" onClick={onSectionChange} />
             <SettingsNavItem section="tts" active={section === "tts"} label={t("TTS")} icon="microphone" onClick={onSectionChange} />
+            <SettingsNavItem section="voice" active={section === "voice"} label={t("Voice")} icon="microphone" onClick={onSectionChange} />
           </nav>
         </div>
       </aside>
@@ -57,7 +59,7 @@ export function SettingsPage({
       <main className="settings-page-main">
         <div className="settings-page-titlebar" aria-hidden="true" />
         <div key={section} id={`settings-content-${section}`} className="settings-page-content">
-          {section === "general" && <GeneralSettings />}
+          {section === "general" && <GeneralSettings disabled={disabled} />}
           {section === "providers" && (
             <section className="settings-section" aria-labelledby="settings-providers-title">
               <header className="settings-section-header">
@@ -76,6 +78,7 @@ export function SettingsPage({
           )}
           {section === "usage" && <SettingsPlaceholder title="Usage" />}
           {section === "tts" && <SettingsPlaceholder title="TTS" />}
+          {section === "voice" && <VoiceSettings />}
         </div>
       </main>
     </section>

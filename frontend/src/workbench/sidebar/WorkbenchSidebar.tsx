@@ -70,7 +70,7 @@ export function WorkbenchSidebar({ surface, onSurfaceChange, project, projectMod
   };
   const activeSurface = projectPending || projectError ? "home" : surface;
 
-  return <aside id="right-sidebar" ref={shellRef} className={`workbench-sidebar${projectMode ? "" : " is-ordinary"} phase-${phase}${collapseReady ? " collapse-ready" : ""}`} style={{ width: targetWidth }} aria-hidden={!open} onTransitionEnd={finishTransition}>
+  return <aside id="right-sidebar" ref={shellRef} className={`workbench-sidebar${projectMode ? "" : " is-ordinary"}${open ? "" : " is-closed"} phase-${phase}${collapseReady ? " collapse-ready" : ""}`} style={{ width: targetWidth }} aria-hidden={!open} onTransitionEnd={finishTransition}>
     <div className="sidebar-resizer workbench-divider workbench-divider--vertical" role="separator" tabIndex={open ? 0 : -1} aria-label={t("Resize sidebar")} aria-orientation="vertical" aria-valuemin={WORKBENCH_SIDEBAR_MIN_WIDTH} aria-valuemax={maximumWidth} aria-valuenow={Math.round(targetWidth)} onPointerDown={startDrag} onDoubleClick={resetWidth} onKeyDown={resizeWithKeyboard} />
     <div className="sidebar-content">
       {activeSurface === "canvas" && <button type="button" className="sidebar-floating-back" onClick={back} aria-label={t("Back to sidebar")} title={t("Back to sidebar")}><Icon name="chevron-right" width="18" height="18" /></button>}

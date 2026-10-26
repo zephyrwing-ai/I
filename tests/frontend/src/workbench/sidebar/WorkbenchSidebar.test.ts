@@ -121,7 +121,7 @@ test("project transition and errors replace launcher actions with recoverable st
 
 test("closed sidebar and Canvas surface retain their render contracts", () => {
   const closed = render(project, null);
-  assert.match(closed, /id="right-sidebar"[^>]*phase-closed[^>]*style="width:0"[^>]*aria-hidden="true"/);
+  assert.match(closed, /id="right-sidebar"[^>]*class="workbench-sidebar is-closed phase-closed"[^>]*style="width:0"[^>]*aria-hidden="true"/);
   assert.match(closed, /role="separator"[^>]*tabindex="-1"/);
 
   const canvas = render(project, "canvas");

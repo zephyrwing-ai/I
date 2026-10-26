@@ -17,7 +17,7 @@ test("Electron navigation reuses scoped history for ordinary, registered and add
   const temporary = await mkdtemp(join(tmpdir(), "project-navigation-regression-"));
   try {
     await build({
-      configFile: false, root: fixture, base: "./", logLevel: "silent", esbuild: { jsx: "automatic" },
+      configFile: false, root: fixture, base: "./", cacheDir: join(temporary, "vite-cache"), logLevel: "silent", esbuild: { jsx: "automatic" },
       plugins: [{ name: "canvas-lifecycle-fixture", enforce: "pre", resolveId: (source) => /\/canvas\/ui\/CanvasSurface(?:\.[jt]sx?)?$/.test(source) ? join(fixture, "canvas.tsx") : undefined }],
       build: { outDir: join(temporary, "page"), emptyOutDir: true },
     });

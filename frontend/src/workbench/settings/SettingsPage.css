@@ -16,8 +16,9 @@
 .settings-page-nav { display: grid; }
 .settings-page-navigation, .settings-page-nav { gap: 4px; }
 .settings-page-back, .settings-page-nav-item { width: 100%; min-height: 36px; flex-shrink: 0; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); display: flex; align-items: center; gap: 10px; text-align: left; font-size: var(--font-size-body); font-weight: 400; -webkit-app-region: no-drag; }
-.settings-page-back { border-radius: 12px; }
-.settings-page-back:hover, .settings-page-nav-item:hover, .settings-page-nav-item.active { background: var(--hover); color: var(--text); }
+.settings-page-back { border-radius: 16px; }
+.settings-page-back:hover, .settings-page-nav-item:hover { background: var(--nav-hover); color: var(--text); }
+.settings-page-nav-item.active { background: var(--nav-selected); color: var(--text); }
 .settings-page-nav-item:focus-visible, .settings-page-back:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .settings-page-main {
   min-width: 0;

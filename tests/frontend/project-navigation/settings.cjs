@@ -109,7 +109,7 @@ async function verifySettingsNavigation(window) {
   assert.equal(page.backRegion, "no-drag");
   assert.ok(page.backTop >= page.dragBottom);
   assert.equal(page.bodyFont, page.backFont);
-  assert.equal(page.backRadius, "14px");
+  assert.equal(page.backRadius, "16px");
   assert.ok(page.frameRetained);
 
   const verifyGeneralLayout = async () => {

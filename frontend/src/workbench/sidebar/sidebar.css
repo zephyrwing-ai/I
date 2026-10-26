@@ -6,7 +6,9 @@
 .phase-opening > .sidebar-content { animation: sidebar-content-in 180ms var(--ease-standard); }
 .sidebar-resizer { position: absolute; z-index: 3; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; outline: 0; }
 .sidebar-resizer.workbench-divider--vertical::after { left: 3px; }
-.workbench-sidebar.is-ordinary:not(.phase-closed) { overflow: visible; }
+.workbench-sidebar:not(.is-closed) { overflow: visible; }
+.workbench-sidebar.is-closed .sidebar-resizer { visibility: hidden; }
+.workbench-sidebar.is-closed .sidebar-resizer::after { display: none; }
 .workbench-sidebar.is-ordinary .sidebar-resizer.workbench-divider--vertical::after { top: calc(-1 * var(--topbar-height)); }
 .sidebar-floating-back { position: absolute; z-index: 4; top: 8px; left: 8px; width: 30px; height: 30px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 8px; background: var(--surface-strong-translucent); color: var(--text-secondary); box-shadow: 0 1px 4px var(--shadow-soft); backdrop-filter: blur(12px); }
 .sidebar-floating-back:hover { background: var(--hover); color: var(--text); }
