@@ -3,7 +3,7 @@
    滑块视觉宽度 8px、距消息视口右缘 2px、距底部 2px；长度按内容比例缩放，钳制最小
    48px、最大 72px，端头圆角 8px；滑块常显（玻璃质感：垂直渐变 + 顶部内高光）。 */
 .stream-region { position: relative; min-width: 0; min-height: 0; }
-.stream-scroll { height: 100%; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: none; scroll-behavior: smooth; scrollbar-width: none; }
+.stream-scroll { height: 100%; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: none; overflow-anchor: none; scroll-behavior: smooth; scrollbar-width: none; }
 .stream-scroll::-webkit-scrollbar { display: none; }
 .stream-layout { min-height: 100%; overflow: clip; }
 .stream-scrollbar { position: absolute; top: 0; right: 0; bottom: 0; width: 12px; z-index: 13; }
@@ -17,7 +17,7 @@
 /* 消息流始终由虚拟窗口承载：spacer 表示未挂载区间，block 用稳定 blockId 测量动态高度。 */
 .message-stream { position: relative; min-height: 0; }
 .message-virtual-spacer { width: 1px; min-height: 0; pointer-events: none; }
-.message-virtual-block { display: flow-root; min-width: 0; overflow-anchor: none; }
+.message-virtual-block { display: flow-root; min-width: 0; }
 .message-history-status { position: sticky; top: 4px; z-index: 2; width: fit-content; min-height: 24px; margin: 0 auto -24px; color: var(--text-muted); font-size: var(--font-size-code); line-height: calc(24px + var(--ui-font-offset)); pointer-events: none; }
 .message-history-status button { height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--surface-secondary); color: var(--text-secondary); font: inherit; pointer-events: auto; cursor: pointer; }
 .message-history-status button:hover { color: var(--text); }
@@ -84,7 +84,7 @@
 .model-message { width: 100%; display: flex; flex-direction: column; }
 .model-message > .message-meta { align-self: flex-start; }
 .message-meta { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
-.message-virtual-block.block-assistant { margin-bottom: 28px; }
+.message-virtual-block.block-assistant { padding-bottom: 28px; }
 .message-time { color: var(--text-muted); font-size: var(--font-size-meta); line-height: calc(20px + var(--ui-font-offset)); }
 .message-copy { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); display: grid; place-items: center; transition: color 120ms var(--ease-standard); }
 .message-copy.is-copied { color: var(--text); }

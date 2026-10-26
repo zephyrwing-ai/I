@@ -65,15 +65,6 @@ function findBlockNode(root: HTMLElement | null, blockId: string): HTMLElement |
     .find((node) => node.dataset.messageBlockId === blockId) ?? null;
 }
 
-function centerBlock(element: HTMLElement, node: HTMLElement): void {
-  const containerRect = element.getBoundingClientRect();
-  const nodeRect = node.getBoundingClientRect();
-  const correction = nodeRect.top - containerRect.top - Math.max(0, (element.clientHeight - nodeRect.height) / 2);
-  if (Math.abs(correction) < 1) return;
-  const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
-  element.scrollTop = Math.min(maxScrollTop, Math.max(0, element.scrollTop + correction));
-}
-
 export function buildVirtualMessageLayout(
   items: VirtualMessageItem[],
   measuredHeights: ReadonlyMap<string, number>,
@@ -134,6 +125,60 @@ function findScrollElement(root: HTMLElement | null, explicit?: RefObject<HTMLEl
   return explicit?.current ?? root?.closest<HTMLElement>(".stream-scroll") ?? null;
 }
 
+interface ReadingAnchor {
+  blockId: string;
+  offset: number;
+}
+
+interface MessageViewport {
+  scrollTop: number;
+  contentTop: number;
+  height: number;
+  ready: boolean;
+  anchor: ReadingAnchor | null;
+}
+
+function layoutTop(node: HTMLElement): number {
+  let top = node.offsetTop;
+  let parent = node.offsetParent as HTMLElement | null;
+  while (parent) {
+    top += parent.offsetTop + parent.clientTop;
+    parent = parent.offsetParent as HTMLElement | null;
+  }
+  return top;
+}
+
+function scrollContentTop(root: HTMLElement, element: HTMLElement): number {
+  // Native layout coordinates include padding/banners, but exclude elastic transforms.
+  return layoutTop(root) - layoutTop(element) - element.clientTop;
+}
+
+function captureReadingAnchor(
+  root: HTMLElement,
+  element: HTMLElement,
+  layout: VirtualMessageLayout,
+): ReadingAnchor | null {
+  if (layout.items.length === 0) return null;
+  const contentTop = scrollContentTop(root, element);
+  const rootTop = root.getBoundingClientRect().top;
+  for (const node of root.querySelectorAll<HTMLElement>("[data-message-block-id]")) {
+    const blockId = node.dataset.messageBlockId;
+    if (!blockId) continue;
+    const rect = node.getBoundingClientRect();
+    const top = contentTop + rect.top - rootTop;
+    if (top + rect.height <= element.scrollTop) continue;
+    if (top >= element.scrollTop + element.clientHeight) break;
+    return { blockId, offset: top - element.scrollTop };
+  }
+  const item = layout.items[firstItemEndingAfter(layout.items, element.scrollTop - contentTop)];
+  return { blockId: item.blockId, offset: contentTop + item.start - element.scrollTop };
+}
+
+function sameViewport(current: MessageViewport, next: MessageViewport): boolean {
+  return current.scrollTop === next.scrollTop && current.contentTop === next.contentTop
+    && current.height === next.height && current.ready === next.ready && current.anchor === next.anchor;
+}
+
 interface UseVirtualMessageWindowOptions {
   items: VirtualMessageItem[];
   rootRef: RefObject<HTMLDivElement>;
@@ -160,161 +205,191 @@ export function useVirtualMessageWindow({
   onLoadOlder,
 }: UseVirtualMessageWindowOptions) {
   const measuredHeights = useRef(new Map<string, number>());
-  const previousLayout = useRef<VirtualMessageLayout | null>(null);
+  const committedWindow = useRef<{ layout: VirtualMessageLayout; height: number } | null>(null);
   const loadRequested = useRef(false);
-  const olderRequestEpoch = useRef(0);
-  const activeGeneration = useRef(historyGeneration);
   const activeScope = useRef({ projectId, historyGeneration });
-  const bottomFrame = useRef<number | null>(null);
+  const positionedHistory = useRef({ projectId, historyGeneration, historyHydrationVersion, ready: false });
+  const programmaticTop = useRef<number | null>(null);
+  const revealEpoch = useRef(0);
   const stickToBottom = useRef(true);
   const [measurementVersion, setMeasurementVersion] = useState(0);
-  const [viewport, setViewport] = useState({ scrollTop: 0, height: DEFAULT_VIEWPORT_HEIGHT, ready: false });
+  const [viewport, setViewport] = useState<MessageViewport>({
+    scrollTop: 0, contentTop: 0, height: DEFAULT_VIEWPORT_HEIGHT, ready: false, anchor: null,
+  });
 
   const layout = useMemo(
     () => buildVirtualMessageLayout(items, measuredHeights.current),
     // measurementVersion deliberately invalidates the layout after ResizeObserver updates the cache.
     [items, measurementVersion],
   );
-  const effectiveScrollTop = viewport.ready
-    ? viewport.scrollTop
-    : Math.max(0, layout.totalSize - viewport.height);
-  const range = useMemo(
-    () => calculateVirtualMessageRange(layout, effectiveScrollTop, viewport.height),
-    [effectiveScrollTop, layout, viewport.height],
+  const scopeChanged = activeScope.current.projectId !== projectId
+    || activeScope.current.historyGeneration !== historyGeneration;
+  const hydrationChanged = historyReady && (!positionedHistory.current.ready
+    || positionedHistory.current.projectId !== projectId
+    || positionedHistory.current.historyGeneration !== historyGeneration
+    || positionedHistory.current.historyHydrationVersion !== historyHydrationVersion);
+  const followingBottom = scopeChanged || hydrationChanged || !viewport.ready || stickToBottom.current;
+  const anchorBlockId = viewport.anchor?.blockId;
+  const anchorOffset = viewport.anchor?.offset ?? 0;
+  const anchorItem = useMemo(
+    () => anchorBlockId ? layout.items.find((item) => item.blockId === anchorBlockId) : undefined,
+    [anchorBlockId, layout],
   );
+  const effectiveScrollTop = followingBottom
+    ? Math.max(0, layout.totalSize - viewport.height)
+    : Math.max(0, anchorItem ? anchorItem.start - anchorOffset : viewport.scrollTop - viewport.contentTop);
+  const range = useMemo(
+    () => {
+      const next = calculateVirtualMessageRange(layout, effectiveScrollTop, viewport.height);
+      if (followingBottom || !anchorItem) return next;
+      // Keep a partly visible anchor mounted even before its first height measurement.
+      const startIndex = Math.min(next.startIndex, anchorItem.index);
+      const endIndex = Math.max(next.endIndex, anchorItem.index + 1);
+      return {
+        startIndex, endIndex,
+        topSpacer: layout.items[startIndex]?.start ?? 0,
+        bottomSpacer: Math.max(0, layout.totalSize - (layout.items[endIndex - 1]?.end ?? 0)),
+      };
+    },
+    [anchorItem, effectiveScrollTop, followingBottom, layout, viewport.height],
+  );
+  const observedBlockIds = JSON.stringify(items.slice(range.startIndex, range.endIndex).map((item) => item.blockId));
 
   const requestOlder = useCallback(() => {
-    if (activeGeneration.current !== historyGeneration) return;
+    if (activeScope.current.projectId !== projectId || activeScope.current.historyGeneration !== historyGeneration) return;
     if (!hasMore || loadingOlder || loadRequested.current || !onLoadOlder) return;
     loadRequested.current = true;
-    const requestEpoch = olderRequestEpoch.current;
+    const requestScope = activeScope.current;
     void Promise.resolve(onLoadOlder()).finally(() => {
-      if (olderRequestEpoch.current === requestEpoch) loadRequested.current = false;
+      if (activeScope.current === requestScope) loadRequested.current = false;
     });
-  }, [hasMore, historyGeneration, loadingOlder, onLoadOlder]);
+  }, [hasMore, historyGeneration, loadingOlder, onLoadOlder, projectId]);
 
   useBrowserLayoutEffect(() => {
     const previousScope = activeScope.current;
     if (previousScope.projectId === projectId && previousScope.historyGeneration === historyGeneration) return;
     activeScope.current = { projectId, historyGeneration };
-    activeGeneration.current = historyGeneration;
     measuredHeights.current.clear();
-    previousLayout.current = null;
-    olderRequestEpoch.current += 1;
+    committedWindow.current = null;
+    revealEpoch.current += 1;
     loadRequested.current = false;
     stickToBottom.current = true;
-    if (bottomFrame.current !== null) cancelAnimationFrame(bottomFrame.current);
-    bottomFrame.current = null;
+    programmaticTop.current = null;
 
     const element = findScrollElement(rootRef.current, scrollRef);
-    if (element) {
-      element.scrollTop = 0;
-      setViewport({ scrollTop: 0, height: element.clientHeight, ready: false });
-    } else {
-      setViewport({ scrollTop: 0, height: DEFAULT_VIEWPORT_HEIGHT, ready: false });
-    }
+    setViewport({
+      scrollTop: 0, contentTop: 0, height: element?.clientHeight ?? DEFAULT_VIEWPORT_HEIGHT,
+      ready: false, anchor: null,
+    });
     setMeasurementVersion((value) => value + 1);
   }, [historyGeneration, projectId, rootRef, scrollRef]);
 
   useEffect(() => {
-    const element = findScrollElement(rootRef.current, scrollRef);
-    if (!element) return;
+    const root = rootRef.current;
+    const element = findScrollElement(root, scrollRef);
+    if (!root || !element) return;
     const observedGeneration = historyGeneration;
-    const sync = (): void => {
-      if (activeGeneration.current !== observedGeneration) return;
-      stickToBottom.current = shouldStickToBottom(element.scrollTop, element.clientHeight, element.scrollHeight);
+    const sync = (userScrolled = false): void => {
+      if (activeScope.current.projectId !== projectId || activeScope.current.historyGeneration !== observedGeneration) return;
+      const userMoved = userScrolled && (programmaticTop.current === null
+        || Math.abs(element.scrollTop - programmaticTop.current) > 0.5);
+      const anchor = userMoved && committedWindow.current
+        ? captureReadingAnchor(root, element, committedWindow.current.layout)
+        : null;
+      if (userMoved) {
+        programmaticTop.current = null;
+        revealEpoch.current += 1;
+        stickToBottom.current = shouldStickToBottom(element.scrollTop, element.clientHeight, element.scrollHeight);
+      }
+      const position = {
+        scrollTop: element.scrollTop, contentTop: scrollContentTop(root, element),
+        height: element.clientHeight, ready: true,
+      };
       setViewport((current) => {
-        const next = { scrollTop: element.scrollTop, height: element.clientHeight, ready: true };
-        return current.scrollTop === next.scrollTop && current.height === next.height && current.ready
-          ? current
-          : next;
+        const next = { ...position, anchor: userMoved ? anchor : current.anchor };
+        return sameViewport(current, next) ? current : next;
       });
       if (element.scrollTop <= LOAD_OLDER_THRESHOLD) requestOlder();
     };
-    element.addEventListener("scroll", sync, { passive: true });
-    const observer = new ResizeObserver(sync);
+    const onScroll = (): void => sync(true);
+    element.addEventListener("scroll", onScroll, { passive: true });
+    const observer = new ResizeObserver(() => sync());
     observer.observe(element);
     sync();
     return () => {
-      element.removeEventListener("scroll", sync);
+      element.removeEventListener("scroll", onScroll);
       observer.disconnect();
     };
-  }, [historyGeneration, requestOlder, rootRef, scrollRef]);
+  }, [historyGeneration, projectId, requestOlder, rootRef, scrollRef]);
 
   useBrowserLayoutEffect(() => {
-    const element = findScrollElement(rootRef.current, scrollRef);
-    const oldLayout = previousLayout.current;
-    previousLayout.current = layout;
-    if (!element || !oldLayout || oldLayout.items.length === 0 || layout.items.length === 0) return;
-
-    const oldFirst = oldLayout.items[0];
-    const newFirstIndex = layout.items.findIndex((item) => item.blockId === oldFirst.blockId);
-    if (newFirstIndex <= 0) return;
-    const newStart = layout.items[newFirstIndex].start;
-    const delta = newStart - oldFirst.start;
-    if (delta <= 0) return;
-    element.scrollTop += delta;
-    setViewport({ scrollTop: element.scrollTop, height: element.clientHeight, ready: true });
-  }, [layout, rootRef, scrollRef]);
+    const root = rootRef.current;
+    const element = findScrollElement(root, scrollRef);
+    if (!root || !element) return;
+    const previousWindow = committedWindow.current;
+    const geometryChanged = !previousWindow || previousWindow.layout !== layout
+      || previousWindow.height !== element.clientHeight;
+    committedWindow.current = { layout, height: element.clientHeight };
+    if (hydrationChanged) {
+      stickToBottom.current = true;
+      revealEpoch.current += 1;
+    }
+    positionedHistory.current = { projectId, historyGeneration, historyHydrationVersion, ready: historyReady };
+    const contentTop = scrollContentTop(root, element);
+    if (followingBottom) {
+      // Following remains eligible within the bottom threshold, while a user's
+      // own scroll must remain free to leave it without being snapped back.
+      if (geometryChanged || hydrationChanged || !viewport.ready) {
+        scrollToBottomInstant(element);
+        programmaticTop.current = element.scrollTop;
+      }
+    } else {
+      const node = anchorItem ? findBlockNode(root, anchorItem.blockId) : null;
+      const anchorTop = node
+        ? contentTop + node.getBoundingClientRect().top - root.getBoundingClientRect().top
+        : contentTop + (anchorItem?.start ?? 0);
+      const requestedTop = anchorItem ? anchorTop - anchorOffset : viewport.scrollTop;
+      const top = Math.min(Math.max(0, element.scrollHeight - element.clientHeight), Math.max(0, requestedTop));
+      if (Math.abs(element.scrollTop - top) > 0.5) {
+        element.scrollTo({ top, behavior: "instant" });
+        programmaticTop.current = element.scrollTop;
+      }
+    }
+    // Own scroll/resize events preserve this anchor through estimate -> measured layouts.
+    const anchor = followingBottom ? null : anchorItem ? viewport.anchor : captureReadingAnchor(root, element, layout);
+    const next = { scrollTop: element.scrollTop, contentTop, height: element.clientHeight, ready: true, anchor };
+    setViewport((current) => {
+      return sameViewport(current, next) ? current : next;
+    });
+  }, [anchorItem, anchorOffset, followingBottom, historyGeneration, historyHydrationVersion, historyReady, hydrationChanged,
+    layout, projectId, rootRef, scrollRef, viewport]);
 
   useBrowserLayoutEffect(() => {
     const root = rootRef.current;
     const element = findScrollElement(root, scrollRef);
     if (!root || !element || typeof ResizeObserver === "undefined") return;
     const observedGeneration = historyGeneration;
-    // Width changes from the resizable sidebar can reflow mounted blocks. The
-    // existing block observer measures those new heights and feeds them back
-    // into the same virtual layout and anchor correction path used by folding,
-    // streaming, and history hydration.
+    // Measurement only updates layout sizes. Prepend, reflow, and first estimates
+    // all restore the same reading anchor in the layout effect above.
     const observer = new ResizeObserver((entries) => {
-      if (activeGeneration.current !== observedGeneration) return;
+      if (activeScope.current.projectId !== projectId || activeScope.current.historyGeneration !== observedGeneration) return;
       let changed = false;
-      let correction = 0;
-      const viewportTop = element.getBoundingClientRect().top;
       for (const entry of entries) {
         const node = entry.target as HTMLElement;
         const blockId = node.dataset.messageBlockId;
         if (!blockId) continue;
-        const nextHeight = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+        const nextHeight = entry.borderBoxSize?.[0]?.blockSize ?? node.getBoundingClientRect().height;
         const previousHeight = measuredHeights.current.get(blockId);
         if (nextHeight <= 0 || (previousHeight !== undefined && Math.abs(previousHeight - nextHeight) < 0.5)) continue;
         measuredHeights.current.set(blockId, nextHeight);
         changed = true;
-        if (!stickToBottom.current && node.getBoundingClientRect().bottom <= viewportTop + 1) {
-          correction += nextHeight - (previousHeight ?? nextHeight);
-        }
       }
       if (!changed) return;
-      if (correction !== 0) element.scrollTop += correction;
       setMeasurementVersion((value) => value + 1);
-      if (stickToBottom.current) {
-        if (bottomFrame.current !== null) cancelAnimationFrame(bottomFrame.current);
-        bottomFrame.current = requestAnimationFrame(() => {
-          bottomFrame.current = null;
-          if (activeGeneration.current !== observedGeneration) return;
-          scrollToBottomInstant(element);
-          setViewport({ scrollTop: element.scrollTop, height: element.clientHeight, ready: true });
-        });
-      }
     });
     root.querySelectorAll<HTMLElement>("[data-message-block-id]").forEach((node) => observer.observe(node));
     return () => observer.disconnect();
-  }, [historyGeneration, range.startIndex, range.endIndex, rootRef, scrollRef]);
-
-  useBrowserLayoutEffect(() => {
-    const root = rootRef.current;
-    const element = findScrollElement(rootRef.current, scrollRef);
-    if (!historyReady || !root || !element) return;
-    stickToBottom.current = true;
-    if (Number(root.dataset.blockCount ?? 0) === 0) {
-      element.scrollTop = 0;
-    } else {
-      // This effect runs only at a history hydration boundary. Live appends
-      // retain the user's current follow or reading state.
-      scrollToBottomInstant(element);
-    }
-    setViewport({ scrollTop: element.scrollTop, height: element.clientHeight, ready: true });
-  }, [historyGeneration, historyHydrationVersion, historyReady, projectId, rootRef, scrollRef]);
+  }, [historyGeneration, observedBlockIds, projectId, rootRef, scrollRef]);
 
   const revealBlock = useCallback(async (blockId: string): Promise<boolean> => {
     const root = rootRef.current;
@@ -322,17 +397,28 @@ export function useVirtualMessageWindow({
     const item = layout.items.find((candidate) => candidate.blockId === blockId);
     if (!root || !element || !item) return false;
 
+    const epoch = ++revealEpoch.current;
+    const scope = activeScope.current;
     stickToBottom.current = false;
-    const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
-    const centeredTop = item.start - Math.max(0, (element.clientHeight - item.size) / 2);
-    const nextScrollTop = Math.min(maxScrollTop, Math.max(0, centeredTop));
-    element.scrollTop = nextScrollTop;
-    setViewport({ scrollTop: nextScrollTop, height: element.clientHeight, ready: true });
+    const contentTop = scrollContentTop(root, element);
+    const anchor = { blockId, offset: Math.max(0, (element.clientHeight - item.size) / 2) };
+    element.scrollTo({ top: Math.max(0, contentTop + item.start - anchor.offset), behavior: "instant" });
+    programmaticTop.current = element.scrollTop;
+    setViewport({ scrollTop: element.scrollTop, contentTop, height: element.clientHeight, ready: true, anchor });
     await waitForPaint();
+    if (revealEpoch.current !== epoch || activeScope.current !== scope) return false;
     const node = findBlockNode(rootRef.current, blockId);
     if (!node) return false;
-    centerBlock(element, node);
-    setViewport({ scrollTop: element.scrollTop, height: element.clientHeight, ready: true });
+    const rect = node.getBoundingClientRect();
+    const centeredAnchor = { blockId, offset: Math.max(0, (element.clientHeight - rect.height) / 2) };
+    const measuredContentTop = scrollContentTop(root, element);
+    const top = measuredContentTop + rect.top - root.getBoundingClientRect().top - centeredAnchor.offset;
+    element.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+    programmaticTop.current = element.scrollTop;
+    setViewport({
+      scrollTop: element.scrollTop, contentTop: measuredContentTop,
+      height: element.clientHeight, ready: true, anchor: centeredAnchor,
+    });
     return true;
   }, [layout, rootRef, scrollRef]);
 
