@@ -190,10 +190,14 @@ export function normalizeModelCapabilities(value: unknown): ModelCapabilities | 
   if (contextWindowTokens === undefined || typeof candidate.source !== "string" || !["provider", "catalog", "manual"].includes(candidate.source)) return undefined;
   const maxInputTokens = positiveInteger(candidate.maxInputTokens);
   const maxOutputTokens = positiveInteger(candidate.maxOutputTokens);
+  const inputModalities = Array.isArray(candidate.inputModalities) && candidate.inputModalities.length > 0
+    && candidate.inputModalities.every((item) => item === "text" || item === "image")
+    ? [...new Set(candidate.inputModalities)] as ModelCapabilities["inputModalities"] : undefined;
   return {
     contextWindowTokens, source: candidate.source as ModelCapabilities["source"],
     ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    ...(inputModalities ? { inputModalities } : {}),
   };
 }
 
@@ -211,10 +215,12 @@ export function resolveModelCapabilities(
   if (!primary) return undefined;
   const maxInputTokens = manual?.maxInputTokens ?? incoming?.maxInputTokens ?? catalog?.maxInputTokens ?? saved?.maxInputTokens;
   const maxOutputTokens = manual?.maxOutputTokens ?? incoming?.maxOutputTokens ?? catalog?.maxOutputTokens ?? saved?.maxOutputTokens;
+  const inputModalities = manual?.inputModalities ?? incoming?.inputModalities ?? catalog?.inputModalities ?? saved?.inputModalities;
   return {
     contextWindowTokens: primary.contextWindowTokens, source: primary.source,
     ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    ...(inputModalities ? { inputModalities } : {}),
   };
 }
 
@@ -317,10 +323,12 @@ function parseModelCapabilities(record: Record<string, unknown>, baseURL: string
   const catalog = lookupModelCapabilities(baseURL, id);
   const contextWindowTokens = window ?? catalog?.contextWindowTokens;
   if (contextWindowTokens === undefined) return undefined;
+  const inputModalities = normalizeModelCapabilities({ ...canonical, contextWindowTokens, source: "provider" })?.inputModalities;
   return resolveModelCapabilities(baseURL, id, {
     contextWindowTokens, source: window !== undefined ? "provider" : "catalog",
     ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    ...(inputModalities ? { inputModalities } : {}),
   });
 }
 

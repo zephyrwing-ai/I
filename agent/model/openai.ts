@@ -17,7 +17,8 @@
 
 import OpenAI from "openai";
 import { serializeAssistantText } from "./assistant-text.js";
-import { ModelAdapterError, type ModelMessage, type ModelStopReason, type ModelStreamEvent, type ModelUsage, type ToolCall, type ToolDef } from "./types.js";
+import { ModelAdapterError, type ModelMessage, type ModelImage, type ResolveAttachmentImages, type ModelStopReason, type ModelStreamEvent, type ModelUsage, type ToolCall, type ToolDef } from "./types.js";
+import { attachmentImageKey, modelInputText } from "./attachment-input.js";
 
 function toOpenAITool(t: ToolDef): OpenAI.Chat.Completions.ChatCompletionTool {
   return {
@@ -40,52 +41,78 @@ export interface OpenAIConfig {
   maxOutputTokens?: number;
   maxOutputParameter?: "max_tokens" | "max_completion_tokens";
   streamUsage?: boolean;
+  resolveAttachmentImages?: ResolveAttachmentImages;
+  inputModalities?: Array<"text" | "image">;
 }
 
 export function toOpenAIMessages(
   messages: ModelMessage[],
   system: string,
   reasoningField?: "reasoning_content",
+  attachmentImages: ReadonlyMap<string, ModelImage[]> = new Map(),
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
-  return [
-    { role: "system", content: system },
-    ...messages.map((message): OpenAI.Chat.Completions.ChatCompletionMessageParam => {
-      if (message.role === "tool") {
-        // 图片类工具结果走多模态内容数组：文本 + 图片部分一起回填模型。
-        // SDK 的 ToolMessage content 类型只声明了文本部分，图片部分随 API 支持，这里绕过类型收窄。
-        const content: OpenAI.Chat.Completions.ChatCompletionMessageParam["content"] = message.media
-          ? ([
-              { type: "text" as const, text: message.content },
-              { type: "image_url" as const, image_url: { url: message.media.dataUrl } },
-            ] as unknown as string)
-          : message.content;
-        return { role: "tool", tool_call_id: message.toolCallId ?? "unknown", content };
+  const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [{ role: "system", content: system }];
+  let toolImages: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
+  const flushToolImages = (): void => {
+    if (toolImages.length) result.push({ role: "user", content: toolImages });
+    toolImages = [];
+  };
+  for (const message of messages) {
+    if (message.role !== "tool") flushToolImages();
+    if (message.role === "tool") {
+      result.push({ role: "tool", tool_call_id: message.toolCallId ?? "unknown", content: message.content });
+      if (message.media) toolImages.push(
+        { type: "text", text: `Image returned by tool ${message.toolName ?? ""}, call ${message.toolCallId ?? "unknown"}:` },
+        { type: "image_url", image_url: { url: message.media.dataUrl } },
+      );
+      continue;
+    }
+    if (message.role === "assistant") {
+      const assistant: Record<string, unknown> = {
+        role: "assistant",
+        content: serializeAssistantText(message) || null,
+      };
+      if (reasoningField && message.reasoning) assistant[reasoningField] = message.reasoning;
+      if (message.toolCalls?.length) {
+        assistant.tool_calls = message.toolCalls.map((call) => ({
+          id: call.id,
+          type: "function" as const,
+          function: { name: call.name, arguments: JSON.stringify(call.input) },
+        }));
       }
-      if (message.role === "assistant") {
-        const assistant: Record<string, unknown> = {
-          role: "assistant",
-          content: serializeAssistantText(message) || null,
-        };
-        if (reasoningField && message.reasoning) assistant[reasoningField] = message.reasoning;
-        if (message.toolCalls?.length) {
-          assistant.tool_calls = message.toolCalls.map((call) => ({
-            id: call.id,
-            type: "function" as const,
-            function: { name: call.name, arguments: JSON.stringify(call.input) },
-          }));
-        }
-        return assistant as unknown as OpenAI.Chat.Completions.ChatCompletionMessageParam;
-      }
-      if (message.media) {
-        const content = [
-          { type: "text" as const, text: message.content },
-          { type: "image_url" as const, image_url: { url: message.media.dataUrl } },
-        ];
-        return { role: message.role, content } as unknown as OpenAI.Chat.Completions.ChatCompletionMessageParam;
-      }
-      return { role: message.role, content: message.content };
-    }),
-  ];
+      result.push(assistant as unknown as OpenAI.Chat.Completions.ChatCompletionMessageParam);
+      continue;
+    }
+    const text = modelInputText(message);
+    const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = text ? [{ type: "text", text }] : [];
+    if (message.media) content.push({ type: "image_url", image_url: { url: message.media.dataUrl } });
+    for (const attachment of message.attachments ?? []) {
+      const images = attachmentImages.get(attachmentImageKey(attachment)) ?? [];
+      if (images.length !== attachment.imageLabels.length) throw new ModelAdapterError("config", `Attachment images could not be prepared: ${attachment.name}`);
+      for (const [index, image] of images.entries()) content.push(
+        { type: "text", text: `${attachment.name}: ${attachment.imageLabels[index]}` },
+        { type: "image_url", image_url: { url: image.dataUrl } },
+      );
+    }
+    result.push({ role: "user", content: content.some((part) => part.type === "image_url") ? content : text });
+  }
+  flushToolImages();
+  return result;
+}
+
+/** Resolve only the images kept by context projection; never silently drop visual input. */
+export async function prepareAttachmentImages(messages: ModelMessage[], config: Pick<OpenAIConfig, "resolveAttachmentImages" | "inputModalities">, signal?: AbortSignal): Promise<Map<string, ModelImage[]>> {
+  const images = new Map<string, ModelImage[]>();
+  const hasImages = messages.some((message) => message.media || message.attachments?.some((item) => item.imageLabels.length));
+  if (hasImages && config.inputModalities && !config.inputModalities.includes("image")) throw new ModelAdapterError("config", "This model accepts text only. Choose a vision-capable model for image attachments.");
+  for (const message of messages) for (const attachment of message.attachments ?? []) {
+    const key = attachmentImageKey(attachment);
+    if (!attachment.imageLabels.length || images.has(key)) continue;
+    if (signal?.aborted) throw new ModelAdapterError("network", "Attachment preparation was cancelled.");
+    if (!config.resolveAttachmentImages) throw new ModelAdapterError("config", "The attachment storage is unavailable for this model request.");
+    images.set(key, await config.resolveAttachmentImages(attachment, signal));
+  }
+  return images;
 }
 
 const THINKING_OPEN = "<thinking>";
@@ -186,12 +213,13 @@ export async function* streamOpenAI(
   });
   const outputParameter = config.maxOutputParameter
     ?? (new URL(client.baseURL).hostname === "api.openai.com" ? "max_completion_tokens" : "max_tokens");
+  const attachmentImages = await prepareAttachmentImages(messages, config, signal);
 
   let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
   try {
     stream = await client.chat.completions.create({
       model: config.model ?? "deepseek-chat",
-      messages: toOpenAIMessages(messages, system, config.reasoningField),
+      messages: toOpenAIMessages(messages, system, config.reasoningField, attachmentImages),
       tools: tools.map(toOpenAITool),
       stream: true,
       ...(config.streamUsage === false ? {} : { stream_options: { include_usage: true } }),

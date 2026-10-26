@@ -215,6 +215,7 @@ export class ContextManager {
       content: JSON.stringify({ previousSummary, summaryFragment, conversation: items.map((entry) => ({
         entryId: entry.id, order: entry.entryOrder, role: entry.payload.role,
         content: this.messageView(entry, Math.max(128, Math.floor(policy.recentTokens / 2))).content,
+        attachments: entry.payload.attachments?.map(({ attachmentId, name, mediaType, text, imageLabels }) => ({ attachmentId, name, mediaType, text, imageLabels, imageAccess: "Use attachment_read with attachmentId to retrieve source images." })),
         ...(entry.payload.progress !== undefined ? { progress: entry.payload.progress } : {}),
         toolCalls: entry.payload.toolCalls, toolCallId: entry.payload.toolCallId, isError: entry.payload.isError,
         media: entry.payload.media ? "Image remains available through history_read for this entry ID." : undefined,

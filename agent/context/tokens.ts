@@ -1,5 +1,6 @@
 import type { ModelMessage, ToolDef } from "../model/types.js";
 import { serializeAssistantText } from "../model/assistant-text.js";
+import { modelInputText } from "../model/attachment-input.js";
 
 export function estimateTextTokens(text: string): number {
   let ascii = 0;
@@ -12,10 +13,11 @@ export function estimateTextTokens(text: string): number {
 }
 
 export function estimateMessageTokens(message: ModelMessage): number {
-  const text = message.role === "assistant" ? serializeAssistantText(message) : message.content;
+  const text = message.role === "assistant" ? serializeAssistantText(message) : modelInputText(message);
   return 8 + estimateTextTokens(text) + estimateTextTokens(message.reasoning ?? "")
     + estimateTextTokens(message.toolCalls?.length ? JSON.stringify(message.toolCalls) : "")
-    + estimateTextTokens(message.toolCallId ?? "") + (message.media ? 4_096 : 0);
+    + estimateTextTokens(message.toolCallId ?? "") + (message.media ? 4_096 : 0)
+    + (message.attachments?.reduce((count, attachment) => count + attachment.imageLabels.length, 0) ?? 0) * 4_096;
 }
 
 export function estimateRequestTokens(system: string, tools: ToolDef[], messages: ModelMessage[]): number {
