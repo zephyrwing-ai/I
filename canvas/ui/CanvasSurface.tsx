@@ -161,7 +161,9 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
   const pendingSelectionPositionRef = useRef<SelectionPositionSnapshot | null>(null);
   const loadedRef = useRef(false);
   const canReleaseRef = useRef(true);
-  const activeEditRequestRef = useRef<string | null>(null);
+  const activeEditRequestRef = useRef<AbortController | null>(null);
+  const editResultHandlerRef = useRef(onEditResult);
+  const canReportEditResult = onEditResult !== undefined;
   const saving = saveState?.phase === "saving";
   const saveError = saveState?.error ?? null;
   const saveConflict = saveState?.phase === "conflict";
@@ -237,9 +239,16 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
   }, [projectId, reloadVersion, reportCanRelease]);
 
   useEffect(() => {
-    if (!pendingEdit || !onEditResult || activeEditRequestRef.current) return;
+    editResultHandlerRef.current = onEditResult;
+  }, [onEditResult]);
+
+  useEffect(() => {
+    if (!pendingEdit || !canReportEditResult || activeEditRequestRef.current) return;
+    let responded = false;
     const respond = (result: Omit<CanvasEditResult, "requestId" | "runId" | "projectId">): void => {
-      onEditResult({
+      if (responded) return;
+      responded = true;
+      editResultHandlerRef.current?.({
         requestId: pendingEdit.requestId,
         runId: pendingEdit.runId,
         projectId: pendingEdit.projectId,
@@ -267,14 +276,16 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
       return;
     }
 
-    activeEditRequestRef.current = pendingEdit.requestId;
+    const editAbort = new AbortController();
+    activeEditRequestRef.current = editAbort;
+    const isCurrent = (): boolean => activeEditRequestRef.current === editAbort &&
+      sceneProjectIdRef.current === projectId && saveCoordinatorRef.current === editCoordinator;
     let unsubscribe = (): void => undefined;
     let timeout: number | null = null;
     let cancelPendingWait = (): void => undefined;
     let settled = false;
     let appliedOutcome: CanvasEditOutcome | null = null;
     let stage: "apply" | "scene" | "save" = "apply";
-    const editAbort = new AbortController();
     const changeObserved = new Promise<void>((resolve) => {
       unsubscribe = editorAPI.onChange(() => resolve());
     });
@@ -299,24 +310,26 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
         );
         appliedOutcome = outcome;
         if (!outcome.ok) {
-          setNotice("Canvas edit needs attention. See the tool result in the conversation.");
+          if (isCurrent()) setNotice("Canvas edit needs attention. See the tool result in the conversation.");
           respond(outcome);
           return;
         }
+        if (!isCurrent()) throw new Error("canvas_edit_cancelled");
         if (outcome.changed !== false) {
           stage = "scene";
           await Promise.race([changeObserved, deadlineReached]);
         }
+        if (!isCurrent()) throw new Error("canvas_edit_cancelled");
         stage = "save";
         await Promise.race([editCoordinator.flush(), deadlineReached]);
-        setNotice("Canvas updated by the Agent.");
+        if (isCurrent()) setNotice("Canvas updated by the Agent.");
         respond(outcome);
       } catch (error) {
         const message = error instanceof Error ? error.message : "canvas_edit_failed";
         const outcomeUnknown = message === "outcome_unknown" || message === "canvas_edit_cancelled";
         const persistenceFailed = appliedOutcome?.ok === true && stage === "save" && !outcomeUnknown;
         const persistenceConflict = error instanceof CanvasSaveConflictError;
-        if (persistenceFailed && !persistenceConflict) setNotice("Canvas edit is visible but could not be saved. Retry saving the canvas.");
+        if (isCurrent() && persistenceFailed && !persistenceConflict) setNotice("Canvas edit is visible but could not be saved. Retry saving the canvas.");
         respond({
           ...(appliedOutcome ?? {}),
           ok: false,
@@ -326,20 +339,21 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
         settled = true;
         unsubscribe();
         if (timeout !== null) window.clearTimeout(timeout);
-        activeEditRequestRef.current = null;
+        if (activeEditRequestRef.current === editAbort) activeEditRequestRef.current = null;
       }
     };
 
     void apply();
     return () => {
-      if (!settled && activeEditRequestRef.current === pendingEdit.requestId) {
+      if (!settled) {
         editAbort.abort();
         cancelPendingWait();
       }
+      if (activeEditRequestRef.current === editAbort) activeEditRequestRef.current = null;
       unsubscribe();
       if (timeout !== null) window.clearTimeout(timeout);
     };
-  }, [api, editorReady, loadError, onEditResult, pendingEdit, projectId]);
+  }, [api, canReportEditResult, editorReady, loadError, pendingEdit, projectId]);
 
   const initialData = useMemo(() => {
     if (!document) return null;

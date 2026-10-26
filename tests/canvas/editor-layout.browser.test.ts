@@ -52,7 +52,8 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
       base: "./",
       logLevel: "silent",
       esbuild: { jsx: "automatic" },
-      define: { "process.env.IS_PREACT": "false" },
+      // Keep React lifecycle diagnostics active in the real editor regression.
+      define: { "process.env.IS_PREACT": "false", "process.env.NODE_ENV": '"development"' },
       resolve: {
         alias: {
           "@i/canvas-editor": join(repository, "canvas/engine/editor"),
@@ -61,7 +62,7 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
         },
       },
       css: { preprocessorOptions: { scss: { quietDeps: true, silenceDeprecations: ["import"] } } },
-      build: { outDir: join(temporary, "page"), emptyOutDir: true },
+      build: { outDir: join(temporary, "page"), emptyOutDir: true, minify: false },
     });
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
@@ -85,6 +86,7 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
         conflict: { code: string; localX: number; diskX: number; externalPreserved: boolean; actions: string[]; canRelease: boolean };
         conflictRetried: boolean;
         recovered: { ok: boolean; elements: number; canRelease: boolean };
+        replacement: { requestId: string; ok: boolean; supersededErrors: string[]; callbackRefreshProducedResult: boolean; originalX: number; elements: number };
       };
       codecs: {
         json: { valid: boolean; type: string; version: number; id: string };
@@ -272,6 +274,9 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
       assert.deepEqual(state.conflict, { code: "persistence_conflict", localX: 200, diskX: 100, externalPreserved: true, actions: ["Export draft", "Reload saved"], canRelease: false });
       assert.equal(state.conflictRetried, false);
       assert.deepEqual(state.recovered, { ok: true, elements: 4, canRelease: true });
+      assert.deepEqual(state.replacement, {
+        requestId: "successor-create", ok: true, supersededErrors: ["canvas_edit_cancelled"], callbackRefreshProducedResult: false, originalX: 100, elements: 5,
+      }, "the successor executes while the superseded target remains in its human gesture");
     });
     await t.test("中文和 emoji 经文字输入提交，历史字体保持 PNG/SVG 导出", () => {
       assert.deepEqual(result.textInput, { text: "中文输入 😀 👩‍💻", fontFamily: 2 });

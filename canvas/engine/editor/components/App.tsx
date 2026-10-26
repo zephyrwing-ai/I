@@ -3169,7 +3169,8 @@ class App extends React.Component<AppProps, AppState> {
     } catch (error) {
       if (!(error instanceof EditProtectionError)) throw error;
       return { ok: false, error: error.code === "cancelled" ? "canvas_edit_cancelled"
-        : error.code === "scene_changed" || error.code === "destroyed" ? "project_changed" : "editor_busy" };
+        : error.code === "scene_changed" || error.code === "destroyed" ? "project_changed"
+        : error.code === "deadline_exceeded" ? "deadline_expired" : "editor_busy" };
     }
   };
 

@@ -60,12 +60,12 @@ import type { AppState } from "../../canvas/engine/editor/types.js";
     const pending = session.runAgentEdit(request(() => ++applications));
 
     assert.equal(applications, 0);
-    assert.equal(session.getState()?.phase, "waiting");
+    assert.equal(session.getState()?.phase, "scheduled");
     assert.equal(session.canStartHumanEdit(["A"]), false);
     assert.equal(session.beginHumanEdit(["A"]), null);
     assert.equal(session.updateHumanEdit(human, ["A"]), true);
     await nextTurn();
-    assert.equal(states[0]?.phase, "waiting");
+    assert.deepEqual(states.map((state) => state?.phase), ["scheduled", "waiting"]);
 
     session.endHumanEdit(human);
     assert.equal(await pending, 1);
@@ -178,6 +178,8 @@ import type { AppState } from "../../canvas/engine/editor/types.js";
       commits++;
       return draft;
     }));
+    assert.equal(preparations, 0);
+    await nextTurn();
     assert.equal(preparations, 1);
     assert.equal(commits, 0);
     assert.equal(session.getState()?.phase, "waiting");
@@ -190,19 +192,87 @@ import type { AppState } from "../../canvas/engine/editor/types.js";
     assert.equal(commits, 1);
   });
 
-  test("an unoccupied actual-write extension commits in the same synchronous turn", async () => {
+  test("an idle request reserves immediately and prepares and commits together after dispatch", async () => {
     const { session } = setup();
     let afterApplyMicrotask = false;
+    let committed = false;
     const pending = session.runAgentEdit(request((context) => {
       queueMicrotask(() => { afterApplyMicrotask = true; });
       context.ensureAffected(["A", "B"]);
       assert.equal(session.canStartHumanEdit(["B"]), false);
       assert.equal(afterApplyMicrotask, false);
+      committed = true;
       return "committed";
     }));
-    assert.equal(session.getState(), null);
+    assert.equal(committed, false);
+    assert.equal(session.getState()?.phase, "scheduled");
+    assert.equal(session.canStartHumanEdit(["A"]), false);
+    assert.equal(session.canStartHumanEdit(["B"]), true);
     assert.equal(await pending, "committed");
+    assert.equal(committed, true);
+    assert.equal(session.getState(), null);
     assert.equal(afterApplyMicrotask, true);
+  });
+
+  test("dispatch rechecks cancellation, scene lifetime and destruction before preparing", async () => {
+    for (const reason of ["cancelled", "scene_changed", "destroyed"] as const) {
+      const { session, nextEpoch } = setup();
+      const abort = new AbortController();
+      let preparations = 0;
+      const pending = session.runAgentEdit(request(() => ++preparations, { signal: abort.signal }));
+      assert.equal(session.getState()?.phase, "scheduled");
+      if (reason === "cancelled") abort.abort();
+      else if (reason === "scene_changed") nextEpoch();
+      else session.destroy();
+      await assert.rejects(pending, hasCode(reason));
+      assert.equal(preparations, 0, reason);
+      assert.equal(session.getState(), null);
+    }
+  });
+
+  test("dispatch checks the wall-clock deadline before reading the scene again", async (t) => {
+    const { session } = setup();
+    let now = Date.now();
+    t.mock.method(Date, "now", () => now);
+    let reads = 0;
+    let preparations = 0;
+    const pending = session.runAgentEdit(request(() => ++preparations, {
+      deadlineAt: now + 1_000,
+      getAffectedIds: () => { reads++; return ["A"]; },
+    }));
+    assert.equal(reads, 1);
+    now += 1_001;
+    await assert.rejects(pending, hasCode("deadline_exceeded"));
+    assert.equal(reads, 1);
+    assert.equal(preparations, 0);
+    assert.equal(session.getState(), null);
+  });
+
+  test("cancelled scheduled and waiting requests hand over without clearing the successor lease", async () => {
+    for (const waitForHuman of [false, true]) {
+      const { session } = setup();
+      const human = waitForHuman ? session.beginHumanEdit(["A"]) : null;
+      const abort = new AbortController();
+      let firstCommitted = false;
+      const first = session.runAgentEdit(request(() => { firstCommitted = true; }, { signal: abort.signal }));
+      if (waitForHuman) {
+        await nextTurn();
+        assert.equal(session.getState()?.phase, "waiting");
+      }
+      abort.abort();
+      assert.equal(session.getState(), null);
+      const second = session.runAgentEdit(request((context) => {
+        assert.equal(session.getState()?.requestId, "request-2");
+        context.ensureCurrent();
+        return "successor";
+      }, { requestId: "request-2", getAffectedIds: () => ["B"] }));
+      assert.equal(session.getState()?.requestId, "request-2");
+      await assert.rejects(first, hasCode("cancelled"));
+      assert.equal(await second, "successor");
+      assert.equal(firstCommitted, false);
+      assert.equal(session.getState(), null);
+      if (human) session.endHumanEdit(human);
+    }
   });
 
   test("only one Agent lease exists and a second request fails instead of queueing", async () => {
@@ -339,7 +409,7 @@ import type { AppState } from "../../canvas/engine/editor/types.js";
     assert.equal(session.canStartHumanEdit(["A"]), false);
     assert.equal(states.length, 0);
     await nextTurn();
-    assert.equal(states.length, 1);
+    assert.deepEqual(states.map((state) => state?.phase), ["scheduled", "waiting"]);
     session.endHumanEdit(human);
     await pending;
   });

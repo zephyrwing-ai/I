@@ -1,7 +1,7 @@
 export type HumanEditToken = symbol;
 
 export interface EditProtectionState {
-  phase: "waiting" | "applying";
+  phase: "scheduled" | "waiting" | "applying";
   requestId: string;
   epoch: number;
   elementIds: ReadonlySet<string>;
@@ -140,7 +140,7 @@ export class EditProtectionSession {
       epoch: request.epoch,
       deadlineAt: request.deadlineAt,
       elementIds: new Set(),
-      phase: "waiting",
+      phase: "scheduled",
     };
     this.agentEdit = edit;
     const cancel = () => this.fail(edit, "cancelled");
@@ -153,7 +153,12 @@ export class EditProtectionSession {
     try {
       if (request.signal?.aborted) cancel();
       this.ensureCurrent(edit);
+      this.reserve(edit, request.getAffectedIds(), "scheduled");
+      // Keep ownership while lifecycle callers finish, then prepare and commit
+      // together from the latest scene in a separate execution turn.
+      await Promise.resolve();
       for (;;) {
+        this.ensureCurrent(edit);
         this.reserve(edit, request.getAffectedIds(), "waiting");
         this.ensureCurrent(edit);
         if (this.hasHumanOverlap(edit.elementIds)) {
@@ -257,6 +262,10 @@ export class EditProtectionSession {
 
   private fail(edit: ActiveAgentEdit, code: EditProtectionErrorCode): void {
     edit.failure ??= new EditProtectionError(code);
+    if (this.agentEdit === edit && edit.phase !== "applying") {
+      this.agentEdit = null;
+      this.notifyChange();
+    }
     edit.wake?.();
   }
 

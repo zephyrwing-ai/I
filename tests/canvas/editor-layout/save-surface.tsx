@@ -36,12 +36,13 @@ export async function checkCanvasSurfacePersistence() {
   const onContextPrepared = () => undefined;
   const onEditResult = (result: CanvasEditResult) => {
     results.push(result);
-    pending = null;
+    if (pending?.requestId === result.requestId) pending = null;
     render();
   };
+  let resultHandler = onEditResult;
   const render = () => root.render(
     <div style={{ position: "relative", width: 900, height: 650 }}>
-      <CanvasSurface ref={ref} projectId={projectId} pendingEdit={pending} onEditResult={onEditResult} onContextPrepared={onContextPrepared} onCanReleaseChange={onCanReleaseChange} />
+      <CanvasSurface ref={ref} projectId={projectId} pendingEdit={pending} onEditResult={resultHandler} onContextPrepared={onContextPrepared} onCanReleaseChange={onCanReleaseChange} />
     </div>,
   );
   window.agentAPI = {
@@ -101,7 +102,48 @@ export async function checkCanvasSurfacePersistence() {
     };
     render();
     await until(() => results.length === 3, "editing after saved-scene reload");
-    return { coldStart, focusSaved, conflict, conflictRetried, recovered: { ok: results[2].ok, elements: disk.document.elements.length, canRelease } };
+    const recovered = { ok: results[2].ok, elements: disk.document.elements.length, canRelease };
+
+    // Replace a waiting command while its target remains in a human gesture.
+    document.querySelector<HTMLInputElement>('[data-testid="toolbar-selection"]')!.click();
+    const canvas = document.querySelector<HTMLCanvasElement>("canvas.interactive")!;
+    const canvasBounds = canvas.getBoundingClientRect();
+    const pointer = (type: "pointerdown" | "pointerup") => canvas.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", button: 0,
+      buttons: type === "pointerdown" ? 1 : 0,
+      clientX: canvasBounds.left + 160, clientY: canvasBounds.top + 120,
+    }));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    pointer("pointerdown");
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    pending = {
+      requestId: "superseded-update", runId: "surface-run", projectId, deadlineAt: Date.now() + 20_000,
+      sourceElements: [structuredClone(disk.document.elements.find((element) => element.id === "surface-original")!)],
+      operations: [{ action: "update", id: "surface-original", changes: { x: 700 } }],
+    };
+    render();
+    await until(() => container.textContent?.includes("Agent is waiting for your edit to finish.") === true, "command waiting for the held target");
+    resultHandler = (result) => onEditResult(result);
+    render();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const callbackRefreshProducedResult = results.length !== 3;
+    pending = {
+      requestId: "successor-create", runId: "surface-run", projectId, deadlineAt: Date.now() + 20_000,
+      sourceElements: [], operations: [{ action: "create", element: { type: "rectangle", x: 600, y: 400, width: 80, height: 60 } }],
+    };
+    render();
+    await until(() => results.some((result) => result.requestId === "successor-create"), "successor command confirmation");
+    pointer("pointerup");
+    await ref.current!.flush();
+    const replacement = {
+      requestId: results.at(-1)!.requestId, ok: results.at(-1)!.ok,
+      supersededErrors: results.filter((result) => result.requestId === "superseded-update").map((result) => result.error),
+      callbackRefreshProducedResult,
+      originalX: disk.document.elements.find((element) => element.id === "surface-original")?.x,
+      elements: disk.document.elements.length,
+    };
+    return { coldStart, focusSaved, conflict, conflictRetried, recovered, replacement };
   } finally {
     root.unmount();
     window.agentAPI = previousAPI;
