@@ -3,6 +3,7 @@ import { Column } from "./middle-column/Column";
 import { MessageStream, type MessageStreamHandle } from "./middle-column/message-stream/MessageStream";
 import { StreamRegion } from "./middle-column/message-stream/StreamScrollbar";
 import { Composer } from "./middle-column/composer/Composer";
+import type { ComposerDraftRestore } from "./middle-column/composer/useComposerDraft";
 import { TopBar } from "./workbench/titlebar/TopBar";
 import { SearchPopover } from "./workbench/titlebar/search/SearchPopover";
 import { SettingsPage, type SettingsSection } from "./workbench/settings/SettingsPage";
@@ -39,6 +40,7 @@ function Workbench() {
   const [activePage, setActivePage] = useState<"workbench" | "settings">("workbench");
   const settingsOpen = activePage === "settings";
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+  const [voiceModelSelected, setVoiceModelSelected] = useState(false);
   const [sidebarPanel, setSidebarPanel] = useState<SidebarSurface | null>(null);
   const [canvasContexts, setCanvasContexts] = useState<CanvasContextDescriptor[]>([]);
   const [pendingCanvasEdit, setPendingCanvasEdit] = useState<CanvasEditRequest | null>(null);
@@ -62,7 +64,7 @@ function Workbench() {
   const canvasSurfaceRef = useRef<CanvasSurfaceHandle>(null);
   const projectRequestEpochRef = useRef(0);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [restoreDraft, setRestoreDraft] = useState<{ id: string; text: string } | null>(null);
+  const [restoreDraft, setRestoreDraft] = useState<ComposerDraftRestore | null>(null);
   const eventQueue = useRef<AgentEvent[]>([]);
   const hydrationEventQueue = useRef<AgentEvent[]>([]);
   const historyReadyRef = useRef(false);
@@ -262,8 +264,9 @@ function Workbench() {
   };
 
   const handleResendInput = (runId: string, inputId: string): void => {
-    const input = state.runs[runId]?.inputs[inputId];
-    if (input?.status === "interrupted") setRestoreDraft({ id: crypto.randomUUID(), text: input.task });
+    const run = state.runs[runId];
+    const input = run?.inputs[inputId];
+    if (input?.status === "interrupted") setRestoreDraft({ id: crypto.randomUUID(), projectId: run.projectId, text: input.task });
   };
 
   const handleStop = (): void => {
@@ -408,10 +411,32 @@ function Workbench() {
     setActivePage("settings");
   };
 
+  const openVoiceSettings = (): void => {
+    setSearchOpen(false);
+    setSettingsSection("voice");
+    setActivePage("settings");
+  };
+
   const closeSettings = (): void => {
     setActivePage("workbench");
     requestAnimationFrame(() => settingsButtonRef.current?.focus());
   };
+
+  useEffect(() => {
+    let disposed = false;
+    if (typeof window.agentAPI?.listVoiceModels !== "function") {
+      setVoiceModelSelected(false);
+      return;
+    }
+    void window.agentAPI.listVoiceModels().then((models) => {
+      if (!disposed) setVoiceModelSelected(models.some((model) => model.selected));
+    }).catch(() => {
+      if (!disposed) setVoiceModelSelected(false);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [settingsOpen]);
 
   return (
     <div className={`app${projectsOpen ? " projects-open" : ""}`}>
@@ -496,6 +521,8 @@ function Workbench() {
                     ready={history.hydrated && projectOperation === null}
                     modelOptions={catalog.modelOptions}
                     modelLoading={catalog.loading}
+                    voiceModelSelected={voiceModelSelected}
+                    onOpenVoiceSettings={openVoiceSettings}
                     project={project}
                     onAttachmentsChange={publishDraftAttachments}
                     onRun={handleRun}

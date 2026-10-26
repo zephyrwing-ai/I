@@ -1,5 +1,5 @@
 import { useI18n } from "../../shared/i18n";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { CanvasContextDescriptor, InputAttachmentDescriptor, ModelOption, ProjectDescriptor, RunRequest, SteerRequest } from "../../../../shell/shared/ipc";
 import { Icon } from "../../shared/ui/Icon";
 import { Select } from "../../shared/ui/Select";
@@ -9,6 +9,7 @@ import { VoiceWaveform } from "./VoiceWaveform";
 import { appendVoiceTranscript, voiceButtonLabel } from "./voice";
 import { AttachmentCards } from "./upload-files/AttachmentCards";
 import { useUploadFiles } from "./upload-files/useUploadFiles";
+import { useComposerDraft, type ComposerDraftRestore } from "./useComposerDraft";
 import "./Composer.css";
 
 const MODEL_OPTION_STORAGE_KEY = "workbench.modelOptionId";
@@ -45,10 +46,12 @@ interface ComposerProps {
   running: boolean;
   stopping: boolean;
   activeRunId?: string | null;
-  restoreDraft?: { id: string; text: string } | null;
+  restoreDraft?: ComposerDraftRestore | null;
   ready?: boolean;
   modelOptions: ModelOption[];
   modelLoading: boolean;
+  voiceModelSelected?: boolean;
+  onOpenVoiceSettings?: () => void;
   onRun: (req: RunRequest) => Promise<boolean>;
   onSteer?: (req: SteerRequest) => Promise<boolean>;
   onStop: () => void;
@@ -86,15 +89,10 @@ export function parseStoredModelPickerPreference(serialized: string | null, lega
 }
 
 /** 对话框列：输入框 + 附件 + 模型选择 + 发送/停止。位于中间列（Column）的 auto 行。 */
-export function Composer({ running, stopping, activeRunId = null, restoreDraft = null, ready = true, modelOptions, modelLoading, onRun, onSteer, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, onAttachmentsChange, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
+export function Composer({ running, stopping, activeRunId = null, restoreDraft = null, ready = true, modelOptions, modelLoading, voiceModelSelected = true, onOpenVoiceSettings, onRun, onSteer, onStop, project = { projectId: null, displayName: "Choose folder", canonicalPath: null }, onAttachmentsChange, canvasContexts = [], onRemoveCanvasContext, onClearCanvasContexts }: ComposerProps) {
   const t = useI18n();
-  const [task, setTask] = useState("");
-  const taskRevision = useRef(0);
-  const setTaskDraft = useCallback((next: SetStateAction<string>): void => {
-    taskRevision.current += 1;
-    setTask(next);
-  }, []);
-  const [submitting, setSubmitting] = useState(false);
+  const { text: task, submitting, scope: draftScope, isCurrentScope, setText: setTaskDraft, beginSubmission, finishSubmission, restore } = useComposerDraft(project.projectId);
+  const [voiceModelHint, setVoiceModelHint] = useState(false);
   const [narrowModelMenu, setNarrowModelMenu] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 700px)").matches);
   const { selectedModelOptionId, selectModel, storedPreference } = useSelectedModelOption(modelOptions, modelLoading);
   const modelTriggerRef = useRef<HTMLButtonElement>(null);
@@ -127,16 +125,24 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
 
   useEffect(() => {
     if (!restoreDraft) return;
-    setTaskDraft((current) => current ? `${current}\n${restoreDraft.text}` : restoreDraft.text);
+    const applied = restore(restoreDraft);
+    if (!applied || restoreDraft.projectId !== project.projectId) return;
     const frame = requestAnimationFrame(() => {
+      if (!isCurrentScope(draftScope)) return;
       const input = taskInputRef.current;
-      if (!input) return;
-      input.style.height = "auto";
-      input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
-      input.focus();
+      if (input && !input.disabled) input.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [restoreDraft, setTaskDraft]);
+  }, [draftScope, isCurrentScope, project.projectId, restore, restoreDraft]);
+
+  useLayoutEffect(() => {
+    const input = taskInputRef.current;
+    if (!input) return;
+    input.style.height = "auto";
+    const height = input.scrollHeight;
+    input.style.height = `${Math.min(height, 180)}px`;
+    input.style.overflowY = height > 180 ? "auto" : "hidden";
+  }, [draftScope, task]);
 
   /**
    * 名称跨启动恢复，像素宽度按当前字体在绘制前测量；用户切换模型时启用宽度过渡。
@@ -176,41 +182,35 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
 
   const submit = async (source: "button" | "keyboard"): Promise<void> => {
     if (!canSubmit || voiceBusy || uploads.hasPendingUpload()) return;
+    const submission = beginSubmission();
+    if (!submission) return;
     const restoreInputFocus = source === "button" || document.activeElement === taskInputRef.current;
-    const submittedTask = task.trim();
-    const submittedRevision = taskRevision.current;
+    const submittedTask = submission.text.trim();
     const submittedAttachmentIds = uploads.attachments.map((attachment) => attachment.attachmentId);
     const submittedCanvasContextIds = canvasContexts.map((context) => context.contextId);
-    setSubmitting(true);
+    let accepted = false;
     try {
-      const accepted = running && activeRunId
-        ? await onSteer!({ runId: activeRunId, projectId: project.projectId, inputId: crypto.randomUUID(), task: submittedTask })
+      accepted = running && activeRunId
+        ? await onSteer!({ runId: activeRunId, projectId: submission.projectId, inputId: crypto.randomUUID(), task: submittedTask })
         : await onRun({
             task: submittedTask,
             modelOptionId: selectedModelOptionId,
             attachmentIds: submittedAttachmentIds,
             canvasContextIds: submittedCanvasContextIds,
-            projectId: project.projectId,
+            projectId: submission.projectId,
           } satisfies RunRequest);
       if (!accepted) return;
-      if (taskRevision.current === submittedRevision) {
-        setTaskDraft("");
-        const input = taskInputRef.current;
-        if (input) {
-          input.style.height = "auto";
-          input.style.overflowY = "hidden";
-        }
-      }
       if (!running) {
         uploads.removeAttachments(submittedAttachmentIds);
         onClearCanvasContexts?.(submittedCanvasContextIds);
       }
       if (restoreInputFocus) requestAnimationFrame(() => {
+        if (!isCurrentScope(draftScope)) return;
         const input = taskInputRef.current;
         if (input && !input.disabled && (document.activeElement === document.body || document.activeElement === actionButtonRef.current)) input.focus();
       });
     } finally {
-      setSubmitting(false);
+      finishSubmission(submission, accepted);
     }
   };
 
@@ -225,9 +225,6 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
 
   const updateTask = (element: HTMLTextAreaElement): void => {
     setTaskDraft(element.value);
-    element.style.height = "auto";
-    element.style.height = `${Math.min(element.scrollHeight, 180)}px`;
-    element.style.overflowY = element.scrollHeight > 180 ? "auto" : "hidden";
   };
 
   const voice = useVoiceInput({
@@ -239,16 +236,19 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
       if (!text.trim()) return;
       setTaskDraft((current) => appendVoiceTranscript(current, text));
       requestAnimationFrame(() => {
+        if (!isCurrentScope(draftScope)) return;
         const input = taskInputRef.current;
-        if (!input) return;
-        input.style.height = "auto";
-        input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
-        input.style.overflowY = input.scrollHeight > 180 ? "auto" : "hidden";
-        input.focus();
+        if (input && !input.disabled) input.focus();
       });
     },
   });
   const voiceBusy = voice.state.phase !== "idle";
+  useEffect(() => {
+    if (voiceModelSelected) setVoiceModelHint(false);
+  }, [voiceModelSelected]);
+  useEffect(() => {
+    if (voice.state.error?.includes("Settings → Voice")) setVoiceModelHint(true);
+  }, [voice.state.error]);
   const uploads = useUploadFiles({ scopeKey: project.projectId, disabled: running || stopping || submitting || !ready || voiceBusy });
   useEffect(() => onAttachmentsChange?.(project.projectId, uploads.attachments), [onAttachmentsChange, project.projectId, uploads.attachments]);
   const hasAttachments = uploads.attachments.length > 0;
@@ -295,6 +295,31 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
           aria-label={t("Task")}
         />
 
+        {!voiceModelSelected && voiceModelHint && (
+          <div className="composer-voice-model-hint" role="status">
+            <span>{t("Select a voice model in Settings → Voice.")}</span>
+            <button
+              type="button"
+              className="composer-voice-model-hint-action"
+              onClick={() => {
+                setVoiceModelHint(false);
+                onOpenVoiceSettings?.();
+              }}
+            >
+              {t("Open Settings")}
+            </button>
+            <button
+              type="button"
+              className="composer-voice-model-hint-close"
+              onClick={() => setVoiceModelHint(false)}
+              aria-label={t("Dismiss")}
+              title={t("Dismiss")}
+            >
+              <Icon name="close" width="12" height="12" />
+            </button>
+          </div>
+        )}
+
         <div className="composer-toolbar">
           {voice.state.phase === "recording" ? (
             <>
@@ -327,17 +352,21 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
                 <button type="button" className="composer-icon-button" onClick={() => void uploads.pickFiles()} disabled={uploads.disabled} aria-busy={uploads.busy || undefined} aria-label={t("Upload files")} title={t("Upload files")}><Icon name="plus" width="18" height="18" /></button>
                 <button
                   type="button"
-                  className={`composer-icon-button composer-voice-button ${voice.state.phase !== "idle" ? "is-active" : ""}`}
+                  className={`composer-icon-button composer-voice-button ${voice.state.phase !== "idle" ? "is-active" : ""}${!voiceModelSelected && voice.state.phase === "idle" ? " is-unconfigured" : ""}`}
                   onClick={() => {
                     if (voice.state.phase === "idle") {
+                      if (!voiceModelSelected) {
+                        setVoiceModelHint(true);
+                        return;
+                      }
                       void voice.start();
                     } else {
                       voice.cancel();
                     }
                   }}
                   disabled={voiceDisabled}
-                  aria-label={t(voiceButtonLabel(voice.state.phase))}
-                  title={t(voiceButtonLabel(voice.state.phase))}
+                  aria-label={t(!voiceModelSelected && voice.state.phase === "idle" ? "Select a voice model in Settings → Voice" : voiceButtonLabel(voice.state.phase))}
+                  title={t(!voiceModelSelected && voice.state.phase === "idle" ? "Select a voice model in Settings → Voice" : voiceButtonLabel(voice.state.phase))}
                 >
                   <Icon name="microphone" width={17} height={17} />
                 </button>

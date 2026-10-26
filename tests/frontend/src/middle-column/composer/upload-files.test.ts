@@ -89,7 +89,7 @@ test("unsafe media URLs render fixed placeholders without creating remote image 
 });
 
 const projectRoot = fileURLToPath(new URL("../../../../../", import.meta.url));
-const browserFixture = `
+const browserFixture = String.raw`
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -129,6 +129,200 @@ const typeText = text => {
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(input, text);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 };
+const until = async (predicate, message) => {
+  const deadline = performance.now() + 2000;
+  while (!predicate()) {
+    if (performance.now() > deadline) throw new Error("Timed out: " + message);
+    await tick();
+  }
+};
+const enter = () => document.querySelector("textarea").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+async function verifyComposerDrafts(renderComposer, props) {
+  const requests = [], acknowledgements = [];
+  const alternative = { ...props.modelOptions[0], modelOptionId: "alternative", modelId: "alternative", displayName: "Other model" };
+  const draftProps = { modelOptions: [...props.modelOptions, alternative], onRun: request => {
+    requests.push(request);
+    const ack = acknowledgements.shift();
+    if (!ack) throw new Error("Unexpected submission: " + JSON.stringify(request));
+    return ack.promise;
+  } };
+  const show = async (projectId, overrides = {}) => {
+    renderComposer({ ...draftProps, project: { projectId, displayName: projectId ?? "I", canonicalPath: null }, ...overrides });
+    await tick();
+  };
+  const text = () => document.querySelector("textarea").value;
+  const cards = () => document.querySelectorAll(".upload-files-card").length;
+  await show("draft-a");
+  const input = document.querySelector("textarea");
+  const picker = document.getElementById("composer-model");
+  picker.click();
+  await until(() => document.querySelector('[role="option"][data-value="alternative"]'), "alternative model option");
+  document.querySelector('[role="option"][data-value="alternative"]').click(); await tick();
+  check(picker.value === "alternative", "the draft regression selects a model through the real combobox");
+  const longDraft = Array.from({ length: 30 }, (_, index) => "Project A line " + index).join("\n");
+  typeText(longDraft); await tick();
+  check(input.getBoundingClientRect().height === 180 && getComputedStyle(input).overflowY === "auto", "long project drafts reach the textarea height cap and scroll");
+  picked.push(Promise.resolve(result(file("draft-a-file"))));
+  document.querySelector('[aria-label="Upload files"]').click();
+  await until(() => cards() === 1, "project A attachment");
+  await show("draft-a", { project: { projectId: "draft-a", displayName: "Renamed A", canonicalPath: "/renamed/a", pinned: true } });
+  check(text() === longDraft && cards() === 1, "metadata changes for the same project retain its text and prepared attachments");
+  await show("draft-b");
+  check(text() === "" && cards() === 0 && !input.disabled, "a new project starts with an empty editable text draft and clears attachments");
+  const emptyHeight = input.getBoundingClientRect().height;
+  check(emptyHeight > 0 && emptyHeight < 180 && getComputedStyle(input).overflowY === "hidden", "switching a long draft to an empty scope restores the compact textarea height");
+  typeText("B draft"); await tick();
+  await show(null); check(text() === "", "the null project scope starts with its own empty draft");
+  typeText("Ordinary draft"); await tick();
+  await show("draft-a");
+  check(text() === longDraft && input.getBoundingClientRect().height === 180 && cards() === 0, "returning to A restores long text and its measured height while attachments stay cleared");
+  await show("draft-b"); check(text() === "B draft", "A-B-null-A-B restores B text");
+  await show(null); check(text() === "Ordinary draft", "returning to null restores the ordinary draft");
+  check(document.querySelector("textarea") === input && document.getElementById("composer-model") === picker && picker.value === "alternative", "scope and metadata changes retain the textarea DOM, model combobox DOM and selected model");
+
+  await show("draft-a"); typeText("  A submitted  "); await tick();
+  const ackA = deferred(); acknowledgements.push(ackA);
+  enter(); enter(); enter(); await tick();
+  check(requests.length === 1 && requests[0].task === "A submitted" && requests[0].projectId === "draft-a" && requests[0].modelOptionId === "alternative", "repeated synchronous Enter events submit once with the source project and selected model");
+  check(input.disabled && document.querySelector('[aria-label="Send"]').disabled, "A retains its pending submission state while waiting for ACK");
+  await show("draft-b");
+  check(!input.disabled && text() === "B draft", "A's pending submission leaves B editable with B's own draft");
+  const ackB = deferred(); acknowledgements.push(ackB); enter(); await tick();
+  check(requests.length === 2 && requests[1].projectId === "draft-b", "B can submit independently while A is awaiting ACK");
+  await show(null);
+  check(!input.disabled && text() === "Ordinary draft", "pending project submissions leave the null scope editable");
+  typeText("Ordinary edited during ACK"); await tick();
+  ackB.resolve(true); await tick();
+  check(text() === "Ordinary edited during ACK" && !input.disabled, "B's late ACK preserves the visible null draft and its editing state");
+  await show("draft-b"); check(text() === "" && !input.disabled, "an accepted ACK clears its unchanged source draft even while that scope is hidden");
+  typeText("B new text"); await tick();
+  const editWhilePending = { id: "edit-pending-a", projectId: "draft-a", text: "A restored edit" };
+  await show("draft-a", { restoreDraft: editWhilePending });
+  const revisedA = "  A submitted  \nA restored edit";
+  check(input.disabled && text() === revisedA, "returning to pending A restores its submit lock and allows an explicit restore to advance its text revision");
+  await show("draft-b");
+  picked.push(Promise.resolve(result(file("draft-b-file"))));
+  document.querySelector('[aria-label="Upload files"]').click();
+  await until(() => cards() === 1, "new B attachment");
+  ackA.resolve(true); await tick();
+  check(text() === "B new text" && cards() === 1 && !input.disabled, "A's late ACK preserves B's current text, attachment and editing state");
+  await show("draft-a");
+  check(text() === revisedA && !input.disabled, "the old accepted ACK releases A's lock and preserves text changed after submission");
+  const declined = deferred(); acknowledgements.push(declined); enter(); await tick(); declined.resolve(false); await tick();
+  check(text() === revisedA && !input.disabled, "a declined submission preserves the full source text and releases its submission gate");
+  const ordinaryAck = deferred(); acknowledgements.push(ordinaryAck);
+  await show(null); enter(); await tick();
+  check(requests.at(-1).projectId === null && input.disabled, "ordinary submissions explicitly carry projectId null and own a separate pending gate");
+  await show("draft-b"); typeText("B after null submit"); await tick();
+  ordinaryAck.resolve(true); await tick();
+  check(text() === "B after null submit", "a late null-scope ACK leaves project text intact");
+  await show(null); check(text() === "", "an accepted null-scope ACK consumes only the ordinary text draft");
+
+  const restoreA = { id: "restore-explicit-a", projectId: "draft-a", text: "Recovered A" };
+  await show("draft-b", { restoreDraft: restoreA });
+  check(text() === "B after null submit", "a restore delivered while B is visible targets its explicit A source");
+  await show("draft-a", { restoreDraft: { ...restoreA } });
+  const restoredA = revisedA + "\nRecovered A";
+  check(text() === restoredA, "the offscreen restored text appears when its source project becomes active");
+  typeText(restoredA + "\nmanual edit"); await tick();
+  await show("draft-b", { restoreDraft: { ...restoreA } });
+  await show("draft-a", { restoreDraft: { ...restoreA } });
+  check(text() === restoredA + "\nmanual edit", "one restore id is consumed once across A-B-A and reconstructed restore objects");
+  const restoreOrdinary = { id: "restore-explicit-null", projectId: null, text: "Recovered ordinary" };
+  await show("draft-a", { restoreDraft: restoreOrdinary });
+  check(text() === restoredA + "\nmanual edit", "a null-targeted restore preserves the visible project draft");
+  await show(null, { restoreDraft: { ...restoreOrdinary } });
+  check(text() === "Recovered ordinary", "null-targeted restores use the ordinary draft and deduplicate rebuilt objects");
+  await show("draft-b", { restoreDraft: { ...restoreA, projectId: "draft-b" } });
+  check(text() === "B after null submit", "an already consumed restore id stays consumed even if its project field changes");
+  check(document.querySelector("textarea") === input && document.getElementById("composer-model") === picker && picker.value === "alternative", "submissions, late ACKs and restores preserve the mounted input and model selection");
+}
+
+async function verifyVoiceDrafts(renderComposer, props) {
+  const originalAudioContext = window.AudioContext;
+  const originalMedia = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+  const voiceCalls = [], cancellations = [], streams = [], contexts = [], microphoneRequests = [];
+  const originalTranscribe = window.agentAPI.transcribeVoice;
+  const originalCancel = window.agentAPI.cancelVoiceTranscription;
+  const makeStream = () => {
+    const track = { onended: null, stopped: false, stop() { this.stopped = true; } };
+    const stream = { getTracks: () => [track], getAudioTracks: () => [track], track };
+    streams.push(stream); return stream;
+  };
+  // Control only device acquisition, PCM delivery and IPC; keep Composer and useVoiceInput real.
+  class MockAudioContext {
+    constructor({ sampleRate }) { this.sampleRate = sampleRate; this.destination = {}; this.closed = false; contexts.push(this); }
+    resume() { return Promise.resolve(); }
+    close() { this.closed = true; return Promise.resolve(); }
+    createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+    createAnalyser() { return { context: this, fftSize: 2048, frequencyBinCount: 1024, getByteFrequencyData: data => data.fill(0), connect() {}, disconnect() {} }; }
+    createScriptProcessor() { this.processor = { onaudioprocess: null, connect() {}, disconnect() {} }; return this.processor; }
+  }
+  Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: () => microphoneRequests.shift()?.promise ?? Promise.resolve(makeStream()) } });
+  window.AudioContext = MockAudioContext;
+  window.agentAPI.transcribeVoice = request => {
+    const ack = deferred(); voiceCalls.push({ request, ack }); return ack.promise;
+  };
+  window.agentAPI.cancelVoiceTranscription = requestId => cancellations.push(requestId);
+  const show = async projectId => {
+    renderComposer({ project: { projectId, displayName: projectId ?? "I", canonicalPath: null }, modelOptions: props.modelOptions });
+    await tick();
+  };
+  const startRecording = async () => {
+    document.querySelector('[aria-label="Start voice input"]').click();
+    await until(() => document.querySelector('[aria-label="Stop voice input"]'), "voice recording");
+    const context = contexts.at(-1);
+    context.processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.1, -0.1, 0.2, -0.2]) } });
+    return context;
+  };
+  const transcribe = async () => {
+    await startRecording();
+    document.querySelector('[aria-label="Stop voice input"]').click();
+    await tick();
+    const call = voiceCalls.at(-1);
+    check(call.request.audio instanceof ArrayBuffer && call.request.audio.byteLength > 44, "voice regression sends a nonempty encoded WAV through the real transcription path");
+    return call;
+  };
+  try {
+    await show("voice-a"); typeText("Voice A typed"); await tick();
+    const lateA = await transcribe();
+    await show("voice-b"); typeText("Voice B typed"); await tick();
+    check(cancellations.includes(lateA.request.requestId), "switching project cancels the source transcription request");
+    lateA.ack.resolve({ ok: true, text: "stale transcript A" }); await tick();
+    check(document.querySelector("textarea").value === "Voice B typed", "a late A transcript cannot write into B");
+    await show("voice-a");
+    check(document.querySelector("textarea").value === "Voice A typed", "a cancelled transcript also leaves its source draft unchanged");
+    const oldA = await transcribe();
+    await show("voice-b"); await show("voice-a");
+    const currentA = await transcribe();
+    typeText("Current manual text"); await tick();
+    oldA.ack.resolve({ ok: true, text: "stale A-B-A transcript" }); await tick();
+    check(document.querySelector("textarea").value === "Current manual text" && document.querySelector('[aria-label="Cancel voice input"]'), "A-B-A rejects the old transcript and keeps the newer transcription pending");
+    currentA.ack.resolve({ ok: true, text: "fresh transcript" }); await tick();
+    check(document.querySelector("textarea").value === "Current manual text\nfresh transcript", "a current transcription appends to the latest manually edited text");
+    const activeRecording = await startRecording();
+    const recordingStream = streams.at(-1);
+    const callsBeforeCancel = voiceCalls.length;
+    await show(null);
+    check(recordingStream.track.stopped && activeRecording.closed && !activeRecording.processor.onaudioprocess && voiceCalls.length === callsBeforeCancel, "scope changes stop recording resources without submitting captured audio");
+    const permission = deferred(); microphoneRequests.push(permission);
+    await show("voice-a");
+    document.querySelector('[aria-label="Start voice input"]').click(); await tick();
+    await show("voice-b"); await show("voice-a");
+    const lateStream = makeStream(); const contextCount = contexts.length;
+    permission.resolve(lateStream); await tick();
+    check(lateStream.track.stopped && contexts.length === contextCount && document.querySelector('[aria-label="Start voice input"]'), "late microphone permission after A-B-A releases its stream and stays idle");
+  } finally {
+    // Finish in an idle scope before restoring the process-wide browser APIs.
+    await show(null);
+    window.AudioContext = originalAudioContext;
+    if (originalMedia) Object.defineProperty(navigator, "mediaDevices", originalMedia);
+    else delete navigator.mediaDevices;
+    window.agentAPI.transcribeVoice = originalTranscribe;
+    window.agentAPI.cancelVoiceTranscription = originalCancel;
+  }
+}
 window.runUploadFilesRegression = async () => {
   render();
   const pending = deferred(); picked.push(pending.promise);
@@ -210,6 +404,9 @@ window.runUploadFilesRegression = async () => {
   renderComposer(); accept = true; await tick(); document.querySelector('[aria-label="Send"]').click(); await tick();
   check(document.querySelectorAll(".upload-files-card").length === 0, "accepted idle submissions consume their attachment IDs");
 
+  await verifyComposerDrafts(renderComposer, props);
+  await verifyVoiceDrafts(renderComposer, props);
+
   render({ scopeKey: "media" });
   const url = URL.createObjectURL(new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>'], { type: "image/svg+xml" }));
   await add({ ...file("image"), mediaType: "image/png", previewUrl: url, mediaUrl: url }, { ...file("video"), mediaType: "video/mp4", previewUrl: url, mediaUrl: url, durationSeconds: 65 }, file("ordinary"));
@@ -261,7 +458,7 @@ window.prepareUploadScreenshot = async () => {
 };
 `;
 
-test("Electron verifies upload scope guards, drag/drop, sending, media geometry and modal focus", { timeout: 40_000 }, async () => {
+test("Electron verifies project drafts, deferred ACKs, voice scope guards, uploads and modal focus", { timeout: 40_000 }, async (context) => {
   const temporary = await mkdtemp(join(tmpdir(), "composer-upload-regression-"));
   try {
     await build({
@@ -300,7 +497,8 @@ app.whenReady().then(async () => {
     const line = stdout.split("\n").find((value) => value.startsWith("UPLOAD_CHECKS="));
     assert.ok(line, stdout);
     const checks = JSON.parse(line.slice("UPLOAD_CHECKS=".length)) as string[];
-    assert.ok(checks.length >= 30, checks.join("\n"));
+    assert.ok(checks.length >= 70, checks.join("\n"));
+    context.diagnostic(`${checks.length} browser assertions passed`);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
