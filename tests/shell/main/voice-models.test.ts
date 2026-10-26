@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VOICE_MODEL_MANIFEST, VoiceModelService } from "../../../shell/main/voice-models.js";
+import { readGgmlModelInfo } from "../../../shell/main/ggml-model.js";
 
 function recordingEvents() {
   const events: Array<{ modelId: string; status: string; progress: number | null }> = [];
@@ -26,6 +27,28 @@ function bytesBody(bytes: Uint8Array) {
   };
 }
 
+async function writeGgmlFixture(
+  path: string,
+  audioState = 384,
+  audioLayers = 4,
+): Promise<void> {
+  const file = Buffer.alloc(2 * 1024 * 1024);
+  file.writeUInt32LE(0x67676d6c, 0);
+  file.writeUInt32LE(1, 4);
+  file.writeInt32LE(51865, 8);
+  file.writeInt32LE(1500, 12);
+  file.writeInt32LE(audioState, 16);
+  file.writeInt32LE(6, 20);
+  file.writeInt32LE(audioLayers, 24);
+  file.writeInt32LE(448, 28);
+  file.writeInt32LE(384, 32);
+  file.writeInt32LE(6, 36);
+  file.writeInt32LE(4, 40);
+  file.writeInt32LE(80, 44);
+  file.writeInt32LE(8, 48);
+  await writeFile(path, file);
+}
+
 test("voice model manifest stays internally consistent", () => {
   const ids = new Set(VOICE_MODEL_MANIFEST.map((entry) => entry.id));
   assert.equal(ids.size, VOICE_MODEL_MANIFEST.length);
@@ -35,6 +58,92 @@ test("voice model manifest stays internally consistent", () => {
     assert.match(entry.sha256, /^[0-9a-f]{64}$/);
     assert.ok(entry.fileName.endsWith(".bin"));
   }
+});
+
+test("GGML header identifies the model family and quantization", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "ggml-header-"));
+  t.after(() => import("node:fs/promises").then(({ rm }) => rm(directory, { recursive: true, force: true })));
+  const path = join(directory, "ggml-tiny-q8_0.bin");
+  await writeGgmlFixture(path);
+  const info = await readGgmlModelInfo(path);
+  assert.equal(info?.family, "tiny");
+  assert.equal(info?.quantization, "q8_0");
+  assert.equal(info?.bytes, 2 * 1024 * 1024);
+});
+
+test("automatic scan discovers local GGML models and allows selecting them", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "voice-model-scan-"));
+  t.after(() => import("node:fs/promises").then(({ rm }) => rm(directory, { recursive: true, force: true })));
+  const library = join(directory, "library");
+  await mkdir(library);
+  const customPath = join(library, "ggml-custom-q8_0.bin");
+  await writeGgmlFixture(customPath, 640, 8);
+  await writeFile(join(library, "notes.txt"), "not a model");
+
+  const recorder = recordingEvents();
+  const service = new VoiceModelService({
+    modelsDirectory: join(directory, "managed"),
+    statePath: join(directory, "state.json"),
+    scanDirectories: [library],
+    sendEvent: recorder.send,
+  });
+  await service.load();
+  assert.deepEqual(await service.scan(), { ok: true });
+
+  const found = service.list().find((model) => model.name === "custom-q8_0");
+  assert.ok(found, "scanned model appears in the unified list");
+  assert.equal(found?.status, "installed");
+  assert.equal(found?.tag, "GGML q8_0");
+
+  assert.deepEqual(await service.select(found.id), { ok: true });
+  assert.equal(service.currentModelPath(), customPath);
+});
+
+test("bundled model is installed but must be explicitly selected", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "voice-model-bundled-"));
+  t.after(() => import("node:fs/promises").then(({ rm }) => rm(directory, { recursive: true, force: true })));
+  const bundled = join(directory, "ggml-large-v3-turbo-q5_0.bin");
+  await writeFile(bundled, Buffer.alloc(4));
+  const service = new VoiceModelService({
+    modelsDirectory: join(directory, "managed"),
+    statePath: join(directory, "state.json"),
+    bundledModelPath: bundled,
+    scanDirectories: [],
+    sendEvent: recordingEvents().send,
+  });
+  await service.load();
+
+  const turbo = service.list().find((model) => model.id === "whisper-large-v3-turbo");
+  assert.equal(turbo?.status, "installed");
+  assert.equal(turbo?.selected, false);
+  assert.equal(service.currentModelPath(), null);
+  assert.deepEqual(await service.select("whisper-large-v3-turbo"), { ok: true });
+  assert.equal(service.currentModelPath(), bundled);
+  assert.deepEqual(await service.select("whisper-large-v3-turbo"), { ok: true });
+  assert.equal(service.currentModelPath(), null);
+  assert.equal(service.list().find((model) => model.id === "whisper-large-v3-turbo")?.selected, false);
+});
+
+test("scanning a catalog filename marks the catalog model as installed", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "voice-model-catalog-scan-"));
+  t.after(() => import("node:fs/promises").then(({ rm }) => rm(directory, { recursive: true, force: true })));
+  const library = join(directory, "library");
+  await mkdir(library);
+  const modelPath = join(library, "ggml-tiny-q8_0.bin");
+  await writeGgmlFixture(modelPath);
+
+  const service = new VoiceModelService({
+    modelsDirectory: join(directory, "managed"),
+    statePath: join(directory, "state.json"),
+    scanDirectories: [library],
+    sendEvent: recordingEvents().send,
+  });
+  await service.load();
+  assert.deepEqual(await service.scan(), { ok: true });
+
+  const tiny = service.list().find((model) => model.id === "whisper-tiny");
+  assert.equal(tiny?.status, "installed");
+  assert.equal(service.list().filter((model) => model.name === "Whisper tiny").length, 1);
 });
 
 test("voice model state restores installed models and the selected model", async (t) => {

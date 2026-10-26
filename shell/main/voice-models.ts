@@ -1,15 +1,25 @@
 import { createHash } from "node:crypto";
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { mkdir, open, opendir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
+import { promisify } from "node:util";
 import type {
   VoiceModelActionResult,
   VoiceModelEvent,
   VoiceModelStatus,
   VoiceModelSummary,
 } from "../shared/ipc.js";
+import { readGgmlModelInfo } from "./ggml-model.js";
 
 const HUGGINGFACE_RESOLVE_BASE = "https://huggingface.co";
 const PROGRESS_INTERVAL_MS = 200;
+const MEBIBYTE = 1024 * 1024;
+const GIBIBYTE = 1024 * MEBIBYTE;
+const MAX_SCAN_DEPTH = 3;
+const MAX_SCAN_FILES = 20000;
+const MAX_SPOTLIGHT_FILES = 5000;
+const runFile = promisify(execFile);
 
 interface VoiceModelManifestEntry {
   id: string;
@@ -116,9 +126,20 @@ interface InstalledModelRecord {
   bytes: number;
 }
 
+interface LocalModelRecord {
+  id: string;
+  path: string;
+  bytes: number;
+  name: string;
+  family: string;
+  quantization: string | null;
+  catalogId?: string;
+}
+
 interface VoiceModelState {
   selectedId: string | null;
   installed: Record<string, InstalledModelRecord>;
+  local: LocalModelRecord[];
 }
 
 export interface VoiceModelFetchBody {
@@ -140,7 +161,9 @@ export type VoiceModelFetch = (
 export interface VoiceModelServiceOptions {
   modelsDirectory: string;
   statePath: string;
+  bundledModelPath?: string;
   fetchImpl?: VoiceModelFetch;
+  scanDirectories?: string[];
   sendEvent: (event: VoiceModelEvent) => void;
 }
 
@@ -148,19 +171,38 @@ export class VoiceModelService {
   private readonly installed = new Map<string, InstalledModelRecord>();
   private readonly active = new Map<string, AbortController>();
   private readonly activeProgress = new Map<string, number>();
+  private local: LocalModelRecord[] = [];
   private selectedId: string | null = null;
+  private bundledAvailable = false;
   private stateLoaded = false;
+  private scanning: Promise<VoiceModelActionResult> | null = null;
 
   constructor(private readonly options: VoiceModelServiceOptions) {}
 
   async load(): Promise<void> {
     if (this.stateLoaded) return;
+    if (this.options.bundledModelPath) {
+      try {
+        this.bundledAvailable = (await stat(this.options.bundledModelPath)).isFile();
+      } catch {
+        this.bundledAvailable = false;
+      }
+    }
     try {
       const state = JSON.parse(await readFile(this.options.statePath, "utf8")) as VoiceModelState;
       for (const [id, record] of Object.entries(state.installed ?? {})) {
         if (this.entry(id)) this.installed.set(id, record);
       }
-      this.selectedId = this.entry(state.selectedId ?? "") ? state.selectedId : null;
+      for (const record of state.local ?? []) {
+        try {
+          const fileStat = await stat(record.path);
+          if (fileStat.isFile() && fileStat.size === record.bytes) this.local.push(record);
+        } catch {
+          // A moved or deleted local model disappears from the list.
+        }
+      }
+      const selected = state.selectedId ?? "";
+      this.selectedId = this.isInstalled(selected) ? state.selectedId : null;
     } catch {
       // First launch or a damaged state file starts from the bundled model.
     }
@@ -168,19 +210,49 @@ export class VoiceModelService {
   }
 
   list(): VoiceModelSummary[] {
-    return VOICE_MODEL_MANIFEST.map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      tag: entry.tag,
-      sizeLabel: entry.sizeLabel,
-      ramLabel: entry.ramLabel,
-      speedLevel: entry.speedLevel,
-      wer: entry.wer,
-      recommended: entry.recommended,
-      status: this.statusOf(entry.id),
-      progress: this.activeProgress.get(entry.id) ?? null,
-      selected: this.selectedId === entry.id,
-    }));
+    const localCatalog = new Set(this.local.map((record) => record.catalogId).filter(Boolean) as string[]);
+    return [
+      ...VOICE_MODEL_MANIFEST.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        tag: entry.tag,
+        sizeLabel: entry.sizeLabel,
+        ramLabel: entry.ramLabel,
+        speedLevel: entry.speedLevel,
+        wer: entry.wer,
+        recommended: entry.recommended,
+        status: this.statusOf(entry.id),
+        progress: this.activeProgress.get(entry.id) ?? null,
+        selected: this.selectedId === entry.id,
+      })),
+      ...this.local.filter((record) => !record.catalogId).map((record) => ({
+        id: record.id,
+        name: record.name,
+        tag: record.quantization ? `GGML ${record.quantization}` : "GGML",
+        sizeLabel: formatSize(record.bytes),
+        ramLabel: formatSize(record.bytes + GIBIBYTE),
+        speedLevel: speedLevelForFamily(record.family),
+        wer: "",
+        recommended: false,
+        status: "installed" as const,
+        progress: null,
+        selected: this.selectedId === record.id,
+      })),
+    ].sort((left, right) => Number(right.recommended) - Number(left.recommended));
+  }
+
+  async scan(): Promise<VoiceModelActionResult> {
+    if (this.scanning) return this.scanning;
+    this.scanning = this.runScan()
+      .then((): VoiceModelActionResult => ({ ok: true }))
+      .catch((error: unknown): VoiceModelActionResult => ({
+        ok: false,
+        error: error instanceof Error ? error.message : "The voice model scan failed.",
+      }))
+      .finally(() => {
+        this.scanning = null;
+      });
+    return this.scanning;
   }
 
   async download(modelId: string): Promise<VoiceModelActionResult> {
@@ -267,7 +339,12 @@ export class VoiceModelService {
   }
 
   async select(modelId: string): Promise<VoiceModelActionResult> {
-    if (!this.installed.has(modelId)) {
+    if (this.selectedId === modelId) {
+      this.selectedId = null;
+      await this.persist();
+      return { ok: true };
+    }
+    if (!this.isInstalled(modelId)) {
       return { ok: false, error: "Install the voice model before selecting it." };
     }
     this.selectedId = modelId;
@@ -278,8 +355,15 @@ export class VoiceModelService {
   currentModelPath(): string | null {
     if (!this.selectedId) return null;
     const entry = this.entry(this.selectedId);
-    if (!entry || !this.installed.has(this.selectedId)) return null;
-    return join(this.options.modelsDirectory, entry.fileName);
+    if (entry && this.installed.has(this.selectedId)) {
+      return join(this.options.modelsDirectory, entry.fileName);
+    }
+    if (this.selectedId === "whisper-large-v3-turbo" && this.bundledAvailable) {
+      return this.options.bundledModelPath ?? null;
+    }
+    return this.local.find((record) => (
+      record.catalogId === this.selectedId || record.id === this.selectedId
+    ))?.path ?? null;
   }
 
   dispose(): void {
@@ -287,9 +371,102 @@ export class VoiceModelService {
     this.active.clear();
   }
 
+  private async runScan(): Promise<void> {
+    const roots = this.options.scanDirectories ?? defaultScanDirectories();
+    const candidates = new Set<string>();
+    if (!this.options.scanDirectories) {
+      for (const path of await spotlightModelFiles()) {
+        candidates.add(path);
+        if (candidates.size >= MAX_SPOTLIGHT_FILES) break;
+      }
+    }
+    const found = new Map<string, LocalModelRecord>();
+    let visitedFiles = 0;
+
+    const walk = async (directory: string, depth: number): Promise<void> => {
+      if (depth > MAX_SCAN_DEPTH || candidates.size >= MAX_SCAN_FILES) return;
+      let entries: Awaited<ReturnType<typeof opendir>>;
+      try {
+        entries = await opendir(directory);
+      } catch {
+        return;
+      }
+      try {
+        for await (const entry of entries) {
+          if (candidates.size >= MAX_SCAN_FILES) return;
+          if (entry.isSymbolicLink()) continue;
+          const fullPath = join(directory, entry.name);
+          if (entry.isDirectory()) {
+            if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+            await walk(fullPath, depth + 1);
+            continue;
+          }
+          if (!entry.isFile() || !entry.name.endsWith(".bin")) continue;
+          candidates.add(fullPath);
+          visitedFiles += 1;
+          if (visitedFiles >= MAX_SCAN_FILES) return;
+        }
+      } finally {
+        await entries.close().catch(() => undefined);
+      }
+    };
+
+    for (const root of roots) await walk(root, 0);
+    let checkedFiles = 0;
+    for (const candidate of candidates) {
+      if (checkedFiles >= MAX_SCAN_FILES) break;
+      checkedFiles += 1;
+      const info = await readGgmlModelInfo(candidate);
+      if (!info) continue;
+      const fileName = basename(candidate);
+      const catalog = this.matchCatalog(fileName, info.family, info.quantization, info.multilingual);
+      const id = catalog?.id
+        ?? `local:${createHash("sha1").update(candidate).digest("hex").slice(0, 16)}`;
+      found.set(id, {
+        id,
+        path: candidate,
+        bytes: info.bytes,
+        name: catalog?.name ?? localName(fileName),
+        family: info.family,
+        quantization: info.quantization,
+        ...(catalog ? { catalogId: catalog.id } : {}),
+      });
+    }
+    this.local = [...found.values()];
+    if (this.selectedId && !this.isInstalled(this.selectedId)) this.selectedId = null;
+    await this.persist();
+  }
+
+  private matchCatalog(
+    fileName: string,
+    family: string,
+    quantization: string | null,
+    multilingual: boolean,
+  ): VoiceModelManifestEntry | undefined {
+    const direct = VOICE_MODEL_MANIFEST.find((entry) => entry.fileName === fileName);
+    if (direct) return direct;
+    const lowerName = fileName.toLowerCase();
+    if (!multilingual || lowerName.includes(".en")) return undefined;
+    if (family === "large" && (lowerName.includes("large-v1") || lowerName.includes("large-v2"))) {
+      return undefined;
+    }
+    return VOICE_MODEL_MANIFEST.find((entry) => (
+      manifestFamily(entry.id) === family
+      && entry.tag.replace(/^GGML\s+/, "") === (quantization ?? "")
+    ));
+  }
+
+  private isInstalled(modelId: string): boolean {
+    return this.installed.has(modelId)
+      || (modelId === "whisper-large-v3-turbo" && this.bundledAvailable)
+      || this.local.some((record) => (
+        record.catalogId === modelId || record.id === modelId
+      ));
+  }
+
   private statusOf(modelId: string): VoiceModelStatus {
     if (this.active.has(modelId)) return "downloading";
-    if (this.installed.has(modelId)) return "installed";
+    if (this.isInstalled(modelId)) return "installed";
     return "not_downloaded";
   }
 
@@ -301,6 +478,7 @@ export class VoiceModelService {
     const state: VoiceModelState = {
       selectedId: this.selectedId,
       installed: Object.fromEntries(this.installed),
+      local: this.local,
     };
     await writeFile(this.options.statePath, JSON.stringify(state), "utf8");
   }
@@ -308,4 +486,57 @@ export class VoiceModelService {
   private entry(modelId: string | null): VoiceModelManifestEntry | undefined {
     return VOICE_MODEL_MANIFEST.find((candidate) => candidate.id === modelId);
   }
+}
+
+function defaultScanDirectories(): string[] {
+  const home = homedir();
+  return [
+    join(home, "Downloads"),
+    join(home, "Library", "Application Support", "whisper.cpp"),
+    join(home, ".cache", "whisper.cpp"),
+  ];
+}
+
+async function spotlightModelFiles(): Promise<string[]> {
+  if (process.platform !== "darwin") return [];
+  const paths = new Set<string>();
+  for (const query of ["ggml", "whisper"]) {
+    try {
+      const { stdout } = await runFile("/usr/bin/mdfind", ["-name", query], {
+        encoding: "utf8",
+        timeout: 20_000,
+        maxBuffer: 8 * 1024 * 1024,
+      });
+      for (const line of String(stdout).split("\n")) {
+        const candidate = line.trim();
+        if (candidate.endsWith(".bin")) paths.add(candidate);
+      }
+    } catch {
+      // Spotlight can be disabled or restricted; fixed directory scanning still runs.
+    }
+  }
+  return [...paths];
+}
+
+function manifestFamily(id: string): string {
+  if (id === "whisper-large-v3-turbo") return "large-v3-turbo";
+  if (id === "whisper-large-v3") return "large";
+  return id.replace(/^whisper-/, "");
+}
+
+function speedLevelForFamily(family: string): number {
+  if (family === "tiny" || family === "base") return 5;
+  if (family === "small") return 4;
+  if (family === "medium" || family === "large-v3-turbo") return 3;
+  if (family === "large") return 1;
+  return 2;
+}
+
+function localName(fileName: string): string {
+  return basename(fileName).replace(/\.bin$/i, "").replace(/^ggml-/i, "");
+}
+
+function formatSize(bytes: number): string {
+  if (bytes >= GIBIBYTE) return `${(bytes / GIBIBYTE).toFixed(1)} GB`;
+  return `${Math.max(1, Math.round(bytes / MEBIBYTE))} MB`;
 }

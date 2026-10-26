@@ -33,6 +33,17 @@ const wav = recordingWav();
 const directories: string[] = [];
 test.after(async () => Promise.all(directories.map((directory) => rm(directory, { recursive: true, force: true }))));
 
+test("transcription requires an explicitly selected model", async () => {
+  const service = new VoiceTranscriptionService({
+    modelPath: () => null,
+  });
+  const result = await service.transcribe({ requestId: "no-selected-model", audio: recordingWav() }, 1);
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "model_missing");
+  assert.match(result.message, /Settings → Voice/);
+  await service.dispose();
+});
+
 function fakeEngine(source: string): Promise<{ directory: string; executable: string; model: string }> {
   return mkdtemp(join(tmpdir(), "voice-engine-test-")).then(async (directory) => {
     directories.push(directory);

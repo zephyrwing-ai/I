@@ -33,4 +33,7 @@ export const chinese: Record<string, string> = {
   "Resize projects sidebar": "调整项目栏宽度", "Loading projects…": "正在加载项目…", "Try again": "重试", "Add a project to start a project conversation.": "添加项目，开始项目对话。", "Session name": "会话名称", "Save session name": "保存会话名称", "Cancel rename": "取消重命名", "Actions for {name}": "{name} 的操作", "Unpin": "取消置顶", "Pin": "置顶", "Reveal in Finder": "在访达中显示", "Rename session": "重命名会话", "Delete session": "删除会话",
   "Enter an API Key for the new provider address.": "为新的提供商地址输入 API Key。", "Model discovery and import": "模型发现与导入", "Fetching": "正在获取", "Saving": "正在保存", "Selected {selected}/{total} models": "已选择 {selected}/{total} 个模型", "Importable models": "可导入模型", "No models yet. Fetch the model list first.": "获取模型列表后即可选择模型。", "Model limits": "模型限制", "Context window tokens": "上下文窗口 Token 数", "Max output tokens (optional)": "最大输出 Token 数（可选）", "Context window tokens for {name}": "{name} 的上下文窗口 Token 数", "Max output tokens for {name}": "{name} 的最大输出 Token 数", "Unknown": "未知",
   "Voice": "Voice", "Recommended": "Recommended", "Speed": "Speed",
+  "Select a voice model in Settings → Voice": "请先在设置 → Voice 中选择语音模型",
+  "Select a voice model in Settings → Voice.": "请先在设置 → Voice 中选择一个语音模型。",
+  "Open Settings": "打开设置",
 };

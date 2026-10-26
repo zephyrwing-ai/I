@@ -10,14 +10,20 @@ import {
   INITIAL_VOICE_STATE,
 } from "./voice";
 
+interface VoiceScope {
+  key: string | null;
+}
+
 interface PendingCapture {
   requestId: string;
+  scope: VoiceScope;
   stream: MediaStream | null;
   context: AudioContext | null;
 }
 
 interface RecordingSession {
   requestId: string;
+  scope: VoiceScope;
   stream: MediaStream;
   context: AudioContext;
   source: MediaStreamAudioSourceNode;
@@ -59,6 +65,8 @@ export function useVoiceInput({
   const mountedRef = useRef(true);
   const transcriptRef = useRef(onTranscript);
   transcriptRef.current = onTranscript;
+  const activeScope = useRef<VoiceScope>({ key: scopeKey });
+  if (activeScope.current.key !== scopeKey) activeScope.current = { key: scopeKey };
 
   const setMountedState = useCallback((next: VoiceState | ((current: VoiceState) => VoiceState)): void => {
     if (mountedRef.current) setState(next);
@@ -84,7 +92,7 @@ export function useVoiceInput({
     sessionRef.current = null;
     releaseSession(session);
     setMountedAnalyser(null);
-    if (cancelled) {
+    if (cancelled || activeScope.current !== session.scope) {
       setMountedState(INITIAL_VOICE_STATE);
       return;
     }
@@ -105,7 +113,7 @@ export function useVoiceInput({
       const result = await window.agentAPI.transcribeVoice({ requestId: session.requestId, audio });
       if (transcriptionRequestRef.current !== session.requestId) return;
       transcriptionRequestRef.current = null;
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || activeScope.current !== session.scope) return;
       if (!result.ok) {
         setMountedState({ phase: "idle", error: result.message });
         return;
@@ -115,7 +123,7 @@ export function useVoiceInput({
     } catch (error) {
       if (transcriptionRequestRef.current !== session.requestId) return;
       transcriptionRequestRef.current = null;
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || activeScope.current !== session.scope) return;
       setMountedState({
         phase: "idle",
         error: error instanceof Error ? error.message : "Voice transcription failed. Retry.",
@@ -129,7 +137,7 @@ export function useVoiceInput({
       || sessionRef.current
       || transcriptionRequestRef.current) return;
     setMountedState({ phase: "requesting", error: null });
-    const pending: PendingCapture = { requestId: crypto.randomUUID(), stream: null, context: null };
+    const pending: PendingCapture = { requestId: crypto.randomUUID(), scope: activeScope.current, stream: null, context: null };
     pendingCaptureRef.current = pending;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -141,7 +149,7 @@ export function useVoiceInput({
         },
         video: false,
       });
-      if (!mountedRef.current || pendingCaptureRef.current !== pending) {
+      if (!mountedRef.current || pendingCaptureRef.current !== pending || activeScope.current !== pending.scope) {
         for (const track of stream.getTracks()) track.stop();
         return;
       }
@@ -149,13 +157,17 @@ export function useVoiceInput({
       const audioContext = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
       pending.context = audioContext;
       await audioContext.resume();
-      if (!mountedRef.current || pendingCaptureRef.current !== pending) return;
+      if (!mountedRef.current || pendingCaptureRef.current !== pending || activeScope.current !== pending.scope) {
+        releasePendingCapture(pending);
+        return;
+      }
       const source = audioContext.createMediaStreamSource(stream);
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 2048;
       const session: RecordingSession = {
         requestId: pending.requestId,
+        scope: pending.scope,
         stream,
         context: audioContext,
         source,
@@ -165,7 +177,7 @@ export function useVoiceInput({
         totalSamples: 0,
       };
       processor.onaudioprocess = (event) => {
-        if (sessionRef.current !== session) return;
+        if (sessionRef.current !== session || activeScope.current !== session.scope) return;
         const input = event.inputBuffer.getChannelData(0);
         const downsampled = downsamplePcm(input, audioContext.sampleRate, VOICE_SAMPLE_RATE);
         const writable = Math.min(downsampled.length, VOICE_MAX_SAMPLES - session.totalSamples);
@@ -185,7 +197,7 @@ export function useVoiceInput({
       sessionRef.current = session;
       for (const track of stream.getAudioTracks()) {
         track.onended = () => {
-          if (sessionRef.current !== session) return;
+          if (sessionRef.current !== session || activeScope.current !== session.scope) return;
           sessionRef.current = null;
           releaseSession(session);
           setMountedAnalyser(null);
@@ -198,6 +210,7 @@ export function useVoiceInput({
       if (pendingCaptureRef.current !== pending) return;
       pendingCaptureRef.current = null;
       releasePendingCapture(pending);
+      if (activeScope.current !== pending.scope) return;
       setMountedAnalyser(null);
       setMountedState({
         phase: "idle",

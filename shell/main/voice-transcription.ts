@@ -141,7 +141,14 @@ export class VoiceTranscriptionService {
     const executable = this.options.enginePath
       ?? process.env.YANSU_WHISPER_CLI
       ?? join(this.options.resourcesDirectory ?? "", "whisper", "whisper-cli");
-    const model = this.resolveModelPath()
+    const configuredModel = this.resolveModelPath();
+    if (typeof this.options.modelPath === "function" && !configuredModel) {
+      throw new VoiceEngineError(
+        "model_missing",
+        "Select a voice model in Settings → Voice before recording.",
+      );
+    }
+    const model = configuredModel
       ?? process.env.YANSU_WHISPER_MODEL
       ?? join(this.options.resourcesDirectory ?? "", "whisper", "ggml-large-v3-turbo-q5_0.bin");
 

@@ -10,20 +10,48 @@ export function VoiceSettings() {
 
   useEffect(() => {
     let disposed = false;
-    void window.agentAPI.listVoiceModels().then((list) => {
-      if (!disposed) setModels(list);
-    }).catch(() => {
-      if (!disposed) setError("Voice models could not be loaded.");
-    });
-    const unsubscribe = window.agentAPI.onVoiceModelEvent((event) => {
-      setModels((current) => current?.map((model) => (
-        model.id === event.modelId
-          ? { ...model, status: event.status, progress: event.progress }
-          : model
-      )) ?? current);
-    });
+    if (typeof window.agentAPI?.listVoiceModels !== "function") {
+      setModels([]);
+      setError("Voice models could not be loaded.");
+      return;
+    }
+    const refresh = async (): Promise<void> => {
+      try {
+        const list = await window.agentAPI.listVoiceModels();
+        if (!disposed) setModels(list);
+      } catch {
+        if (!disposed) setError("Voice models could not be loaded.");
+      }
+    };
+    let lastScanAt = 0;
+    const scan = (): void => {
+      if (Date.now() - lastScanAt < 30_000) return;
+      lastScanAt = Date.now();
+      if (typeof window.agentAPI.scanVoiceModels !== "function") return;
+      void window.agentAPI.scanVoiceModels().then((result) => {
+        if (disposed) return;
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        void refresh();
+      });
+    };
+    void refresh();
+    scan();
+    window.addEventListener("focus", scan);
+    const unsubscribe = typeof window.agentAPI.onVoiceModelEvent === "function"
+      ? window.agentAPI.onVoiceModelEvent((event) => {
+          setModels((current) => current?.map((model) => (
+            model.id === event.modelId
+              ? { ...model, status: event.status, progress: event.progress }
+              : model
+          )) ?? current);
+        })
+      : () => undefined;
     return () => {
       disposed = true;
+      window.removeEventListener("focus", scan);
       unsubscribe();
     };
   }, []);
@@ -45,10 +73,9 @@ export function VoiceSettings() {
         return;
       }
       setError(null);
-      setModels((current) => current?.map((candidate) => ({
-        ...candidate,
-        selected: candidate.id === model.id,
-      })) ?? current);
+      void window.agentAPI.listVoiceModels().then(setModels).catch(() => {
+        setError("Voice models could not be loaded.");
+      });
     });
   };
 
@@ -90,7 +117,7 @@ export function VoiceSettings() {
                       ))}
                     </span>
                   </span>
-                  <span className="voice-model-metric">WER <b>{model.wer}</b></span>
+                  {model.wer && <span className="voice-model-metric">WER <b>{model.wer}</b></span>}
                 </div>
               </div>
               <button

@@ -83,6 +83,8 @@ const api: AgentAPI = {
 
   listVoiceModels: (): Promise<VoiceModelSummary[]> => ipcRenderer.invoke(IPC.listVoiceModels),
 
+  scanVoiceModels: (): Promise<VoiceModelActionResult> => ipcRenderer.invoke(IPC.scanVoiceModels),
+
   downloadVoiceModel: (modelId: string): Promise<VoiceModelActionResult> => (
     ipcRenderer.invoke(IPC.downloadVoiceModel, modelId)
   ),

@@ -294,6 +294,8 @@ function registerIpc(
 
   handle(IPC.listVoiceModels, () => voiceModels.list());
 
+  handle(IPC.scanVoiceModels, () => voiceModels.scan());
+
   handle(IPC.downloadVoiceModel, (_event, modelId: string) => voiceModels.download(modelId));
 
   ipcMain.on(IPC.cancelVoiceModelDownload, (_event, modelId: string) => {
@@ -666,9 +668,16 @@ app.whenReady().then(async () => {
     enableCreateWithoutSelection: true,
     execute: (ownerWebContentsId, request, signal) => canvasCli.execute(ownerWebContentsId, request, signal),
   }, inputAttachments);
+  const voicePaths = voiceResourcePaths({
+    isPackaged: app.isPackaged,
+    defaultApp: process.defaultApp,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+  });
   const voiceModels = new VoiceModelService({
     modelsDirectory: join(app.getPath("userData"), "voice-models"),
     statePath: join(app.getPath("userData"), "voice-models-state.json"),
+    bundledModelPath: voicePaths.modelPath,
     sendEvent: (event) => {
       for (const window of BrowserWindow.getAllWindows()) {
         if (!window.isDestroyed()) window.webContents.send(IPC.voiceModelEvent, event);
@@ -676,15 +685,10 @@ app.whenReady().then(async () => {
     },
   });
   await voiceModels.load();
-  const voicePaths = voiceResourcePaths({
-    isPackaged: app.isPackaged,
-    defaultApp: process.defaultApp,
-    resourcesPath: process.resourcesPath,
-    appPath: app.getAppPath(),
-  });
+  void voiceModels.scan();
   const voiceTranscription = new VoiceTranscriptionService({
     ...voicePaths,
-    modelPath: () => voiceModels.currentModelPath() ?? voicePaths.modelPath,
+    modelPath: () => voiceModels.currentModelPath(),
   });
   const quitPreparation = new QuitPreparation();
   const lifecycle = new ApplicationLifecycle({

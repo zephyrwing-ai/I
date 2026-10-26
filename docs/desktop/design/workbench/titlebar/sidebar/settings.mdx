@@ -115,11 +115,14 @@ Add Provider 按钮。
 语音模型设置。
 
 - 入口：设置页导航新增 Voice 分类，位于 TTS 之后。
-- 列表：六个 whisper.cpp Whisper 量化模型组成卡片列表，每行一个卡片。
-- 选中圆点：卡片左侧显示选择圆点，已安装模型显示空心圆，当前选中模型显示中间实心点，选中卡片使用浅色选择表面背景。
+- 列表：内置六个 whisper.cpp Whisper 量化模型与自动发现的本地 GGML 模型组成统一卡片列表，列表不区分来源，不显示 Local 标签；本地模型无法推断的 WER 保持不显示。
+- 自动发现：应用启动、打开 Voice 设置和窗口重新聚焦时自动执行搜索；macOS 先通过 Spotlight 按文件名搜索 ggml 与 whisper 的 `.bin` 文件，再用 Downloads、`~/Library/Application Support/whisper.cpp` 和 `~/.cache/whisper.cpp` 的目录扫描兜底；只读取 GGML 文件头并限制候选数量与目录深度。
+- 去重：扫描到的文件与内置清单匹配时直接标记为 Installed，用户无需重复下载；其余 GGML 文件按文件名显示为普通模型卡片。
+- 选中圆点：卡片左侧显示选择圆点，已安装模型显示空心圆，当前选中模型显示中间实心点，选中卡片使用浅色选择表面背景；再次点击当前实心圆会取消选择，语音输入回到未配置状态。
 - 状态按钮：卡片右侧使用固定宽度按钮，未下载显示 Download，下载中只显示整数百分比，已安装显示 Installed；下载中再次点击取消本次下载。
 - 指标行：名称下方一行显示大小、内存估算、Speed 五格圆点等级和 WER；模型格式显示在名称右侧标签。
 - 推荐：Whisper large-v3-turbo 显示 Recommended。
+- 默认选择：随包模型在列表中显示为 Installed 并保持空心圆，首次使用语音输入前由用户点击圆点显式选中。
 - 下载：Main 从 Hugging Face 的 ggerganov/whisper.cpp 仓库流式下载 GGML 文件到应用数据目录 voice-models，下载中每200ms推送百分比事件，完成后按 X-Linked-Etag 校验 SHA-256 并原子改名，失败和取消路径删除部分文件。
-- 状态持久化：已安装模型与当前选择写入 voice-models-state.json；语音转写优先使用选中的已安装模型，未安装或未选中时回退随包 turbo 模型。
+- 状态持久化：已安装模型、扫描到的本地模型路径与当前选择写入 voice-models-state.json；加载时检查本地文件仍存在且大小一致，语音转写优先使用选中的模型，模型失效或未选中时回退随包 turbo 模型。
 - 数据范围：模型文件保存在 userData 的 voice-models 目录，仅由语音转写读取。

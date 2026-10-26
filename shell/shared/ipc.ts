@@ -415,6 +415,7 @@ export interface AgentAPI {
   transcribeVoice(request: VoiceTranscriptionRequest): Promise<VoiceTranscriptionResult>;
   cancelVoiceTranscription(requestId: string): void;
   listVoiceModels(): Promise<VoiceModelSummary[]>;
+  scanVoiceModels(): Promise<VoiceModelActionResult>;
   downloadVoiceModel(modelId: string): Promise<VoiceModelActionResult>;
   cancelVoiceModelDownload(modelId: string): void;
   selectVoiceModel(modelId: string): Promise<VoiceModelActionResult>;
@@ -464,6 +465,7 @@ export const IPC = {
   transcribeVoice: "voice:transcribe",
   cancelVoiceTranscription: "voice:cancel-transcription",
   listVoiceModels: "voice-models:list",
+  scanVoiceModels: "voice-models:scan",
   downloadVoiceModel: "voice-models:download",
   cancelVoiceModelDownload: "voice-models:cancel",
   selectVoiceModel: "voice-models:select",
