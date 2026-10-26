@@ -4,6 +4,7 @@ import { createReadTool } from "./read.js";
 import { createWriteTool } from "./write.js";
 import { createEditTool } from "./edit.js";
 import { createQueryTools } from "./query.js";
+import { createWebSearchTool } from "./web-search.js";
 import type { RegisteredTool } from "./types.js";
 
 export type { RegisteredTool, ToolResult, ToolExecutionContext, ToolResultMedia, ToolRecoveryMode, ToolRecoverySpec, ToolRecoveryResult, ToolCheckpoint, PreparedToolExecution } from "./types.js";
@@ -22,6 +23,7 @@ export function createToolRegistry(ops: BashOperations): Map<string, RegisteredT
     createWriteTool(),
     createEditTool(),
     ...createQueryTools(),
+    createWebSearchTool(),
   ];
   const registry = new Map<string, RegisteredTool>();
   for (const tool of tools) {

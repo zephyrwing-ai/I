@@ -1,5 +1,6 @@
 import type { ExecResult } from "../types.js";
 import type { ToolCall, ToolDef } from "../model/types.js";
+import type { WebToolMetadata } from "./web-result.js";
 
 /** 工具执行现场：cwd 只用做相对路径解析起点，不构成沙盒。 */
 export interface ToolExecutionContext {
@@ -45,6 +46,7 @@ export interface ToolResultMedia {
 export interface ToolResult extends ExecResult {
   ok: boolean;
   error?: string;
+  web?: WebToolMetadata;
   /** 图片内容：适配层拼进模型 tool 消息的图片部分，不打印成文本。 */
   media?: ToolResultMedia;
 }

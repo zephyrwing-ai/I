@@ -1,5 +1,6 @@
 import type { ModelCapabilities, ModelMessage } from "../../agent/model/types.js";
 import type { UiPreferences } from "./ui-preferences.js";
+import type { WebToolMetadata } from "../../agent/tools/web-result.js";
 export type { ModelCapabilities } from "../../agent/model/types.js";
 import type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types.js";
 export type { CanvasEditCancel, CanvasEditRequest, CanvasEditResult } from "../../canvas/commands/types.js";
@@ -305,6 +306,7 @@ export interface ToolResult {
   returncode: number;
   truncated: boolean;
   error?: string;
+  web?: WebToolMetadata;
 }
 
 export type ToolCall = { id: string; name: string; input: Record<string, unknown>; inputComplete: boolean };

@@ -1,7 +1,7 @@
 工具执行。
 
 - 职责：接收运行循环交付的模型工具调用，查找已注册实现并返回结果；模型请求、运行循环与任务完成判断统一由 Runtime 调度。
-- 实现：分发逻辑位于 `agent/loop.ts`，注册表位于 `agent/tools/index.ts`，基础工具包含 Bash、Read、Write、Edit、`list_dir`、`find_files` 和 `search_content`。
+- 实现：分发逻辑位于 `agent/loop.ts`，注册表位于 `agent/tools/index.ts`，基础工具包含 Bash、Read、Write、Edit、`list_dir`、`find_files`、`search_content` 和 `web_search`。
 
 调用与结果。
 
@@ -11,6 +11,7 @@
 - 模型投影：Runtime 将返回码与输出格式化为文本 Tool Message，并附带 `isError`。
 - 宿主投影：Runner 发送结构化公共字段，并单独登记文件产物；宿主以结构化状态关联调用和结果，活动视图按实际命令、路径或目标生成工具行，失败时附紧凑标记，单行展开呈现完整输入与结果。
 - 完整输出路径：进入模型 Tool Message，Renderer 接收公共字段；各投影共享同一份 ToolResult 事实来源。
+- 网页结果：可选 `web.pages` 保存真实网页标题、HTTP(S) 链接、搜索摘要与可选站点图标地址；统一校验与公共投影同时服务实时事件和历史恢复，模型文本输出由同一搜索结果生成。
 
 活动元数据与操作参数。
 

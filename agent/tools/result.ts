@@ -1,6 +1,7 @@
 import type { ModelMessage } from "../model/types.js";
 import type { FileArtifact } from "../types.js";
 import type { ToolCheckpoint, ToolResult } from "./types.js";
+import { readWebToolMetadata } from "./web-result.js";
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -22,6 +23,7 @@ export function readToolResult(value: unknown): ToolResult | undefined {
     || (value.fullOutputPath !== undefined && typeof value.fullOutputPath !== "string")) return undefined;
   if (value.media !== undefined && (!record(value.media) || typeof value.media.mediaType !== "string" || typeof value.media.dataUrl !== "string")) return undefined;
   if (value.artifacts !== undefined && (!Array.isArray(value.artifacts) || !value.artifacts.every(artifact))) return undefined;
+  if (value.web !== undefined && !readWebToolMetadata(value.web)) return undefined;
   return value as unknown as ToolResult;
 }
 

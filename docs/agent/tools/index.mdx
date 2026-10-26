@@ -16,12 +16,13 @@
 
 工具目录。
 
-- 基础注册表：提供 `bash`、`read`、`write`、`edit`、`list_dir`、`find_files` 和 `search_content`，CLI 沿用此注册表。
+- 基础注册表：提供 `bash`、`read`、`write`、`edit`、`list_dir`、`find_files`、`search_content` 和 `web_search`，CLI 沿用此注册表。
 - [Bash](./bash.mdx)：已注册，执行本机终端命令、运行本地文件、安装依赖和执行测试，文件副作用由具体命令决定。
 - [Read](./read.mdx)：已注册，以只读方式获取文本文件或模型支持的图片。
 - [Edit](./edit.mdx)：已注册，对已有文件执行可验证的局部文本替换，并发布修改结果。
 - [Write](./write.mdx)：已注册，创建文件或用完整内容覆盖文件。
 - [Query](./query.mdx)：已注册，以只读方式列出目录、查找文件与搜索文件内容。
+- [Web Search](./web-search.mdx)：已注册，通过公共搜索入口返回网页标题、链接与原始搜索摘要，普通对话、项目对话与 CLI 共用同一执行契约。
 - 附件读取：桌面 Runner 注册 `attachment_read`，通过稳定附件 ID 分页读取 Docling 文字、普通文本和 FFmpeg 采样信息，或返回指定页面图片与视频帧；运行范围覆盖项目对话与普通对话，副本和处理缓存由 Main 附件服务管理。
 - [Canvas Edit](./canvas-edit.mdx)：桌面端已注册，按用户指令新增元素，依据 Use selection 编辑引用元素并保存画布变化。
 - 桌面注册：桌面 Run 按 Canvas 编辑能力附加 `canvas_edit`，Runner 将其绑定当前窗口、项目与 Run。
@@ -29,7 +30,7 @@
 
 扩展与协作。
 
-- 新增能力：网页搜索、第三方服务或 Pull Request 等工具同时定义模型可理解的用途与输入、宿主执行实现，以及回填模型和运行事件的结果。
+- 新增能力：第三方服务或 Pull Request 等工具同时定义模型可理解的用途与输入、宿主执行实现，以及回填模型和运行事件的结果。
 - Canvas 边界：命令与场景契约见 [Canvas Edit](./canvas-edit.mdx)。
 - 执行契约：调用、校验、取消和结果规则见[工具执行](./execution.mdx)。
 - 恢复契约：持久化阶段、重启恢复与安全重放规则见[工具执行恢复](./recovery.mdx)。
