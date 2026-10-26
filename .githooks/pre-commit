@@ -1,0 +1,4 @@
+#!/bin/sh
+# 提交前拦截缓存、构建产物、日志和大文件。
+# 启用：git config core.hooksPath .githooks
+exec node "$(git rev-parse --show-toplevel)/scripts/check-repo-hygiene.mjs" --staged

@@ -20,7 +20,8 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run typecheck:canvas && npm run typecheck:tests",
     "test": "TSX_TSCONFIG_PATH=tsconfig.web.json node --import tsx --test 'tests/**/*.test.ts'",
     "setup:attachments": "node scripts/setup-attachments.mjs",
-    "agent:cli": "npx tsx agent/run.ts"
+    "agent:cli": "npx tsx agent/run.ts",
+    "check:hygiene": "node scripts/check-repo-hygiene.mjs"
   },
   "dependencies": {
     "@braintree/sanitize-url": "6.0.2",
