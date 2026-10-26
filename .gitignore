@@ -9,9 +9,13 @@ tools-read-*/
 tools-write-*/
 resources/*
 !resources/attachments/
+!resources/whisper/
 resources/attachments/*
 !resources/attachments/docling_worker.py
 !resources/attachments/requirements.txt
-resources/whisper/ggml-*.bin
+resources/whisper/*
+!resources/whisper/LICENSE.whisper
+!resources/whisper/LICENSE.whisper.cpp
+!resources/whisper/README.md
 node-compile-cache/
 tsx-501/
