@@ -1,4 +1,4 @@
-.canvas-panel { position: relative; width: 100%; min-width: 0; min-height: 0; height: 100%; overflow: hidden; background: var(--bg); isolation: isolate; }
+.canvas-panel { position: relative; width: 100%; min-width: 0; min-height: 0; height: 100%; overflow: hidden; background: var(--workbench-frame-surface); isolation: isolate; }
 .canvas-panel-editor {
   --canvas-toolbar-hit-size: 2rem;
   --canvas-floating-background: var(--surface-strong-translucent);
@@ -15,7 +15,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--workbench-frame-surface);
 }
 @media screen and (min-device-width: 1921px) {
   .canvas-panel-editor { --canvas-toolbar-hit-size: 2.25rem; }
@@ -77,7 +77,7 @@
   background-color: var(--selection) !important;
 }
 .canvas-panel-state { height: 100%; padding: 24px; color: var(--text-muted); display: grid; place-items: center; text-align: center; font-size: calc(11px + var(--ui-font-offset, 0px)); }
-.canvas-panel-loading { position: absolute; z-index: 16; inset: 0; background: var(--bg); }
+.canvas-panel-loading { position: absolute; z-index: 16; inset: 0; background: var(--workbench-frame-surface); }
 .canvas-panel-error { gap: 10px; }
 .canvas-panel-error button { min-height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-secondary); }
 .canvas-panel-status { position: absolute; z-index: 14; left: 12px; bottom: 74px; max-width: min(420px, calc(100% - 24px)); margin: 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-strong-translucent); color: var(--text-muted); font-size: calc(10px + var(--ui-font-offset, 0px)); line-height: calc(14px + var(--ui-font-offset, 0px)); pointer-events: none; }

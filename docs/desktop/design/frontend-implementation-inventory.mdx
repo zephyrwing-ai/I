@@ -44,7 +44,7 @@
 
 - 项目列尺寸：默认 240px、最小 180px，向左侧缩小到 132px 时进入待收起状态，松开后关闭；拖动使用 requestAnimationFrame 节流，拖动期间宽度动画停止（`frontend/src/workbench/project/projectSidebarState.ts`、`frontend/src/shared/sidebar/useResizableSidebar.ts:88`）。
 - 右侧栏尺寸：默认 360px、最小 280px，可用最大宽度为局部空间减去 360px 消息主列；同一个共享 hook 提供左右方向对应的拖动计算（`frontend/src/workbench/sidebar/sidebarState.ts:3`、`frontend/src/shared/sidebar/useResizableSidebar.ts:98`）。
-- 侧栏拖拽热区：左右侧栏与项目模式标题分隔线复用同一个 `.workbench-divider` 伪元素样式，统一2px `--workbench-resizer-emphasis`；普通 `I` 模式将右侧视觉线向上延伸到标题区，项目模式保持内容行范围（`frontend/src/styles.css:159`、`frontend/src/workbench/sidebar/sidebar.css:8`、`frontend/src/workbench/sidebar/WorkbenchSidebar.tsx`）。
+- 侧栏拖拽热区：左右侧栏与项目模式标题分隔线复用同一个 `.workbench-divider` 伪元素样式，统一真实的1px `--workbench-resizer-emphasis`；普通 `I` 模式将右侧视觉线向上延伸到标题区，项目模式保持内容行范围（`frontend/src/styles.css:159`、`frontend/src/workbench/sidebar/sidebar.css:8`、`frontend/src/workbench/sidebar/WorkbenchSidebar.tsx`）。
 - 键盘调宽：方向键按 16px 步进，Shift 加方向键按 64px 步进；到达最小方向后继续向外按键会收起侧栏（`frontend/src/shared/sidebar/useResizableSidebar.ts:158`）。
 - 拖拽恢复：双击拖拽条恢复默认宽度；拖动中按 Escape、pointercancel 或窗口失焦都恢复拖动前宽度（`frontend/src/shared/sidebar/useResizableSidebar.ts:125`、`frontend/src/shared/sidebar/useResizableSidebar.ts:137`）。
 - 宽度记忆：项目列和右侧栏分别保存到 `workbench.projectsSidebarWidth` 与 `workbench.outputSidebarWidth`，窗口变窄时只限制有效宽度，窗口恢复后重新使用用户偏好（`frontend/src/workbench/project/ProjectsPanel.tsx:55`、`frontend/src/workbench/sidebar/WorkbenchSidebar.tsx`）。
@@ -213,6 +213,7 @@ Agent Trace 展示。
 
 字体与字号。
 
+- 字形绘制：工作台采用操作系统与浏览器的默认字体平滑策略（`frontend/src/styles.css:141`）。
 - 界面字体：`SF Pro Text`、`-apple-system`、`BlinkMacSystemFont`、`PingFang SC`、`Hiragino Sans GB`、`sans-serif`；代码和文件内容使用 `SF Mono`、`ui-monospace`、Menlo（`frontend/src/styles.css:71`）。
 - 基准字重：页面继承 500，任务输入、模型选择与工具操作显式 400；标题和选中状态按层级提升到 500/600（`frontend/src/styles.css:139`、`frontend/src/middle-column/composer/Composer.css:22`）。
 - 全局缩放：`--ui-font-offset` 当前为 0px，所有界面字号使用 `calc(base + offset)`；Canvas UI 也读取该偏移，画布文档文字由元素自身 `fontSize` 控制（`frontend/src/styles.css:73`、`canvas/ui/CanvasSurface.css:79`）。

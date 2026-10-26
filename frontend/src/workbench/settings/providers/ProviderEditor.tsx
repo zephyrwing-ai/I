@@ -82,9 +82,10 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
   const [query, setQuery] = useState("");
   const [discovering, setDiscovering] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<string | null>(profile ? "Loaded saved models." : null);
   const [error, setError] = useState<string | null>(null);
+  const [fetchSuccess, setFetchSuccess] = useState(false);
   const activeRequest = useRef<string | null>(null);
+  const fetchFeedbackTimer = useRef<number | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
 
@@ -92,6 +93,7 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
     nameRef.current?.focus();
     return () => {
       if (activeRequest.current) window.agentAPI.cancelProviderModelDiscovery(activeRequest.current);
+      if (fetchFeedbackTimer.current !== null) window.clearTimeout(fetchFeedbackTimer.current);
     };
   }, []);
 
@@ -115,11 +117,10 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
     if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
   }, [allVisibleSelected, someVisibleSelected]);
 
-  const cancelDiscovery = (message = "Model retrieval cancelled."): void => {
+  const cancelDiscovery = (): void => {
     if (activeRequest.current) window.agentAPI.cancelProviderModelDiscovery(activeRequest.current);
     activeRequest.current = null;
     setDiscovering(false);
-    setStatus(message);
     setError(null);
   };
 
@@ -135,7 +136,7 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
     const requestId = createRequestId();
     activeRequest.current = requestId;
     setDiscovering(true);
-    setStatus("Loading model list.");
+    setFetchSuccess(false);
     setError(null);
     try {
       const result = await window.agentAPI.discoverProviderModels({
@@ -148,7 +149,6 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
       if (activeRequest.current !== requestId) return;
       if (!result.ok) {
         setError(result.message);
-        setStatus(null);
         return;
       }
       const nextModels: ModelDraft[] = result.models.map((model) => {
@@ -160,11 +160,15 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
         };
       });
       setModels(nextModels);
-      setStatus("Models loaded successfully.");
+      setFetchSuccess(true);
+      if (fetchFeedbackTimer.current !== null) window.clearTimeout(fetchFeedbackTimer.current);
+      fetchFeedbackTimer.current = window.setTimeout(() => {
+        fetchFeedbackTimer.current = null;
+        setFetchSuccess(false);
+      }, 2_200);
     } catch (cause) {
       if (activeRequest.current === requestId) {
         setError(cause instanceof Error ? cause.message : String(cause));
-        setStatus(null);
       }
     } finally {
       if (activeRequest.current === requestId) {
@@ -280,14 +284,14 @@ export function ProviderEditor({ profile, disabled, onCancel, onSaved }: Provide
           </div>
 
           <div className="model-fetch-row">
-            <button type="button" className="discover-button" onClick={() => void discover()} disabled={locked || !baseURL.trim() || !hasCredential}>
-              {discovering ? <span className="spinner" /> : <Icon name="download" width="17" height="17" />}
+            <button type="button" className={`discover-button${fetchSuccess ? " is-fetch-success" : ""}`} onClick={() => void discover()} disabled={locked || !baseURL.trim() || !hasCredential}>
+              {discovering ? <span className="spinner" /> : <Icon name={fetchSuccess ? "check" : "download"} width="17" height="17" strokeWidth={2} />}
               {t(discovering ? "Fetching" : "Fetch model list")}
             </button>
             {discovering && <button type="button" className="secondary-button" onClick={() => cancelDiscovery()}>{t("Cancel")}</button>}
           </div>
 
-          {(status || error) && <p className={error ? "form-error" : "form-status"} role={error ? "alert" : "status"}>{error && <Icon name="warning" width="15" height="15" />}{t(error ?? status ?? "")}</p>}
+          {error && <p className="form-error" role="alert"><Icon name="warning" width="15" height="15" />{t(error)}</p>}
           <span className="model-selection-count">{t("Selected {selected}/{total} models", { selected: selectedCount, total: models.length })}</span>
 
           <div className="discovered-model-list" role="group" aria-label={t("Importable models")}>

@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const cache = join(root, "node_modules/.cache/macos-app");
-const bundleId = "com.agentstudio.desktop";
+const bundleId = "com.i.desktop";
 const require = createRequire(import.meta.url);
 const runFile = promisify(execFile);
 const voiceModelName = "ggml-large-v3-turbo-q5_0.bin";
@@ -111,7 +111,9 @@ async function nativeOptions(config, includeVoiceResources = true) {
     icon: await nativeIcon(config),
     electronZipDir: await runtimeArchive(config),
     asar: false,
-    extraResource: includeVoiceResources ? [join(root, "resources")] : [],
+    extraResource: includeVoiceResources
+      ? [join(root, "resources"), join(root, "scripts/setup-attachments.mjs")]
+      : [],
     usageDescription: {
       Microphone: config.microphoneDescription,
     },

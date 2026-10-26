@@ -12,8 +12,8 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from "react";
-import type { AppState, BinaryFiles, CanvasEditorImperativeAPI } from "@agent-studio/canvas-editor/types";
-import type { CanvasEditorElement } from "@agent-studio/canvas-editor/element/types";
+import type { AppState, BinaryFiles, CanvasEditorImperativeAPI } from "@i/canvas-editor/types";
+import type { CanvasEditorElement } from "@i/canvas-editor/element/types";
 import type {
   CanvasContextDescriptor,
   CanvasDocument,
@@ -25,16 +25,16 @@ import { CanvasSaveCoordinator, CanvasSaveConflictError, type CanvasSaveState } 
 import { shouldPersistCanvasChange } from "./scenePersistence";
 import "./CanvasSurface.css";
 
-let canvasEditorPromise: Promise<typeof import("@agent-studio/canvas-editor")> | null = null;
-let loadedCanvasEditor: typeof import("@agent-studio/canvas-editor") | null = null;
+let canvasEditorPromise: Promise<typeof import("@i/canvas-editor")> | null = null;
+let loadedCanvasEditor: typeof import("@i/canvas-editor") | null = null;
 const preloadedCanvasDocuments = new Map<string, Promise<CanvasDocumentResult>>();
 
 function canvasScopeKey(projectId: string | null): string {
   return projectId ?? "__unprojected__";
 }
 
-export function preloadCanvasEditor(): Promise<typeof import("@agent-studio/canvas-editor")> {
-  canvasEditorPromise ??= import("@agent-studio/canvas-editor")
+export function preloadCanvasEditor(): Promise<typeof import("@i/canvas-editor")> {
+  canvasEditorPromise ??= import("@i/canvas-editor")
     .then((module) => {
       loadedCanvasEditor = module;
       return module;
@@ -201,7 +201,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     void consumeCanvasDocument(projectId).then((result) => {
       if (cancelled) return;
       const softwareBackground =
-        window.getComputedStyle(window.document.documentElement).getPropertyValue("--bg").trim() ||
+        window.getComputedStyle(window.document.documentElement).getPropertyValue("--workbench-frame-surface").trim() ||
         "#f8f8f8";
       const nextAppState = { ...result.document.appState, viewBackgroundColor: softwareBackground };
       sceneProjectIdRef.current = projectId;
@@ -344,7 +344,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
   const initialData = useMemo(() => {
     if (!document) return null;
     const softwareBackground =
-      window.getComputedStyle(window.document.documentElement).getPropertyValue("--bg").trim() ||
+      window.getComputedStyle(window.document.documentElement).getPropertyValue("--workbench-frame-surface").trim() ||
       "#f8f8f8";
     return {
       elements: document.elements as unknown as readonly CanvasEditorElement[],
@@ -588,7 +588,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
     setSavingJSON(true);
     setNotice(null);
     try {
-      const editor = await import("@agent-studio/canvas-editor");
+      const editor = await import("@i/canvas-editor");
       const exportState = api.getAppState();
       const { fileHandle } = await editor.saveAsJSON(
         api.getSceneElements() as unknown as readonly CanvasEditorElement[],

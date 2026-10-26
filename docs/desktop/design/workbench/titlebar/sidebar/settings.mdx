@@ -15,7 +15,7 @@ Settings 页面。
 - 展示隔离：Settings 打开时，原 `I / Project / Settings` 项目导航、`workbench-frame` 及工作台搜索与项目菜单等浮层进入隐藏状态；隐藏区域同步退出指针命中、键盘焦点顺序、辅助技术访问和原生拖拽热区。
 - 状态保留：项目导航与工作台组件继续挂载，当前项目、已加载历史、消息滚动位置、Composer 草稿和 Canvas 场景沿用当前实例。
 - 返回：Back 关闭 Settings 页面，恢复工作台展示与交互；工作台恢复后，下一动画帧将焦点返回左下 Settings 入口。
-- 返回入口样式：Back 与模块按钮共用导航按钮基础样式，宽度填满左侧导航内容区，高度36px；Back 圆角14px、模块按钮圆角8px，字号读取 `--font-size-body`（14px），悬停使用统一的 `--hover` 背景。
+- 返回入口样式：Back 与模块按钮共用导航按钮基础样式，宽度填满左侧导航内容区，高度36px；Back 圆角16px、模块按钮圆角8px，字号读取 `--font-size-body`（14px），悬停使用 `--nav-hover`，当前模块使用更重的 `--nav-selected` 背景。
 - 导航间距：Back 到 General、General 到 Providers 以及其余相邻模块的间距统一为4px，外层导航容器与模块列表共享同一条 `gap` 规则。
 - 拖拽：左侧顶部拖拽带高度复用 `--topbar-height`（52px），为原生窗口控制按钮预留位置；右侧顶部拖拽带使用四份 `--workbench-frame-gap`（32px），同时形成模块内容的顶部留白。两处拖拽带使用 `-webkit-app-region: drag`，Back、模块按钮与右侧内容位于各自拖拽带下方的 `-webkit-app-region: no-drag` 内容区。
 - 字体：沿用工作台统一字体、字号和字重 token。
