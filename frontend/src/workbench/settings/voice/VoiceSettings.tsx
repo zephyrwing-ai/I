@@ -92,34 +92,36 @@ export function VoiceSettings() {
             <div key={model.id} className={`voice-model-card${model.selected ? " selected" : ""}`}>
               <button
                 type="button"
-                className={`voice-model-radio${model.status === "installed" ? " visible" : ""}${model.selected ? " checked" : ""}`}
+                className="voice-model-select"
                 onClick={() => select(model)}
                 disabled={model.status !== "installed"}
                 aria-label={`Use ${model.name}`}
                 aria-pressed={model.selected}
                 title="Use model"
-              />
-              <div className="voice-model-info">
-                <div className="voice-model-title">
-                  <span className="voice-model-name">{model.name}</span>
-                  <span className="voice-model-tag">{model.tag}</span>
-                  {model.recommended && <span className="voice-model-recommended">{t("Recommended")}</span>}
-                </div>
-                <div className="voice-model-metrics">
-                  <span className="voice-model-metric"><b>{model.sizeLabel}</b> size</span>
-                  <span className="voice-model-approx">≈</span>
-                  <span className="voice-model-metric"><b>{model.ramLabel}</b> RAM</span>
-                  <span className="voice-model-metric voice-model-speed">
-                    {t("Speed")}
-                    <span className="voice-model-speed-dots" aria-label={`Speed ${model.speedLevel} of 5`}>
-                      {Array.from({ length: 5 }, (_, index) => (
-                        <i key={index} className={index < model.speedLevel ? "on" : ""} />
-                      ))}
-                    </span>
+              >
+                <span className={`voice-model-radio${model.status === "installed" ? " visible" : ""}${model.selected ? " checked" : ""}`} aria-hidden="true" />
+                <span className="voice-model-info">
+                  <span className="voice-model-title">
+                    <span className="voice-model-name">{model.name}</span>
+                    <span className="voice-model-tag">{model.tag}</span>
+                    {model.recommended && <span className="voice-model-recommended">{t("Recommended")}</span>}
                   </span>
-                  {model.wer && <span className="voice-model-metric">WER <b>{model.wer}</b></span>}
-                </div>
-              </div>
+                  <span className="voice-model-metrics">
+                    <span className="voice-model-metric"><b>{model.sizeLabel}</b> size</span>
+                    <span className="voice-model-approx">≈</span>
+                    <span className="voice-model-metric"><b>{model.ramLabel}</b> RAM</span>
+                    <span className="voice-model-metric voice-model-speed">
+                      {t("Speed")}
+                      <span className="voice-model-speed-dots" aria-label={`Speed ${model.speedLevel} of 5`}>
+                        {Array.from({ length: 5 }, (_, index) => (
+                          <i key={index} className={index < model.speedLevel ? "on" : ""} />
+                        ))}
+                      </span>
+                    </span>
+                    {model.wer && <span className="voice-model-metric">WER <b>{model.wer}</b></span>}
+                  </span>
+                </span>
+              </button>
               <button
                 type="button"
                 className={`voice-model-action${model.status === "downloading" ? " downloading" : ""}`}
