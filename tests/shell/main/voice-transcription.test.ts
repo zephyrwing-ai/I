@@ -88,7 +88,6 @@ test("voice resources resolve from the app root in development and resources in 
     appPath: "/repo",
   }), {
     enginePath: "/repo/resources/whisper/whisper-cli",
-    modelPath: "/repo/resources/whisper/ggml-large-v3-turbo-q5_0.bin",
   });
   assert.deepEqual(voiceResourcePaths({
     isPackaged: true,
@@ -96,7 +95,6 @@ test("voice resources resolve from the app root in development and resources in 
     appPath: "/ignored",
   }), {
     enginePath: "/bundle/Contents/Resources/resources/whisper/whisper-cli",
-    modelPath: "/bundle/Contents/Resources/resources/whisper/ggml-large-v3-turbo-q5_0.bin",
   });
 });
 
@@ -108,7 +106,6 @@ test("renamed development and preview shells resolve voice resources from the lo
     appPath: "/repo",
   }), {
     enginePath: "/repo/resources/whisper/whisper-cli",
-    modelPath: "/repo/resources/whisper/ggml-large-v3-turbo-q5_0.bin",
   });
 });
 

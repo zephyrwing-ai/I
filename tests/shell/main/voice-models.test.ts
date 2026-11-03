@@ -99,29 +99,21 @@ test("automatic scan discovers local GGML models and allows selecting them", asy
   assert.equal(service.currentModelPath(), customPath);
 });
 
-test("bundled model is installed but must be explicitly selected", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "voice-model-bundled-"));
+test("no model is installed or selected without a downloaded or scanned file", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "voice-model-empty-"));
   t.after(() => import("node:fs/promises").then(({ rm }) => rm(directory, { recursive: true, force: true })));
-  const bundled = join(directory, "ggml-large-v3-turbo-q5_0.bin");
-  await writeFile(bundled, Buffer.alloc(4));
   const service = new VoiceModelService({
     modelsDirectory: join(directory, "managed"),
     statePath: join(directory, "state.json"),
-    bundledModelPath: bundled,
     scanDirectories: [],
     sendEvent: recordingEvents().send,
   });
   await service.load();
 
-  const turbo = service.list().find((model) => model.id === "whisper-large-v3-turbo");
-  assert.equal(turbo?.status, "installed");
-  assert.equal(turbo?.selected, false);
+  const models = service.list();
+  assert.ok(models.every((model) => model.status === "not_downloaded"));
+  assert.ok(models.every((model) => model.selected === false));
   assert.equal(service.currentModelPath(), null);
-  assert.deepEqual(await service.select("whisper-large-v3-turbo"), { ok: true });
-  assert.equal(service.currentModelPath(), bundled);
-  assert.deepEqual(await service.select("whisper-large-v3-turbo"), { ok: true });
-  assert.equal(service.currentModelPath(), null);
-  assert.equal(service.list().find((model) => model.id === "whisper-large-v3-turbo")?.selected, false);
 });
 
 test("scanning a catalog filename marks the catalog model as installed", async (t) => {

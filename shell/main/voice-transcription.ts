@@ -148,9 +148,13 @@ export class VoiceTranscriptionService {
         "Select a voice model in Settings → Voice before recording.",
       );
     }
-    const model = configuredModel
-      ?? process.env.YANSU_WHISPER_MODEL
-      ?? join(this.options.resourcesDirectory ?? "", "whisper", "ggml-large-v3-turbo-q5_0.bin");
+    const model = configuredModel ?? process.env.YANSU_WHISPER_MODEL ?? "";
+    if (!model) {
+      throw new VoiceEngineError(
+        "model_missing",
+        "Select a voice model in Settings → Voice before recording.",
+      );
+    }
 
     if (!await accessibleFile(executable, constants.R_OK | constants.X_OK)) {
       throw new VoiceEngineError(
@@ -360,7 +364,7 @@ export function voiceResourcePaths({
   defaultApp?: boolean;
   resourcesPath: string;
   appPath: string;
-}): { enginePath: string; modelPath: string } {
+}): { enginePath: string } {
   // A renamed development shell can report isPackaged=true while the default
   // Electron loader still loads the application from its source directory.
   const resourcesDirectory = isPackaged && !defaultApp
@@ -368,7 +372,6 @@ export function voiceResourcePaths({
     : resolve(appPath, "resources");
   return {
     enginePath: join(resourcesDirectory, "whisper", "whisper-cli"),
-    modelPath: join(resourcesDirectory, "whisper", "ggml-large-v3-turbo-q5_0.bin"),
   };
 }
 

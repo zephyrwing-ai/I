@@ -677,7 +677,6 @@ app.whenReady().then(async () => {
   const voiceModels = new VoiceModelService({
     modelsDirectory: join(app.getPath("userData"), "voice-models"),
     statePath: join(app.getPath("userData"), "voice-models-state.json"),
-    bundledModelPath: voicePaths.modelPath,
     sendEvent: (event) => {
       for (const window of BrowserWindow.getAllWindows()) {
         if (!window.isDestroyed()) window.webContents.send(IPC.voiceModelEvent, event);

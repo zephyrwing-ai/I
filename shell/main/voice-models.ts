@@ -161,7 +161,6 @@ export type VoiceModelFetch = (
 export interface VoiceModelServiceOptions {
   modelsDirectory: string;
   statePath: string;
-  bundledModelPath?: string;
   fetchImpl?: VoiceModelFetch;
   scanDirectories?: string[];
   sendEvent: (event: VoiceModelEvent) => void;
@@ -173,7 +172,6 @@ export class VoiceModelService {
   private readonly activeProgress = new Map<string, number>();
   private local: LocalModelRecord[] = [];
   private selectedId: string | null = null;
-  private bundledAvailable = false;
   private stateLoaded = false;
   private scanning: Promise<VoiceModelActionResult> | null = null;
 
@@ -181,13 +179,6 @@ export class VoiceModelService {
 
   async load(): Promise<void> {
     if (this.stateLoaded) return;
-    if (this.options.bundledModelPath) {
-      try {
-        this.bundledAvailable = (await stat(this.options.bundledModelPath)).isFile();
-      } catch {
-        this.bundledAvailable = false;
-      }
-    }
     try {
       const state = JSON.parse(await readFile(this.options.statePath, "utf8")) as VoiceModelState;
       for (const [id, record] of Object.entries(state.installed ?? {})) {
@@ -358,9 +349,6 @@ export class VoiceModelService {
     if (entry && this.installed.has(this.selectedId)) {
       return join(this.options.modelsDirectory, entry.fileName);
     }
-    if (this.selectedId === "whisper-large-v3-turbo" && this.bundledAvailable) {
-      return this.options.bundledModelPath ?? null;
-    }
     return this.local.find((record) => (
       record.catalogId === this.selectedId || record.id === this.selectedId
     ))?.path ?? null;
@@ -458,7 +446,6 @@ export class VoiceModelService {
 
   private isInstalled(modelId: string): boolean {
     return this.installed.has(modelId)
-      || (modelId === "whisper-large-v3-turbo" && this.bundledAvailable)
       || this.local.some((record) => (
         record.catalogId === modelId || record.id === modelId
       ));
