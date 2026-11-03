@@ -98,15 +98,15 @@ Composer。
 - 权限：Main 按登记的应用窗口、主框架和 Renderer 页面地址校验音频媒体请求；macOS 打包元数据提供 `NSMicrophoneUsageDescription`，系统拒绝时 Composer 提示用户在系统设置中恢复权限。
 - 错误：权限拒绝、无可用设备、设备占用、引擎缺失、模型缺失、空语音、超时和识别失败分别显示清晰提示；错误提示保留在 Composer 内，并由关闭入口清除。
 - 模型门控：Voice 设置中没有选中模型时，麦克风入口保持可见并呈现未配置颜色；点击入口在工具栏上方展开就地提示，提供 Open Settings 入口并跳转到 Voice 设置页。
-- 转写门控：Main 在未选中模型时返回 model_missing，语音转写不会回退到随包模型；用户在 Voice 页选中模型后，Composer 返回工作台时重新读取选择状态。
+- 转写门控：Main 在未选中模型时返回 model_missing，语音转写不会回退到任何模型；用户在 Voice 页选中模型后，Composer 返回工作台时重新读取选择状态。
 - 容量：用户点击停止后进入转写；单次音频达到20MiB资源预算时自动停止并转写已录内容，当前格式可容纳约10分55秒。
 - 音频：Renderer 采集单声道 PCM，统一为16kHz、16-bit WAV；Renderer 和 Main 共用20MiB的音频字节预算。
 - 内存：Renderer 按音频字节预算扣除44字节 WAV 头后派生 PCM 缓冲容量，音频帧保持在 Hook 内部；波形条使用固定长度缓冲区，React 状态保存语音阶段、错误文本和 AnalyserNode 引用。
 - 传输：停止录音后 Renderer 一次性把完整 WAV `ArrayBuffer` 经语音专用 IPC 发送给 Main；音频保留在 Composer 语音边界内，Agent Runtime、模型上下文和持久历史只接收确认发送的文本。
 - Main：Main 校验16kHz单声道 PCM16 WAV、音频字节预算和引擎资源，把音频写入应用临时目录，启动独立 `whisper-cli` 子进程，读取结构化 JSON，并把纯文本返回 Renderer；原生推理由独立进程执行。
-- 模型：使用 whisper.cpp 与 Whisper GGML 量化模型；随包 `ggml-large-v3-turbo-q5_0.bin` 在 Voice 设置中显示为已安装但没有默认选中，Voice 页面提供六个可下载模型，用户必须显式选中一个模型后才可录音转写；语言由 Whisper 自动识别，语音模型选择与聊天模型选择解耦。
-- 资源：开发运行从仓库 `resources/whisper` 读取引擎与模型；打包应用从 `Contents/Resources/resources/whisper` 读取同一组资源；打包前按固定 SHA-256 校验约547MiB的模型并检查引擎架构，分发目录附带上游许可证。
-- 兼容：随包提供的原生引擎面向 Apple Silicon，最低运行系统为 macOS 15.0；安装后的应用直接读取随包模型完成本地识别。
+- 模型：使用 whisper.cpp 与 Whisper GGML 量化模型；发布应用不包含任何模型权重，Voice 页面提供六个可下载模型并自动发现本机已有模型，用户下载或扫描后显式选中一个模型才可录音转写；语言由 Whisper 自动识别，语音模型选择与聊天模型选择解耦。
+- 资源：开发运行从仓库 `resources/whisper` 读取引擎，打包只包含 whisper-cli 引擎和上游许可证；打包阶段过滤全部 `.bin` 模型权重，用户在 Voice 页面下载的模型保存在应用数据目录。
+- 兼容：随包提供的原生引擎面向 Apple Silicon，最低运行系统为 macOS 15.0；安装后的应用读取用户下载或扫描到的模型完成本地识别。
 - 资源寻址：Main 通过 `process.defaultApp` 识别默认加载器启动的开发和预览应用，并以 `app.getAppPath()` 定位应用目录中的资源；独立安装包以 `process.resourcesPath` 定位包内资源，改名开发外壳的 `app.isPackaged` 值与加载方式一起参与判断。
 - 取消：取消录音立即停止媒体轨、断开音频节点并关闭 AudioContext；取消转写向 Main 发送同一 `requestId`，Main 校验窗口归属，终止子进程并在退出确认后清理临时目录。
 - 过期结果：每次录音生成独立 `requestId`；授权与转写回调按当前请求归属接纳结果，取消、项目切换和组件卸载使旧请求失效。每次作用域激活生成唯一身份，A→B→A 返回 A 时使用新身份，旧 A 的迟到结果按过期请求丢弃。

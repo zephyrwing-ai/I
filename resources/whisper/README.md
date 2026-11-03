@@ -1,25 +1,22 @@
-# Local voice transcription resources
+# Local voice transcription engine
 
-Place the distributable whisper.cpp command-line engine at
-`resources/whisper/whisper-cli` and the multilingual
-`ggml-large-v3-turbo-q5_0.bin` model at
-`resources/whisper/ggml-large-v3-turbo-q5_0.bin`.
+`resources/whisper/whisper-cli` is the whisper.cpp command-line engine shipped
+with the macOS application. Model weights are not distributed with the app.
 
-The macOS packaging script copies these files into
-`I.app/Contents/Resources/resources/whisper/` and signs the native executable.
-Before packaging, it checks the executable permission, target architecture,
-and model checksum. Development runs resolve the files directly from this
-repository directory; the cached development launcher contains the Electron
-runtime. Model weights stay out of Git because the quantized file is
-approximately 547 MiB.
+The packaging script stages this directory, removes every `.bin` model file,
+verifies the engine architecture, and fails if a model weight would remain in
+the packaged resources. Users download models from Settings → Voice or keep an
+existing GGML model anywhere on disk for automatic discovery.
 
 Development and preview use Electron's default app loader, identified by
-`process.defaultApp`. Their resources resolve from `app.getAppPath()`, including
+`process.defaultApp`. Their engine resolves from `app.getAppPath()`, including
 when the renamed `I.app` launcher reports `app.isPackaged === true`. Standalone
-packages resolve resources relative to `process.resourcesPath`.
+packages resolve the engine relative to `process.resourcesPath`.
 
-Download the model from the whisper.cpp model repository:
-https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+A local model file may be kept at
+`resources/whisper/ggml-large-v3-turbo-q5_0.bin` for development, but Git and
+the macOS package exclude it. Downloaded models live under the app data
+directory or at the path where the user downloaded them.
 
 Use a whisper.cpp `whisper-cli` build for the application's target architecture.
 The supplied engine identifies whisper.cpp 1.8.3 in its compiled version and
@@ -38,17 +35,11 @@ cc8a6e15f0125e82344e0f2af3fdc4c882b20316c250edb34b5cd20c3a5b3581
 
 `LICENSE.whisper.cpp` carries the engine's upstream MIT notice from tag v1.8.3.
 `LICENSE.whisper` carries OpenAI Whisper's upstream MIT notice. Both notices
-ship alongside the engine and model in the app's resource directory.
-
-Expected model SHA-256:
-
-```text
-394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2
-```
+ship alongside the engine.
 
 The engine is arm64 on Apple Silicon, uses Metal when available, and has no
 third-party dynamic library dependencies beyond macOS frameworks. Keep the
 engine executable permission set to `0755`.
 
 The app bundle declares `NSMicrophoneUsageDescription` for recording permission.
-Recording and recognition run locally with these resources installed.
+Recording and recognition run locally with a selected GGML model.

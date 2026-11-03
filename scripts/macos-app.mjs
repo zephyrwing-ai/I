@@ -1,10 +1,10 @@
 import { packager } from "@electron/packager";
 import { spawn, execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants, createReadStream } from "node:fs";
-import { access, cp, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -13,8 +13,6 @@ const cache = join(root, "node_modules/.cache/macos-app");
 const bundleId = "com.i.desktop";
 const require = createRequire(import.meta.url);
 const runFile = promisify(execFile);
-const voiceModelName = "ggml-large-v3-turbo-q5_0.bin";
-const voiceModelSha256 = "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2";
 
 async function configuration() {
   if (process.platform !== "darwin") throw new Error("macOS app commands require macOS.");
@@ -94,14 +92,22 @@ async function verifyVoiceResources() {
   const engine = join(directory, "whisper-cli");
   await access(engine, constants.R_OK | constants.X_OK);
   await runFile("/usr/bin/lipo", [engine, "-verify_arch", process.arch === "x64" ? "x86_64" : process.arch]);
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(join(directory, voiceModelName))) hash.update(chunk);
-  if (hash.digest("hex") !== voiceModelSha256) {
-    throw new Error("The packaged speech model checksum is invalid. Restore resources/whisper from its documented source.");
-  }
 }
 
-async function nativeOptions(config, includeVoiceResources = true) {
+async function stagePackagedResources(temporary) {
+  const staged = join(temporary, "resources");
+  await cp(join(root, "resources"), staged, {
+    recursive: true,
+    filter: (source) => !(source.includes(`${sep}whisper${sep}`) && source.endsWith(".bin")),
+  });
+  const whisperFiles = await readdir(join(staged, "whisper"));
+  if (whisperFiles.some((file) => file.endsWith(".bin"))) {
+    throw new Error("Voice model weights must not be packaged with the application.");
+  }
+  return staged;
+}
+
+async function nativeOptions(config, includeVoiceResources = true, resourcesDirectory = join(root, "resources")) {
   return {
     name: config.name,
     appBundleId: bundleId,
@@ -112,7 +118,7 @@ async function nativeOptions(config, includeVoiceResources = true) {
     electronZipDir: await runtimeArchive(config),
     asar: false,
     extraResource: includeVoiceResources
-      ? [join(root, "resources"), join(root, "scripts/setup-attachments.mjs")]
+      ? [resourcesDirectory, join(root, "scripts/setup-attachments.mjs")]
       : [],
     usageDescription: {
       Microphone: config.microphoneDescription,
@@ -120,7 +126,7 @@ async function nativeOptions(config, includeVoiceResources = true) {
     // Ad-hoc signing makes generated local apps loadable after native metadata changes.
     osxSign: {
       identity: "-", identityValidation: false, continueOnError: false,
-      ignore: ["/resources/whisper/.*\\.bin$"],
+      ignore: [],
     },
   };
 }
@@ -187,22 +193,28 @@ export async function prepareDevelopmentApp(config) {
 async function packageApplication(config) {
   await access(join(root, config.manifest.main), constants.R_OK);
   await verifyVoiceResources();
-  const [output] = await packager({
-    ...await nativeOptions(config),
-    dir: root,
-    out: join(root, "dist"),
-    overwrite: true,
-    prune: true,
-    ignore: (path) => {
-      if (path === "/canvas" || path === "/canvas/LICENSE") return false;
-      if (/^\/node_modules\/\./.test(path)) return true;
-      return path !== "" && path !== "/package.json"
-        && !/^\/(?:out|node_modules)(?:\/|$)/.test(path);
-    },
-  });
-  const packagedApp = join(output, `${config.name}.app`);
-  console.log(packagedApp);
-  return packagedApp;
+  const temporary = await mkdtemp(join(cache, "package-resources-"));
+  try {
+    const stagedResources = await stagePackagedResources(temporary);
+    const [output] = await packager({
+      ...await nativeOptions(config, true, stagedResources),
+      dir: root,
+      out: join(root, "dist"),
+      overwrite: true,
+      prune: true,
+      ignore: (path) => {
+        if (path === "/canvas" || path === "/canvas/LICENSE") return false;
+        if (/^\/node_modules\/\./.test(path)) return true;
+        return path !== "" && path !== "/package.json"
+          && !/^\/(?:out|node_modules)(?:\/|$)/.test(path);
+      },
+    });
+    const packagedApp = join(output, `${config.name}.app`);
+    console.log(packagedApp);
+    return packagedApp;
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 }
 
 async function createDmg(config, appPath) {
