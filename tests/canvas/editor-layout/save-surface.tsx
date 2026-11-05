@@ -30,7 +30,9 @@ export async function checkCanvasSurfacePersistence() {
     requestId: "cold-create", runId: "surface-run", projectId, deadlineAt: Date.now() + 20_000,
     sourceElements: [], operations: [{ action: "create", element: { type: "rectangle", x: 300, y: 120, width: 120, height: 80 } }],
   };
+  let surfaceTheme: "light" | "dark" = "light";
   const previousAPI = window.agentAPI;
+  const previousTheme = document.documentElement.dataset.theme;
   let canRelease = true;
   const onCanReleaseChange = (next: boolean) => { canRelease = next; };
   const onContextPrepared = () => undefined;
@@ -42,7 +44,7 @@ export async function checkCanvasSurfacePersistence() {
   let resultHandler = onEditResult;
   const render = () => root.render(
     <div style={{ position: "relative", width: 900, height: 650 }}>
-      <CanvasSurface ref={ref} projectId={projectId} pendingEdit={pending} onEditResult={resultHandler} onContextPrepared={onContextPrepared} onCanReleaseChange={onCanReleaseChange} />
+      <CanvasSurface ref={ref} theme={surfaceTheme} projectId={projectId} pendingEdit={pending} onEditResult={resultHandler} onContextPrepared={onContextPrepared} onCanReleaseChange={onCanReleaseChange} />
     </div>,
   );
   window.agentAPI = {
@@ -143,9 +145,29 @@ export async function checkCanvasSurfacePersistence() {
       originalX: disk.document.elements.find((element) => element.id === "surface-original")?.x,
       elements: disk.document.elements.length,
     };
-    return { coldStart, focusSaved, conflict, conflictRetried, recovered, replacement };
+    document.documentElement.dataset.theme = "dark";
+    surfaceTheme = "dark";
+    render();
+    const staticCanvas = () => document.querySelector<HTMLCanvasElement>(".agent-canvas__canvas.static");
+    await until(() => document.querySelector(".agent-canvas")?.classList.contains("theme--dark") === true, "dark canvas editor theme");
+    await until(() => getComputedStyle(staticCanvas()!).filter !== "none", "dark canvas filter");
+    const backgroundPixel = () => {
+      const canvas = staticCanvas();
+      if (!canvas) return null;
+      return [...canvas.getContext("2d")!.getImageData(4, 4, 1, 1).data];
+    };
+    await until(() => backgroundPixel()?.every((value) => value >= 230) === true, "dark canvas logical surface");
+    const themeSurface = {
+      logicalSurface: getComputedStyle(document.documentElement).getPropertyValue("--canvas-logical-surface").trim(),
+      filter: getComputedStyle(staticCanvas()!).filter,
+      pixel: backgroundPixel(),
+    };
+    await ref.current!.flush();
+    return { coldStart, focusSaved, conflict, conflictRetried, recovered, replacement, themeSurface };
   } finally {
     root.unmount();
     window.agentAPI = previousAPI;
+    if (previousTheme === undefined) delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = previousTheme;
   }
 }

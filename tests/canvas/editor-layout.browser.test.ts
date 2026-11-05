@@ -87,6 +87,7 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
         conflictRetried: boolean;
         recovered: { ok: boolean; elements: number; canRelease: boolean };
         replacement: { requestId: string; ok: boolean; supersededErrors: string[]; callbackRefreshProducedResult: boolean; originalX: number; elements: number };
+        themeSurface: { logicalSurface: string; filter: string; pixel: number[] | null };
       };
       codecs: {
         json: { valid: boolean; type: string; version: number; id: string };
@@ -277,6 +278,9 @@ test("真实 Canvas 编辑器在桌面侧栏缩放时保持底部布局与场景
       assert.deepEqual(state.replacement, {
         requestId: "successor-create", ok: true, supersededErrors: ["canvas_edit_cancelled"], callbackRefreshProducedResult: false, originalX: 100, elements: 5,
       }, "the successor executes while the superseded target remains in its human gesture");
+      assert.equal(state.themeSurface.logicalSurface, "#ededed");
+      assert.match(state.themeSurface.filter, /invert/);
+      assert.deepEqual(state.themeSurface.pixel, [237, 237, 237, 255]);
     });
     await t.test("中文和 emoji 经文字输入提交，历史字体保持 PNG/SVG 导出", () => {
       assert.deepEqual(result.textInput, { text: "中文输入 😀 👩‍💻", fontFamily: 2 });

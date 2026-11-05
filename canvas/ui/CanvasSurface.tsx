@@ -33,6 +33,11 @@ function canvasScopeKey(projectId: string | null): string {
   return projectId ?? "__unprojected__";
 }
 
+function canvasLogicalSurface(): string {
+  return window.getComputedStyle(window.document.documentElement)
+    .getPropertyValue("--canvas-logical-surface").trim() || "#f8f8f8";
+}
+
 export function preloadCanvasEditor(): Promise<typeof import("@i/canvas-editor")> {
   canvasEditorPromise ??= import("@i/canvas-editor")
     .then((module) => {
@@ -202,10 +207,7 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
 
     void consumeCanvasDocument(projectId).then((result) => {
       if (cancelled) return;
-      const softwareBackground =
-        window.getComputedStyle(window.document.documentElement).getPropertyValue("--workbench-frame-surface").trim() ||
-        "#f8f8f8";
-      const nextAppState = { ...result.document.appState, viewBackgroundColor: softwareBackground };
+      const nextAppState = { ...result.document.appState, viewBackgroundColor: canvasLogicalSurface() };
       sceneProjectIdRef.current = projectId;
       pendingVersionRef.current = { projectId, version: result.version };
       setDocument(result.document);
@@ -241,6 +243,13 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
   useEffect(() => {
     editResultHandlerRef.current = onEditResult;
   }, [onEditResult]);
+
+  useEffect(() => {
+    if (!api || !editorReady || !loadedRef.current) return;
+    const viewBackgroundColor = canvasLogicalSurface();
+    if (api.getAppState().viewBackgroundColor === viewBackgroundColor) return;
+    api.updateScene({ appState: { viewBackgroundColor } });
+  }, [api, editorReady, theme]);
 
   useEffect(() => {
     if (!pendingEdit || !canReportEditResult || activeEditRequestRef.current) return;
@@ -357,14 +366,11 @@ export const CanvasSurface = forwardRef<CanvasSurfaceHandle, CanvasSurfaceProps>
 
   const initialData = useMemo(() => {
     if (!document) return null;
-    const softwareBackground =
-      window.getComputedStyle(window.document.documentElement).getPropertyValue("--workbench-frame-surface").trim() ||
-      "#f8f8f8";
     return {
       elements: document.elements as unknown as readonly CanvasEditorElement[],
       appState: {
         ...document.appState,
-        viewBackgroundColor: softwareBackground,
+        viewBackgroundColor: canvasLogicalSurface(),
       },
       files: document.files as unknown as BinaryFiles,
     };

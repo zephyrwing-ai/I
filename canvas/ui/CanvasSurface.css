@@ -1,3 +1,8 @@
+:root { --canvas-logical-surface: var(--workbench-frame-surface); }
+:root[data-theme="dark"] {
+  /* The editor inverts canvas pixels in dark mode; use the light counterpart as input. */
+  --canvas-logical-surface: #ededed;
+}
 .canvas-panel { position: relative; width: 100%; min-width: 0; min-height: 0; height: 100%; overflow: hidden; background: var(--workbench-frame-surface); isolation: isolate; }
 .canvas-panel-editor {
   --canvas-toolbar-hit-size: 2rem;
