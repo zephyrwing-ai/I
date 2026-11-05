@@ -243,8 +243,8 @@ async function verifyVoiceDrafts(renderComposer, props) {
   const originalAudioContext = window.AudioContext;
   const originalMedia = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
   const voiceCalls = [], cancellations = [], streams = [], contexts = [], microphoneRequests = [];
-  const originalTranscribe = window.agentAPI.transcribeVoice;
-  const originalCancel = window.agentAPI.cancelVoiceTranscription;
+  const originalTranscribe = window.agentAPI.transcribeVoiceSegment;
+  const originalCancel = window.agentAPI.cancelVoiceRecording;
   const makeStream = () => {
     const track = { onended: null, stopped: false, stop() { this.stopped = true; } };
     const stream = { getTracks: () => [track], getAudioTracks: () => [track], track };
@@ -261,10 +261,10 @@ async function verifyVoiceDrafts(renderComposer, props) {
   }
   Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: () => microphoneRequests.shift()?.promise ?? Promise.resolve(makeStream()) } });
   window.AudioContext = MockAudioContext;
-  window.agentAPI.transcribeVoice = request => {
+  window.agentAPI.transcribeVoiceSegment = request => {
     const ack = deferred(); voiceCalls.push({ request, ack }); return ack.promise;
   };
-  window.agentAPI.cancelVoiceTranscription = requestId => cancellations.push(requestId);
+  window.agentAPI.cancelVoiceRecording = recordingId => cancellations.push(recordingId);
   const show = async projectId => {
     renderComposer({ project: { projectId, displayName: projectId ?? "I", canonicalPath: null }, modelOptions: props.modelOptions });
     await tick();
@@ -288,7 +288,7 @@ async function verifyVoiceDrafts(renderComposer, props) {
     await show("voice-a"); typeText("Voice A typed"); await tick();
     const lateA = await transcribe();
     await show("voice-b"); typeText("Voice B typed"); await tick();
-    check(cancellations.includes(lateA.request.requestId), "switching project cancels the source transcription request");
+    check(cancellations.includes(lateA.request.recordingId), "switching project cancels the source transcription request");
     lateA.ack.resolve({ ok: true, text: "stale transcript A" }); await tick();
     check(document.querySelector("textarea").value === "Voice B typed", "a late A transcript cannot write into B");
     await show("voice-a");
@@ -319,8 +319,8 @@ async function verifyVoiceDrafts(renderComposer, props) {
     window.AudioContext = originalAudioContext;
     if (originalMedia) Object.defineProperty(navigator, "mediaDevices", originalMedia);
     else delete navigator.mediaDevices;
-    window.agentAPI.transcribeVoice = originalTranscribe;
-    window.agentAPI.cancelVoiceTranscription = originalCancel;
+    window.agentAPI.transcribeVoiceSegment = originalTranscribe;
+    window.agentAPI.cancelVoiceRecording = originalCancel;
   }
 }
 window.runUploadFilesRegression = async () => {

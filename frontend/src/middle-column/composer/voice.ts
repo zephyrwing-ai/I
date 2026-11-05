@@ -6,6 +6,11 @@ export const VOICE_SAMPLE_RATE = 16_000;
 export const VOICE_MAX_SAMPLES = Math.floor(
   (VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES - WAV_HEADER_BYTES) / Int16Array.BYTES_PER_ELEMENT,
 );
+export const VOICE_MIN_SPEECH_MS = 250;
+export const VOICE_ENDPOINT_SILENCE_MS = 700;
+export const VOICE_MAX_SEGMENT_MS = 30_000;
+export const VOICE_MAX_SEGMENT_SAMPLES = Math.floor(VOICE_MAX_SEGMENT_MS * VOICE_SAMPLE_RATE / 1000);
+export const VOICE_VAD_RMS_THRESHOLD = 0.01;
 
 export type VoicePhase = "idle" | "requesting" | "recording" | "transcribing";
 
@@ -18,6 +23,37 @@ export const INITIAL_VOICE_STATE: VoiceState = {
   phase: "idle",
   error: null,
 };
+
+export interface VoiceSegmentBoundary {
+  speechMs: number;
+  silenceMs: number;
+  close: boolean;
+}
+
+export function updateVoiceSegmentBoundary(
+  boundary: VoiceSegmentBoundary,
+  chunk: Float32Array,
+  sampleRate = VOICE_SAMPLE_RATE,
+): VoiceSegmentBoundary {
+  let sumSquares = 0;
+  for (let index = 0; index < chunk.length; index += 1) {
+    sumSquares += chunk[index] * chunk[index];
+  }
+  const rms = chunk.length ? Math.sqrt(sumSquares / chunk.length) : 0;
+  const chunkMs = Math.round(chunk.length / sampleRate * 1000);
+  if (rms > VOICE_VAD_RMS_THRESHOLD) {
+    return { speechMs: boundary.speechMs + chunkMs, silenceMs: 0, close: false };
+  }
+  if (boundary.speechMs > 0) {
+    const silenceMs = boundary.silenceMs + chunkMs;
+    return {
+      speechMs: boundary.speechMs,
+      silenceMs,
+      close: silenceMs >= VOICE_ENDPOINT_SILENCE_MS && boundary.speechMs >= VOICE_MIN_SPEECH_MS,
+    };
+  }
+  return { speechMs: 0, silenceMs: 0, close: false };
+}
 
 export function voiceButtonLabel(phase: VoicePhase): string {
   if (phase === "requesting" || phase === "transcribing") return "Cancel voice input";

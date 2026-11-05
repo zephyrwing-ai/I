@@ -37,8 +37,8 @@ import {
   type RunStartAck,
   type SteerRequest,
   type SteerAck,
-  type VoiceTranscriptionRequest,
-  type VoiceTranscriptionResult,
+  type VoiceTranscriptionSegmentRequest,
+  type VoiceSegmentResult,
   type SaveProviderResult,
   type HistoryPageRequest,
   type HistoryPageResult,
@@ -284,12 +284,12 @@ function registerIpc(
     runner.stop(event.sender.id);
   });
 
-  handle(IPC.transcribeVoice, async (event, request: VoiceTranscriptionRequest): Promise<VoiceTranscriptionResult> => {
-    return voiceTranscription.transcribe(request, event.sender.id);
+  handle(IPC.transcribeVoiceSegment, async (event, request: VoiceTranscriptionSegmentRequest): Promise<VoiceSegmentResult> => {
+    return voiceTranscription.transcribeSegment(request, event.sender.id);
   });
 
-  ipcMain.on(IPC.cancelVoiceTranscription, (event, requestId: string) => {
-    if (typeof requestId === "string") voiceTranscription.cancel(requestId, event.sender.id);
+  ipcMain.on(IPC.cancelVoiceRecording, (event, recordingId: string) => {
+    if (typeof recordingId === "string") voiceTranscription.cancel(recordingId, event.sender.id);
   });
 
   handle(IPC.listVoiceModels, () => voiceModels.list());
@@ -688,6 +688,7 @@ app.whenReady().then(async () => {
   const voiceTranscription = new VoiceTranscriptionService({
     ...voicePaths,
     modelPath: () => voiceModels.currentModelPath(),
+    locale: () => app.getPreferredSystemLanguages()[0] ?? app.getSystemLocale() ?? app.getLocale(),
   });
   const quitPreparation = new QuitPreparation();
   const lifecycle = new ApplicationLifecycle({

@@ -3,23 +3,35 @@ import { constants } from "node:fs";
 import { access, mkdir, mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { availableParallelism, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { Converter } from "opencc-js";
 import type {
   VoiceTranscriptionError,
-  VoiceTranscriptionRequest,
-  VoiceTranscriptionResult,
+  VoiceTranscriptionSegmentRequest,
+  VoiceSegmentResult,
 } from "../shared/ipc.js";
 import { VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "../shared/ipc.js";
 
-const TRANSCRIPTION_TIMEOUT_MS = 5 * 60 * 1000;
+const TRANSCRIPTION_TIMEOUT_MS = 2 * 60 * 1000;
 const MAX_CAPTURED_STDERR_BYTES = 64 * 1024;
+type ChineseTarget = "cn" | "tw" | "hk" | "t";
+const chineseConverters = new Map<ChineseTarget, (text: string) => string>();
 
 interface VoiceEnginePaths {
   executable: string;
   model: string;
 }
 
-interface ActiveTranscription {
-  requestId: string;
+interface QueuedSegment {
+  recordingId: string;
+  segmentId: number;
+  ownerWebContentsId: number;
+  audio: ArrayBuffer;
+  resolve: (result: VoiceSegmentResult) => void;
+}
+
+interface ActiveSegment {
+  recordingId: string;
+  segmentId: number;
   ownerWebContentsId: number;
   controller: AbortController;
   finished: Promise<void>;
@@ -30,111 +42,167 @@ interface VoiceTranscriptionServiceOptions {
   temporaryDirectory?: string;
   enginePath?: string;
   modelPath?: string | (() => string | null);
+  locale?: () => string;
 }
 
 /**
- * Main owns the native ASR process and its temporary files. Renderer only receives
- * the final text, while audio bytes stay outside React state and conversation history.
+ * Main owns the native ASR process and its temporary files. Segments from one
+ * recording share a FIFO queue so only one whisper-cli process runs at a time.
  */
 export class VoiceTranscriptionService {
-  private active: ActiveTranscription | null = null;
+  private active: ActiveSegment | null = null;
+  private readonly queue: QueuedSegment[] = [];
   private disposed = false;
 
   constructor(private readonly options: VoiceTranscriptionServiceOptions = {}) {}
 
-  async transcribe(
-    request: VoiceTranscriptionRequest,
+  transcribeSegment(
+    request: VoiceTranscriptionSegmentRequest,
     ownerWebContentsId: number,
-  ): Promise<VoiceTranscriptionResult> {
+  ): Promise<VoiceSegmentResult> {
     if (!request || typeof request !== "object"
-      || typeof request.requestId !== "string"
-      || !request.requestId
+      || typeof request.recordingId !== "string"
+      || !request.recordingId
+      || typeof request.segmentId !== "number"
+      || !Number.isInteger(request.segmentId)
+      || request.segmentId < 0
       || !(request.audio instanceof ArrayBuffer)) {
-      return failure("invalid_request", "The voice transcription request is invalid.");
+      return Promise.resolve(failure("invalid_request", "The voice transcription request is invalid."));
     }
     if (request.audio.byteLength === 0) {
-      return failure("invalid_audio", "The recording is empty. Record again and retry.");
+      return Promise.resolve(failure("invalid_audio", "The recording is empty. Record again and retry."));
     }
     if (request.audio.byteLength > VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES) {
-      return failure("invalid_audio", "The recording exceeds the 20 MB limit.");
+      return Promise.resolve(failure("invalid_audio", "The recording exceeds the 20 MB limit."));
     }
     if (!isRecordingWav(request.audio)) {
-      return failure("invalid_audio", "Record 16 kHz mono PCM audio and retry.");
+      return Promise.resolve(failure("invalid_audio", "Record 16 kHz mono PCM audio and retry."));
     }
     // Whisper can hallucinate text for an exactly silent recording. All-zero PCM
     // proves digital silence without rejecting quiet speech by an amplitude cutoff.
     if (!new Int16Array(request.audio, 44).some((sample) => sample !== 0)) {
-      return failure("no_speech", "No speech was detected. Record again and retry.");
+      return Promise.resolve(failure("no_speech", "No speech was detected. Record again and retry."));
     }
-    if (this.disposed) return failure("cancelled", "Voice transcription is shutting down.");
-    if (this.active) {
-      return failure("invalid_request", "Another voice transcription is already active. Wait for it to finish.");
+    if (this.disposed) {
+      return Promise.resolve(failure("cancelled", "Voice transcription is shutting down."));
+    }
+    const duplicate = (this.active?.recordingId === request.recordingId
+        && this.active.segmentId === request.segmentId)
+      || this.queue.some((segment) => (
+        segment.recordingId === request.recordingId && segment.segmentId === request.segmentId
+      ));
+    if (duplicate) {
+      return Promise.resolve(failure("invalid_request", "The voice transcription segment is already queued."));
     }
 
-    const controller = new AbortController();
-    let finish!: () => void;
-    const finished = new Promise<void>((resolveFinished) => { finish = resolveFinished; });
-    this.active = { requestId: request.requestId, ownerWebContentsId, controller, finished };
-    let workingDirectory: string | null = null;
-    try {
-      const paths = await this.resolveEngine();
-      const temporaryRoot = this.options.temporaryDirectory ?? tmpdir();
-      await mkdir(temporaryRoot, { recursive: true });
-      workingDirectory = await mkdtemp(join(temporaryRoot, "voice-transcription-"));
-      const audioPath = join(workingDirectory, "recording.wav");
-      const outputBase = join(workingDirectory, "transcript");
-      await writeFile(audioPath, Buffer.from(request.audio), { flag: "wx" });
-      await runEngine(paths, audioPath, outputBase, controller.signal);
-
-      const outputPath = `${outputBase}.json`;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(await readFile(outputPath, "utf8"));
-      } catch {
-        return failure("transcription_failed", "The speech engine returned unreadable output.");
-      }
-      controller.signal.throwIfAborted();
-      const text = extractTranscript(parsed);
-      if (!text) {
-        return failure("no_speech", "No speech was detected. Record again and retry.");
-      }
-      return { ok: true, text };
-    } catch (error) {
-      if (controller.signal.aborted) {
-        return failure("cancelled", "Voice transcription was cancelled.");
-      }
-      if (error instanceof VoiceEngineError) {
-        return failure(error.kind, error.message);
-      }
-      return failure(
-        "transcription_failed",
-        error instanceof Error ? error.message : "Voice transcription failed.",
-      );
-    } finally {
-      try {
-        if (workingDirectory) await rm(workingDirectory, { recursive: true, force: true });
-      } finally {
-        this.active = null;
-        finish();
-      }
-    }
+    return new Promise<VoiceSegmentResult>((resolve) => {
+      this.queue.push({
+        recordingId: request.recordingId,
+        segmentId: request.segmentId,
+        ownerWebContentsId,
+        audio: request.audio,
+        resolve,
+      });
+      void this.drain();
+    });
   }
 
-  cancel(requestId: string, ownerWebContentsId: number): void {
-    if (this.active?.requestId === requestId && this.active.ownerWebContentsId === ownerWebContentsId) {
+  cancel(recordingId: string, ownerWebContentsId: number): void {
+    this.dropQueued((segment) => (
+      segment.recordingId === recordingId && segment.ownerWebContentsId === ownerWebContentsId
+    ));
+    if (this.active?.recordingId === recordingId
+      && this.active.ownerWebContentsId === ownerWebContentsId) {
       this.active.controller.abort();
     }
   }
 
   cancelOwner(ownerWebContentsId: number): void {
-    if (this.active?.ownerWebContentsId === ownerWebContentsId) this.active.controller.abort();
+    this.dropQueued((segment) => segment.ownerWebContentsId === ownerWebContentsId);
+    if (this.active?.ownerWebContentsId === ownerWebContentsId) {
+      this.active.controller.abort();
+    }
   }
 
   async dispose(): Promise<void> {
     this.disposed = true;
+    this.dropQueued(() => true);
     const active = this.active;
     active?.controller.abort();
     await active?.finished;
+  }
+
+  private dropQueued(matches: (segment: QueuedSegment) => boolean): void {
+    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
+      const segment = this.queue[index];
+      if (!matches(segment)) continue;
+      this.queue.splice(index, 1);
+      segment.resolve(failure("cancelled", "Voice transcription was cancelled."));
+    }
+  }
+
+  private async drain(): Promise<void> {
+    if (this.active || this.disposed) return;
+    const segment = this.queue.shift();
+    if (!segment) return;
+    const controller = new AbortController();
+    let finish!: () => void;
+    const finished = new Promise<void>((resolveFinished) => { finish = resolveFinished; });
+    this.active = {
+      recordingId: segment.recordingId,
+      segmentId: segment.segmentId,
+      ownerWebContentsId: segment.ownerWebContentsId,
+      controller,
+      finished,
+    };
+    try {
+      segment.resolve(await this.transcribeOne(segment.audio, controller.signal));
+    } catch (error) {
+      segment.resolve(controller.signal.aborted
+        ? failure("cancelled", "Voice transcription was cancelled.")
+        : error instanceof VoiceEngineError
+          ? failure(error.kind, error.message)
+          : failure(
+            "transcription_failed",
+            error instanceof Error ? error.message : "Voice transcription failed.",
+          ));
+    } finally {
+      this.active = null;
+      finish();
+      void this.drain();
+    }
+  }
+
+  private async transcribeOne(audio: ArrayBuffer, signal: AbortSignal): Promise<VoiceSegmentResult> {
+    const paths = await this.resolveEngine();
+    const temporaryRoot = this.options.temporaryDirectory ?? tmpdir();
+    await mkdir(temporaryRoot, { recursive: true });
+    const workingDirectory = await mkdtemp(join(temporaryRoot, "voice-transcription-"));
+    try {
+      const audioPath = join(workingDirectory, "recording.wav");
+      const outputBase = join(workingDirectory, "transcript");
+      await writeFile(audioPath, Buffer.from(audio), { flag: "wx" });
+      await runEngine(paths, audioPath, outputBase, signal);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await readFile(`${outputBase}.json`, "utf8"));
+      } catch {
+        return failure("transcription_failed", "The speech engine returned unreadable output.");
+      }
+      signal.throwIfAborted();
+      const text = normalizeTranscript(parsed, this.options.locale?.());
+      if (!text) return failure("no_speech", "No speech was detected. Record again and retry.");
+      return { ok: true, text };
+    } catch (error) {
+      if (signal.aborted) return failure("cancelled", "Voice transcription was cancelled.");
+      if (error instanceof VoiceEngineError) return failure(error.kind, error.message);
+      return failure(
+        "transcription_failed",
+        error instanceof Error ? error.message : "Voice transcription failed.",
+      );
+    } finally {
+      await rm(workingDirectory, { recursive: true, force: true });
+    }
   }
 
   private async resolveEngine(): Promise<VoiceEnginePaths> {
@@ -350,7 +418,36 @@ export function extractTranscript(payload: unknown): string {
     .trim();
 }
 
-function failure(error: VoiceTranscriptionError, message: string): VoiceTranscriptionResult {
+/**
+ * Whisper can emit either Chinese script for zh audio regardless of model family.
+ * Match the user's system Chinese variant; leave other languages untouched.
+ */
+export function normalizeTranscript(payload: unknown, locale?: string): string {
+  const text = extractTranscript(payload);
+  if (!text) return text;
+  const language = (payload as { result?: { language?: unknown } } | null)?.result?.language;
+  if (typeof language !== "string" || !language.toLowerCase().startsWith("zh")) return text;
+  const target = chineseTargetForLocale(locale);
+  let convert = chineseConverters.get(target);
+  if (!convert) {
+    convert = Converter({ from: target === "cn" ? "t" : "cn", to: target });
+    chineseConverters.set(target, convert);
+  }
+  return convert(text);
+}
+
+function chineseTargetForLocale(locale?: string): ChineseTarget {
+  const normalized = (locale ?? "").toLowerCase().replace(/_/g, "-");
+  if (normalized.includes("zh-hant") || normalized.includes("zh-tw")
+    || normalized.includes("zh-hk") || normalized.includes("zh-mo")) {
+    if (normalized.includes("zh-hk") || normalized.includes("zh-mo")) return "hk";
+    if (normalized.includes("zh-tw")) return "tw";
+    return "t";
+  }
+  return "cn";
+}
+
+function failure(error: VoiceTranscriptionError, message: string): VoiceSegmentResult {
   return { ok: false, error, message };
 }
 

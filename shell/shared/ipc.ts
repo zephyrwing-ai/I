@@ -191,8 +191,9 @@ export interface SteerRequest {
 
 export const VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 
-export interface VoiceTranscriptionRequest {
-  requestId: string;
+export interface VoiceTranscriptionSegmentRequest {
+  recordingId: string;
+  segmentId: number;
   audio: ArrayBuffer;
 }
 
@@ -206,7 +207,7 @@ export type VoiceTranscriptionError =
   | "timeout"
   | "transcription_failed";
 
-export type VoiceTranscriptionResult =
+export type VoiceSegmentResult =
   | { ok: true; text: string }
   | { ok: false; error: VoiceTranscriptionError; message: string };
 
@@ -412,8 +413,8 @@ export interface AgentAPI {
   run(req: RunRequest): Promise<RunStartAck>;
   steer(req: SteerRequest): Promise<SteerAck>;
   stop(): void;
-  transcribeVoice(request: VoiceTranscriptionRequest): Promise<VoiceTranscriptionResult>;
-  cancelVoiceTranscription(requestId: string): void;
+  transcribeVoiceSegment(request: VoiceTranscriptionSegmentRequest): Promise<VoiceSegmentResult>;
+  cancelVoiceRecording(recordingId: string): void;
   listVoiceModels(): Promise<VoiceModelSummary[]>;
   scanVoiceModels(): Promise<VoiceModelActionResult>;
   downloadVoiceModel(modelId: string): Promise<VoiceModelActionResult>;
@@ -462,8 +463,8 @@ export const IPC = {
   steer: "agent:steer",
   stop: "agent:stop",
   event: "agent:event",
-  transcribeVoice: "voice:transcribe",
-  cancelVoiceTranscription: "voice:cancel-transcription",
+  transcribeVoiceSegment: "voice:transcribe-segment",
+  cancelVoiceRecording: "voice:cancel-recording",
   listVoiceModels: "voice-models:list",
   scanVoiceModels: "voice-models:scan",
   downloadVoiceModel: "voice-models:download",

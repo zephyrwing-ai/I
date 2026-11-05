@@ -40,8 +40,8 @@ import {
   type RunStartAck,
   type SteerRequest,
   type SteerAck,
-  type VoiceTranscriptionRequest,
-  type VoiceTranscriptionResult,
+  type VoiceTranscriptionSegmentRequest,
+  type VoiceSegmentResult,
   type VoiceModelActionResult,
   type VoiceModelEvent,
   type VoiceModelSummary,
@@ -73,12 +73,12 @@ const api: AgentAPI = {
 
   stop: (): void => ipcRenderer.send(IPC.stop),
 
-  transcribeVoice: (request: VoiceTranscriptionRequest): Promise<VoiceTranscriptionResult> => (
-    ipcRenderer.invoke(IPC.transcribeVoice, request)
+  transcribeVoiceSegment: (request: VoiceTranscriptionSegmentRequest): Promise<VoiceSegmentResult> => (
+    ipcRenderer.invoke(IPC.transcribeVoiceSegment, request)
   ),
 
-  cancelVoiceTranscription: (requestId: string): void => {
-    ipcRenderer.send(IPC.cancelVoiceTranscription, requestId);
+  cancelVoiceRecording: (recordingId: string): void => {
+    ipcRenderer.send(IPC.cancelVoiceRecording, recordingId);
   },
 
   listVoiceModels: (): Promise<VoiceModelSummary[]> => ipcRenderer.invoke(IPC.listVoiceModels),

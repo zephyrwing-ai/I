@@ -10,6 +10,7 @@ const {
   downsamplePcm,
   encodePcm16SamplesWav,
   microphoneErrorMessage,
+  updateVoiceSegmentBoundary,
   voiceButtonLabel,
 } = await import("../../../../../frontend/src/middle-column/composer/voice.js");
 
@@ -35,6 +36,35 @@ test("voice sample capacity fits the shared 20 MiB WAV budget including the head
       assert.equal(view.getInt16(44 + (VOICE_MAX_SAMPLES - 1) * 2, true), 32767);
     }
   }
+});
+
+test("voice segment boundaries close after a 250ms utterance and 700ms of silence", () => {
+  const speech = new Float32Array(4096).fill(0.25);
+  const silence = new Float32Array(4096).fill(0);
+  const start = { speechMs: 0, silenceMs: 0, close: false };
+
+  const voiced = updateVoiceSegmentBoundary(start, speech);
+  assert.deepEqual(voiced, { speechMs: 256, silenceMs: 0, close: false });
+
+  let boundary = updateVoiceSegmentBoundary(voiced, silence);
+  assert.equal(boundary.close, false);
+  boundary = updateVoiceSegmentBoundary(boundary, silence);
+  assert.equal(boundary.close, false);
+  boundary = updateVoiceSegmentBoundary(boundary, silence);
+  assert.equal(boundary.silenceMs, 768);
+  assert.equal(boundary.close, true);
+});
+
+test("voice segment boundaries ignore leading silence and keep sub-threshold audio unvoiced", () => {
+  const silence = new Float32Array(4096).fill(0);
+  let boundary = { speechMs: 0, silenceMs: 0, close: false };
+  for (let index = 0; index < 4; index += 1) {
+    boundary = updateVoiceSegmentBoundary(boundary, silence);
+  }
+  assert.deepEqual(boundary, { speechMs: 0, silenceMs: 0, close: false });
+
+  const faint = new Float32Array(4096).fill(0.005);
+  assert.equal(updateVoiceSegmentBoundary(boundary, faint).speechMs, 0);
 });
 
 test("PCM16 WAV encoding writes a valid mono RIFF header and little-endian samples", () => {

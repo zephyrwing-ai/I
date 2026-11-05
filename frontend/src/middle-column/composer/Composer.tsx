@@ -235,11 +235,6 @@ export function Composer({ running, stopping, activeRunId = null, restoreDraft =
     onTranscript: (text) => {
       if (!text.trim()) return;
       setTaskDraft((current) => appendVoiceTranscript(current, text));
-      requestAnimationFrame(() => {
-        if (!isCurrentScope(draftScope)) return;
-        const input = taskInputRef.current;
-        if (input && !input.disabled) input.focus();
-      });
     },
   });
   const voiceBusy = voice.state.phase !== "idle";

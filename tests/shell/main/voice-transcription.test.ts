@@ -7,6 +7,7 @@ import test from "node:test";
 const {
   VoiceTranscriptionService,
   extractTranscript,
+  normalizeTranscript,
   voiceResourcePaths,
 } = await import("../../../shell/main/voice-transcription.js");
 const { VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } = await import("../../../shell/shared/ipc.js");
@@ -37,7 +38,7 @@ test("transcription requires an explicitly selected model", async () => {
   const service = new VoiceTranscriptionService({
     modelPath: () => null,
   });
-  const result = await service.transcribe({ requestId: "no-selected-model", audio: recordingWav() }, 1);
+  const result = await service.transcribeSegment({ recordingId: "no-selected-model", segmentId: 0, audio: recordingWav() }, 1);
   assert.equal(result.ok, false);
   assert.equal(result.error, "model_missing");
   assert.match(result.message, /Settings → Voice/);
@@ -81,6 +82,25 @@ test("extractTranscript joins whisper segments and normalizes whitespace", () =>
   assert.equal(extractTranscript({ result: "not transcription" }), "");
 });
 
+test("Chinese transcripts follow the system Chinese variant without touching other languages", () => {
+  assert.equal(normalizeTranscript({
+    result: { language: "zh" },
+    transcription: [{ text: "這是繁體中文，請轉換。" }],
+  }, "zh-CN"), "这是繁体中文，请转换。");
+  assert.equal(normalizeTranscript({
+    result: { language: "zh" },
+    transcription: [{ text: "这是繁体中文，请转换。" }],
+  }, "zh-TW"), "這是繁體中文，請轉換。");
+  assert.equal(normalizeTranscript({
+    result: { language: "zh" },
+    transcription: [{ text: "这是繁体中文，请转换。" }],
+  }, "zh-HK"), "這是繁體中文，請轉換。");
+  assert.equal(normalizeTranscript({
+    result: { language: "en" },
+    transcription: [{ text: "這是繁體中文" }],
+  }, "zh-TW"), "這是繁體中文");
+});
+
 test("voice resources resolve from the app root in development and resources in a bundle", () => {
   assert.deepEqual(voiceResourcePaths({
     isPackaged: false,
@@ -111,14 +131,14 @@ test("renamed development and preview shells resolve voice resources from the lo
 
 test("VoiceTranscriptionService rejects invalid and oversized audio before spawning", async () => {
   const service = new VoiceTranscriptionService({ enginePath: "/missing", modelPath: "/missing" });
-  assert.deepEqual(await service.transcribe({ requestId: "empty", audio: new ArrayBuffer(0) }, 1), {
+  assert.deepEqual(await service.transcribeSegment({ recordingId: "empty", segmentId: 0, audio: new ArrayBuffer(0) }, 1), {
     ok: false,
     error: "invalid_audio",
     message: "The recording is empty. Record again and retry.",
   });
-  assert.equal((await service.transcribe({ requestId: "bad", audio: "not audio" } as never, 1)).ok, false);
-  const oversized = await service.transcribe({
-    requestId: "oversized", audio: new ArrayBuffer(VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES + 2),
+  assert.equal((await service.transcribeSegment({ recordingId: "bad", segmentId: 0, audio: "not audio" } as never, 1)).ok, false);
+  const oversized = await service.transcribeSegment({
+    recordingId: "oversized", segmentId: 0, audio: new ArrayBuffer(VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES + 2),
   }, 1);
   assert.equal(oversized.ok, false);
   if (!oversized.ok) assert.equal(oversized.error, "invalid_audio");
@@ -132,7 +152,7 @@ test("VoiceTranscriptionService reports missing resources without touching a tem
     modelPath: join(directory, "missing-model"),
     temporaryDirectory: join(directory, "tmp"),
   });
-  const result = await service.transcribe({ requestId: "missing", audio: wav }, 1);
+  const result = await service.transcribeSegment({ recordingId: "missing", segmentId: 0, audio: wav }, 1);
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.error, "engine_missing");
 });
@@ -149,9 +169,34 @@ JSON
     modelPath: engine.model,
     temporaryDirectory,
   });
-  const result = await service.transcribe({ requestId: "ok", audio: wav }, 1);
+  const result = await service.transcribeSegment({ recordingId: "ok", segmentId: 0, audio: wav }, 1);
   assert.deepEqual(result, { ok: true, text: "Build a focused test. Keep the draft." });
   assert.deepEqual(await readdir(temporaryDirectory), []);
+});
+
+test("VoiceTranscriptionService returns Simplified Chinese for Chinese transcripts", async () => {
+  const engine = await fakeEngine(engineScript(`
+cat > "$out.json" <<'JSON'
+{"result":{"language":"zh"},"transcription":[{"text":"这是繁体中文，请转换。"}]}
+JSON
+`));
+  const service = new VoiceTranscriptionService({
+    enginePath: engine.executable,
+    modelPath: engine.model,
+    temporaryDirectory: join(engine.directory, "tmp"),
+    locale: () => "zh-CN",
+  });
+  const result = await service.transcribeSegment({ recordingId: "zh-simplify", segmentId: 0, audio: wav }, 1);
+  assert.deepEqual(result, { ok: true, text: "这是繁体中文，请转换。" });
+
+  const traditionalService = new VoiceTranscriptionService({
+    enginePath: engine.executable,
+    modelPath: engine.model,
+    temporaryDirectory: join(engine.directory, "tmp"),
+    locale: () => "zh-TW",
+  });
+  const traditionalResult = await traditionalService.transcribeSegment({ recordingId: "zh-traditional", segmentId: 0, audio: wav }, 1);
+  assert.deepEqual(traditionalResult, { ok: true, text: "這是繁體中文，請轉換。" });
 });
 
 test("VoiceTranscriptionService maps engine failure and empty transcription", async () => {
@@ -161,7 +206,7 @@ test("VoiceTranscriptionService maps engine failure and empty transcription", as
     modelPath: failing.model,
     temporaryDirectory: join(failing.directory, "tmp"),
   });
-  const failure = await failingService.transcribe({ requestId: "fail", audio: wav }, 1);
+  const failure = await failingService.transcribeSegment({ recordingId: "fail", segmentId: 0, audio: wav }, 1);
   assert.equal(failure.ok, false);
   if (!failure.ok) {
     assert.equal(failure.error, "transcription_failed");
@@ -174,7 +219,7 @@ test("VoiceTranscriptionService maps engine failure and empty transcription", as
     modelPath: empty.model,
     temporaryDirectory: join(empty.directory, "tmp"),
   });
-  const noSpeech = await emptyService.transcribe({ requestId: "empty-result", audio: wav }, 1);
+  const noSpeech = await emptyService.transcribeSegment({ recordingId: "empty-result", segmentId: 0, audio: wav }, 1);
   assert.equal(noSpeech.ok, false);
   if (!noSpeech.ok) assert.equal(noSpeech.error, "no_speech");
 });
@@ -186,7 +231,7 @@ test("VoiceTranscriptionService cancel aborts the active engine and keeps owners
     modelPath: engine.model,
     temporaryDirectory: join(engine.directory, "tmp"),
   });
-  const pending = service.transcribe({ requestId: "cancel", audio: wav }, 7);
+  const pending = service.transcribeSegment({ recordingId: "cancel", segmentId: 0, audio: wav }, 7);
   await new Promise((resolve) => setTimeout(resolve, 80));
   service.cancel("cancel", 8);
   assert.equal(service.cancel("cancel", 7), undefined);
@@ -202,9 +247,9 @@ test("VoiceTranscriptionService serializes duplicate request identities", async 
     modelPath: engine.model,
     temporaryDirectory: join(engine.directory, "tmp"),
   });
-  const first = service.transcribe({ requestId: "same", audio: wav }, 1);
+  const first = service.transcribeSegment({ recordingId: "same", segmentId: 0, audio: wav }, 1);
   await new Promise((resolve) => setTimeout(resolve, 50));
-  const duplicate = await service.transcribe({ requestId: "same", audio: wav }, 1);
+  const duplicate = await service.transcribeSegment({ recordingId: "same", segmentId: 0, audio: wav }, 1);
   assert.equal(duplicate.ok, false);
   if (!duplicate.ok) assert.equal(duplicate.error, "invalid_request");
   const result = await first;
@@ -227,7 +272,7 @@ echo '{"transcription":[{"text":"ok"}]}' > "$out.json"
     modelPath: engine.model,
     temporaryDirectory: join(engine.directory, "tmp"),
   });
-  const result = await service.transcribe({ requestId: "bytes", audio: wav }, 1);
+  const result = await service.transcribeSegment({ recordingId: "bytes", segmentId: 0, audio: wav }, 1);
   assert.deepEqual(result, { ok: true, text: "ok" });
 });
 
@@ -237,7 +282,7 @@ test("VoiceTranscriptionService validates WAV metadata before spawning", async (
   const malformed = wav.slice(0);
   new DataView(malformed).setUint32(24, 48_000, true);
   for (const audio of [new Uint8Array(50).buffer, malformed]) {
-    const result = await service.transcribe({ requestId: "invalid-wav", audio }, 1);
+    const result = await service.transcribeSegment({ recordingId: "invalid-wav", segmentId: 0, audio }, 1);
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.error, "invalid_audio");
   }
@@ -246,7 +291,7 @@ test("VoiceTranscriptionService validates WAV metadata before spawning", async (
 test("VoiceTranscriptionService accepts recordings beyond ten minutes within the audio byte budget", async () => {
   const engine = await fakeEngine(engineScript(`echo '{"transcription":[{"text":"long recording"}]}' > "$out.json"`));
   const service = new VoiceTranscriptionService({ enginePath: engine.executable, modelPath: engine.model });
-  assert.deepEqual(await service.transcribe({ requestId: "long", audio: recordingWav(16_000 * 610) }, 1), {
+  assert.deepEqual(await service.transcribeSegment({ recordingId: "long", segmentId: 0, audio: recordingWav(16_000 * 610) }, 1), {
     ok: true, text: "long recording",
   });
 });
@@ -255,11 +300,11 @@ test("VoiceTranscriptionService rejects invalid model headers and nonexecutable 
   const engine = await fakeEngine(engineScript("exit 1"));
   const service = new VoiceTranscriptionService({ enginePath: engine.executable, modelPath: engine.model });
   await writeFile(engine.model, "truncated model");
-  const modelResult = await service.transcribe({ requestId: "invalid-model", audio: wav }, 1);
+  const modelResult = await service.transcribeSegment({ recordingId: "invalid-model", segmentId: 0, audio: wav }, 1);
   assert.equal(modelResult.ok, false);
   if (!modelResult.ok) assert.equal(modelResult.error, "model_missing");
   await chmod(engine.executable, 0o644);
-  const engineResult = await service.transcribe({ requestId: "invalid-engine", audio: wav }, 1);
+  const engineResult = await service.transcribeSegment({ recordingId: "invalid-engine", segmentId: 0, audio: wav }, 1);
   assert.equal(engineResult.ok, false);
   if (!engineResult.ok) assert.equal(engineResult.error, "engine_missing");
 });
@@ -267,8 +312,8 @@ test("VoiceTranscriptionService rejects invalid model headers and nonexecutable 
 test("VoiceTranscriptionService bounds native concurrency across owners and prevents foreign cancellation", async () => {
   const engine = await fakeEngine(engineScript(`sleep 0.2; echo '{"transcription":[{"text":"owner kept"}]}' > "$out.json"`));
   const service = new VoiceTranscriptionService({ enginePath: engine.executable, modelPath: engine.model });
-  const first = service.transcribe({ requestId: "shared-id", audio: wav }, 7);
-  const otherOwner = await service.transcribe({ requestId: "shared-id", audio: wav }, 8);
+  const first = service.transcribeSegment({ recordingId: "shared-id", segmentId: 0, audio: wav }, 7);
+  const otherOwner = await service.transcribeSegment({ recordingId: "shared-id", segmentId: 0, audio: wav }, 8);
   assert.equal(otherOwner.ok, false);
   if (!otherOwner.ok) assert.equal(otherOwner.error, "invalid_request");
   service.cancel("shared-id", 8);
@@ -286,7 +331,7 @@ setInterval(() => {}, 1000);
 `);
   const temporaryDirectory = join(engine.directory, "tmp");
   const service = new VoiceTranscriptionService({ enginePath: engine.executable, modelPath: engine.model, temporaryDirectory });
-  const pending = service.transcribe({ requestId: "dispose", audio: wav }, 7);
+  const pending = service.transcribeSegment({ recordingId: "dispose", segmentId: 0, audio: wav }, 7);
   let pid = 0;
   const deadline = Date.now() + 2_000;
   while (!pid && Date.now() < deadline) {
@@ -305,7 +350,7 @@ setInterval(() => {}, 1000);
   if (!result.ok) assert.equal(result.error, "cancelled");
   assert.deepEqual(await readdir(temporaryDirectory), []);
   assert.throws(() => process.kill(pid, 0), /ESRCH/);
-  const afterDispose = await service.transcribe({ requestId: "late", audio: wav }, 7);
+  const afterDispose = await service.transcribeSegment({ recordingId: "late", segmentId: 0, audio: wav }, 7);
   assert.equal(afterDispose.ok, false);
   if (!afterDispose.ok) assert.equal(afterDispose.error, "cancelled");
 });
@@ -320,7 +365,7 @@ test("VoiceTranscriptionService rejects digital silence before inference and pre
     modelPath: join(directory, "missing-model"),
     temporaryDirectory,
   });
-  const silent = await missingEngine.transcribe({ requestId: "digital-silence", audio: recordingWav(16_000 * 3, 0) }, 1);
+  const silent = await missingEngine.transcribeSegment({ recordingId: "digital-silence", segmentId: 0, audio: recordingWav(16_000 * 3, 0) }, 1);
   assert.deepEqual(silent, {
     ok: false,
     error: "no_speech",
@@ -330,6 +375,46 @@ test("VoiceTranscriptionService rejects digital silence before inference and pre
 
   const engine = await fakeEngine(engineScript(`echo '{"transcription":[{"text":"quiet speech"}]}' > "$out.json"`));
   const service = new VoiceTranscriptionService({ enginePath: engine.executable, modelPath: engine.model });
-  const quiet = await service.transcribe({ requestId: "quiet", audio: recordingWav(16_000 * 3, -1) }, 1);
+  const quiet = await service.transcribeSegment({ recordingId: "quiet", segmentId: 0, audio: recordingWav(16_000 * 3, -1) }, 1);
   assert.deepEqual(quiet, { ok: true, text: "quiet speech" });
+});
+
+test("segments from one recording transcribe serially in FIFO order", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "voice-queue-"));
+  directories.push(directory);
+  const log = join(directory, "log");
+  const engine = await fakeEngine(engineScript(`
+echo start >> '${log}'
+sleep 0.15
+echo end >> '${log}'
+echo '{"transcription":[{"text":"seg"}]}' > "$out.json"
+`));
+  const service = new VoiceTranscriptionService({ enginePath: engine.executable, modelPath: engine.model });
+  const first = service.transcribeSegment({ recordingId: "r", segmentId: 0, audio: wav }, 1);
+  const second = service.transcribeSegment({ recordingId: "r", segmentId: 1, audio: wav }, 1);
+  assert.deepEqual(await first, { ok: true, text: "seg" });
+  assert.deepEqual(await second, { ok: true, text: "seg" });
+  const lines = (await readFile(log, "utf8")).trim().split("\n");
+  assert.deepEqual(lines, ["start", "end", "start", "end"]);
+});
+
+test("cancelling a recording aborts the active segment and drops queued segments", async () => {
+  const engine = await fakeEngine(engineScript(`sleep 0.3; echo '{"transcription":[{"text":"done"}]}' > "$out.json"`));
+  const temporaryDirectory = join(engine.directory, "tmp");
+  const service = new VoiceTranscriptionService({
+    enginePath: engine.executable,
+    modelPath: engine.model,
+    temporaryDirectory,
+  });
+  const first = service.transcribeSegment({ recordingId: "r", segmentId: 0, audio: wav }, 1);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const second = service.transcribeSegment({ recordingId: "r", segmentId: 1, audio: wav }, 1);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  service.cancel("r", 1);
+  const results = await Promise.all([first, second]);
+  for (const result of results) {
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error, "cancelled");
+  }
+  assert.deepEqual(await readdir(temporaryDirectory), []);
 });
