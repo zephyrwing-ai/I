@@ -181,7 +181,7 @@ test("Electron 中的弹性滚动保持布局与动画连续", { timeout: 40_000
       }
       assert.equal(activity.individualDisclosures, activity.rows.length);
       assert.ok(activity.expandedHeight > 100);
-      assert.deepEqual(activity.sequence, ["检查上下文管理实现", "Read files, ran commands", "读取文件 agent/tools/history-read.ts", "Read files"]);
+      assert.deepEqual(activity.sequence, ["本轮先检查上下文管理实现.", "Read files, ran commands", "本轮先读取文件 agent/tools/history-read.ts.", "Read files"]);
       assert.deepEqual(activity.headers, ["Read files, ran commands", "Read files"]);
       assert.equal(activity.rows[0], "Read agent/context/config.ts");
       assert.equal(activity.rows[1], "Ran pwd");
@@ -193,7 +193,7 @@ test("Electron 中的弹性滚动保持布局与动画连续", { timeout: 40_000
       const folded = result.activityTrace.foldedCommentary;
       assert.equal(folded.outerOpen, true);
       assert.equal(folded.groupsClosed, true);
-      assert.deepEqual(folded.commentaryTexts, ["检查上下文管理实现", "读取文件 agent/tools/history-read.ts"], "duplicate purposes collapse and missing purpose falls back to the real path");
+      assert.deepEqual(folded.commentaryTexts, ["本轮先检查上下文管理实现.", "本轮先读取文件 agent/tools/history-read.ts."], "duplicate purposes collapse into one sentence and missing purpose falls back to the real path");
       assert.deepEqual(folded.commentaryVisible, [true, true]);
     });
 

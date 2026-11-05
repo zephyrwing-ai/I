@@ -33,7 +33,7 @@
 - 完成对齐：`assistantCompleted.content` 与已提交消息的 `content` 保持一致，`toolCalls` 与提交后的调用集合一致；共享 commentary 投影从完整 turn 事实生成一条用户可见说明，旧 `progress` 在事件、存储与历史读取中保留兼容语义。
 - 宿主消费：Runtime 交付模型与执行事实，宿主通过与 Adapter 解耦的共享 commentary 投影按输入锚点、turn 与工具关联生成说明和工具组；实时事件与历史记录进入同一 AgentState，正文位置与任务边界见[历史投影](../desktop/design/workbench/history-projection.mdx)。
 - 状态职责：正文增量更新文本，`assistantCompleted` 确认完整模型消息的提交，工具事件确认本批调用与结果，`turnCompleted` 确认回合完成，`runCompleted` 交付运行终态及成功回答身份。Renderer 从这些事实派生默认展开值，并保存本地手动选择，交互契约见[消息流](../desktop/design/workbench/message-stream.mdx)。
-- 说明投影：共享投影为每个 turn 生成一条 commentary，原生 `content` 原文置于首要位置；兼容 `progress` 保留旧记录既有段前顺序，`toolCalls[].input.purpose` 按调用顺序作为补充或空正文回退。完整行先折叠空白，再对相同文本精确去重并保留首次出现的原文。
+- 说明投影：共享投影为每个 turn 生成一条 commentary，原生 `content` 原文置于首要位置；兼容 `progress` 保留旧记录既有段前顺序，`toolCalls[].input.purpose` 按调用顺序作为补充。回退路径把去重后的 purposes 组成一条完整过程句，中文采用“本轮先…，再…。”，英文采用 `First …, then …`。完整行先折叠空白，再对相同文本精确去重并保留首次出现的原文。
 - 内容职责：`reasoning` 按原文保存并参与 Provider 续轮，`content` 保存公开正文，`purpose` 保存模型生成的动作意图；用户语言由任务提示约定，实时与历史展示共用同一 commentary 结果。
 - 重试屏障：Runtime 将当前 attempt 保存为 `interrupted` / `failed` 后发出 `turnRetrying`，报告 `reason`、`attempt`、`nextAttempt`、`delayMs` 和 `maxAttempts`。
 - 助手屏障：完整 Assistant Message 成功提交并加入 `Runtime.messages` 后发出 `assistantCompleted`，事件与记录共享同一 `completedAt`。

@@ -194,7 +194,7 @@ test("collapsed tool rows show actual commands and defer mounting input and outp
 
   assert.match(html, /Ran generate --private-argument/);
   assert.match(html, /class="tool-fold" aria-expanded="false"/);
-  assert.match(html, /work-commentary-text markdown"><p>生成报告/);
+  assert.match(html, /work-commentary-text markdown"><p>本轮先生成报告/);
   assert.doesNotMatch(html, /报告.*report\.md|tool-input-pre|tool-output-pre/);
   assert.ok(!html.includes("a".repeat(100)) && !html.includes("b".repeat(100)));
   assert.equal(state.turns["turn-1"].tools["tool-1"].result?.output, output, "presentation preserves execution evidence");

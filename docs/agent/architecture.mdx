@@ -23,7 +23,7 @@ Agent 总览。
 - History Memory：保存项目与 General 消息、流式草稿、已完成快照和本地恢复事实；Execution 执行工具，Desktop 渲染页面。
 - Agent Runtime：编排模型请求、工具调用、工具结果和下一轮请求；Host 装配平台能力，Desktop 管理页面状态。
 - Provider Adapter：将各 Provider 原始协议归一化为 `content`、`reasoning`、`toolCalls`、停止原因和可选原生阶段事实；Provider 特有字段、流格式与续轮格式的分支集中在这一层，Runtime 判定完成状态。
-- Commentary Projection：共享说明投影直接消费归一化 turn 事实，为每个 turn 生成一条用户可见 commentary；原生响应以 `content` 为首段，兼容 `progress` 保留旧记录既有段前顺序，purposes 按调用顺序作为补充或空正文回退，完整行按空白归一化后精确去重。
+- Commentary Projection：共享说明投影直接消费归一化 turn 事实，为每个 turn 生成一条用户可见 commentary；原生响应以 `content` 为首段，兼容 `progress` 保留旧记录既有段前顺序，purposes 按调用顺序作为补充。回退路径把去重后的 purposes 组成一条完整过程句，中文采用“本轮先…，再…。”，英文采用 `First …, then …`；完整行按空白归一化后精确去重。
 - Tool Registry：保存模型可见工具定义与对应实现；Provider 提供结构化调用，权限策略限定执行能力。
 - Execution：执行已注册且通过校验的 Bash、文件与查询操作，返回结构化结果；Runtime 决定模型续轮，权限策略定义能力范围。
 - 宿主类型：Electron 桌面端、CLI 和测试程序通过稳定输入、事件回调与执行接口接入 Agent；桌面交互与运行循环分别维护各自状态。
@@ -31,7 +31,7 @@ Agent 总览。
 行为追踪协作。
 
 - 协议事实：Adapter 将原生公开正文、原始推理、工具调用和可选 Provider 原生阶段归一化为独立事实，流式事件与完整响应使用相同字段归属；Provider 分支停留在 Adapter，下游消费统一契约，字段映射见[模型请求](./model-request.mdx)。
-- 说明投影：共享 commentary 投影直接消费本 turn 的 `content` 与完整目的行，原生 `content` 放在首要位置；兼容 `progress` 保存旧记录既有段前顺序，purposes 作为补充或空正文回退，并去重完全相同的归一化行。装配固定使用本 turn 的主模型响应。
+- 说明投影：共享 commentary 投影直接消费本 turn 的 `content` 与完整目的行，原生 `content` 放在首要位置；兼容 `progress` 保存旧记录既有段前顺序，purposes 作为补充，回退路径把去重后的 purposes 组成一条完整过程句，并去重完全相同的归一化行。装配固定使用本 turn 的主模型响应。
 - 推理边界：`reasoning` 保留 Provider 归一化原文，沿历史记录、运行状态和 Provider 续轮链路承担数据与续轮职责；用户可见 commentary 来自 `content` 与 `purpose`。
 - 回合身份：`runId` 关联整次运行，`turnId` 关联一次逻辑模型请求及其工具批次，attempt 关联同回合内的请求尝试，`toolCallId` 关联单次调用及其结果。
 - 运行职责：Runtime 消费归一化事实，完成响应分类、消息提交、批次执行与终态交付；Recorder 保存模型正文、原始推理、工具调用与结果，AgentEvent 向宿主交付相同事实。

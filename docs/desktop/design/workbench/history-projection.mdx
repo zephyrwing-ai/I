@@ -30,8 +30,8 @@
 - 结果关联：Main 对当前页的 `tool_result` entry 批量关联 `tool_invocations.outcome_json`。关联使用预留的 `resultEntryId`，并同时核对项目、run、turn 与 toolCall 身份；每页使用一次关联查询取得已有结构化结果。
 - 公共字段：实时事件与历史页共用公共 ToolResult 转换，提供 `ok`、原始 `output`、`returncode`、`truncated` 和 `error`。`HistoryPageEntry.toolResult` 承载该投影，Renderer 优先使用它恢复工具展示。模型消息继续通过 `payload` 保存并参与模型上下文；历史展示与实时展示共享相同的结果字段。
 - 结果校验：Main 在读取边界校验 outcome 的字段类型，结构损坏形成历史存储错误。工具的 checkpoint、内部完整输出文件位置和产物登记信息归属 Main。既有文本历史条目通过消息内容恢复工具结果状态。
-- 活动字段：Assistant payload 的 `toolCalls[].input` 保留 `purpose`、`targets` 与实际操作参数，实时和历史投影均从 ToolState 提取目的、标签与状态。共享 commentary 以公开正文为第一段，各调用目的按顺序去重后补充；正文为空的工具回合依然呈现动作说明。
-- 工具呈现：读取按 `path` 生成 `Read <path>`，命令按 `command` 生成 `Ran <command>`，工具组标题按实际类别汇总。目的缺失时根据语言、工具类别与实际目标回退；完整参数与结果保留在 ToolState，详情按展开状态惰性挂载，标题省略由 CSS 宽度决定，具体规则见[消息流](./message-stream.mdx)。
+- 活动字段：Assistant payload 的 `toolCalls[].input` 保留 `purpose`、`targets` 与实际操作参数，实时和历史投影均从 ToolState 提取目的、标签与状态。共享 commentary 以公开正文为第一段，各调用目的按顺序去重后补充；工具回合的回退路径把 purposes 组成一条完整过程句。
+- 工具呈现：读取按 `path` 生成 `Read <path>`，命令按 `command` 生成 `Ran <command>`，工具组标题按实际类别汇总。目的回退文本由语言、工具类别与实际目标生成；完整参数与结果保留在 ToolState，详情按展开状态惰性挂载，标题省略由 CSS 宽度决定，具体规则见[消息流](./message-stream.mdx)。
 
 运行中输入投影。
 

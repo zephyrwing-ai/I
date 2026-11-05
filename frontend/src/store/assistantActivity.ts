@@ -5,11 +5,41 @@ function comparisonKey(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+/** A turn without native public prose still reads as one process sentence. */
+function fallbackCommentary(purposes: string[], language: ActivityLanguage): string {
+  const clauses: string[] = [];
+  const seen = new Set<string>();
+  for (const purpose of purposes) {
+    const clause = purpose
+      .replace(/^(?:我们会先|我们会|我们需要先|我们需要|我会先|我会|我需要先|我需要|我先|先|首先|然后|再|接着|随后)[，,:：\s]*/u, "")
+      .replace(/^(?:(?:I|we)(?:'ll| will)\s+)?(?:first|then|next|after that)[,:]?\s+/i, "")
+      .replace(/^(?:I|we)(?:'ll| will)?\s+/i, "")
+      .replace(/[。！？.!?;；,，、\s]+$/u, "")
+      .trim();
+    const key = comparisonKey(clause);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    clauses.push(clause);
+  }
+  if (!clauses.length) return "";
+  if (language === "zh") {
+    return `本轮先${clauses[0]}${clauses.slice(1)
+      .map((clause, index) => `${index === 0 ? "，再" : "，接着"}${clause}`)
+      .join("")}。`;
+  }
+  const lower = (value: string) => value.length > 1 && /[A-Z]/.test(value[1])
+    ? value
+    : value.charAt(0).toLowerCase() + value.slice(1);
+  return `First ${lower(clauses[0])}${clauses.slice(1)
+    .map((clause) => `, then ${lower(clause)}`)
+    .join("")}.`;
+}
+
 /**
  * One provider-neutral commentary block per turn. Existing public prose keeps
  * priority; ordered tool purposes supplement it without repeating known lines.
  */
-function projectCommentary(progress: string, publicText: string, tools: ToolActivity[]): string {
+function projectCommentary(progress: string, publicText: string, tools: ToolActivity[], language: ActivityLanguage): string {
   // Keep source Markdown byte-for-byte; whitespace normalization exists only
   // in comparison keys so indented code blocks retain their structure.
   const sources = [progress, publicText].filter((body) => body.trim());
@@ -20,6 +50,7 @@ function projectCommentary(progress: string, publicText: string, tools: ToolActi
     seen.add(key);
     return [tool.purpose];
   });
+  if (!sources.length) return fallbackCommentary(purposes, language);
   return [...sources, ...purposes].join("\n\n");
 }
 
@@ -39,7 +70,7 @@ export function projectAssistantActivity(
     const progress = turn.progressContent ?? "";
     return [{
       turnId,
-      commentary: projectCommentary(progress, text, tools),
+      commentary: projectCommentary(progress, text, tools, language),
       tools,
       toolsRunning: isWorking && turn.status === "running"
         && turn.toolOrder.some((id) => turn.tools[id]?.status === "running"),

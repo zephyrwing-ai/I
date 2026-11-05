@@ -24,7 +24,7 @@
 回合公开说明。
 
 - 投影单位：每个逻辑 turn 由一套与 Adapter 解耦的共享说明投影生成一条用户可见回合说明（commentary）。投影直接消费本 turn 的归一化 `content` 与完整 `toolCalls[].input.purpose`。
-- 内容优先级：原生响应的 commentary 以 `content` 原文为首段，按工具调用顺序追加去重后的 `purpose` 行；`content` 为空时由 purposes 构成同一段说明。兼容 `progress` 保存旧记录既有的段前顺序，原生 `content` 随后延续同一条 commentary。
+- 内容优先级：原生响应的 commentary 以 `content` 原文为首段，按工具调用顺序追加去重后的 `purpose` 行；回退路径把去重后的 purposes 组成一条完整过程句，中文采用“本轮先…，再…。”，英文采用 `First …, then …`。兼容 `progress` 保存旧记录既有的段前顺序，原生 `content` 随后延续同一条 commentary。
 - 行级去重：投影先折叠空白并修剪首尾空白，再对完整行执行精确比较；与 `content` 任一行或前序 purpose 完全相同的行保留首次出现的原文。
 - 展示顺序：工具回合在活动详情中先显示该 turn 的 commentary，随后显示一个完整工具批次；最终回答 turn 的 `content` 由 `runCompleted.finalTurnId` 确认，并作为最终回答显示在活动详情之外。
 - 职责分层：Provider Adapter 负责原始字段、原生阶段和续轮格式的映射，Runtime 消费归一化事实，共享说明投影读取 `content` 与 `toolCalls`。Provider 分支集中在 Adapter，commentary 装配保持单一实现，实时界面与历史恢复共用同一结果。
@@ -41,7 +41,7 @@
 
 工具活动元数据。
 
-- 同轮说明：每次调用的 `input.purpose` 保存模型生成的动作意图，共享说明投影按原调用顺序把它作为 commentary 的补充或空正文回退；完整调用集合跟随 commentary 形成一个工具批次。
+- 同轮说明：每次调用的 `input.purpose` 保存模型生成的动作意图，共享说明投影按原调用顺序把它作为 commentary 的补充；回退路径把本回合去重后的 purposes 组成一条过程句，完整调用集合跟随 commentary 形成一个工具批次。系统提示词要求每次工具调用前在 `content` 中写一到两句完整、具体的公开过程说明，覆盖当前目标、即将执行的动作与预期下一步。
 - 调用元数据：模型可见工具 schema 统一在 input 对象中增加必填 `purpose: string` 与可选 `targets: string[]`；主模型为每个调用填写简洁语义目的与文件、路径、查询或实体目标，`purpose` 沿用用户语言。
 - 字段职责：`purpose` 保存单次调用的动作目的，`content` 保存公开正文，`targets` 保存关联资源，`reasoning` 保留原始推理数据；工具原有结构化参数定义实际操作。共享投影从内容和目的装配 commentary，从实际命令、路径与查询生成操作行，展开详情呈现原参数与结果；展示布局由[消息流](../desktop/design/workbench/message-stream.mdx)统一定义。
 - 生成入口：工具目的、目标与公开正文由同一次常规任务响应交付，生成与交付遵循所属 turn 的正常生命周期；commentary 在完整调用集合到达后完成目的补充，活动记录保存正文、目的与目标。
@@ -73,7 +73,7 @@ Provider 归一化。
 - 续轮依据：`tool_use` 表达归一化停止原因，Runtime 依据 `LlmResponse.toolCalls` 的实际内容决定工具续轮。
 - 思考分离：Provider `reasoning_content` 和正文中识别出的 thinking 标记内容进入原始 reasoning 通道；其余原生正文形成 `content`，结构化 `tool_calls` 形成工具调用。
 - 思考回传：每个连接通过 `reasoningField` 声明对应 Provider 字段，Adapter 按该配置回传已完成 Assistant Message 的 reasoning；DeepSeek 工具续轮同时携带原始 reasoning、公开正文、工具调用与结果。
-- DeepSeek 兼容：`content` 为空且 `input.purpose` 为中文时，共享投影显示中文 purpose 构成的 commentary；同一响应中的 `reasoning_content` 保留在 reasoning 数据事实中并参与续轮回放，用户界面呈现 commentary 和最终回答。
+- DeepSeek 兼容：共享投影把中文 purposes 组合成一条过程句，作为 commentary 的回退文本；同一响应中的 `reasoning_content` 保留在 reasoning 数据事实中并参与续轮回放，用户界面呈现 commentary 和最终回答。
 - 后续协议：Anthropic `tool_use` 和 Google `functionCall` 将映射到统一工具契约；文本与工具块交错顺序通过扩展的消息类型承载，先补充 `ToolCallBlock`，再接入原生 Adapter。
 
 流式请求。
@@ -81,7 +81,7 @@ Provider 归一化。
 - 流事件：OpenAI-compatible Adapter 产出 `reasoning_delta`、`text_delta` 和 `completed`，统一 `ModelStreamEvent` 保留 `progress_delta` 兼容契约。
 - 增量交付：Adapter 持续发送原始思考和公开正文增量，工具调用随最终 `completed` 一次性交付；完成响应与对应增量累积结果一致。
 - 完成语义：Adapter `completed` 表达 Provider 流解析完成，并携带归一化完成事实；Runtime 继续判定回合有效性和持久化结果。
-- 工具响应：`completed.content` 与 `completed.toolCalls` 提供 commentary 和完整工具批次所需的归一化事实；空 `content` 的工具响应由中文 purposes 形成可读说明，Runtime 按实际调用与停止原因分类。
+- 工具响应：`completed.content` 与 `completed.toolCalls` 提供 commentary 和完整工具批次所需的归一化事实；投影把中文 purposes 组合成一条可读过程句作为回退，Runtime 按实际调用与停止原因分类。
 - 终止原因：成功模型流以明确 `finish_reason` 结束；终态原因缺失时，Adapter 抛出可重试的 `model_protocol` 错误。
 - 用量：流式请求启用 `stream_options.include_usage`，连接可通过 `streamUsage: false` 适配网关；Adapter 先读取 usage 再处理 choice，空 choices 的尾块提供计量信息。
 - 用量契约：`ModelUsage` 的 `inputTokens`、`outputTokens`、`cachedInputTokens` 与 `totalTokens` 分别保存 Provider 提供的可用计数，缺失项保持未知；缓存命中属于输入子集。

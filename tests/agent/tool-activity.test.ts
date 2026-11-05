@@ -259,6 +259,7 @@ test("Runtime recovery strips activity from reconciliation and replay preparatio
 test("the shared prompt specifies same-response progress and localized intent while preserving Canvas instructions", () => {
   assert.match(DEFAULT_CODING_AGENT_PROMPT, /current user's language for progress prose, final answers, and each tool call's purpose/);
   assert.match(DEFAULT_CODING_AGENT_PROMPT, /Before each tool batch.*progress prose in content in the same response as the tool calls/);
+  assert.match(DEFAULT_CODING_AGENT_PROMPT, /Every tool-call response includes this public progress prose in content/);
   assert.match(DEFAULT_CODING_AGENT_PROMPT, /Use ordinary prose for these updates and normal Markdown for the final answer/);
   assert.doesNotMatch(DEFAULT_CODING_AGENT_PROMPT, /I_PROGRESS|I_ANSWER|frame|marker/);
   assert.match(DEFAULT_CODING_AGENT_PROMPT, /purpose: a short action intent.*targets: an array of specific file paths, search queries, or entity labels/);
