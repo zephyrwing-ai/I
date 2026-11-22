@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(lsof -nP -iTCP:9222 -iTCP:9229 -sTCP:LISTEN)",
-      "Bash(ps -Ao pid,args)"
+      "Bash(ps -Ao pid,args)",
+      "Bash(kill -TERM 77919)",
+      "Bash(plutil -p ~/Library/LaunchAgents/com.cosmicstack.mercury.plist)"
     ]
   }
 }
