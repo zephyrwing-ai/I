@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1220" height="1880" viewBox="0 0 1220 1880" font-family="PingFang SC, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif">
+  <title>Electron 会话 / run 生命周期</title>
+  <g id="edges" fill="none" stroke="#94A3B8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 610.00 96.00 L 610.00 123.00"/>
+    <path d="M 610.00 186.00 L 610.00 213.00"/>
+    <path d="M 760.00 264.00 L 873.00 264.00"/>
+    <path d="M 460.00 264.00 L 347.00 264.00"/>
+    <path d="M 1030.00 292.00 L 1030.00 330.00 Q 1030.00 340.00 1020.00 340.00 L 617.00 340.00"/>
+    <path d="M 190.00 292.00 L 190.00 330.00 Q 190.00 340.00 200.00 340.00 L 603.00 340.00"/>
+    <path d="M 610.00 340.00 L 610.00 363.00"/>
+    <path d="M 610.00 426.00 L 610.00 453.00"/>
+    <path d="M 610.00 516.00 L 610.00 543.00"/>
+    <path d="M 610.00 606.00 L 610.00 633.00"/>
+    <path d="M 610.00 696.00 L 610.00 723.00"/>
+    <path d="M 610.00 786.00 L 610.00 813.00"/>
+    <path d="M 610.00 876.00 L 610.00 903.00"/>
+    <path d="M 610.00 966.00 L 610.00 993.00"/>
+    <path d="M 610.00 1056.00 L 610.00 1083.00"/>
+    <path d="M 610.00 1146.00 L 610.00 1173.00"/>
+    <path d="M 610.00 1236.00 L 610.00 1263.00"/>
+    <path d="M 610.00 1326.00 L 610.00 1353.00"/>
+    <path d="M 610.00 1416.00 L 610.00 1443.00"/>
+    <path d="M 610.00 1538.00 L 610.00 1563.00"/>
+    <path d="M 460.00 1494.00 L 347.00 1494.00"/>
+    <path d="M 760.00 1494.00 L 873.00 1494.00"/>
+    <path d="M 190.00 1522.00 L 190.00 1563.00"/>
+    <path d="M 190.00 1626.00 L 190.00 1653.00"/>
+    <path d="M 190.00 1716.00 L 190.00 1743.00"/>
+    <path d="M 40.00 1778.00 L 32.50 1778.00 Q 25.00 1778.00 25.00 1768.00 L 25.00 1308.00 Q 25.00 1298.00 35.00 1298.00 L 453.00 1298.00"/>
+    <path d="M 610.00 1626.00 L 610.00 1683.00"/>
+    <path d="M 1030.00 1522.00 L 1030.00 1708.00 Q 1030.00 1718.00 1020.00 1718.00 L 767.00 1718.00"/>
+    <path d="M 610.00 1746.00 L 610.00 1773.00"/>
+  </g>
+  <g id="arrowheads">
+    <polygon points="610.00,130.00 606.50,121.00 613.50,121.00" fill="#94A3B8"/>
+    <polygon points="610.00,220.00 606.50,211.00 613.50,211.00" fill="#94A3B8"/>
+    <polygon points="880.00,264.00 871.00,267.50 871.00,260.50" fill="#94A3B8"/>
+    <polygon points="340.00,264.00 349.00,260.50 349.00,267.50" fill="#94A3B8"/>
+    <polygon points="610.00,340.00 619.00,336.50 619.00,343.50" fill="#94A3B8"/>
+    <polygon points="610.00,340.00 601.00,343.50 601.00,336.50" fill="#94A3B8"/>
+    <polygon points="610.00,370.00 606.50,361.00 613.50,361.00" fill="#94A3B8"/>
+    <polygon points="610.00,460.00 606.50,451.00 613.50,451.00" fill="#94A3B8"/>
+    <polygon points="610.00,550.00 606.50,541.00 613.50,541.00" fill="#94A3B8"/>
+    <polygon points="610.00,640.00 606.50,631.00 613.50,631.00" fill="#94A3B8"/>
+    <polygon points="610.00,730.00 606.50,721.00 613.50,721.00" fill="#94A3B8"/>
+    <polygon points="610.00,820.00 606.50,811.00 613.50,811.00" fill="#94A3B8"/>
+    <polygon points="610.00,910.00 606.50,901.00 613.50,901.00" fill="#94A3B8"/>
+    <polygon points="610.00,1000.00 606.50,991.00 613.50,991.00" fill="#94A3B8"/>
+    <polygon points="610.00,1090.00 606.50,1081.00 613.50,1081.00" fill="#94A3B8"/>
+    <polygon points="610.00,1180.00 606.50,1171.00 613.50,1171.00" fill="#94A3B8"/>
+    <polygon points="610.00,1270.00 606.50,1261.00 613.50,1261.00" fill="#94A3B8"/>
+    <polygon points="610.00,1360.00 606.50,1351.00 613.50,1351.00" fill="#94A3B8"/>
+    <polygon points="610.00,1450.00 606.50,1441.00 613.50,1441.00" fill="#94A3B8"/>
+    <polygon points="610.00,1570.00 606.50,1561.00 613.50,1561.00" fill="#94A3B8"/>
+    <polygon points="340.00,1494.00 349.00,1490.50 349.00,1497.50" fill="#94A3B8"/>
+    <polygon points="880.00,1494.00 871.00,1497.50 871.00,1490.50" fill="#94A3B8"/>
+    <polygon points="190.00,1570.00 186.50,1561.00 193.50,1561.00" fill="#94A3B8"/>
+    <polygon points="190.00,1660.00 186.50,1651.00 193.50,1651.00" fill="#94A3B8"/>
+    <polygon points="190.00,1750.00 186.50,1741.00 193.50,1741.00" fill="#94A3B8"/>
+    <polygon points="460.00,1298.00 451.00,1301.50 451.00,1294.50" fill="#94A3B8"/>
+    <polygon points="610.00,1690.00 606.50,1681.00 613.50,1681.00" fill="#94A3B8"/>
+    <polygon points="760.00,1718.00 769.00,1714.50 769.00,1721.50" fill="#94A3B8"/>
+    <polygon points="610.00,1780.00 606.50,1771.00 613.50,1771.00" fill="#94A3B8"/>
+  </g>
+  <g id="nodes">
+    <path id="A" d="M 470 40 H 750 A 10 10 0 0 1 760 50 V 86 A 10 10 0 0 1 750 96 H 470 A 10 10 0 0 1 460 86 V 50 A 10 10 0 0 1 470 40 Z" fill="#ECFDF5" stroke="#34D399" stroke-width="1.5"/>
+    <text x="610.0" y="73.2" font-size="15" fill="#065F46" text-anchor="middle">Electron Main 启动</text>
+    <path id="B" d="M 470 130 H 750 A 10 10 0 0 1 760 140 V 176 A 10 10 0 0 1 750 186 H 470 A 10 10 0 0 1 460 176 V 140 A 10 10 0 0 1 470 130 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="163.2" font-size="15" fill="#1E293B" text-anchor="middle">打开 SQLite</text>
+    <path id="C" d="M 596.57 223.94 Q 610.00 220.00 623.43 223.94 L 746.57 260.06 Q 760.00 264.00 746.57 267.94 L 623.43 304.06 Q 610.00 308.00 596.57 304.06 L 473.43 267.94 Q 460.00 264.00 473.43 260.06 Z" fill="#F5F3FF" stroke="#A78BFA" stroke-width="1.5"/>
+    <text x="610.0" y="269.2" font-size="15" fill="#4C1D95" text-anchor="middle">按 scopeKey 查询会话</text>
+    <path id="D" d="M 890 236 H 1170 A 10 10 0 0 1 1180 246 V 282 A 10 10 0 0 1 1170 292 H 890 A 10 10 0 0 1 880 282 V 246 A 10 10 0 0 1 890 236 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="1030.0" y="269.2" font-size="15" fill="#1E293B" text-anchor="middle">复用 sessionId</text>
+    <path id="E" d="M 50 236 H 330 A 10 10 0 0 1 340 246 V 282 A 10 10 0 0 1 330 292 H 50 A 10 10 0 0 1 40 282 V 246 A 10 10 0 0 1 50 236 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="190.0" y="269.2" font-size="15" fill="#1E293B" text-anchor="middle">创建新 session</text>
+    <path id="F" d="M 470 370 H 750 A 10 10 0 0 1 760 380 V 416 A 10 10 0 0 1 750 426 H 470 A 10 10 0 0 1 460 416 V 380 A 10 10 0 0 1 470 370 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="403.2" font-size="15" fill="#1E293B" text-anchor="middle">创建 SessionRecorder</text>
+    <path id="G" d="M 470 460 H 750 A 10 10 0 0 1 760 470 V 506 A 10 10 0 0 1 750 516 H 470 A 10 10 0 0 1 460 506 V 470 A 10 10 0 0 1 470 460 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="493.2" font-size="15" fill="#1E293B" text-anchor="middle">Renderer 通过 IPC 加载历史</text>
+    <path id="H" d="M 470 550 H 750 A 10 10 0 0 1 760 560 V 596 A 10 10 0 0 1 750 606 H 470 A 10 10 0 0 1 460 596 V 560 A 10 10 0 0 1 470 550 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="572.9" font-size="14" fill="#1E293B" text-anchor="middle">SessionHistoryService</text>
+    <text x="610.0" y="592.9" font-size="14" fill="#1E293B" text-anchor="middle">分页读取 entries</text>
+    <path id="I" d="M 470 640 H 750 A 10 10 0 0 1 760 650 V 686 A 10 10 0 0 1 750 696 H 470 A 10 10 0 0 1 460 686 V 650 A 10 10 0 0 1 470 640 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="662.9" font-size="14" fill="#1E293B" text-anchor="middle">Renderer 合并历史</text>
+    <text x="610.0" y="682.9" font-size="14" fill="#1E293B" text-anchor="middle">并完成 hydration</text>
+    <path id="J" d="M 470 730 H 750 A 10 10 0 0 1 760 740 V 776 A 10 10 0 0 1 750 786 H 470 A 10 10 0 0 1 460 776 V 740 A 10 10 0 0 1 470 730 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="763.2" font-size="15" fill="#1E293B" text-anchor="middle">用户发送任务</text>
+    <path id="K" d="M 470 820 H 750 A 10 10 0 0 1 760 830 V 866 A 10 10 0 0 1 750 876 H 470 A 10 10 0 0 1 460 866 V 830 A 10 10 0 0 1 470 820 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="853.2" font-size="15" fill="#1E293B" text-anchor="middle">创建 runId</text>
+    <path id="L" d="M 470 910 H 750 A 10 10 0 0 1 760 920 V 956 A 10 10 0 0 1 750 966 H 470 A 10 10 0 0 1 460 956 V 920 A 10 10 0 0 1 470 910 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="932.9" font-size="14" fill="#1E293B" text-anchor="middle">Runner 绑定 sessionId</text>
+    <text x="610.0" y="952.9" font-size="14" fill="#1E293B" text-anchor="middle">和 Recorder</text>
+    <path id="M" d="M 470 1000 H 750 A 10 10 0 0 1 760 1010 V 1046 A 10 10 0 0 1 750 1056 H 470 A 10 10 0 0 1 460 1046 V 1010 A 10 10 0 0 1 470 1000 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="1033.2" font-size="15" fill="#1E293B" text-anchor="middle">Runtime 读取 snapshot</text>
+    <path id="N" d="M 470 1090 H 750 A 10 10 0 0 1 760 1100 V 1136 A 10 10 0 0 1 750 1146 H 470 A 10 10 0 0 1 460 1136 V 1100 A 10 10 0 0 1 470 1090 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="1123.2" font-size="15" fill="#1E293B" text-anchor="middle">恢复未完成工具调用</text>
+    <path id="O" d="M 470 1180 H 750 A 10 10 0 0 1 760 1190 V 1226 A 10 10 0 0 1 750 1236 H 470 A 10 10 0 0 1 460 1226 V 1190 A 10 10 0 0 1 470 1180 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="1213.2" font-size="15" fill="#1E293B" text-anchor="middle">commitUser</text>
+    <path id="P" d="M 470 1270 H 750 A 10 10 0 0 1 760 1280 V 1316 A 10 10 0 0 1 750 1326 H 470 A 10 10 0 0 1 460 1316 V 1280 A 10 10 0 0 1 470 1270 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="1303.2" font-size="15" fill="#1E293B" text-anchor="middle">请求模型</text>
+    <path id="Q" d="M 470 1360 H 750 A 10 10 0 0 1 760 1370 V 1406 A 10 10 0 0 1 750 1416 H 470 A 10 10 0 0 1 460 1406 V 1370 A 10 10 0 0 1 470 1360 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="1393.2" font-size="15" fill="#1E293B" text-anchor="middle">保存 Assistant 草稿</text>
+    <path id="R" d="M 596.57 1453.94 Q 610.00 1450.00 623.43 1453.94 L 746.57 1490.06 Q 760.00 1494.00 746.57 1497.94 L 623.43 1534.06 Q 610.00 1538.00 596.57 1534.06 L 473.43 1497.94 Q 460.00 1494.00 473.43 1490.06 Z" fill="#F5F3FF" stroke="#A78BFA" stroke-width="1.5"/>
+    <text x="610.0" y="1499.2" font-size="15" fill="#4C1D95" text-anchor="middle">模型结果</text>
+    <path id="T" d="M 50 1466 H 330 A 10 10 0 0 1 340 1476 V 1512 A 10 10 0 0 1 330 1522 H 50 A 10 10 0 0 1 40 1512 V 1476 A 10 10 0 0 1 50 1466 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="190.0" y="1488.9" font-size="14" fill="#1E293B" text-anchor="middle">保存 Assistant</text>
+    <text x="190.0" y="1508.9" font-size="14" fill="#1E293B" text-anchor="middle">completed</text>
+    <path id="X" d="M 890 1466 H 1170 A 10 10 0 0 1 1180 1476 V 1512 A 10 10 0 0 1 1170 1522 H 890 A 10 10 0 0 1 880 1512 V 1476 A 10 10 0 0 1 890 1466 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="1030.0" y="1499.2" font-size="15" fill="#1E293B" text-anchor="middle">保存终态</text>
+    <path id="S" d="M 470 1570 H 750 A 10 10 0 0 1 760 1580 V 1616 A 10 10 0 0 1 750 1626 H 470 A 10 10 0 0 1 460 1616 V 1580 A 10 10 0 0 1 470 1570 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="1603.2" font-size="15" fill="#1E293B" text-anchor="middle">Assistant completed</text>
+    <path id="U" d="M 50 1570 H 330 A 10 10 0 0 1 340 1580 V 1616 A 10 10 0 0 1 330 1626 H 50 A 10 10 0 0 1 40 1616 V 1580 A 10 10 0 0 1 50 1570 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="190.0" y="1603.2" font-size="15" fill="#1E293B" text-anchor="middle">执行工具</text>
+    <path id="V" d="M 50 1660 H 330 A 10 10 0 0 1 340 1670 V 1706 A 10 10 0 0 1 330 1716 H 50 A 10 10 0 0 1 40 1706 V 1670 A 10 10 0 0 1 50 1660 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="190.0" y="1693.2" font-size="15" fill="#1E293B" text-anchor="middle">保存 Tool Message</text>
+    <path id="W" d="M 50 1750 H 330 A 10 10 0 0 1 340 1760 V 1796 A 10 10 0 0 1 330 1806 H 50 A 10 10 0 0 1 40 1796 V 1760 A 10 10 0 0 1 50 1750 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="190.0" y="1783.2" font-size="15" fill="#1E293B" text-anchor="middle">加入上下文</text>
+    <path id="Y" d="M 470 1690 H 750 A 10 10 0 0 1 760 1700 V 1736 A 10 10 0 0 1 750 1746 H 470 A 10 10 0 0 1 460 1736 V 1700 A 10 10 0 0 1 470 1690 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="610.0" y="1723.2" font-size="15" fill="#1E293B" text-anchor="middle">finishRun</text>
+    <path id="Z" d="M 470 1780 H 750 A 10 10 0 0 1 760 1790 V 1826 A 10 10 0 0 1 750 1836 H 470 A 10 10 0 0 1 460 1826 V 1790 A 10 10 0 0 1 470 1780 Z" fill="#ECFDF5" stroke="#34D399" stroke-width="1.5"/>
+    <text x="610.0" y="1813.2" font-size="15" fill="#065F46" text-anchor="middle">发送 runCompleted</text>
+  </g>
+  <g id="edge-labels">
+    <rect x="803.0" y="245.0" width="34.0" height="17" fill="#FFFFFF"/>
+    <text x="820.0" y="256.0" font-size="13" fill="#64748B" text-anchor="middle">找到</text>
+    <rect x="383.0" y="245.0" width="34.0" height="17" fill="#FFFFFF"/>
+    <text x="400.0" y="256.0" font-size="13" fill="#64748B" text-anchor="middle">没有</text>
+    <rect x="618.0" y="1548.0" width="60.0" height="17" fill="#FFFFFF"/>
+    <text x="622.0" y="1559.0" font-size="13" fill="#64748B" text-anchor="start">文本回答</text>
+    <rect x="370.0" y="1475.0" width="60.0" height="17" fill="#FFFFFF"/>
+    <text x="400.0" y="1486.0" font-size="13" fill="#64748B" text-anchor="middle">工具调用</text>
+    <rect x="770.5" y="1475.0" width="99.0" height="17" fill="#FFFFFF"/>
+    <text x="820.0" y="1486.0" font-size="13" fill="#64748B" text-anchor="middle">模型失败或取消</text>
+    <rect x="8.0" y="1277.0" width="34.0" height="17" fill="#FFFFFF"/>
+    <text x="25.0" y="1288.0" font-size="13" fill="#64748B" text-anchor="middle">循环</text>
+  </g>
+</svg>
